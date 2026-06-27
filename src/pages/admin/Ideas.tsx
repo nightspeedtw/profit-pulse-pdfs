@@ -98,6 +98,9 @@ export default function Ideas() {
   const [premiumOpen, setPremiumOpen] = useState<Idea | null>(null);
   const [premiumLoading, setPremiumLoading] = useState(false);
   const [premiumResult, setPremiumResult] = useState<PremiumResult | null>(null);
+  const [altOpen, setAltOpen] = useState<Idea | null>(null);
+  const [altLoading, setAltLoading] = useState(false);
+  const [altResult, setAltResult] = useState<AltResult | null>(null);
 
   const load = async () => {
     const [{ data: ideas }, { data: c }] = await Promise.all([
