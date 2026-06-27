@@ -32,9 +32,10 @@ Deno.serve(async (req) => {
     });
     const ideaRes = await r1.json().catch(() => ({}));
 
-    // Promote top N ideas (by score)
+    // Promote top N ideas (by score) — only score >= 45/60 (~75/100)
     const { data: topIdeas } = await db.from("ebook_ideas")
-      .select("id").eq("status", "idea").order("total_score", { ascending: false }).limit(quota);
+      .select("id").eq("status", "idea").gte("total_score", 45).order("total_score", { ascending: false }).limit(quota);
+
     const promoted: string[] = [];
     for (const i of (topIdeas ?? [])) {
       try {
