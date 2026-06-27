@@ -7,8 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { Loader2, ArrowLeft } from "lucide-react";
+
 
 interface Chapter { title: string; content: string }
 interface Ebook {
@@ -33,6 +35,30 @@ export default function EbookReview() {
     if (data) setE(data as unknown as Ebook);
   };
   useEffect(() => { load(); }, [id]);
+
+  // Poll while generation is in progress
+  const isGenerating = !!e && (e.status === "outline" || e.status === "writing" || e.status?.startsWith("writing:") || e.status === "marketing");
+  useEffect(() => {
+    if (!isGenerating) return;
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [isGenerating]);
+
+  // Parse progress: status "writing:3/10" → { done: 3, total: 10 }
+  const progress = (() => {
+    if (!e) return null;
+    const m = /^writing:(\d+)\/(\d+)$/.exec(e.status ?? "");
+    if (m) {
+      const done = Number(m[1]); const tot = Number(m[2]);
+      return { done, tot, pct: Math.round((done / tot) * 100), label: `Writing chapter ${done} of ${tot}` };
+    }
+    if (e.status === "outline") return { done: 0, tot: 1, pct: 5, label: "Designing outline…" };
+    if (e.status === "writing") return { done: 0, tot: 1, pct: 10, label: "Starting chapters…" };
+    if (e.status === "marketing") return { done: 1, tot: 1, pct: 95, label: "Writing marketing copy & SEO…" };
+    return null;
+  })();
+
+
 
   const save = async () => {
     if (!e) return;
@@ -75,6 +101,26 @@ export default function EbookReview() {
           </p>
         </div>
       </div>
+
+      {progress && (
+        <Card className="border-2 border-foreground bg-muted/40">
+          <CardContent className="py-4 space-y-2">
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <div className="flex items-center gap-2 font-medium">
+                <Loader2 className="size-4 animate-spin" />
+                {progress.label}
+              </div>
+              <span className="font-mono text-xs">{progress.pct}%</span>
+            </div>
+            <Progress value={progress.pct} className="h-2" />
+            <p className="text-xs text-muted-foreground">
+              Each chapter takes ~10–20 seconds. Total ~3–5 minutes for 10 chapters. This page auto-refreshes.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+
 
       <div className="grid md:grid-cols-2 gap-4">
         <Card className="border-2 border-foreground">

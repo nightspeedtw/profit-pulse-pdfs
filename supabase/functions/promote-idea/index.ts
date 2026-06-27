@@ -54,20 +54,35 @@ Deno.serve(async (req) => {
 
     const background = (async () => {
       try {
-        // Parallel chapter generation
-        const chapterResults = await Promise.all(
-          outlineAI.data.toc.map(async (ch) => {
-            const chAI = await aiText({
-              model: outlineModel,
-              system: `You write premium, useful, plainspoken English ebook chapters. No fluff, no filler, no AI tells. Use specific examples, concrete numbers, and short paragraphs. Markdown allowed (## subheads, bullets, > callouts).`,
-              user: `Ebook: "${idea.title}" — ${idea.subtitle}\nReader: ${idea.target_buyer}\n\nWrite Chapter "${ch.title}" (~${wordsPerChapter} words). Brief: ${ch.brief}\n\nDo NOT include the chapter number or the word "Chapter" in the body. Start with a hook paragraph. End with a one-line key takeaway.`,
-            });
-            await logCost(db, { ebook_id: ebook.id, step: `chapter:${ch.title}`.slice(0, 80), model: chAI.model, ...chAI.usage });
-            return { title: ch.title, content: chAI.data, cost: chAI.usage.cost_usd };
-          }),
-        );
-        const chapters = chapterResults.map((r) => ({ title: r.title, content: r.content }));
-        let cost = totalCost + chapterResults.reduce((s, r) => s + r.cost, 0);
+        const total = outlineAI.data.toc.length;
+        const chapters: { title: string; content: string }[] = [];
+        let cost = totalCost;
+
+        // Sequential so progress is visible (and to avoid race conditions on writes)
+        for (let i = 0; i < total; i++) {
+          const ch = outlineAI.data.toc[i];
+          // mark which chapter is being written
+          await db.from("ebooks").update({
+            status: `writing:${i + 1}/${total}`,
+          }).eq("id", ebook.id);
+
+          const chAI = await aiText({
+            model: outlineModel,
+            system: `You write premium, useful, plainspoken English ebook chapters. No fluff, no filler, no AI tells. Use specific examples, concrete numbers, and short paragraphs. Markdown allowed (## subheads, bullets, > callouts).`,
+            user: `Ebook: "${idea.title}" — ${idea.subtitle}\nReader: ${idea.target_buyer}\n\nWrite Chapter "${ch.title}" (~${wordsPerChapter} words). Brief: ${ch.brief}\n\nDo NOT include the chapter number or the word "Chapter" in the body. Start with a hook paragraph. End with a one-line key takeaway.`,
+          });
+          await logCost(db, { ebook_id: ebook.id, step: `chapter:${ch.title}`.slice(0, 80), model: chAI.model, ...chAI.usage });
+          chapters.push({ title: ch.title, content: chAI.data });
+          cost += chAI.usage.cost_usd;
+
+          // Stream progress to DB after each chapter completes
+          const wc = chapters.reduce((s, c) => s + c.content.split(/\s+/).length, 0);
+          await db.from("ebooks").update({
+            chapters, word_count: wc, cost_usd: cost,
+            status: i + 1 < total ? `writing:${i + 1}/${total}` : `marketing`,
+          }).eq("id", ebook.id);
+        }
+
         const wordCount = chapters.reduce((s, c) => s + c.content.split(/\s+/).length, 0);
 
         // 3. Marketing copy
@@ -92,6 +107,7 @@ Deno.serve(async (req) => {
         await db.from("ebooks").update({ status: "failed" }).eq("id", ebook.id);
       }
     })();
+
 
 
     // @ts-ignore - EdgeRuntime is available in Supabase edge runtime
