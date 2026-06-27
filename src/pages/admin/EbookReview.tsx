@@ -58,7 +58,10 @@ export default function EbookReview() {
   useEffect(() => { load(); }, [id]);
 
   // Poll while generation is in progress
-  const isGenerating = !!e && (e.status === "outline" || e.status === "writing" || e.status?.startsWith("writing:") || e.status === "marketing" || e.status === "cover");
+  const isGenerating = !!e && (
+    e.status === "outline" || e.status === "writing" || e.status?.startsWith("writing:") ||
+    e.status === "marketing" || e.status === "cover" || e.status === "visuals" || e.status === "building_pdf"
+  );
   useEffect(() => {
     if (!isGenerating) return;
     const t = setInterval(load, 3000);
