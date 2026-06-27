@@ -324,8 +324,13 @@ export type Database = {
           compliance_safety_score: number | null
           conversion_score: number | null
           cost_usd: number
+          cover_approved: boolean
+          cover_bg_url: string | null
           cover_image_url: string | null
           cover_prompt: string | null
+          cover_qc: Json | null
+          cover_score: number | null
+          cover_spec: Json | null
           cover_url: string | null
           created_at: string
           editorial_qc: Json
@@ -333,6 +338,7 @@ export type Database = {
           hook: string | null
           id: string
           idea_id: string | null
+          interior_visuals: Json | null
           needs_review_reason: string | null
           pdf_url: string | null
           price: number
@@ -366,8 +372,13 @@ export type Database = {
           compliance_safety_score?: number | null
           conversion_score?: number | null
           cost_usd?: number
+          cover_approved?: boolean
+          cover_bg_url?: string | null
           cover_image_url?: string | null
           cover_prompt?: string | null
+          cover_qc?: Json | null
+          cover_score?: number | null
+          cover_spec?: Json | null
           cover_url?: string | null
           created_at?: string
           editorial_qc?: Json
@@ -375,6 +386,7 @@ export type Database = {
           hook?: string | null
           id?: string
           idea_id?: string | null
+          interior_visuals?: Json | null
           needs_review_reason?: string | null
           pdf_url?: string | null
           price?: number
@@ -408,8 +420,13 @@ export type Database = {
           compliance_safety_score?: number | null
           conversion_score?: number | null
           cost_usd?: number
+          cover_approved?: boolean
+          cover_bg_url?: string | null
           cover_image_url?: string | null
           cover_prompt?: string | null
+          cover_qc?: Json | null
+          cover_score?: number | null
+          cover_spec?: Json | null
           cover_url?: string | null
           created_at?: string
           editorial_qc?: Json
@@ -417,6 +434,7 @@ export type Database = {
           hook?: string | null
           id?: string
           idea_id?: string | null
+          interior_visuals?: Json | null
           needs_review_reason?: string | null
           pdf_url?: string | null
           price?: number

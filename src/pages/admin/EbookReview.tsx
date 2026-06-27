@@ -14,12 +14,32 @@ import { openAdminPdf } from "@/lib/pdf";
 
 
 interface Chapter { title: string; content: string }
+interface CoverSpec {
+  title_text?: string; subtitle_text?: string; badge_text?: string; brand_text?: string;
+  layout_direction?: string; color_palette?: string[]; cover_strategy?: string;
+  visual_sales_angle?: string; why_this_cover_sells?: string;
+  background_image_prompt_no_text?: string;
+}
+interface CoverQC {
+  title_readable?: boolean; subtitle_readable?: boolean; brand_visible?: boolean;
+  matches_topic?: boolean; looks_premium?: boolean; works_as_thumbnail?: boolean;
+  no_misleading_claim?: boolean; no_clutter?: boolean;
+  conversion_score?: number; issues?: string[]; improvements?: string[];
+}
+interface InteriorVisuals {
+  framework_diagrams?: { visual_name: string; chapter: string; type: string; nodes: string[] }[];
+  worksheets_and_templates?: { asset_name: string; chapter: string }[];
+  recommended_visual_count?: number;
+}
 interface Ebook {
   id: string; title: string; subtitle: string | null; target_buyer: string | null;
   hook: string | null; toc: { title: string }[]; chapters: Chapter[];
   bonuses: Record<string, unknown>; product_description: string | null;
   seo_title: string | null; seo_meta: string | null; tags: string[];
-  cover_prompt: string | null; cover_url: string | null; pdf_url: string | null;
+  cover_prompt: string | null; cover_url: string | null; cover_bg_url: string | null;
+  cover_spec: CoverSpec | null; cover_qc: CoverQC | null; cover_score: number | null;
+  cover_approved: boolean; interior_visuals: InteriorVisuals | null;
+  pdf_url: string | null;
   word_count: number; qc: Record<string, unknown>; price: number; vendor: string;
   product_type: string; shopify_product_id: string | null; status: string;
   cost_usd: number; updated_at: string;
@@ -202,13 +222,130 @@ export default function EbookReview() {
       </Card>
 
       <Card className="border-2 border-foreground">
-        <CardHeader><CardTitle>Cover & PDF</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          {e.cover_url ? <img src={e.cover_url} alt="Cover" className="max-w-xs border-2 border-foreground" /> : <p className="text-sm text-muted-foreground">No cover yet.</p>}
-          {typeof e.qc?.cover_error === "string" && e.qc.cover_error && (
-            <p className="text-sm text-destructive">Cover error: {e.qc.cover_error}</p>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between gap-2">
+            <span>Cover & PDF</span>
+            <div className="flex items-center gap-2">
+              {typeof e.cover_score === "number" && (
+                <Badge variant={e.cover_score >= 85 ? "default" : "destructive"}>Cover score: {e.cover_score}</Badge>
+              )}
+              {e.cover_approved && <Badge>Approved</Badge>}
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              {e.cover_url ? (
+                <img src={e.cover_url} alt="Cover" className="w-full max-w-xs border-2 border-foreground" />
+              ) : (
+                <p className="text-sm text-muted-foreground">No cover yet.</p>
+              )}
+              {e.cover_bg_url && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  <a href={e.cover_bg_url} target="_blank" rel="noreferrer" className="underline">Background (no text)</a>
+                </p>
+              )}
+              {typeof e.qc?.cover_error === "string" && e.qc.cover_error && (
+                <p className="text-sm text-destructive mt-2">Cover error: {e.qc.cover_error}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <div>
+                <Label>Title overlay</Label>
+                <Input
+                  value={e.cover_spec?.title_text ?? e.title}
+                  onChange={(v) => setE({ ...e, cover_spec: { ...(e.cover_spec ?? {}), title_text: v.target.value } })}
+                />
+              </div>
+              <div>
+                <Label>Subtitle overlay</Label>
+                <Input
+                  value={e.cover_spec?.subtitle_text ?? e.subtitle ?? ""}
+                  onChange={(v) => setE({ ...e, cover_spec: { ...(e.cover_spec ?? {}), subtitle_text: v.target.value } })}
+                />
+              </div>
+              <div>
+                <Label>Badge (optional)</Label>
+                <Input
+                  value={e.cover_spec?.badge_text ?? ""}
+                  onChange={(v) => setE({ ...e, cover_spec: { ...(e.cover_spec ?? {}), badge_text: v.target.value } })}
+                />
+              </div>
+              <div>
+                <Label>Brand</Label>
+                <Input
+                  value={e.cover_spec?.brand_text ?? "SECRET PDF"}
+                  onChange={(v) => setE({ ...e, cover_spec: { ...(e.cover_spec ?? {}), brand_text: v.target.value } })}
+                />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button size="sm" onClick={async () => {
+                  setBusy("save-cover-spec");
+                  const { error } = await supabase.from("ebooks").update({
+                    cover_spec: e.cover_spec as unknown as never,
+                  }).eq("id", e.id);
+                  setBusy(null);
+                  if (error) toast.error(error.message); else toast.success("Overlay saved — regenerate cover to rerender.");
+                }} disabled={!!busy}>Save overlay</Button>
+                <Button size="sm" variant="outline" onClick={async () => {
+                  setBusy("approve-cover");
+                  const { error } = await supabase.from("ebooks").update({ cover_approved: true }).eq("id", e.id);
+                  setBusy(null);
+                  if (error) toast.error(error.message); else { toast.success("Cover approved"); load(); }
+                }} disabled={!!busy || !e.cover_url}>Approve cover</Button>
+              </div>
+            </div>
+          </div>
+          {e.cover_qc && (
+            <div className="text-xs space-y-1">
+              <div className="flex flex-wrap gap-1">
+                {([
+                  ["title_readable", "Title"],
+                  ["subtitle_readable", "Subtitle"],
+                  ["brand_visible", "Brand"],
+                  ["matches_topic", "On topic"],
+                  ["looks_premium", "Premium"],
+                  ["works_as_thumbnail", "Thumbnail"],
+                  ["no_misleading_claim", "Safe"],
+                  ["no_clutter", "Clean"],
+                ] as const).map(([k, label]) => (
+                  <Badge key={k} variant={e.cover_qc?.[k] ? "default" : "destructive"}>{label}: {e.cover_qc?.[k] ? "✓" : "✗"}</Badge>
+                ))}
+              </div>
+              {(e.cover_qc.issues ?? []).length > 0 && (
+                <p className="text-destructive">Issues: {(e.cover_qc.issues ?? []).join("; ")}</p>
+              )}
+            </div>
           )}
           {e.pdf_url && <Button type="button" variant="link" className="h-auto p-0 text-sm underline" onClick={openPdf} disabled={!!busy}>{busy === "open-pdf" ? "Opening…" : "Open PDF"}</Button>}
+        </CardContent>
+      </Card>
+
+      <Card className="border-2 border-foreground">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between gap-2">
+            <span>Interior visuals</span>
+            <Badge variant="outline">
+              {(e.interior_visuals?.framework_diagrams?.length ?? 0)} diagrams ·
+              {" "}{(e.interior_visuals?.worksheets_and_templates?.length ?? 0)} worksheets
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {!e.interior_visuals && <p className="text-sm text-muted-foreground">None yet. Generate to add diagrams + worksheets to the PDF.</p>}
+          {e.interior_visuals?.framework_diagrams?.map((d, i) => (
+            <div key={`d-${i}`} className="text-sm border-l-2 border-foreground/40 pl-2">
+              <span className="font-medium">{d.visual_name}</span>
+              <span className="text-muted-foreground"> · {d.chapter} · {d.type} · {d.nodes?.length ?? 0} nodes</span>
+            </div>
+          ))}
+          {e.interior_visuals?.worksheets_and_templates?.map((w, i) => (
+            <div key={`w-${i}`} className="text-sm border-l-2 border-accent/60 pl-2">
+              <span className="font-medium">{w.asset_name}</span>
+              <span className="text-muted-foreground"> · {w.chapter}</span>
+            </div>
+          ))}
         </CardContent>
       </Card>
 
@@ -216,7 +353,8 @@ export default function EbookReview() {
         <Button onClick={save} disabled={busy === "save"}>{busy === "save" && <Loader2 className="size-4 animate-spin" />} Save edits</Button>
         <Button variant="outline" onClick={() => run("qc-check")} disabled={!!busy}>Run QC</Button>
         <Button variant="outline" onClick={() => run("qc-fix")} disabled={!!busy}>Auto-fix QC</Button>
-        <Button variant="outline" onClick={() => run("generate-cover")} disabled={!!busy}>Generate cover</Button>
+        <Button variant="outline" onClick={() => run("generate-cover")} disabled={!!busy}>{busy === "generate-cover" && <Loader2 className="size-4 animate-spin mr-1" />}Regenerate cover</Button>
+        <Button variant="outline" onClick={() => run("generate-interior-visuals")} disabled={!!busy}>{busy === "generate-interior-visuals" && <Loader2 className="size-4 animate-spin mr-1" />}Generate visuals</Button>
         <Button variant="outline" onClick={() => run("build-pdf")} disabled={!!busy}>Build PDF</Button>
         <Button variant="outline" onClick={() => run("push-to-shopify")} disabled={!!busy || e.status === "qc_failed"}>Push to Shopify draft</Button>
       </div>
