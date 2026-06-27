@@ -375,6 +375,16 @@ export default function EbookReview() {
         </CardContent>
       </Card>
 
+      <ShopifyStatus
+        ebookId={e.id}
+        status={e.shopify_status}
+        events={(e.shopify_events ?? []) as never}
+        lastError={e.shopify_last_error}
+        productId={e.shopify_product_id}
+        handle={e.shopify_handle}
+        onChanged={load}
+      />
+
       <div className="sticky bottom-0 border-2 border-foreground bg-card p-4 flex flex-wrap gap-2">
         <Button onClick={save} disabled={busy === "save"}>{busy === "save" && <Loader2 className="size-4 animate-spin" />} Save edits</Button>
         <Button variant="outline" onClick={() => run("qc-check")} disabled={!!busy}>Run QC</Button>
@@ -382,7 +392,6 @@ export default function EbookReview() {
         <Button variant="outline" onClick={() => run("generate-cover")} disabled={!!busy}>{busy === "generate-cover" && <Loader2 className="size-4 animate-spin mr-1" />}Regenerate cover</Button>
         <Button variant="outline" onClick={() => run("generate-interior-visuals")} disabled={!!busy}>{busy === "generate-interior-visuals" && <Loader2 className="size-4 animate-spin mr-1" />}Generate visuals</Button>
         <Button variant="outline" onClick={() => run("build-pdf")} disabled={!!busy}>Build PDF</Button>
-        <Button variant="outline" onClick={() => run("push-to-shopify")} disabled={!!busy || e.status === "qc_failed"}>Push to Shopify draft</Button>
       </div>
     </div>
   );
