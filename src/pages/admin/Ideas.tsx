@@ -16,9 +16,13 @@ type Idea = {
   scores: Record<string, number>; category_id: string | null; created_at: string;
   raw_title: string | null; raw_subtitle: string | null; raw_hook: string | null; raw_target_buyer: string | null;
   core_pain_point: string | null; deeper_emotional_fear: string | null; transformation_promise: string | null;
-  perceived_value_boosters: Record<string, string> | null;
+  perceived_value_boosters: Record<string, string> | string[] | null;
   why_it_sells: string | null; recommended_action: string | null;
   improvement_round: number; admin_feedback: string | null;
+  buyer_identity: string | null; cost_of_doing_nothing: string | null;
+  value_proposition: string | null; hard_sell_opening: string | null;
+  objection_handling: Record<string, string> | null;
+  shopify_meta: Record<string, unknown> | null;
 };
 type Cat = { id: string; name: string };
 
@@ -44,9 +48,11 @@ type PremiumResult = {
 
 type Alt = {
   title: string; subtitle: string; hook: string;
-  core_pain_point: string; transformation_promise: string; product_page_opening: string;
+  core_pain_point: string; cost_of_doing_nothing?: string;
+  transformation_promise: string; product_page_opening: string;
   why_stronger: string;
-  buyer_appeal_score: number; premium_score: number; compliance_risk_score: number; idea_score: number;
+  buyer_appeal_score: number; premium_score: number;
+  hard_sell_strength_score?: number; compliance_risk_score: number; idea_score: number;
 };
 type AltResult = {
   previous_title: string;
@@ -59,6 +65,7 @@ type AltResult = {
     shopify_product_title: string; meta_title: string; meta_description: string;
     url_handle: string; tags: string[];
     final_buyer_appeal_score: number; final_premium_score: number;
+    final_hard_sell_strength_score?: number;
     final_compliance_risk_score: number; final_idea_score: number;
     status: string; recommended_admin_action: string;
   };
@@ -70,15 +77,15 @@ const to100 = (raw: number) => {
   return n > 60 ? Math.round(n) : Math.round(n / 60 * 100);
 };
 
-// Approval thresholds combining buyer-appeal, premium, and compliance-risk scores.
-function scoreMeta(score100: number, buyerAppeal?: number, premium?: number, compliance?: number) {
+// Approval thresholds combining buyer-appeal, premium, hard-sell strength, and compliance.
+function scoreMeta(score100: number, buyerAppeal?: number, premium?: number, hardSell?: number, compliance?: number) {
   const ba = Number(buyerAppeal ?? score100);
   const pr = Number(premium ?? score100);
+  const hs = Number(hardSell ?? score100);
   const cr = Number(compliance ?? 0);
-  if (ba >= 85 && pr >= 85 && cr <= 3) return { label: "Premium Featured · Ready to Generate", tone: "good" as const, status: "Premium Featured" };
-  if (ba >= 80 && pr >= 80 && cr <= 4) return { label: "Approved · Ready to Generate", tone: "good" as const, status: "Approved" };
-  if (ba >= 70 || pr >= 70) return { label: "Needs Admin Review · Generate 2 Alternatives", tone: "warn" as const, status: "Needs Admin Review" };
-  return { label: "Needs Regeneration", tone: "bad" as const, status: "Needs Regeneration" };
+  if (ba >= 85 && pr >= 85 && hs >= 85 && cr <= 3) return { label: "Premium Featured · Ready to Generate", tone: "good" as const, status: "Premium Featured" };
+  if (ba >= 80 && pr >= 80 && hs >= 80 && cr <= 4) return { label: "Approved · Ready to Generate", tone: "good" as const, status: "Approved" };
+  return { label: "Needs Rewrite · Generate 2 Alternatives", tone: "warn" as const, status: "Needs Rewrite" };
 }
 
 const toneClass = {
