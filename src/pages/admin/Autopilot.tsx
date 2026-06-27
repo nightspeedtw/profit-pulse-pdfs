@@ -62,15 +62,26 @@ function stateColor(s: string) {
   return STATE_STYLES[s] ?? STATE_STYLES.idle;
 }
 
+type Settings = {
+  id: number;
+  daily_quota: number;
+  autopilot_enabled: boolean;
+  autopilot_mode: string;
+  publish_hour_utc: number;
+  daily_budget_usd: number;
+};
+
 export default function Autopilot() {
   const [ebooks, setEbooks] = useState<Ebook[]>([]);
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [filter, setFilter] = useState<"all" | "running" | "needs_review" | "rejected" | "published">("all");
   const [mode, setMode] = useState<"safe" | "full">("safe");
   const [busy, setBusy] = useState<string | null>(null);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   async function load() {
-    const [{ data: e }, { data: i }] = await Promise.all([
+    const [{ data: e }, { data: i }, { data: s }] = await Promise.all([
       supabase.from("ebooks")
         .select("id,title,status,autopilot_state,autopilot_mode,shopify_status,word_count,price,final_quality_score,conversion_score,compliance_safety_score,needs_review_reason,cost_usd,cover_url,pdf_url,shopify_product_id,updated_at")
         .order("updated_at", { ascending: false }).limit(100),
@@ -78,9 +89,14 @@ export default function Autopilot() {
         .select("id,title,status,auto_rejected_reason")
         .in("status", ["idea", "approved", "rejected"])
         .order("updated_at", { ascending: false }).limit(50),
+      supabase.from("generation_settings").select("*").eq("id", 1).maybeSingle(),
     ]);
     setEbooks((e ?? []) as Ebook[]);
     setIdeas((i ?? []) as Idea[]);
+    if (s) {
+      setSettings(s as any);
+      setMode((s as any).autopilot_mode === "full" ? "full" : "safe");
+    }
   }
 
   useEffect(() => {
@@ -88,6 +104,32 @@ export default function Autopilot() {
     const t = setInterval(load, 15_000);
     return () => clearInterval(t);
   }, []);
+
+  async function saveSettings(patch: Partial<Settings>) {
+    if (!settings) return;
+    setSavingSettings(true);
+    const next = { ...settings, ...patch };
+    const { error } = await supabase.from("generation_settings").update(patch).eq("id", 1);
+    setSavingSettings(false);
+    if (error) { toast.error(error.message); return; }
+    setSettings(next);
+    toast.success("Settings saved");
+  }
+
+  async function runCronNow() {
+    setBusy("cron");
+    try {
+      const { data, error } = await supabase.functions.invoke("daily-cron", { body: {} });
+      if (error) throw error;
+      toast.success(`Autopilot batch launched. ${((data as any)?.launched ?? []).length} idea(s).`);
+      await load();
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
 
   async function run(name: string, body: any, msg: string, id: string) {
     setBusy(id);
