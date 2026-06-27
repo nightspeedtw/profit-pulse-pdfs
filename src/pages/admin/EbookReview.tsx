@@ -38,7 +38,7 @@ export default function EbookReview() {
   useEffect(() => { load(); }, [id]);
 
   // Poll while generation is in progress
-  const isGenerating = !!e && (e.status === "outline" || e.status === "writing" || e.status?.startsWith("writing:") || e.status === "marketing");
+  const isGenerating = !!e && (e.status === "outline" || e.status === "writing" || e.status?.startsWith("writing:") || e.status === "marketing" || e.status === "cover");
   useEffect(() => {
     if (!isGenerating) return;
     const t = setInterval(load, 3000);
@@ -56,6 +56,7 @@ export default function EbookReview() {
     if (e.status === "outline") return { done: 0, tot: 1, pct: 5, label: "Designing outline…" };
     if (e.status === "writing") return { done: 0, tot: 1, pct: 10, label: "Starting chapters…" };
     if (e.status === "marketing") return { done: 1, tot: 1, pct: 95, label: "Writing marketing copy & SEO…" };
+    if (e.status === "cover") return { done: 1, tot: 1, pct: 80, label: "Generating cover…" };
     return null;
   })();
 
@@ -79,7 +80,7 @@ export default function EbookReview() {
     try {
       const { error } = await supabase.functions.invoke(fn, { body: { ebook_id: e.id } });
       if (error) throw error;
-      toast.success(fn === "resume-generation" ? "Resume started — generating in background." : `${fn} done`);
+      toast.success(fn === "resume-generation" || fn === "generate-cover" ? `${fn} started — working in background.` : `${fn} done`);
       await load();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : `${fn} failed`);
@@ -204,6 +205,9 @@ export default function EbookReview() {
         <CardHeader><CardTitle>Cover & PDF</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           {e.cover_url ? <img src={e.cover_url} alt="Cover" className="max-w-xs border-2 border-foreground" /> : <p className="text-sm text-muted-foreground">No cover yet.</p>}
+          {typeof e.qc?.cover_error === "string" && e.qc.cover_error && (
+            <p className="text-sm text-destructive">Cover error: {e.qc.cover_error}</p>
+          )}
           {e.pdf_url && <Button type="button" variant="link" className="h-auto p-0 text-sm underline" onClick={openPdf} disabled={!!busy}>{busy === "open-pdf" ? "Opening…" : "Open PDF"}</Button>}
         </CardContent>
       </Card>
