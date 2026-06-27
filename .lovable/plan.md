@@ -1,85 +1,131 @@
-# AI Ebook Factory — Build Plan
+## AI Ebook Factory — Full A-Z Autopilot System
 
-## 1. Foundation (Lovable Cloud)
-- Enable Lovable Cloud (Postgres + Auth + Storage + Edge Functions + Cron).
-- Email/password auth, single-admin gate via `user_roles` table + `has_role()` security-definer.
-- Seed first admin: any user who signs up while `user_roles` is empty auto-becomes admin (one-time bootstrap).
-- Route `/admin/*` protected; redirects to `/admin/login` if not admin.
+Transform the current semi-manual pipeline into a hands-off autopilot that generates, QCs, writes, packages, and uploads premium PDF ebooks to Shopify — with automated quality gates at every step.
 
-## 2. Database schema
-- `categories` — id, name, slug, default_price, cover_style_prompt.
-- `ebook_ideas` — id, category_id, title, subtitle, target_buyer, hook, scores (jsonb: urgency, transformation, commercial, evergreen, emotional, clarity, total), status (`idea|outline|writing|qc_failed|approved|uploaded|published`), cost_usd, created_at.
-- `ebooks` — id, idea_id, toc (jsonb), chapters (jsonb[]), bonuses (jsonb), product_description, seo_title, seo_meta, tags, cover_prompt, cover_url, pdf_url, word_count, qc (jsonb: duplicate, generic, grammar, value_score, appeal_score, refund_risk, unsafe_claims[]), shopify_product_id, shopify_handle, price, vendor, status, cost_usd.
-- `generation_settings` — singleton row: daily_quota (5/10/20/50/custom), mode (`low_cost|premium|hybrid`), enabled_categories[], auto_publish (bool, default false).
-- `cost_log` — id, ebook_id, step, model, input_tokens, output_tokens, cost_usd, created_at.
-- `generation_jobs` — id, type, payload jsonb, status, error, created_at — for queueing async work.
-- Storage buckets (private): `ebook-pdfs`, `ebook-covers`.
-- RLS: admin-only on all tables via `has_role(auth.uid(),'admin')`.
+---
 
-## 3. Edge functions (Lovable AI Gateway)
-- `generate-idea` — given category, produce {title, subtitle, target_buyer, hook} + score 6 buyer-psych dimensions (1–10 each, total weighted) using `google/gemini-3-flash-preview`. Reject if total < threshold.
-- `generate-outline` — TOC + chapter briefs.
-- `generate-content` — full chapters (loop per chapter to stay under token limits), bonuses (checklist, workbook, templates, action plan).
-- `generate-marketing` — product description (hook → pain → benefits → what's inside → who-for → bonuses → FAQ → CTA), SEO title/meta, tags, cover prompt.
-- `qc-check` — duplicate title (DB lookup + semantic), generic-phrase detector, min word count, grammar pass, value/appeal/refund-risk scoring, unsafe-claim regex + LLM review. Sets `qc_failed` or `approved`.
-- `generate-cover` — only after QC pass; `google/gemini-3-pro-image`, upload to storage.
-- `build-pdf` — uses `reportlab` via… wait, edge functions are Deno. We'll use `pdf-lib` (npm:pdf-lib) to compose cover + TOC + chapters + bonus pages from a styled template. Upload to `ebook-pdfs` bucket, generate signed URL.
-- `push-to-shopify` — `shopify--create_product` (draft status), attach cover image, set price/vendor/type/tags/SEO, store handle. Digital download URL goes in description + product metafield (manual Digital Downloads app linkage noted).
-- `daily-cron` — scheduled via Supabase pg_cron, runs based on `generation_settings.daily_quota`, enqueues `generation_jobs`.
-- `process-job` — worker invoked by cron/trigger; runs full pipeline for one ebook.
+### 1. Database changes (one migration)
 
-## 4. Frontend — `/admin` dashboard
-Layout: sidebar nav + topbar with cost-today counter.
+Extend `ebook_ideas` and `ebooks` with QC + autopilot fields:
 
-- **Dashboard** (`/admin`): today's stats (ideas, approved, uploaded, cost), 7-day chart, quick "Generate now" button.
-- **Settings** (`/admin/settings`): daily quota (5/10/20/50/custom slider), mode toggle, auto-publish switch, category multiselect, score threshold sliders.
-- **Categories** (`/admin/categories`): CRUD categories + default price + cover style.
-- **Ideas** (`/admin/ideas`): table with score breakdown, filter by status, bulk approve/reject, "promote to outline".
-- **Pipeline** (`/admin/pipeline`): kanban (idea → outline → writing → QC → approved → uploaded → published).
-- **Ebook review** (`/admin/ebook/:id`): full editor — edit title, subtitle, price, tags, SEO, description (rich textarea), per-chapter content (collapsible), cover preview + regenerate, QC scorecard, "Build PDF" → "Push to Shopify Draft" → "Publish" actions.
-- **Costs** (`/admin/costs`): per-ebook + daily totals, breakdown by step.
+**`ebook_ideas`** — add:
+- `premium_score`, `hard_sell_score`, `commercial_intent_score`, `clarity_score`, `compliance_risk_score` (int)
+- `outline_structure_score`, `outline_practical_score`, `outline_buyer_score`, `outline_depth_score`, `outline_premium_score`, `outline_duplicate_score` (int)
+- `topic_rewrite_count`, `outline_rewrite_count` (int default 0)
+- `auto_rejected_reason` (text)
 
-## 5. Quality-first guardrails
-- Hard min word count: 8,000 (configurable). Below = auto-fail QC.
-- Refund-risk score ≥ 7 blocks upload.
-- Unsafe-claim regex list (medical, financial guarantees, get-rich-quick) → manual review required.
-- Duplicate title check across `ebooks` table.
-- Cover generated **only** after QC pass (saves cost).
-- Mode `low_cost` uses gemini-flash-lite for ideation, flash for content. `premium` uses gemini-3.1-pro for everything. `hybrid` = flash for content, pro for marketing copy + QC.
+**`ebooks`** — add:
+- `chapter_qc` (jsonb — per-chapter scores + rewrite counts)
+- `editorial_qc` (jsonb — final editorial scores + issues)
+- `product_page_qc` (jsonb — conversion/hook/clarity/premium/compliance/seo)
+- `final_quality_score`, `conversion_score`, `compliance_safety_score` (int)
+- `shopify_product_id`, `shopify_status` (text: draft|published|failed)
+- `autopilot_mode` (text: safe|full|manual)
+- `autopilot_state` (text: running|paused|rejected|done|needs_review)
+- `needs_review_reason` (text)
+- `cover_image_url` (text)
+- `product_copy` (jsonb — title, subtitle, bullets, faq, meta, tags, handle)
 
-## 6. PDF template
-Styled neo-brutalist matching the existing Printly brand (foreground borders, mono headers, highlight accents):
-- Cover page (AI-generated image + title overlay)
-- Copyright + "Who this is for" page
-- TOC
-- Chapter pages (numbered, pull-quote callouts)
-- Bonus section (checklists as boxes, workbook prompts as lines)
-- Back cover with CTA + author/brand
+New table **`autopilot_runs`** — log every pipeline step (step, status, score, cost, duration, error) for the dashboard.
 
-## 7. Shopify upload
-- Always `status: "draft"`, `published: false`.
-- `product_type: "Digital Ebook"`, `vendor: "Printly"`, `requires_shipping: false`, `inventory_policy: "continue"`, `weight: 0`.
-- Cover image uploaded via `images: [{file_path}]`.
-- PDF: stored in our bucket; admin manually links to Digital Downloads app (instruction shown post-upload). v2 can auto-fulfill via Shopify Files API.
-- Publish action flips status to `active`.
+---
 
-## 8. Cost tracking
-- Every gateway call logged to `cost_log` with token counts → USD via static rate table per model.
-- Daily budget cap in settings; cron stops if exceeded.
+### 2. Edge functions (new + refactored)
 
-## Technical notes
-- Stack: existing React+Vite+Tailwind+shadcn frontend. New `/admin` section reuses the Printly neo-brutalist design system (no new fonts/colors).
-- Auth: Lovable Cloud email/password; bootstrap admin on first signup.
-- AI Gateway: server-side only in edge functions; default `google/gemini-3-flash-preview`, image `google/gemini-3-pro-image`.
-- Cron: Supabase pg_cron + `net.http_post` to invoke `daily-cron` edge function at 09:00 UTC.
-- Shopify: drafts only; admin must approve before publish. Reuses existing `shopify--create_product` tool path (server side via edge function calling Shopify Admin API with stored token — note: we'll need a Shopify Admin API token stored as secret for server-side product creation, since edge functions can't call the Lovable agent's `shopify--*` tools).
+**New shared module** `supabase/functions/_shared/qc.ts`:
+- Single `scoreContent(kind, payload)` helper that calls Lovable AI Gateway and returns strict JSON scores. Uses a robust balanced-brace JSON extractor.
+- Threshold constants and a `gate(scores, rules)` helper returning `{pass, failedFields, action}`.
 
-## Open question / assumption
-The `shopify--create_product` is a Lovable agent tool, not a runtime API. For **automated** daily uploads from cron, the edge function needs a Shopify **Admin API access token** stored as a secret. I'll add a step in Settings → "Connect Shopify Admin token" with instructions to create a custom app in Shopify Admin → Apps → Develop apps → install → copy Admin API token. Without it, the daily cron pipeline stops at "ready to upload" and admin clicks "Push to Shopify" in the UI, which will then use the agent tool path via a manual action.
+**New functions:**
+- `autopilot-orchestrator` — the brain. Given an `ebook_idea_id` and `mode`, walks the entire pipeline by chaining the existing/new step functions. Writes progress to `ebooks.autopilot_state` and `autopilot_runs`.
+- `qc-topic` — scores topic across 6 dimensions, auto-rewrites up to 2x via the existing premium copywriter prompt, rejects if still failing.
+- `qc-outline` — scores outline 6 dims, auto-improves up to 2x, rejects on failure.
+- `qc-chapter` — runs after each chapter writes; rewrites chapter in place if any score <80.
+- `qc-editorial` — full-book pass; fixes repetition, thin content, missing disclaimers; up to 2 rewrite rounds.
+- `generate-product-copy` — Shopify copy + meta + tags + handle.
+- `qc-product-copy` — 6-dim score + auto-rewrite.
+- `generate-cover` — premium cover prompt → Lovable AI image gen → upload to `ebook-covers` bucket.
+- `shopify-upload-draft` — creates Shopify draft product (Admin API), attaches cover + PDF link, sets price/tags/SEO.
+- `qc-final-product` — pre-publish checklist (all assets exist, no placeholders, link works).
+- `shopify-publish` — flips draft to active **only** if final gate passes; otherwise marks `needs_review`.
 
-## Build order (3 phases, can ship incrementally)
-1. **Phase 1 (foundation)**: Cloud + auth + schema + admin shell + Settings/Categories pages.
-2. **Phase 2 (generation)**: idea→outline→content→marketing→QC edge functions + Ideas + Pipeline + Ebook review UI + cost tracking.
-3. **Phase 3 (delivery)**: cover gen + PDF builder + Shopify push + daily cron + costs page.
+**Refactored:**
+- `promote-idea` and `resume-generation` — call `qc-chapter` after each chapter; on fail, rewrite once before continuing.
+- `generate-idea` — single best title only (already done); now also stores the 6 topic scores and triggers `qc-topic` inline.
 
-Phase 1 alone is ~15–20 files. Full build is 50+. I'll ship Phase 1 first, you test login + settings + categories, then I continue.
+---
+
+### 3. Auto rules (enforced server-side)
+
+| Gate | Threshold | Action if fail |
+|---|---|---|
+| Topic Buyer/Premium/Hard-Sell | ≥80 | rewrite ×2 → reject |
+| Topic Compliance Risk | ≤4 | rewrite safer ×2 → reject |
+| Outline (all 6) | ≥80 | improve ×2 → reject |
+| Chapter (all 6) | ≥80 | rewrite that chapter once |
+| Editorial | pass full checklist | auto-fix ×2 → reject |
+| Product copy | ≥80 | rewrite once |
+| Final ebook quality | ≥90 | else draft only |
+| Conversion | ≥85 | else draft only |
+| Compliance safety | ≥90 | else draft only |
+
+Full Autopilot publishes only when **all** publish-gates pass.
+Safe Autopilot stops at draft, never publishes.
+
+---
+
+### 4. Dashboard (`src/pages/admin/`)
+
+**New page** `Autopilot.tsx`:
+- Pipeline view per ebook: timeline of steps with status pill, score, rewrite count, cost.
+- Filters: running / needs_review / rejected / published.
+- Per-row buttons: Pause, Resume, Regenerate, Force Draft Upload, Force Publish, Reject, View QC Report.
+- Mode toggle: Safe Autopilot / Full Autopilot / Manual.
+
+**Update** `EbookReview.tsx`:
+- Show all QC reports (topic, outline, per-chapter, editorial, product, final).
+- Show Shopify status + link to draft.
+
+**Update** `Pipeline.tsx`:
+- Add lanes: `qc_topic`, `qc_outline`, `writing`, `qc_chapter`, `qc_editorial`, `cover`, `product_copy`, `shopify_draft`, `qc_final`, `published`, `needs_review`, `rejected`.
+
+---
+
+### 5. Shopify integration
+
+Use existing Shopify connection (already authorized). On `shopify-upload-draft`:
+- Upload cover to Shopify Files API.
+- Create product as `status: DRAFT` with title, body_html (from product_copy), price, tags, SEO meta, product_type=Digital.
+- Add a variant with `requires_shipping: false`.
+- Attach PDF via a metafield (`custom.pdf_url`) pointing to a signed URL from `ebook-pdfs` bucket (24h expiry → refreshed on customer order via existing/future fulfillment flow).
+- Store returned `shopify_product_id`.
+
+On `shopify-publish`: PATCH product status → `ACTIVE`.
+
+---
+
+### 6. Safety / compliance
+
+- Compliance rewriter prompt: strip absolute claims, add educational framing, add disclaimer chapter when category ∈ {finance, health, legal, relationships}.
+- Auto-injected disclaimer page in PDF when compliance category triggered.
+- Never publish if `compliance_safety_score < 90`.
+
+---
+
+### Technical notes
+
+- All AI outputs return JSON only; every parser uses the shared balanced-brace extractor in `_shared/qc.ts`.
+- Orchestrator is idempotent — safe to resume from any step using `ebooks.autopilot_state`.
+- All long steps run async (orchestrator returns 202, work continues in background via `EdgeRuntime.waitUntil`).
+- Costs logged to existing `cost_log` table tagged by step.
+- Default model: `google/gemini-3-flash-preview` for QC/scoring; same for writing (already set).
+
+---
+
+### Out of scope (this round)
+
+- Customer-facing PDF fulfillment automation (signed-URL email on order).
+- A/B testing of titles after publish.
+- Multi-language output.
+
+Confirm and I'll start with the migration, then ship orchestrator + QC functions, then the Autopilot dashboard.
