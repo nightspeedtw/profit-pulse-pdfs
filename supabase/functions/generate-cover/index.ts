@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
     // QC status no longer blocks cover generation — admin can override manually.
 
     await db.from("ebooks").update({ status: "cover", qc: { ...(e.qc ?? {}), cover_error: null } }).eq("id", ebook_id);
-    EdgeRuntime.waitUntil(processCover(e as EbookRow));
+    (globalThis as { EdgeRuntime?: { waitUntil?: (promise: Promise<void>) => void } }).EdgeRuntime?.waitUntil?.(processCover(e as EbookRow));
 
     return new Response(JSON.stringify({ status: "cover", started: true }), {
       status: 202,
