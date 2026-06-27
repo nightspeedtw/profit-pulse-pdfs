@@ -16,7 +16,7 @@ import AdminLogin from "./pages/admin/Login.tsx";
 import AdminLayout from "./pages/admin/AdminLayout.tsx";
 import Dashboard from "./pages/admin/Dashboard.tsx";
 import SettingsPage from "./pages/admin/Settings.tsx";
-import Categories from "./pages/admin/Categories.tsx";
+import AdminCategories from "./pages/admin/Categories.tsx";
 import Ideas from "./pages/admin/Ideas.tsx";
 import Pipeline from "./pages/admin/Pipeline.tsx";
 import EbookReview from "./pages/admin/EbookReview.tsx";
