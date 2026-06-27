@@ -51,7 +51,8 @@ Deno.serve(async (req) => {
     }).eq("id", ebook.id);
 
     // 2. Generate chapters + marketing in background (exceeds 150s sync limit)
-    const wordsPerChapter = Math.max(1500, Math.min(1800, Math.ceil(minWords / Math.max(outlineAI.data.toc.length, 1))));
+    // Aim ~20% over target so the final book reliably clears minWords even if the model under-delivers.
+    const wordsPerChapter = Math.max(1800, Math.ceil((minWords * 1.2) / Math.max(outlineAI.data.toc.length, 1)));
 
     const background = (async () => {
       try {
