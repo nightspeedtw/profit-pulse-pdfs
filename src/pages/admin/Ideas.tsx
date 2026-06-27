@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ChevronRight, Loader2, Sparkles, Type, Zap, FolderInput, X, Check, Eye, ChevronDown } from "lucide-react";
+import { ChevronRight, Loader2, Sparkles, Type, Zap, FolderInput, X, Check, Eye, ChevronDown, Crown } from "lucide-react";
 import { Link } from "react-router-dom";
 
 type Idea = {
@@ -23,6 +23,24 @@ type Idea = {
 type Cat = { id: string; name: string };
 
 const dims = ["urgency", "transformation", "commercial", "evergreen", "emotional", "clarity"] as const;
+
+type ValueBoosters = { checklist?: string; template?: string; workbook?: string; calculator?: string; action_plan?: string };
+type PremiumOption = {
+  premium_title: string; premium_subtitle: string; target_buyer: string;
+  core_pain_point: string; premium_transformation_promise: string;
+  perceived_value_boosters: ValueBoosters; primary_hook: string;
+  buyer_appeal_score: number; premium_score: number; why_it_feels_premium: string;
+};
+type PremiumResult = {
+  premium_diagnosis: { why_ordinary: string; what_would_make_premium: string; best_buyer_emotion: string };
+  options: PremiumOption[];
+  best_final_choice: {
+    premium_title: string; premium_subtitle: string; primary_hook: string;
+    product_page_opening: string; recommended_category: string; recommended_price: string;
+    buyer_appeal_score: number; premium_score: number;
+    shopify_ready: { product_title: string; meta_title: string; meta_description: string; url_handle: string; tags: string[] };
+  };
+};
 
 // Raw score is 0-60 (6 dims * 10). Display on 0-100 scale.
 const to100 = (raw: number) => Math.round((Number(raw) || 0) / 60 * 100);
@@ -49,6 +67,9 @@ export default function Ideas() {
   const [improveOpen, setImproveOpen] = useState<Idea | null>(null);
   const [feedback, setFeedback] = useState("");
   const [showRawIds, setShowRawIds] = useState<Set<string>>(new Set());
+  const [premiumOpen, setPremiumOpen] = useState<Idea | null>(null);
+  const [premiumLoading, setPremiumLoading] = useState(false);
+  const [premiumResult, setPremiumResult] = useState<PremiumResult | null>(null);
 
   const load = async () => {
     const [{ data: ideas }, { data: c }] = await Promise.all([
@@ -100,6 +121,41 @@ export default function Ideas() {
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+  };
+
+  const runPremium = async (idea: Idea) => {
+    setPremiumOpen(idea);
+    setPremiumResult(null);
+    setPremiumLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("premium-positioning", { body: { idea_id: idea.id } });
+      if (error) throw error;
+      const res = (data as { result?: PremiumResult } | null)?.result;
+      if (!res) throw new Error("No result");
+      setPremiumResult(res);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+      setPremiumOpen(null);
+    } finally {
+      setPremiumLoading(false);
+    }
+  };
+
+  const applyPremiumOption = async (idea: Idea, opt: PremiumOption) => {
+    await run(idea.id, "Premium positioning applied.", async () => {
+      const { error } = await supabase.from("ebook_ideas").update({
+        title: opt.premium_title,
+        subtitle: opt.premium_subtitle,
+        target_buyer: opt.target_buyer,
+        hook: opt.primary_hook,
+        core_pain_point: opt.core_pain_point,
+        transformation_promise: opt.premium_transformation_promise,
+        perceived_value_boosters: opt.perceived_value_boosters ?? {},
+      }).eq("id", idea.id);
+      if (error) throw error;
+    });
+    setPremiumOpen(null);
+    setPremiumResult(null);
   };
 
   return (
@@ -225,6 +281,9 @@ export default function Ideas() {
                         <Button size="sm" variant="secondary" onClick={() => { setImproveOpen(i); setFeedback(i.admin_feedback ?? ""); }} disabled={isBusy}>
                           <Sparkles className="size-4 mr-1" /> Improve Again
                         </Button>
+                        <Button size="sm" variant="outline" onClick={() => runPremium(i)} disabled={isBusy}>
+                          <Crown className="size-4 mr-1" /> Premium Positioning
+                        </Button>
                         <Button size="sm" variant="destructive" onClick={() => reject(i.id)} disabled={isBusy}>
                           <X className="size-4 mr-1" /> Reject
                         </Button>
@@ -328,6 +387,111 @@ export default function Ideas() {
                   <p className="text-muted-foreground mt-1 whitespace-pre-wrap">{rawOpen.admin_feedback}</p>
                 </div>
               )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Premium Positioning dialog */}
+      <Dialog open={!!premiumOpen} onOpenChange={(o) => { if (!o) { setPremiumOpen(null); setPremiumResult(null); } }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Crown className="size-5" /> Premium Positioning</DialogTitle>
+          </DialogHeader>
+          {premiumLoading && (
+            <div className="flex items-center gap-2 py-10 justify-center text-muted-foreground">
+              <Loader2 className="size-5 animate-spin" /> Generating 10 premium variants…
+            </div>
+          )}
+          {premiumResult && premiumOpen && (
+            <div className="space-y-6">
+              <Card className="border-2 border-foreground/30">
+                <CardContent className="pt-4 space-y-2 text-sm">
+                  <div className="font-mono uppercase text-xs">Premium Diagnosis</div>
+                  <div><strong>Why ordinary:</strong> {premiumResult.premium_diagnosis.why_ordinary}</div>
+                  <div><strong>What would make it premium:</strong> {premiumResult.premium_diagnosis.what_would_make_premium}</div>
+                  <div><strong>Best buyer emotion:</strong> {premiumResult.premium_diagnosis.best_buyer_emotion}</div>
+                </CardContent>
+              </Card>
+
+              <div>
+                <h3 className="font-display text-lg mb-2">Best Final Choice</h3>
+                <Card className="border-2 border-foreground bg-foreground/5">
+                  <CardContent className="pt-4 space-y-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className="bg-foreground text-background">Buyer Appeal {premiumResult.best_final_choice.buyer_appeal_score}</Badge>
+                      <Badge className="bg-foreground text-background">Premium {premiumResult.best_final_choice.premium_score}</Badge>
+                      <Badge variant="outline">Price: {premiumResult.best_final_choice.recommended_price}</Badge>
+                    </div>
+                    <div className="font-display text-xl">{premiumResult.best_final_choice.premium_title}</div>
+                    <div className="text-muted-foreground">{premiumResult.best_final_choice.premium_subtitle}</div>
+                    <div className="italic">"{premiumResult.best_final_choice.primary_hook}"</div>
+                    <div className="text-xs"><strong>Product page opening:</strong> {premiumResult.best_final_choice.product_page_opening}</div>
+                    <div className="mt-3 p-3 bg-background border border-foreground/20 space-y-1 text-xs font-mono">
+                      <div className="uppercase opacity-60">Shopify Ready</div>
+                      <div><strong>Product title:</strong> {premiumResult.best_final_choice.shopify_ready.product_title}</div>
+                      <div><strong>Meta title:</strong> {premiumResult.best_final_choice.shopify_ready.meta_title}</div>
+                      <div><strong>Meta description:</strong> {premiumResult.best_final_choice.shopify_ready.meta_description}</div>
+                      <div><strong>URL:</strong> /{premiumResult.best_final_choice.shopify_ready.url_handle}</div>
+                      <div><strong>Tags:</strong> {(premiumResult.best_final_choice.shopify_ready.tags ?? []).join(", ")}</div>
+                    </div>
+                    <Button
+                      className="w-full"
+                      onClick={() => applyPremiumOption(premiumOpen, {
+                        premium_title: premiumResult.best_final_choice.premium_title,
+                        premium_subtitle: premiumResult.best_final_choice.premium_subtitle,
+                        target_buyer: premiumOpen.target_buyer ?? "",
+                        core_pain_point: premiumOpen.core_pain_point ?? "",
+                        premium_transformation_promise: premiumOpen.transformation_promise ?? "",
+                        perceived_value_boosters: (premiumOpen.perceived_value_boosters ?? {}) as ValueBoosters,
+                        primary_hook: premiumResult.best_final_choice.primary_hook,
+                        buyer_appeal_score: premiumResult.best_final_choice.buyer_appeal_score,
+                        premium_score: premiumResult.best_final_choice.premium_score,
+                        why_it_feels_premium: "",
+                      })}
+                    >
+                      <Check className="size-4 mr-1" /> Apply Best Choice to Idea
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div>
+                <h3 className="font-display text-lg mb-2">10 Premium Options</h3>
+                <div className="space-y-3">
+                  {premiumResult.options.map((opt, idx) => {
+                    const vb = opt.perceived_value_boosters ?? {};
+                    return (
+                      <Card key={idx} className="border border-foreground/30">
+                        <CardContent className="pt-4 space-y-2 text-sm">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="outline" className="font-mono text-[10px]">Option {idx + 1}</Badge>
+                            <Badge variant="secondary" className="font-mono text-[10px]">Appeal {opt.buyer_appeal_score}</Badge>
+                            <Badge variant="secondary" className="font-mono text-[10px]">Premium {opt.premium_score}</Badge>
+                          </div>
+                          <div className="font-display text-base">{opt.premium_title}</div>
+                          <div className="text-muted-foreground text-xs">{opt.premium_subtitle}</div>
+                          <div className="italic text-xs">"{opt.primary_hook}"</div>
+                          <div className="text-xs"><strong>For:</strong> {opt.target_buyer}</div>
+                          <div className="text-xs"><strong>Pain:</strong> {opt.core_pain_point}</div>
+                          <div className="text-xs"><strong>Transformation:</strong> {opt.premium_transformation_promise}</div>
+                          <div className="text-xs"><strong>Why premium:</strong> {opt.why_it_feels_premium}</div>
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(vb).filter(([, v]) => v).map(([k, v]) => (
+                              <Badge key={k} variant="outline" className="text-[10px] font-normal">
+                                <span className="font-mono uppercase mr-1 opacity-60">{k.replace("_", " ")}:</span>{v}
+                              </Badge>
+                            ))}
+                          </div>
+                          <Button size="sm" variant="outline" className="mt-2" onClick={() => applyPremiumOption(premiumOpen, opt)}>
+                            <Check className="size-4 mr-1" /> Apply This Option
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
         </DialogContent>
