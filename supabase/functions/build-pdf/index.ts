@@ -135,8 +135,22 @@ Deno.serve(async (req) => {
 });
 
 // Helpers
+// pdf-lib's standard fonts only support WinAnsi (Latin-1 + a few extras).
+// Normalize smart punctuation to ASCII and drop any other unsupported codepoints
+// so non-Latin characters (e.g. Cyrillic) don't crash the encoder.
+function safe(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\u2026/g, "...")
+    .replace(/\u00A0/g, " ")
+    // Keep Latin-1 range + tab/newline; drop everything else (Cyrillic, CJK, emoji, etc.)
+    .replace(/[^\x09\x0A\x0D\x20-\xFF]/g, "");
+}
 function wrap(text: string, font: import("npm:pdf-lib@1.17.1").PDFFont, size: number, maxW: number): string[] {
-  const words = text.split(/\s+/);
+  const words = safe(text).split(/\s+/);
   const lines: string[] = [];
   let line = "";
   for (const w of words) {
@@ -157,3 +171,4 @@ function drawWrapped(page: import("npm:pdf-lib@1.17.1").PDFPage, text: string, x
     cy -= size * 1.3;
   }
 }
+
