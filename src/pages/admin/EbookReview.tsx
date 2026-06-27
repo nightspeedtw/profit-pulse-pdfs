@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { Loader2, ArrowLeft } from "lucide-react";
-import { openAdminPdf } from "@/lib/pdf";
+import { downloadAdminPdf } from "@/lib/pdf";
 
 
 interface Chapter { title: string; content: string }
@@ -111,9 +111,9 @@ export default function EbookReview() {
     if (!e) return;
     setBusy("open-pdf");
     try {
-      await openAdminPdf(e.id);
+      await downloadAdminPdf(e.id, e.title);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Open PDF failed");
+      toast.error(err instanceof Error ? err.message : "Download PDF failed");
     } finally {
       setBusy(null);
     }
@@ -318,7 +318,7 @@ export default function EbookReview() {
               )}
             </div>
           )}
-          {e.pdf_url && <Button type="button" variant="link" className="h-auto p-0 text-sm underline" onClick={openPdf} disabled={!!busy}>{busy === "open-pdf" ? "Opening…" : "Open PDF"}</Button>}
+          {e.pdf_url && <Button type="button" variant="link" className="h-auto p-0 text-sm underline" onClick={openPdf} disabled={!!busy}>{busy === "open-pdf" ? "Downloading…" : "Download PDF"}</Button>}
         </CardContent>
       </Card>
 
