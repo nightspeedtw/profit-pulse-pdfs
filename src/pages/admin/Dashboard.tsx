@@ -2,9 +2,21 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Loader2, Plane, ArrowRight } from "lucide-react";
+import { Loader2, Plane, ArrowRight, FlaskConical, AlertTriangle } from "lucide-react";
 import { Link } from "react-router-dom";
+
+type FailedJob = {
+  id: string;
+  type: string;
+  status: string;
+  error: string | null;
+  attempts: number;
+  ebook_id: string | null;
+  idea_id: string | null;
+  created_at: string;
+};
 
 type Stats = {
   ideasTotal: number;
@@ -22,6 +34,8 @@ export default function Dashboard() {
     ebooksNeedsReview: 0, ebooksPublished: 0, costToday: 0,
   });
   const [generating, setGenerating] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [failedJobs, setFailedJobs] = useState<FailedJob[]>([]);
 
   const load = async () => {
     const since = new Date(); since.setHours(0, 0, 0, 0);
@@ -51,6 +65,13 @@ export default function Dashboard() {
       ebooksPublished: ebooksPublished ?? 0,
       costToday: (costs ?? []).reduce((s, r) => s + Number(r.cost_usd ?? 0), 0),
     });
+    const { data: jobs } = await supabase
+      .from("generation_jobs")
+      .select("id,type,status,error,attempts,ebook_id,idea_id,created_at")
+      .eq("status", "failed")
+      .order("created_at", { ascending: false })
+      .limit(10);
+    setFailedJobs((jobs ?? []) as FailedJob[]);
   };
 
   useEffect(() => {
@@ -73,6 +94,30 @@ export default function Dashboard() {
     }
   };
 
+  const runSampleTest = async () => {
+    if (!confirm("Start a sample end-to-end PDF generation? This will create a test idea and run the full premium pipeline.")) return;
+    setTesting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("test-sample-pdf", { body: {} });
+      if (error) throw error;
+      toast.success(data?.message ?? "Test pipeline started");
+      load();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Test failed to start");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const retryJob = async (id: string) => {
+    const { error } = await supabase
+      .from("generation_jobs")
+      .update({ status: "queued", attempts: 0, error: null, scheduled_for: new Date().toISOString() })
+      .eq("id", id);
+    if (error) toast.error(error.message);
+    else { toast.success("Job requeued"); load(); }
+  };
+
   const tiles: { label: string; value: number | string; tone?: string }[] = [
     { label: "Ideas (total)", value: stats.ideasTotal },
     { label: "Ideas (today)", value: stats.ideasToday },
@@ -91,6 +136,10 @@ export default function Dashboard() {
           <h1 className="font-display text-4xl uppercase">Dashboard</h1>
         </div>
         <div className="flex gap-2">
+          <Button onClick={runSampleTest} disabled={testing} variant="outline">
+            {testing ? <Loader2 className="size-4 animate-spin mr-1" /> : <FlaskConical className="size-4 mr-1" />}
+            Test sample PDF
+          </Button>
           <Button onClick={generateNow} disabled={generating} variant="outline">
             {generating ? <Loader2 className="size-4 animate-spin mr-1" /> : null}
             Generate ideas now
@@ -127,6 +176,52 @@ export default function Dashboard() {
           <p>QC gates at every step: topic → outline → chapters → editorial → product copy → cover → PDF → Shopify draft → publish.</p>
           <p>Publish thresholds: Final ≥ 90 · Conversion ≥ 85 · Compliance Safety ≥ 90.</p>
           <p>Open the <strong>Autopilot</strong> page to set daily quota, schedule publishing, and enable hands-off mode.</p>
+        </CardContent>
+      </Card>
+
+      <Card className="border-2 border-foreground">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <AlertTriangle className="size-4 text-orange-600" />
+              Failed background jobs
+            </span>
+            <Badge variant={failedJobs.length > 0 ? "destructive" : "secondary"}>
+              {failedJobs.length}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm">
+          {failedJobs.length === 0 ? (
+            <p className="text-muted-foreground">No failed jobs. Pipeline is healthy.</p>
+          ) : (
+            <div className="space-y-2">
+              {failedJobs.map((j) => (
+                <div key={j.id} className="flex items-start justify-between gap-3 border border-foreground/20 rounded p-3 bg-orange-50/30">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs uppercase font-bold">{j.type}</span>
+                      <Badge variant="outline" className="text-xs">attempts: {j.attempts}</Badge>
+                      {j.ebook_id && (
+                        <Link to={`/admin/ebooks/${j.ebook_id}`} className="text-xs underline">
+                          ebook ↗
+                        </Link>
+                      )}
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {new Date(j.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    {j.error && (
+                      <p className="text-xs text-red-700 mt-1 line-clamp-2 break-words">{j.error}</p>
+                    )}
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => retryJob(j.id)}>
+                    Retry
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

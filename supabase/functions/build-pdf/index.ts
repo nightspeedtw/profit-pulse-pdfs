@@ -132,6 +132,8 @@ Deno.serve(async (req) => {
     const chapters = ((e.chapters ?? []) as { title: string; content: string }[]).slice(0, 30);
     const chapterStartIndex: number[] = []; // 1-based "book page numbers"
     let bookPageNum = 0; // count from after-cover-after-title-after-copy-after-toc = chapter 1 page 1
+    let diagramOverflowCount = 0;
+    let diagramTruncatedCount = 0;
 
     // Helper to add an interior page with header+footer and increment counter
     type Ctx = { page: PDFPage; y: number; pageNum: number; chTitle: string };
@@ -168,7 +170,9 @@ Deno.serve(async (req) => {
         bookPageNum += 1;
         drawRunningHeader(page, theme, fonts, brand, chShort);
         drawRunningFooter(page, theme, fonts, bookPageNum);
-        drawDiagramPremium(page, d, theme, fonts);
+        const r = drawDiagramPremium(page, d, theme, fonts);
+        diagramOverflowCount += r.overflowNodes;
+        diagramTruncatedCount += r.truncatedNodes;
       }
       // -- Worksheets for chapter --
       for (const w of (wsMap.get(chNum) ?? [])) {
@@ -221,6 +225,8 @@ Deno.serve(async (req) => {
       coverScore: Number(e.cover_score ?? 0),
       hasToc: tocEntries.length > 0,
       hasDisclaimer: isFinance,
+      diagramOverflowCount,
+      diagramTruncatedCount,
     });
 
     await db.from("ebooks").update({
@@ -257,7 +263,19 @@ type Block =
   | { kind: "ul" | "ol"; items: string[] }
   | { kind: "callout"; variant: "key" | "mistake" | "example" | "takeaway" | "objective"; title: string; text: string }
   | { kind: "checklist"; items: string[] }
+  | { kind: "table"; header: string[]; rows: string[][] }
   | { kind: "hr" };
+
+function parseTableRow(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed.split("|").map((c) => c.trim());
+}
+function isTableSep(line: string): boolean {
+  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+}
+function isTableRow(line: string): boolean {
+  return /^\s*\|.*\|\s*$/.test(line);
+}
 
 // ============ MARKDOWN PARSER (lightweight, paid-product safe) ============
 function parseMarkdown(raw: string): Block[] {
@@ -329,9 +347,21 @@ function parseMarkdown(raw: string): Block[] {
       blocks.push({ kind: "ol", items });
       continue;
     }
+    // Markdown table: `| col | col |` followed by `|---|---|`
+    if (isTableRow(ln) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      const header = parseTableRow(ln);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && isTableRow(lines[i])) {
+        rows.push(parseTableRow(lines[i]));
+        i++;
+      }
+      blocks.push({ kind: "table", header, rows });
+      continue;
+    }
     // Paragraph (collect until blank or special)
     const buf: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|>\s?|\s*[-*]\s|\s*\d+\.\s)/.test(lines[i]) && !isHr(lines[i])) {
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|>\s?|\s*[-*]\s|\s*\d+\.\s|\s*\|)/.test(lines[i]) && !isHr(lines[i])) {
       buf.push(lines[i].trim()); i++;
     }
     if (buf.length) blocks.push({ kind: "p", text: buf.join(" ") });
@@ -435,6 +465,40 @@ function renderBlock(
     }
     case "callout": {
       return renderCallout(ctx, block, theme, fonts, newPage, chTitle);
+    }
+    case "table": {
+      const cols = Math.max(block.header.length, 1);
+      const colW = CONTENT_W / cols;
+      const headerH = 26;
+      // Header
+      needSpace(headerH + 22);
+      ctx.page.drawRectangle({ x: MARGIN, y: ctx.y - headerH, width: CONTENT_W, height: headerH, color: theme.overlay });
+      for (let c = 0; c < cols; c++) {
+        const lines = wrap(stripInline(block.header[c] ?? ""), fonts.bold, 10, colW - 12).slice(0, 1);
+        if (lines[0]) ctx.page.drawText(safe(lines[0]), { x: MARGIN + c * colW + 8, y: ctx.y - 17, size: 10, font: fonts.bold, color: theme.onDark });
+      }
+      ctx.y -= headerH;
+      // Rows
+      for (let r = 0; r < block.rows.length; r++) {
+        const cells = block.rows[r];
+        const cellLines = cells.slice(0, cols).map((cell) => wrap(stripInline(cell ?? ""), fonts.reg, 10, colW - 12));
+        const rowH = Math.max(22, Math.max(...cellLines.map((l) => l.length)) * 13 + 10);
+        needSpace(rowH);
+        const bg = r % 2 === 0 ? rgb(1, 1, 1) : theme.surface;
+        ctx.page.drawRectangle({ x: MARGIN, y: ctx.y - rowH, width: CONTENT_W, height: rowH, color: bg, borderColor: theme.hair, borderWidth: 0.4 });
+        for (let c = 0; c < cols; c++) {
+          // vertical separators
+          if (c > 0) ctx.page.drawLine({ start: { x: MARGIN + c * colW, y: ctx.y }, end: { x: MARGIN + c * colW, y: ctx.y - rowH }, thickness: 0.3, color: theme.hair });
+          let ty = ctx.y - 14;
+          for (const ln of cellLines[c] ?? []) {
+            ctx.page.drawText(safe(ln), { x: MARGIN + c * colW + 8, y: ty, size: 10, font: fonts.reg, color: theme.ink });
+            ty -= 13;
+          }
+        }
+        ctx.y -= rowH;
+      }
+      ctx.y -= 10;
+      return ctx;
     }
     case "hr": {
       needSpace(20);
@@ -625,7 +689,7 @@ function drawSectionTitle(page: PDFPage, theme: Theme, fonts: Fonts, label: stri
 }
 
 // ============ DIAGRAMS (premium, vertical-first, auto-fit) ============
-function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fonts: Fonts) {
+function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fonts: Fonts): { overflowNodes: number; truncatedNodes: number } {
   drawSectionTitle(page, theme, fonts, "Framework");
   const name = safe(d.visual_name || "").slice(0, 80);
   page.drawText(name, { x: MARGIN, y: PAGE_H - 160, size: 14, font: fonts.bold, color: theme.ink });
@@ -640,6 +704,70 @@ function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fo
   const areaH = top - bottom;
   const nodes = (d.nodes ?? []).map((n) => safe(n)).filter(Boolean);
   const type = (d.type || "checklist").toLowerCase();
+
+  // QC pre-pass: count how many nodes would not fit (cropped off page)
+  // and how many wrap to more lines than the renderer caps at.
+  const qc = { overflowNodes: 0, truncatedNodes: 0 };
+  const measureTruncate = (text: string, font: PDFFont, size: number, maxW: number, cap: number) => {
+    const total = wrap(text, font, size, maxW).length;
+    if (total > cap) qc.truncatedNodes++;
+  };
+  switch (type) {
+    case "process_flow": {
+      const n = Math.max(nodes.length, 1);
+      const boxH = Math.max(40, Math.min(72, (areaH - 10 * (n - 1)) / n));
+      const totalH = boxH * n + 10 * (n - 1);
+      if (totalH > areaH) qc.overflowNodes += Math.max(0, Math.ceil((totalH - areaH) / (boxH + 10)));
+      for (const t of nodes) measureTruncate(t, fonts.bold, 11, CONTENT_W - 70, 3);
+      break;
+    }
+    case "pyramid":
+      for (const t of nodes) measureTruncate(t, fonts.bold, 11, CONTENT_W - 24, 2);
+      break;
+    case "matrix_2x2": {
+      const size = Math.min(CONTENT_W, areaH);
+      const half = size / 2;
+      for (let i = 0; i < Math.min(4, nodes.length); i++) measureTruncate(nodes[i], fonts.bold, 11, half - 20, 4);
+      if (nodes.length > 4) qc.overflowNodes += nodes.length - 4;
+      break;
+    }
+    case "circle_cycle": {
+      const n = Math.max(nodes.length, 1);
+      const cardH = Math.max(46, Math.min(64, (areaH - 10 * (n - 1)) / n));
+      const totalH = cardH * n + 10 * (n - 1);
+      if (totalH > areaH) qc.overflowNodes += Math.max(0, Math.ceil((totalH - areaH) / (cardH + 10)));
+      for (const t of nodes) measureTruncate(t, fonts.bold, 11, CONTENT_W - 70, 3);
+      break;
+    }
+    case "comparison_table": {
+      const cols = 2;
+      const colW = CONTENT_W / cols;
+      let used = 0;
+      for (let r = 0; r < Math.ceil(nodes.length / cols); r++) {
+        let h = 30;
+        for (let c = 0; c < cols; c++) {
+          const idx = r * cols + c;
+          if (idx >= nodes.length) continue;
+          const lines = wrap(nodes[idx], r === 0 ? fonts.bold : fonts.reg, 10, colW - 16).length;
+          h = Math.max(h, lines * 14 + 18);
+        }
+        used += h;
+        if (used > areaH) qc.overflowNodes += Math.min(cols, nodes.length - r * cols);
+      }
+      break;
+    }
+    case "checklist":
+    default: {
+      let used = 0;
+      for (const it of nodes) {
+        const h = Math.max(20, wrap(it, fonts.reg, 11, CONTENT_W - 28).length * 15 + 6) + 8;
+        used += h;
+        if (used > areaH) qc.overflowNodes++;
+      }
+      break;
+    }
+  }
+
 
   switch (type) {
     case "process_flow": {
@@ -813,6 +941,7 @@ function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fo
       break;
     }
   }
+  return qc;
 }
 
 // ============ WORKSHEET (printable, premium) ============
@@ -913,12 +1042,19 @@ function looksFinance(s: string): boolean {
 function computePdfQc(x: {
   pageCount: number; chapters: number; diagrams: number; worksheets: number;
   hasCover: boolean; coverScore: number; hasToc: boolean; hasDisclaimer: boolean;
+  diagramOverflowCount?: number; diagramTruncatedCount?: number;
 }) {
   const coverPremiumScore = x.hasCover ? Math.min(100, Math.round(60 + x.coverScore * 0.4)) : 50;
   const thumbnailReadabilityScore = Math.min(100, Math.max(70, Math.round(x.coverScore || 80)));
   const interiorLayoutScore = Math.min(100, 70 + (x.hasToc ? 10 : 0) + (x.chapters >= 4 ? 10 : 0) + (x.pageCount >= 20 ? 10 : 0));
   const worksheetQualityScore = Math.min(100, 70 + Math.min(20, x.worksheets * 3) + 5);
-  const diagramQualityScore = Math.min(100, 70 + Math.min(20, x.diagrams * 5) + 5);
+  const overflow = x.diagramOverflowCount ?? 0;
+  const truncated = x.diagramTruncatedCount ?? 0;
+  // Diagram penalty: each cropped node -8, each truncated label -3 (cap penalty at base score)
+  const diagramQualityScore = Math.max(
+    40,
+    Math.min(100, 70 + Math.min(20, x.diagrams * 5) + 5 - overflow * 8 - truncated * 3),
+  );
   const productValueScore = Math.min(100, 70 + Math.min(15, x.diagrams * 2 + x.worksheets * 2) + (x.hasDisclaimer ? 5 : 0) + 5);
   const finalPdfPremiumScore = Math.round(
     coverPremiumScore * 0.25 + thumbnailReadabilityScore * 0.15 +
@@ -930,7 +1066,7 @@ function computePdfQc(x: {
     thumbnail: thumbnailReadabilityScore >= 90,
     interior: interiorLayoutScore >= 85,
     worksheet: worksheetQualityScore >= 85,
-    diagram: diagramQualityScore >= 85,
+    diagram: diagramQualityScore >= 85 && overflow === 0,
     final: finalPdfPremiumScore >= 90,
   };
   const issues: string[] = [];
@@ -938,13 +1074,17 @@ function computePdfQc(x: {
   if (!passes.thumbnail) issues.push("Cover may not read at thumbnail size.");
   if (!passes.interior) issues.push("Add more structure (TOC, chapter dividers, more pages).");
   if (!passes.worksheet) issues.push("Add more or higher-quality worksheets.");
-  if (!passes.diagram) issues.push("Add more framework diagrams.");
+  if (!passes.diagram) issues.push(overflow > 0
+    ? `${overflow} diagram node(s) cropped off page — shorten labels or split diagram.`
+    : "Add more framework diagrams.");
+  if (truncated > 0) issues.push(`${truncated} diagram label(s) truncated mid-text — shorten node text.`);
   if (!passes.final) issues.push("Overall premium score below 90.");
   return {
     pages: x.pageCount,
     coverPremiumScore, thumbnailReadabilityScore, interiorLayoutScore,
     worksheetQualityScore, diagramQualityScore, productValueScore,
     finalPdfPremiumScore, passes, issues,
+    diagramOverflowCount: overflow, diagramTruncatedCount: truncated,
     blocked_for_publish: !(passes.cover && passes.thumbnail && passes.interior && passes.worksheet && passes.diagram && passes.final),
   };
 }
