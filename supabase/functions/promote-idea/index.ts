@@ -40,8 +40,8 @@ Deno.serve(async (req) => {
     const outlineModel = pickModel(mode, "content");
     const outlineAI = await aiJSON<Outline>({
       model: outlineModel,
-      system: `You design premium ebook outlines. Each chapter must deliver a specific transformation, not fluff.`,
-      user: `Title: ${idea.title}\nSubtitle: ${idea.subtitle}\nTarget buyer: ${idea.target_buyer}\nHook: ${idea.hook}\n\nDesign a table of contents with EXACTLY 10 chapters. Each chapter should have a specific title (not generic like "Introduction") and a 2-3 sentence brief on what transformation the chapter delivers.\nAlso design these premium bonus sections: a checklist, a worksheet (with prompts), a templates section, and a 7-day action plan.\n\nReturn JSON: { "toc": [{"title": "...", "brief": "..."}, ...10 items], "bonuses": { "checklist": "...", "worksheet": "...", "templates": "...", "action_plan_7day": "..." } }`,
+      system: PREMIUM_WRITER_SYSTEM + `\n\nYou are now designing the ebook OUTLINE. Each chapter must deliver a specific transformation, not fluff. Use 8-12 chapters when the topic supports it; this product asks for exactly 10.`,
+      user: `Title: ${idea.title}\nSubtitle: ${idea.subtitle}\nTarget buyer: ${idea.target_buyer}\nHook: ${idea.hook}\n\nDesign a table of contents with EXACTLY 10 chapters. Each chapter title must be specific (not "Introduction") and each brief must be 2-3 sentences naming the transformation that chapter delivers.\nAlso design these premium bonus sections: a checklist, a worksheet (with prompts), a templates section, and a 7-day action plan.\n\nReturn JSON: { "toc": [{"title": "...", "brief": "..."}, ...10 items], "bonuses": { "checklist": "...", "worksheet": "...", "templates": "...", "action_plan_7day": "..." } }`,
     });
     totalCost += outlineAI.usage.cost_usd;
     await logCost(db, { ebook_id: ebook.id, step: "outline", model: outlineAI.model, ...outlineAI.usage });
