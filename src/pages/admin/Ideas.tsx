@@ -49,6 +49,9 @@ export default function Ideas() {
   const [improveOpen, setImproveOpen] = useState<Idea | null>(null);
   const [feedback, setFeedback] = useState("");
   const [showRawIds, setShowRawIds] = useState<Set<string>>(new Set());
+  const [premiumOpen, setPremiumOpen] = useState<Idea | null>(null);
+  const [premiumLoading, setPremiumLoading] = useState(false);
+  const [premiumResult, setPremiumResult] = useState<PremiumResult | null>(null);
 
   const load = async () => {
     const [{ data: ideas }, { data: c }] = await Promise.all([
