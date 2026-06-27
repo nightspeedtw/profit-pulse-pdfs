@@ -65,6 +65,13 @@ export default function Dashboard() {
       ebooksPublished: ebooksPublished ?? 0,
       costToday: (costs ?? []).reduce((s, r) => s + Number(r.cost_usd ?? 0), 0),
     });
+    const { data: jobs } = await supabase
+      .from("generation_jobs")
+      .select("id,type,status,error,attempts,ebook_id,idea_id,created_at")
+      .in("status", ["failed", "error"])
+      .order("created_at", { ascending: false })
+      .limit(10);
+    setFailedJobs((jobs ?? []) as FailedJob[]);
   };
 
   useEffect(() => {
