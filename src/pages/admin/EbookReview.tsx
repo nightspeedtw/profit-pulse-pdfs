@@ -21,7 +21,7 @@ interface Ebook {
   cover_prompt: string | null; cover_url: string | null; pdf_url: string | null;
   word_count: number; qc: Record<string, unknown>; price: number; vendor: string;
   product_type: string; shopify_product_id: string | null; status: string;
-  cost_usd: number;
+  cost_usd: number; updated_at: string;
 }
 
 export default function EbookReview() {
