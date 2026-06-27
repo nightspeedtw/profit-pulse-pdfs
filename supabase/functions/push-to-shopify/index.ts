@@ -3,17 +3,36 @@ import { corsHeaders, admin, requireAdmin } from "../_shared/ai.ts";
 
 const API_VERSION = "2025-07";
 
+async function appendEvent(db: ReturnType<typeof admin>, ebook_id: string, ev: { kind: "queued" | "success" | "failed"; action: "push" | "publish"; message?: string; error?: string; meta?: Record<string, unknown> }) {
+  const { data: row } = await db.from("ebooks").select("shopify_events").eq("id", ebook_id).single();
+  const prev = Array.isArray(row?.shopify_events) ? row!.shopify_events : [];
+  const entry = { at: new Date().toISOString(), ...ev };
+  const next = [...prev, entry].slice(-30);
+  const patch: Record<string, unknown> = {
+    shopify_events: next,
+    shopify_last_event_at: entry.at,
+  };
+  if (ev.kind === "failed") patch.shopify_last_error = ev.error ?? ev.message ?? "Unknown error";
+  if (ev.kind === "success") patch.shopify_last_error = null;
+  await db.from("ebooks").update(patch).eq("id", ebook_id);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  let ebookIdForCatch: string | undefined;
   try {
     await requireAdmin(req);
     const db = admin();
     const { ebook_id } = await req.json();
     if (!ebook_id) throw new Error("ebook_id required");
+    ebookIdForCatch = ebook_id;
 
     const token = Deno.env.get("SHOPIFY_ADMIN_TOKEN");
     const domain = Deno.env.get("SHOPIFY_STORE_DOMAIN") ?? "digital-wealth-hub-49qgj.myshopify.com";
     if (!token) throw new Error("SHOPIFY_ADMIN_TOKEN secret not set. Create a custom app in Shopify Admin → Apps → Develop apps, install it, copy the Admin API access token, then add it as the SHOPIFY_ADMIN_TOKEN secret.");
+
+    await db.from("ebooks").update({ shopify_status: "queued" }).eq("id", ebook_id);
+    await appendEvent(db, ebook_id, { kind: "queued", action: "push", message: "Uploading draft to Shopify…" });
 
     const { data: e } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
     if (!e) throw new Error("Ebook not found");
@@ -67,14 +86,27 @@ Deno.serve(async (req) => {
     const p = j.product;
 
     await db.from("ebooks").update({
-      shopify_product_id: String(p.id), shopify_handle: p.handle, status: "uploaded",
+      shopify_product_id: String(p.id), shopify_handle: p.handle, status: "uploaded", shopify_status: "draft",
     }).eq("id", ebook_id);
+    await appendEvent(db, ebook_id, {
+      kind: "success", action: "push",
+      message: `Draft uploaded to Shopify (handle: ${p.handle})`,
+      meta: { product_id: p.id, handle: p.handle },
+    });
 
     return new Response(JSON.stringify({ product_id: p.id, handle: p.handle, admin_url: `https://${domain}/admin/products/${p.id}` }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (ebookIdForCatch) {
+      try {
+        const db = admin();
+        await db.from("ebooks").update({ shopify_status: "failed" }).eq("id", ebookIdForCatch);
+        await appendEvent(db, ebookIdForCatch, { kind: "failed", action: "push", error: msg.slice(0, 800) });
+      } catch { /* ignore */ }
+    }
+    return new Response(JSON.stringify({ error: msg }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
