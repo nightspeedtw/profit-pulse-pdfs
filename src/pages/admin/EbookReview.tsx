@@ -78,8 +78,8 @@ export default function EbookReview() {
     try {
       const { error } = await supabase.functions.invoke(fn, { body: { ebook_id: e.id } });
       if (error) throw error;
-      toast.success(`${fn} done`);
-      load();
+      toast.success(fn === "resume-generation" ? "Resume started — generating in background." : `${fn} done`);
+      await load();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : `${fn} failed`);
     } finally { setBusy(null); }

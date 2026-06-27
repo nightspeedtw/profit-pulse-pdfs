@@ -6,6 +6,18 @@ import { PREMIUM_WRITER_SYSTEM, HARDSELL_COPYWRITER_SYSTEM } from "../_shared/pr
 interface Marketing { product_description: string; seo_title: string; seo_meta: string; tags: string[]; cover_prompt: string }
 interface TocItem { title: string; brief: string }
 
+async function updateEbook(db: ReturnType<typeof admin>, ebookId: string, values: Record<string, unknown>) {
+  const { error } = await db.from("ebooks").update(values).eq("id", ebookId);
+  if (error) throw new Error(`Failed to update ebook: ${error.message}`);
+}
+
+function wordCount(chapters: { content: string }[]) {
+  return chapters.reduce((sum, chapter) => {
+    const text = chapter.content?.trim() ?? "";
+    return sum + (text ? text.split(/\s+/).length : 0);
+  }, 0);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -35,6 +47,20 @@ Deno.serve(async (req) => {
     // Aim ~20% over target so the final book reliably clears minWords even if the model under-delivers.
     const wordsPerChapter = Math.max(1800, Math.ceil((minWords * 1.2) / Math.max(total, 1)));
 
+    if (startIdx >= total && ebook.product_description) {
+      await updateEbook(db, ebook.id, {
+        word_count: wordCount(existing),
+        status: "ready_for_qc",
+      });
+      return new Response(JSON.stringify({ ok: true, completed: true, total }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    await updateEbook(db, ebook.id, {
+      status: startIdx < total ? `writing:${startIdx + 1}/${total}` : "marketing",
+    });
+
     const background = (async () => {
       try {
         const chapters = [...existing];
@@ -42,7 +68,7 @@ Deno.serve(async (req) => {
 
         for (let i = startIdx; i < total; i++) {
           const ch = toc[i];
-          await db.from("ebooks").update({ status: `writing:${i + 1}/${total}` }).eq("id", ebook.id);
+          await updateEbook(db, ebook.id, { status: `writing:${i + 1}/${total}` });
 
           const chAI = await aiText({
             model: writeModel,
@@ -53,14 +79,14 @@ Deno.serve(async (req) => {
           chapters.push({ title: ch.title, content: chAI.data });
           cost += chAI.usage.cost_usd;
 
-          const wc = chapters.reduce((s, c) => s + c.content.split(/\s+/).length, 0);
-          await db.from("ebooks").update({
+          const wc = wordCount(chapters);
+          await updateEbook(db, ebook.id, {
             chapters, word_count: wc, cost_usd: cost,
             status: i + 1 < total ? `writing:${i + 1}/${total}` : `marketing`,
-          }).eq("id", ebook.id);
+          });
         }
 
-        const wordCount = chapters.reduce((s, c) => s + c.content.split(/\s+/).length, 0);
+        const finalWordCount = wordCount(chapters);
 
         // Marketing copy (skip if already present)
         if (!ebook.product_description) {
@@ -73,28 +99,29 @@ Deno.serve(async (req) => {
           cost += mktAI.usage.cost_usd;
           await logCost(db, { ebook_id: ebook.id, step: "marketing", model: mktAI.model, ...mktAI.usage });
 
-          await db.from("ebooks").update({
-            chapters, word_count: wordCount,
+          await updateEbook(db, ebook.id, {
+            chapters, word_count: finalWordCount,
             product_description: mktAI.data.product_description,
             seo_title: mktAI.data.seo_title, seo_meta: mktAI.data.seo_meta,
             tags: mktAI.data.tags, cover_prompt: mktAI.data.cover_prompt,
             cost_usd: cost, status: "ready_for_qc",
-          }).eq("id", ebook.id);
+          });
         } else {
-          await db.from("ebooks").update({
-            chapters, word_count: wordCount, cost_usd: cost, status: "ready_for_qc",
-          }).eq("id", ebook.id);
+          await updateEbook(db, ebook.id, {
+            chapters, word_count: finalWordCount, cost_usd: cost, status: "ready_for_qc",
+          });
         }
       } catch (err) {
         console.error("resume-generation failed:", err);
-        await db.from("ebooks").update({ status: "failed" }).eq("id", ebook.id);
+        const message = err instanceof Error ? err.message : String(err);
+        await db.from("ebooks").update({ status: "failed", qc: { generation_error: message } }).eq("id", ebook.id);
       }
     })();
 
     // @ts-ignore - EdgeRuntime is available in Supabase edge runtime
     if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(background);
 
-    return new Response(JSON.stringify({ ok: true, resumed_from: startIdx, total }), {
+    return new Response(JSON.stringify({ ok: true, started: true, resumed_from: startIdx, total, next_chapter: Math.min(startIdx + 1, total) }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
