@@ -9,7 +9,8 @@ Deno.serve(async (req) => {
   try {
     await requireAdmin(req);
     const db = admin();
-    const { ebook_id } = await req.json();
+    const reqBody = await req.json();
+    const { ebook_id, auto_fix = true } = reqBody;
     if (!ebook_id) throw new Error("ebook_id required");
     const { data: e } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
     if (!e) throw new Error("Ebook not found");
@@ -51,9 +52,29 @@ Deno.serve(async (req) => {
       (ai.data.value_score ?? 0) >= 6;
 
     const newStatus = passed ? "approved" : "qc_failed";
+    const fixAttempts = Number((e.qc as Record<string, unknown> | null)?.fix_attempts ?? 0);
+    (qc as Record<string, unknown>).fix_attempts = fixAttempts;
     await db.from("ebooks").update({ qc, status: newStatus, cost_usd: Number(e.cost_usd) + ai.usage.cost_usd }).eq("id", ebook_id);
 
-    return new Response(JSON.stringify({ status: newStatus, qc, passed }), {
+    // Auto-fix loop: if failed and we haven't tried too many times, kick off qc-fix in the background.
+    let auto_fix_triggered = false;
+    if (!passed && auto_fix && fixAttempts < 2) {
+      auto_fix_triggered = true;
+      await db.from("ebooks").update({ qc: { ...qc, fix_attempts: fixAttempts + 1 } }).eq("id", ebook_id);
+      const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/qc-fix`;
+      const auth = req.headers.get("authorization") ?? "";
+      // Fire-and-forget so the client gets a fast response
+      // deno-lint-ignore no-explicit-any
+      (globalThis as any).EdgeRuntime?.waitUntil?.(
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", authorization: auth },
+          body: JSON.stringify({ ebook_id }),
+        }).catch((err) => console.error("auto qc-fix failed", err)),
+      );
+    }
+
+    return new Response(JSON.stringify({ status: newStatus, qc, passed, auto_fix_triggered }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
