@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
     if (iErr || !idea) throw new Error("Idea not found");
     const { data: settings } = await db.from("generation_settings").select("*").eq("id", 1).single();
     const mode = settings?.mode ?? "hybrid";
-    const minWords: number = Number(settings?.min_word_count ?? 8000);
+    const minWords: number = Number(settings?.min_word_count ?? 18000);
 
     const { data: cat } = idea.category_id
       ? await db.from("categories").select("*").eq("id", idea.category_id).single()
