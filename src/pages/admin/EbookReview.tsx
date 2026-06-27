@@ -42,6 +42,15 @@ interface Ebook {
   cover_spec: CoverSpec | null; cover_qc: CoverQC | null; cover_score: number | null;
   cover_approved: boolean; interior_visuals: InteriorVisuals | null;
   pdf_url: string | null;
+  pdf_qc: {
+    cover_premium_score?: number; thumbnail_readability_score?: number;
+    interior_layout_score?: number; worksheet_quality_score?: number;
+    diagram_quality_score?: number; product_value_score?: number;
+    final_pdf_premium_score?: number; blocked_for_publish?: boolean; notes?: string[];
+  } | null;
+  conversion_score: number | null; final_quality_score: number | null;
+  compliance_safety_score: number | null; shopify_status: string | null;
+  auto_approved: boolean; auto_publish: boolean; final_approved: boolean;
   word_count: number; qc: Record<string, unknown>; price: number; vendor: string;
   product_type: string; shopify_product_id: string | null; status: string;
   cost_usd: number; updated_at: string;
