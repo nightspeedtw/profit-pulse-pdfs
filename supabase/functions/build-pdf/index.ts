@@ -941,6 +941,7 @@ function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fo
       break;
     }
   }
+  return qc;
 }
 
 // ============ WORKSHEET (printable, premium) ============
