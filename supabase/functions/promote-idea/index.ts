@@ -49,40 +49,56 @@ Deno.serve(async (req) => {
       toc: outlineAI.data.toc, bonuses: outlineAI.data.bonuses, status: "writing",
     }).eq("id", ebook.id);
 
-    // 2. Generate each chapter (target ~1000 words/chapter)
+    // 2. Generate chapters + marketing in background (exceeds 150s sync limit)
     const wordsPerChapter = Math.max(1500, Math.min(1800, Math.ceil(minWords / Math.max(outlineAI.data.toc.length, 1))));
-    const chapters: { title: string; content: string }[] = [];
-    for (const ch of outlineAI.data.toc) {
-      const chAI = await aiText({
-        model: outlineModel,
-        system: `You write premium, useful, plainspoken English ebook chapters. No fluff, no filler, no AI tells. Use specific examples, concrete numbers, and short paragraphs. Markdown allowed (## subheads, bullets, > callouts).`,
-        user: `Ebook: "${idea.title}" — ${idea.subtitle}\nReader: ${idea.target_buyer}\n\nWrite Chapter "${ch.title}" (~${wordsPerChapter} words). Brief: ${ch.brief}\n\nDo NOT include the chapter number or the word "Chapter" in the body. Start with a hook paragraph. End with a one-line key takeaway.`,
-      });
-      chapters.push({ title: ch.title, content: chAI.data });
-      totalCost += chAI.usage.cost_usd;
-      await logCost(db, { ebook_id: ebook.id, step: `chapter:${ch.title}`.slice(0, 80), model: chAI.model, ...chAI.usage });
-    }
-    const wordCount = chapters.reduce((s, c) => s + c.content.split(/\s+/).length, 0);
 
-    // 3. Marketing copy
-    const mktModel = pickModel(mode, "marketing");
-    const mktAI = await aiJSON<Marketing>({
-      model: mktModel,
-      system: `You write ethical, honest, persuasive product copy for digital ebooks. Use real benefits, never hype. No fake scarcity. No medical/financial guarantees.`,
-      user: `Ebook: "${idea.title}" — ${idea.subtitle}\nReader: ${idea.target_buyer}\nHook: ${idea.hook}\nTOC: ${outlineAI.data.toc.map((t) => t.title).join("; ")}\nBonuses: ${Object.values(outlineAI.data.bonuses).join(" | ")}\n\nWrite a Shopify product description in markdown using this structure:\n1) Strong hook\n2) The pain (1-2 sentences)\n3) The transformation (1-2 sentences)\n4) Clear benefits (4-6 bullets)\n5) What's inside (chapter list + bonuses)\n6) Who it's for (3 bullets)\n7) Bonus value\n8) FAQ (3 Q&A)\n9) Strong, honest CTA (no fake urgency)\n\nReturn JSON: { "product_description": "...", "seo_title": "<=60 chars", "seo_meta": "<=160 chars", "tags": ["...", "..."], "cover_prompt": "single-paragraph image-generation prompt that matches: ${cat?.cover_style_prompt ?? "premium minimalist editorial style"}" }`,
-    });
-    totalCost += mktAI.usage.cost_usd;
-    await logCost(db, { ebook_id: ebook.id, step: "marketing", model: mktAI.model, ...mktAI.usage });
+    const background = (async () => {
+      try {
+        // Parallel chapter generation
+        const chapterResults = await Promise.all(
+          outlineAI.data.toc.map(async (ch) => {
+            const chAI = await aiText({
+              model: outlineModel,
+              system: `You write premium, useful, plainspoken English ebook chapters. No fluff, no filler, no AI tells. Use specific examples, concrete numbers, and short paragraphs. Markdown allowed (## subheads, bullets, > callouts).`,
+              user: `Ebook: "${idea.title}" — ${idea.subtitle}\nReader: ${idea.target_buyer}\n\nWrite Chapter "${ch.title}" (~${wordsPerChapter} words). Brief: ${ch.brief}\n\nDo NOT include the chapter number or the word "Chapter" in the body. Start with a hook paragraph. End with a one-line key takeaway.`,
+            });
+            await logCost(db, { ebook_id: ebook.id, step: `chapter:${ch.title}`.slice(0, 80), model: chAI.model, ...chAI.usage });
+            return { title: ch.title, content: chAI.data, cost: chAI.usage.cost_usd };
+          }),
+        );
+        const chapters = chapterResults.map((r) => ({ title: r.title, content: r.content }));
+        let cost = totalCost + chapterResults.reduce((s, r) => s + r.cost, 0);
+        const wordCount = chapters.reduce((s, c) => s + c.content.split(/\s+/).length, 0);
 
-    await db.from("ebooks").update({
-      chapters, word_count: wordCount,
-      product_description: mktAI.data.product_description,
-      seo_title: mktAI.data.seo_title, seo_meta: mktAI.data.seo_meta,
-      tags: mktAI.data.tags, cover_prompt: mktAI.data.cover_prompt,
-      cost_usd: totalCost,
-    }).eq("id", ebook.id);
+        // 3. Marketing copy
+        const mktModel = pickModel(mode, "marketing");
+        const mktAI = await aiJSON<Marketing>({
+          model: mktModel,
+          system: `You write ethical, honest, persuasive product copy for digital ebooks. Use real benefits, never hype. No fake scarcity. No medical/financial guarantees.`,
+          user: `Ebook: "${idea.title}" — ${idea.subtitle}\nReader: ${idea.target_buyer}\nHook: ${idea.hook}\nTOC: ${outlineAI.data.toc.map((t) => t.title).join("; ")}\nBonuses: ${Object.values(outlineAI.data.bonuses).join(" | ")}\n\nWrite a Shopify product description in markdown using this structure:\n1) Strong hook\n2) The pain (1-2 sentences)\n3) The transformation (1-2 sentences)\n4) Clear benefits (4-6 bullets)\n5) What's inside (chapter list + bonuses)\n6) Who it's for (3 bullets)\n7) Bonus value\n8) FAQ (3 Q&A)\n9) Strong, honest CTA (no fake urgency)\n\nReturn JSON: { "product_description": "...", "seo_title": "<=60 chars", "seo_meta": "<=160 chars", "tags": ["...", "..."], "cover_prompt": "single-paragraph image-generation prompt that matches: ${cat?.cover_style_prompt ?? "premium minimalist editorial style"}" }`,
+        });
+        cost += mktAI.usage.cost_usd;
+        await logCost(db, { ebook_id: ebook.id, step: "marketing", model: mktAI.model, ...mktAI.usage });
 
-    return new Response(JSON.stringify({ ebook_id: ebook.id, word_count: wordCount, cost_usd: totalCost }), {
+        await db.from("ebooks").update({
+          chapters, word_count: wordCount,
+          product_description: mktAI.data.product_description,
+          seo_title: mktAI.data.seo_title, seo_meta: mktAI.data.seo_meta,
+          tags: mktAI.data.tags, cover_prompt: mktAI.data.cover_prompt,
+          cost_usd: cost, status: "ready_for_qc",
+        }).eq("id", ebook.id);
+      } catch (err) {
+        await db.from("ebooks").update({
+          status: "failed",
+          error: err instanceof Error ? err.message : String(err),
+        }).eq("id", ebook.id);
+      }
+    })();
+
+    // @ts-ignore - EdgeRuntime is available in Supabase edge runtime
+    if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(background);
+
+    return new Response(JSON.stringify({ ebook_id: ebook.id, status: "writing", async: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
@@ -91,3 +107,4 @@ Deno.serve(async (req) => {
     });
   }
 });
+
