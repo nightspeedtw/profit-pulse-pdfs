@@ -2,9 +2,15 @@
 import { corsHeaders, admin, aiJSON, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 
 interface Scores { urgency: number; transformation: number; commercial: number; evergreen: number; emotional: number; clarity: number }
+interface ValueBoosters {
+  checklist: string; template: string; workbook: string; calculator: string; action_plan: string;
+}
 interface Improved {
   title: string; subtitle: string; target_buyer: string; hook: string;
+  pain_point: string; emotional_fear: string; transformation: string;
+  value_boosters: ValueBoosters; why_it_sells: string;
   scores: Scores; rationale: string;
+  recommended_action: "Generate Ebook" | "Improve Again" | "Reject";
 }
 
 Deno.serve(async (req) => {
