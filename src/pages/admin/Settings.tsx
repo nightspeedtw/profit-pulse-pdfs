@@ -125,19 +125,20 @@ export default function SettingsPage() {
         <CardContent className="grid grid-cols-2 gap-4">
           <div>
             <Label>Min total idea score (0–60)</Label>
-            <Input type="number" value={s.min_score_threshold} onChange={(e) => setS({ ...s, min_score_threshold: Number(e.target.value) })} />
+            <Input type="number" value={s.min_score_threshold ?? ""} onChange={(e) => setS({ ...s, min_score_threshold: e.target.value === "" ? 0 : Number(e.target.value) })} />
           </div>
           <div>
             <Label>Min word count</Label>
-            <Input type="number" value={s.min_word_count} onChange={(e) => setS({ ...s, min_word_count: Number(e.target.value) })} />
+            <Input type="number" value={s.min_word_count ?? ""} onChange={(e) => setS({ ...s, min_word_count: e.target.value === "" ? 0 : Number(e.target.value) })} />
+            <p className="text-xs text-muted-foreground mt-1">Recommended: 18,000 (70–90 page PDF, 10 chapters × 1,500–1,800 words)</p>
           </div>
           <div>
             <Label>Max refund risk (0–10)</Label>
-            <Input type="number" value={s.max_refund_risk} onChange={(e) => setS({ ...s, max_refund_risk: Number(e.target.value) })} />
+            <Input type="number" value={s.max_refund_risk ?? ""} onChange={(e) => setS({ ...s, max_refund_risk: e.target.value === "" ? 0 : Number(e.target.value) })} />
           </div>
           <div>
             <Label>Daily budget (USD)</Label>
-            <Input type="number" step="0.01" value={s.daily_budget_usd} onChange={(e) => setS({ ...s, daily_budget_usd: Number(e.target.value) })} />
+            <Input type="number" step="0.01" value={s.daily_budget_usd ?? ""} onChange={(e) => setS({ ...s, daily_budget_usd: e.target.value === "" ? 0 : Number(e.target.value) })} />
           </div>
         </CardContent>
       </Card>
