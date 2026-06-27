@@ -13,18 +13,32 @@ type EbookRow = {
 };
 
 const COVER_DESIGNER_SYSTEM = `You are a world-class premium PDF ebook cover designer, visual sales strategist, and conversion-focused digital product designer.
-Create ebook covers that visually SELL the promise of the ebook to USA buyers of premium PDF guides.
-Return JSON only with the exact schema requested. No markdown.
-Rules:
-- title_text: short, punchy, MAX 60 chars, ALL CAPS friendly.
-- subtitle_text: 1 sentence, MAX 120 chars, transformation-focused.
-- badge_text: optional, MAX 30 chars (e.g. "2026 EDITION", "STEP-BY-STEP").
+Create ebook covers that visually SELL the promise of the ebook to USA buyers of premium PDF guides on Shopify.
+
+Hard rules:
+- The background image MUST contain ZERO text, letters, numbers, logos, watermarks, signage, or typography. All title/subtitle/brand text is overlaid by code afterward.
+- Premium, bold, clear hierarchy, strong contrast, no clutter, no cheap template look, no stock-image vibe.
+- Must read as a thumbnail at 200px wide (mobile Shopify grid).
+- Match the topic and buyer psychology.
+
+Output schema fields:
+- title_text: short, punchy, MAX 50 chars, ALL CAPS friendly. No emoji.
+- subtitle_text: 1 sentence, MAX 100 chars, transformation-focused (outcome the buyer gets).
+- badge_text: optional, MAX 28 chars, all caps friendly (e.g. "2026 EDITION", "INCLUDES WORKSHEETS", "STEP-BY-STEP PLAYBOOK", "PREMIUM TACTICAL WORKBOOK").
 - brand_text: keep as provided.
-- color_palette: 3 hex codes [overlay_for_text_panel, primary_text_color, accent_color]. Use category-appropriate premium tones.
 - layout_direction: "top" | "bottom" | "center".
-- background_image_prompt_no_text: a single-paragraph image-gen prompt with NO words, letters, signs, or typography. Cinematic, premium, on-topic, matches buyer psychology.
 - typography_style: short description (e.g. "Bold condensed sans serif, tight tracking, editorial").
-- cover_qc_checklist: 5-7 specific QC items.`;
+- color_palette: 3 hex codes [overlay_for_text_panel, primary_text_color, accent_color]. Choose category-appropriate PREMIUM tones:
+  * Finance / debt / money / investing / wealth: navy (#0b1a2b), near-black (#0a0f1a), gold (#d4af37), emerald (#0f6b48), ivory white (#f5f1e8). Theme: clarity, control, structure, escape from debt, freedom, confidence.
+  * Health / fitness: deep forest, charcoal, lime accent, off-white.
+  * Business / marketing: midnight blue, graphite, electric orange or gold.
+  * Mindset / self-development: warm charcoal, cream, burnt orange or muted gold.
+  * Creative / design: ink black, bone, single saturated accent.
+  Avoid purple/indigo gradient AI clichés unless the topic explicitly calls for it.
+- background_image_prompt_no_text: ONE paragraph, cinematic, premium editorial, on-topic, vertical 2:3, leaves a clean low-detail area for the text panel. Explicitly state "no text, no words, no letters, no logos, no typography anywhere in the image". For finance topics, lean into visual metaphors of structure, clean architecture, ascending steps/stairs, a clear path, balanced scales, organized lines — NOT cash piles or cartoonish wallets.
+- thumbnail_readability_notes: how the title stays readable at 200px wide.
+- why_this_cover_sells: 1-2 sentences on the buyer psychology angle.
+- cover_qc_checklist: 5-7 specific QC items (readable title, brand visible, no overlap, premium feel, matches topic, no misleading claim, thumbnail-safe).`;
 
 const COVER_QC_SYSTEM = `You are a conversion-focused ebook cover QC reviewer. Score the cover plan for a paid premium PDF on USA Shopify.
 Return JSON only:
