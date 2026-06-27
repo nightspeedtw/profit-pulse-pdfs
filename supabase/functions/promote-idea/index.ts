@@ -51,7 +51,8 @@ Deno.serve(async (req) => {
     }).eq("id", ebook.id);
 
     // 2. Generate chapters + marketing in background (exceeds 150s sync limit)
-    const wordsPerChapter = Math.max(1500, Math.min(1800, Math.ceil(minWords / Math.max(outlineAI.data.toc.length, 1))));
+    // Aim ~20% over target so the final book reliably clears minWords even if the model under-delivers.
+    const wordsPerChapter = Math.max(1800, Math.ceil((minWords * 1.2) / Math.max(outlineAI.data.toc.length, 1)));
 
     const background = (async () => {
       try {
@@ -70,7 +71,7 @@ Deno.serve(async (req) => {
           const chAI = await aiText({
             model: outlineModel,
             system: PREMIUM_WRITER_SYSTEM,
-            user: `Ebook: "${idea.title}" — ${idea.subtitle}\nReader: ${idea.target_buyer}\nHook: ${idea.hook}\n\nWrite Chapter "${ch.title}" (~${wordsPerChapter} words). Brief: ${ch.brief}\n\nFollow the chapter structure (objective → main teaching → practical example → common mistake → step-by-step → quick checklist → key takeaway). Do NOT include the chapter number or the word "Chapter" in the body. Start with a hook paragraph that names the reader's specific pain. End with a one-line key takeaway.`,
+            user: `Ebook: "${idea.title}" — ${idea.subtitle}\nReader: ${idea.target_buyer}\nHook: ${idea.hook}\n\nWrite Chapter "${ch.title}". Brief: ${ch.brief}\n\nHARD REQUIREMENT: minimum ${wordsPerChapter} words. Do not stop early. Expand each section with concrete examples, scripts, numbers, and step-by-step detail until you exceed the minimum.\n\nFollow the chapter structure (objective → main teaching → practical example → common mistake → step-by-step → quick checklist → key takeaway). Do NOT include the chapter number or the word "Chapter" in the body. Start with a hook paragraph that names the reader's specific pain. End with a one-line key takeaway.`,
           });
           await logCost(db, { ebook_id: ebook.id, step: `chapter:${ch.title}`.slice(0, 80), model: chAI.model, ...chAI.usage });
           chapters.push({ title: ch.title, content: chAI.data });
