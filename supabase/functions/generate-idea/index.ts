@@ -1,4 +1,5 @@
 import { corsHeaders, admin, aiJSON, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
+import { improveIdea, applyImprovement } from "../_shared/improve.ts";
 
 interface Scores { urgency: number; transformation: number; commercial: number; evergreen: number; emotional: number; clarity: number }
 interface IdeaOut { title: string; subtitle: string; target_buyer: string; hook: string; scores: Scores; rationale: string }
