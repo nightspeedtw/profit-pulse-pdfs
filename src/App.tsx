@@ -12,6 +12,15 @@ import Product from "./pages/Product.tsx";
 import Bundles from "./pages/Bundles.tsx";
 import About from "./pages/About.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import AdminLogin from "./pages/admin/Login.tsx";
+import AdminLayout from "./pages/admin/AdminLayout.tsx";
+import Dashboard from "./pages/admin/Dashboard.tsx";
+import SettingsPage from "./pages/admin/Settings.tsx";
+import AdminCategories from "./pages/admin/Categories.tsx";
+import Ideas from "./pages/admin/Ideas.tsx";
+import Pipeline from "./pages/admin/Pipeline.tsx";
+import EbookReview from "./pages/admin/EbookReview.tsx";
+import Costs from "./pages/admin/Costs.tsx";
 
 const queryClient = new QueryClient();
 
@@ -30,6 +39,16 @@ const App = () => (
             <Route path="/product/:handle" element={<Product />} />
             <Route path="/bundles" element={<Bundles />} />
             <Route path="/about" element={<About />} />
+          </Route>
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<Dashboard />} />
+            <Route path="ideas" element={<Ideas />} />
+            <Route path="pipeline" element={<Pipeline />} />
+            <Route path="ebook/:id" element={<EbookReview />} />
+            <Route path="categories" element={<AdminCategories />} />
+            <Route path="costs" element={<Costs />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
