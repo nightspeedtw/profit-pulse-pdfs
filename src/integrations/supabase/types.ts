@@ -103,49 +103,85 @@ export type Database = {
       }
       ebook_ideas: {
         Row: {
+          admin_feedback: string | null
           category_id: string | null
+          core_pain_point: string | null
           cost_usd: number
           created_at: string
+          deeper_emotional_fear: string | null
           hook: string | null
           id: string
+          improvement_round: number
           notes: string | null
+          perceived_value_boosters: Json
+          raw_hook: string | null
+          raw_subtitle: string | null
+          raw_target_buyer: string | null
+          raw_title: string | null
+          recommended_action: string | null
           scores: Json
           status: Database["public"]["Enums"]["ebook_status"]
           subtitle: string | null
           target_buyer: string | null
           title: string
           total_score: number
+          transformation_promise: string | null
           updated_at: string
+          why_it_sells: string | null
         }
         Insert: {
+          admin_feedback?: string | null
           category_id?: string | null
+          core_pain_point?: string | null
           cost_usd?: number
           created_at?: string
+          deeper_emotional_fear?: string | null
           hook?: string | null
           id?: string
+          improvement_round?: number
           notes?: string | null
+          perceived_value_boosters?: Json
+          raw_hook?: string | null
+          raw_subtitle?: string | null
+          raw_target_buyer?: string | null
+          raw_title?: string | null
+          recommended_action?: string | null
           scores?: Json
           status?: Database["public"]["Enums"]["ebook_status"]
           subtitle?: string | null
           target_buyer?: string | null
           title: string
           total_score?: number
+          transformation_promise?: string | null
           updated_at?: string
+          why_it_sells?: string | null
         }
         Update: {
+          admin_feedback?: string | null
           category_id?: string | null
+          core_pain_point?: string | null
           cost_usd?: number
           created_at?: string
+          deeper_emotional_fear?: string | null
           hook?: string | null
           id?: string
+          improvement_round?: number
           notes?: string | null
+          perceived_value_boosters?: Json
+          raw_hook?: string | null
+          raw_subtitle?: string | null
+          raw_target_buyer?: string | null
+          raw_title?: string | null
+          recommended_action?: string | null
           scores?: Json
           status?: Database["public"]["Enums"]["ebook_status"]
           subtitle?: string | null
           target_buyer?: string | null
           title?: string
           total_score?: number
+          transformation_promise?: string | null
           updated_at?: string
+          why_it_sells?: string | null
         }
         Relationships: [
           {
