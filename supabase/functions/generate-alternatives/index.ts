@@ -47,31 +47,12 @@ Deno.serve(async (req) => {
 
     const model = pickModel(settings?.mode ?? "hybrid", "marketing");
 
-    const sys = `You are improving an ebook concept that was not strong enough in the first generation.
-
-Your task is to generate exactly TWO stronger alternatives so the admin can choose the better one.
-
-Do not generate more than 2 options. Do not repeat the weak title unless it is clearly improved. Both options must be stronger than the current version.
-
-Each option must improve: Buyer identity clarity · Pain point strength · Emotional hook · Premium feeling · Commercial appeal · Transformation promise · Compliance-safe wording · Shopify product positioning.
-
-Rules:
-- Generate exactly 2 options only.
-- American English.
-- No fake guarantees. No guaranteed income, savings, investment returns, health/legal/relationship outcomes.
-- Not scammy. Not academic. Avoid generic blog-style titles.
-- Keep titles premium, practical, and believable.
-
-Scoring (1-100):
-- buyer_appeal_score, premium_score, compliance_risk_score (1 safest, 10 risky), idea_score.
+    const sys = HARDSELL_COPYWRITER_SYSTEM + `\n\nThis call asks you to produce EXACTLY 2 stronger hard-sell alternatives to a weak idea, plus an AI-picked winner with Shopify-ready metadata. Each option must beat the current version on buyer identity, pain naming, emotional hook, premium feeling, hard-sell strength, and Shopify positioning.
 
 Status rules for the recommended winner:
-- buyer_appeal >= 85 AND premium >= 85 AND compliance <= 3 → "Approved / Ready to Generate" (Premium Featured)
-- buyer_appeal >= 80 AND premium >= 80 AND compliance <= 4 → "Approved / Ready to Generate"
-- buyer_appeal >= 70 OR premium >= 70 → "Needs Admin Review"
-- else → "Needs Regeneration"
-
-Output must be valid JSON only. No text before or after.`;
+- Appeal>=85 AND Premium>=85 AND HardSell>=85 AND Compliance<=3 → "Premium Featured / Ready to Generate"
+- Appeal>=80 AND Premium>=80 AND HardSell>=80 AND Compliance<=4 → "Approved / Ready to Generate"
+- else → "Needs Rewrite"`;
 
     const scores = (idea.scores ?? {}) as Record<string, number>;
     const user = `Input:
@@ -83,6 +64,7 @@ Target Buyer: ${idea.target_buyer ?? ""}
 Core Pain Point: ${idea.core_pain_point ?? ""}
 Current Buyer Appeal Score: ${scores.buyer_appeal ?? "n/a"}
 Current Premium Score: ${scores.premium ?? "n/a"}
+Current Hard-Sell Strength Score: ${scores.hard_sell ?? "n/a"}
 Current Compliance Risk Score: ${scores.compliance_risk ?? "n/a"}
 Admin Feedback: ${admin_feedback ?? "(none)"}
 
@@ -92,15 +74,19 @@ Return JSON in EXACTLY this shape:
   "reason_current_version_is_not_strong_enough": "",
   "alternative_a": {
     "title": "", "subtitle": "", "hook": "",
-    "core_pain_point": "", "transformation_promise": "", "product_page_opening": "",
+    "core_pain_point": "", "cost_of_doing_nothing": "",
+    "transformation_promise": "", "product_page_opening": "",
     "why_stronger": "",
-    "buyer_appeal_score": 0, "premium_score": 0, "compliance_risk_score": 0, "idea_score": 0
+    "buyer_appeal_score": 0, "premium_score": 0,
+    "hard_sell_strength_score": 0, "compliance_risk_score": 0, "idea_score": 0
   },
   "alternative_b": {
     "title": "", "subtitle": "", "hook": "",
-    "core_pain_point": "", "transformation_promise": "", "product_page_opening": "",
+    "core_pain_point": "", "cost_of_doing_nothing": "",
+    "transformation_promise": "", "product_page_opening": "",
     "why_stronger": "",
-    "buyer_appeal_score": 0, "premium_score": 0, "compliance_risk_score": 0, "idea_score": 0
+    "buyer_appeal_score": 0, "premium_score": 0,
+    "hard_sell_strength_score": 0, "compliance_risk_score": 0, "idea_score": 0
   },
   "ai_recommended_winner": {
     "selected_option": "A or B",
@@ -108,9 +94,10 @@ Return JSON in EXACTLY this shape:
     "shopify_product_title": "", "meta_title": "", "meta_description": "",
     "url_handle": "", "tags": ["", "", "", ""],
     "final_buyer_appeal_score": 0, "final_premium_score": 0,
+    "final_hard_sell_strength_score": 0,
     "final_compliance_risk_score": 0, "final_idea_score": 0,
-    "status": "Approved / Ready to Generate | Needs Admin Review | Needs Regeneration",
-    "recommended_admin_action": "Approve & Generate | Regenerate Again | Reject"
+    "status": "Premium Featured / Ready to Generate | Approved / Ready to Generate | Needs Rewrite",
+    "recommended_admin_action": "Approve & Generate | Rewrite | Reject"
   }
 }`;
 
