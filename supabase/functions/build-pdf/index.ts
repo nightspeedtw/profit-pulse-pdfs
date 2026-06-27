@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
     let ty = PAGE_H - MARGIN - 50;
     toc.forEach((c, i) => {
       tocPage.drawText(safe(`${String(i + 1).padStart(2, "0")}.`), { x: MARGIN, y: ty, size: 11, font: helvBold, color: black });
-      tocPage.drawText(c.title.slice(0, 70), { x: MARGIN + 36, y: ty, size: 11, font: helv, color: black });
+      tocPage.drawText(safe(c.title.slice(0, 70)), { x: MARGIN + 36, y: ty, size: 11, font: helv, color: black });
       ty -= 22;
       if (ty < MARGIN) return;
     });
