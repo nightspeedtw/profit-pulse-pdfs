@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Play, Pause, RefreshCw, Upload, Rocket, XCircle, FileText, Plane } from "lucide-react";
+import { Play, RefreshCw, Upload, Rocket, FileText, Plane, Save, Zap, Loader2 } from "lucide-react";
 
 type Ebook = {
   id: string;
@@ -59,15 +62,26 @@ function stateColor(s: string) {
   return STATE_STYLES[s] ?? STATE_STYLES.idle;
 }
 
+type Settings = {
+  id: number;
+  daily_quota: number;
+  autopilot_enabled: boolean;
+  autopilot_mode: string;
+  publish_hour_utc: number;
+  daily_budget_usd: number;
+};
+
 export default function Autopilot() {
   const [ebooks, setEbooks] = useState<Ebook[]>([]);
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [filter, setFilter] = useState<"all" | "running" | "needs_review" | "rejected" | "published">("all");
   const [mode, setMode] = useState<"safe" | "full">("safe");
   const [busy, setBusy] = useState<string | null>(null);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   async function load() {
-    const [{ data: e }, { data: i }] = await Promise.all([
+    const [{ data: e }, { data: i }, { data: s }] = await Promise.all([
       supabase.from("ebooks")
         .select("id,title,status,autopilot_state,autopilot_mode,shopify_status,word_count,price,final_quality_score,conversion_score,compliance_safety_score,needs_review_reason,cost_usd,cover_url,pdf_url,shopify_product_id,updated_at")
         .order("updated_at", { ascending: false }).limit(100),
@@ -75,9 +89,14 @@ export default function Autopilot() {
         .select("id,title,status,auto_rejected_reason")
         .in("status", ["idea", "approved", "rejected"])
         .order("updated_at", { ascending: false }).limit(50),
+      supabase.from("generation_settings").select("*").eq("id", 1).maybeSingle(),
     ]);
     setEbooks((e ?? []) as Ebook[]);
     setIdeas((i ?? []) as Idea[]);
+    if (s) {
+      setSettings(s as any);
+      setMode((s as any).autopilot_mode === "full" ? "full" : "safe");
+    }
   }
 
   useEffect(() => {
@@ -85,6 +104,32 @@ export default function Autopilot() {
     const t = setInterval(load, 15_000);
     return () => clearInterval(t);
   }, []);
+
+  async function saveSettings(patch: Partial<Settings>) {
+    if (!settings) return;
+    setSavingSettings(true);
+    const next = { ...settings, ...patch };
+    const { error } = await supabase.from("generation_settings").update(patch).eq("id", 1);
+    setSavingSettings(false);
+    if (error) { toast.error(error.message); return; }
+    setSettings(next);
+    toast.success("Settings saved");
+  }
+
+  async function runCronNow() {
+    setBusy("cron");
+    try {
+      const { data, error } = await supabase.functions.invoke("daily-cron", { body: {} });
+      if (error) throw error;
+      toast.success(`Autopilot batch launched. ${((data as any)?.launched ?? []).length} idea(s).`);
+      await load();
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
 
   async function run(name: string, body: any, msg: string, id: string) {
     setBusy(id);
@@ -134,6 +179,92 @@ export default function Autopilot() {
           </div>
         </div>
       </div>
+
+      {/* Autopilot Control Panel */}
+      <Card className="border-2 border-foreground">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Zap className="size-4" /> Hands-Off Schedule
+            {settings?.autopilot_enabled ? (
+              <Badge className="bg-green-200 text-green-900 border-green-700 border-2 ml-2">ON</Badge>
+            ) : (
+              <Badge variant="outline" className="ml-2">OFF</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Autopilot</Label>
+            <div className="flex items-center gap-2 h-9">
+              <Switch
+                checked={settings?.autopilot_enabled ?? false}
+                onCheckedChange={(v) => saveSettings({ autopilot_enabled: v })}
+                disabled={savingSettings || !settings}
+              />
+              <span className="text-sm">{settings?.autopilot_enabled ? "Enabled" : "Disabled"}</span>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Ebooks per day</Label>
+            <Input
+              type="number" min={0} max={50}
+              value={settings?.daily_quota ?? 0}
+              onChange={(e) => setSettings(s => s ? { ...s, daily_quota: Number(e.target.value) } : s)}
+              onBlur={(e) => saveSettings({ daily_quota: Number(e.target.value) })}
+              disabled={!settings}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Mode</Label>
+            <select
+              className="h-9 w-full border-2 border-foreground bg-card px-2 text-sm font-mono uppercase"
+              value={settings?.autopilot_mode ?? "safe"}
+              onChange={(e) => saveSettings({ autopilot_mode: e.target.value })}
+              disabled={!settings}
+            >
+              <option value="safe">Safe (draft only)</option>
+              <option value="full">Full (auto-publish)</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Publish at (UTC hour)</Label>
+            <Input
+              type="number" min={0} max={23}
+              value={settings?.publish_hour_utc ?? 14}
+              onChange={(e) => setSettings(s => s ? { ...s, publish_hour_utc: Number(e.target.value) } : s)}
+              onBlur={(e) => saveSettings({ publish_hour_utc: Number(e.target.value) })}
+              disabled={!settings}
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Drafts that pass gates publish at this UTC hour.
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Daily budget</Label>
+            <div className="flex items-center gap-1">
+              <span className="text-sm font-mono">$</span>
+              <Input
+                type="number" min={0} step={0.5}
+                value={settings?.daily_budget_usd ?? 5}
+                onChange={(e) => setSettings(s => s ? { ...s, daily_budget_usd: Number(e.target.value) } : s)}
+                onBlur={(e) => saveSettings({ daily_budget_usd: Number(e.target.value) })}
+                disabled={!settings}
+              />
+            </div>
+          </div>
+        </CardContent>
+        <CardContent className="pt-0 flex flex-wrap items-center gap-3">
+          <Button onClick={runCronNow} disabled={busy === "cron"} className="bg-green-700 hover:bg-green-800 text-white">
+            {busy === "cron" ? <Loader2 className="size-4 mr-1 animate-spin" /> : <Play className="size-4 mr-1" />}
+            Start Autopilot Now
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Generates ideas (if pool low) → launches up to <strong>{settings?.daily_quota ?? 0}</strong> ebooks → publishes ready drafts at <strong>{settings?.publish_hour_utc ?? 14}:00 UTC</strong>.
+            When <strong>Autopilot</strong> is enabled, this runs automatically every hour.
+          </p>
+        </CardContent>
+      </Card>
+
 
       {/* Filter bar */}
       <div className="flex gap-2 flex-wrap">

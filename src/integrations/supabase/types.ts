@@ -520,6 +520,8 @@ export type Database = {
       generation_settings: {
         Row: {
           auto_publish: boolean
+          autopilot_enabled: boolean
+          autopilot_mode: string
           cron_enabled: boolean
           daily_budget_usd: number
           daily_quota: number
@@ -529,10 +531,13 @@ export type Database = {
           min_score_threshold: number
           min_word_count: number
           mode: Database["public"]["Enums"]["generation_mode"]
+          publish_hour_utc: number
           updated_at: string
         }
         Insert: {
           auto_publish?: boolean
+          autopilot_enabled?: boolean
+          autopilot_mode?: string
           cron_enabled?: boolean
           daily_budget_usd?: number
           daily_quota?: number
@@ -542,10 +547,13 @@ export type Database = {
           min_score_threshold?: number
           min_word_count?: number
           mode?: Database["public"]["Enums"]["generation_mode"]
+          publish_hour_utc?: number
           updated_at?: string
         }
         Update: {
           auto_publish?: boolean
+          autopilot_enabled?: boolean
+          autopilot_mode?: string
           cron_enabled?: boolean
           daily_budget_usd?: number
           daily_quota?: number
@@ -555,6 +563,7 @@ export type Database = {
           min_score_threshold?: number
           min_word_count?: number
           mode?: Database["public"]["Enums"]["generation_mode"]
+          publish_hour_utc?: number
           updated_at?: string
         }
         Relationships: []

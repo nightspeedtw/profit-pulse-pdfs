@@ -1,4 +1,8 @@
-// Daily cron — invoked manually or by scheduled job. Generates ideas + promotes top ones + runs QC.
+// Daily autopilot cron. When autopilot is enabled:
+//   1. Generate fresh ideas (2x quota for QC margin)
+//   2. Launch the autopilot orchestrator on the top N approved/idea rows up to daily_quota
+//   3. At publish_hour_utc, publish any ebook in `ready_to_publish` state that passes the gate
+// Intended to be called once per hour by pg_cron.
 import { corsHeaders, admin } from "../_shared/ai.ts";
 
 Deno.serve(async (req) => {
@@ -6,58 +10,98 @@ Deno.serve(async (req) => {
   try {
     const db = admin();
     const { data: settings } = await db.from("generation_settings").select("*").eq("id", 1).single();
-    if (!settings?.cron_enabled) {
-      return new Response(JSON.stringify({ skipped: "cron disabled" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    if (!settings?.autopilot_enabled && !settings?.cron_enabled) {
+      return new Response(JSON.stringify({ skipped: "autopilot disabled" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const quota: number = Math.max(0, Number(settings.daily_quota ?? 0));
-    if (quota === 0) return new Response(JSON.stringify({ skipped: "quota 0" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const mode: string = settings.autopilot_mode ?? "safe";
+    const publishHour: number = Number(settings.publish_hour_utc ?? 14);
 
-    // Budget check
-    const since = new Date(); since.setHours(0, 0, 0, 0);
-    const { data: costs } = await db.from("cost_log").select("cost_usd").gte("created_at", since.toISOString());
+    // Budget guard
+    const sinceDay = new Date(); sinceDay.setUTCHours(0, 0, 0, 0);
+    const { data: costs } = await db.from("cost_log").select("cost_usd").gte("created_at", sinceDay.toISOString());
     const spent = (costs ?? []).reduce((s, r) => s + Number(r.cost_usd), 0);
-    if (spent >= Number(settings.daily_budget_usd ?? 5)) {
-      return new Response(JSON.stringify({ skipped: "daily budget exhausted", spent }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
+    const budget = Number(settings.daily_budget_usd ?? 5);
 
-    // Queue a job batch — top-level cron uses service role to invoke other functions via fetch
     const url = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const auth = { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey, "Content-Type": "application/json" };
 
-    // Generate ideas: ~2x quota so QC has a margin
-    const r1 = await fetch(`${url}/functions/v1/generate-idea`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json", apikey: serviceKey },
-      body: JSON.stringify({ count: Math.min(quota * 2, 20) }),
-    });
-    const ideaRes = await r1.json().catch(() => ({}));
+    const result: Record<string, unknown> = { mode, quota, spent, budget };
 
-    // Promote top N ideas (by score) — only score >= 80/100, the Auto-Approve threshold.
-    const { data: topIdeas } = await db.from("ebook_ideas")
-      .select("id").eq("status", "idea").gte("total_score", 80).order("total_score", { ascending: false }).limit(quota);
+    // --- A) GENERATE + LAUNCH ---
+    if (spent < budget && quota > 0) {
+      // How many ebooks did autopilot already start today?
+      const { count: startedToday } = await db.from("ebooks")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", sinceDay.toISOString())
+        .neq("autopilot_state", "idle");
+      const remaining = Math.max(0, quota - (startedToday ?? 0));
 
-    const promoted: string[] = [];
-    for (const i of (topIdeas ?? [])) {
-      try {
-        const rp = await fetch(`${url}/functions/v1/promote-idea`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json", apikey: serviceKey },
-          body: JSON.stringify({ idea_id: i.id }),
-        });
-        const pr = await rp.json();
-        if (pr?.ebook_id) {
-          promoted.push(pr.ebook_id);
-          // QC each
-          await fetch(`${url}/functions/v1/qc-check`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json", apikey: serviceKey },
-            body: JSON.stringify({ ebook_id: pr.ebook_id }),
-          });
+      if (remaining > 0) {
+        // Ensure fresh idea pool
+        const { count: ideaPool } = await db.from("ebook_ideas")
+          .select("id", { count: "exact", head: true })
+          .in("status", ["idea", "approved"]);
+        if ((ideaPool ?? 0) < remaining * 2) {
+          await fetch(`${url}/functions/v1/generate-idea`, {
+            method: "POST", headers: auth, body: JSON.stringify({ count: Math.min(remaining * 2, 20) }),
+          }).catch(() => null);
         }
-      } catch (_) { /* continue */ }
+
+        // Pick top ideas not yet promoted
+        const { data: ideas } = await db.from("ebook_ideas")
+          .select("id")
+          .in("status", ["idea", "approved"])
+          .order("total_score", { ascending: false })
+          .limit(remaining);
+
+        result.launched = [];
+        for (const i of ideas ?? []) {
+          try {
+            const r = await fetch(`${url}/functions/v1/autopilot-orchestrator`, {
+              method: "POST", headers: auth, body: JSON.stringify({ idea_id: i.id, mode }),
+            });
+            const j = await r.json().catch(() => ({}));
+            (result.launched as any[]).push({ idea_id: i.id, ok: r.ok, response: j });
+          } catch (e) {
+            (result.launched as any[]).push({ idea_id: i.id, error: String(e) });
+          }
+        }
+      } else {
+        result.skipped_launch = "daily quota reached";
+      }
+    } else if (spent >= budget) {
+      result.skipped_launch = `budget exhausted ($${spent.toFixed(3)} ≥ $${budget})`;
     }
 
-    return new Response(JSON.stringify({ ideas: ideaRes, promoted_count: promoted.length, ebook_ids: promoted }), {
+    // --- B) SCHEDULED PUBLISH ---
+    // Only fire at the chosen UTC hour (idempotent per-hour because we only flip drafts)
+    const currentHour = new Date().getUTCHours();
+    if (mode === "full" || mode === "safe") {
+      if (currentHour === publishHour) {
+        const { data: ready } = await db.from("ebooks")
+          .select("id,title")
+          .eq("autopilot_state", "ready_to_publish")
+          .eq("shopify_status", "draft");
+        result.published = [];
+        for (const e of ready ?? []) {
+          try {
+            const r = await fetch(`${url}/functions/v1/shopify-publish`, {
+              method: "POST", headers: auth, body: JSON.stringify({ ebook_id: e.id }),
+            });
+            const j = await r.json().catch(() => ({}));
+            (result.published as any[]).push({ ebook_id: e.id, title: e.title, ok: r.ok, response: j });
+          } catch (err) {
+            (result.published as any[]).push({ ebook_id: e.id, error: String(err) });
+          }
+        }
+      } else {
+        result.publish_window = `current ${currentHour}:00 UTC, scheduled ${publishHour}:00 UTC`;
+      }
+    }
+
+    return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
