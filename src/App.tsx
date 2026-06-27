@@ -46,7 +46,7 @@ const App = () => (
             <Route path="ideas" element={<Ideas />} />
             <Route path="pipeline" element={<Pipeline />} />
             <Route path="ebook/:id" element={<EbookReview />} />
-            <Route path="categories" element={<Categories />} />
+            <Route path="categories" element={<AdminCategories />} />
             <Route path="costs" element={<Costs />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
