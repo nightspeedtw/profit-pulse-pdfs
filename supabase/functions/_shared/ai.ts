@@ -68,9 +68,7 @@ export async function aiJSON<T>(opts: {
   let parsed: T;
   try { parsed = JSON.parse(text); }
   catch {
-    // strip ```json fences if present
-    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
-    parsed = JSON.parse(cleaned);
+    parsed = extractJson<T>(text);
   }
   return {
     data: parsed,
