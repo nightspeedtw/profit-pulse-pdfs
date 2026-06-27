@@ -355,7 +355,10 @@ export type Database = {
           qc: Json
           seo_meta: string | null
           seo_title: string | null
+          shopify_events: Json
           shopify_handle: string | null
+          shopify_last_error: string | null
+          shopify_last_event_at: string | null
           shopify_product_id: string | null
           shopify_status: string
           status: string
@@ -409,7 +412,10 @@ export type Database = {
           qc?: Json
           seo_meta?: string | null
           seo_title?: string | null
+          shopify_events?: Json
           shopify_handle?: string | null
+          shopify_last_error?: string | null
+          shopify_last_event_at?: string | null
           shopify_product_id?: string | null
           shopify_status?: string
           status?: string
@@ -463,7 +469,10 @@ export type Database = {
           qc?: Json
           seo_meta?: string | null
           seo_title?: string | null
+          shopify_events?: Json
           shopify_handle?: string | null
+          shopify_last_error?: string | null
+          shopify_last_event_at?: string | null
           shopify_product_id?: string | null
           shopify_status?: string
           status?: string
