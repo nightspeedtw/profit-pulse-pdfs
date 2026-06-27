@@ -88,12 +88,11 @@ Deno.serve(async (req) => {
           cost_usd: cost, status: "ready_for_qc",
         }).eq("id", ebook.id);
       } catch (err) {
-        await db.from("ebooks").update({
-          status: "failed",
-          error: err instanceof Error ? err.message : String(err),
-        }).eq("id", ebook.id);
+        console.error("background generation failed:", err);
+        await db.from("ebooks").update({ status: "failed" }).eq("id", ebook.id);
       }
     })();
+
 
     // @ts-ignore - EdgeRuntime is available in Supabase edge runtime
     if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(background);
