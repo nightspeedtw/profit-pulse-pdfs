@@ -274,13 +274,17 @@ export default function Ideas() {
           const s = i.scores ?? {};
           const ba = Number(s.buyer_appeal ?? 0);
           const pr = Number(s.premium ?? 0);
+          const hs = Number(s.hard_sell ?? 0);
           const cr = Number(s.compliance_risk ?? 0);
           const s100 = ba ? Math.round(Number(s.idea ?? ba)) : to100(i.total_score);
-          const meta = scoreMeta(s100, ba || undefined, pr || undefined, cr || undefined);
+          const meta = scoreMeta(s100, ba || undefined, pr || undefined, hs || undefined, cr || undefined);
           const isBusy = busy === i.id;
           const canPromote = i.status === "idea";
           const isApproved = meta.status === "Approved" || meta.status === "Premium Featured";
           const vb = i.perceived_value_boosters ?? {};
+          const vbEntries: [string, string][] = Array.isArray(vb)
+            ? vb.filter(Boolean).map((v, idx) => [String(idx + 1), String(v)])
+            : Object.entries(vb).filter(([, v]) => v).map(([k, v]) => [k, String(v)]);
           const showRaw = showRawIds.has(i.id);
           return (
             <Card key={i.id} className="border-2 border-foreground">
@@ -294,6 +298,7 @@ export default function Ideas() {
                       </span>
                       {ba > 0 && <Badge variant="outline" className="font-mono text-[10px]">Appeal {ba}</Badge>}
                       {pr > 0 && <Badge variant="outline" className="font-mono text-[10px]">Premium {pr}</Badge>}
+                      {hs > 0 && <Badge variant="outline" className="font-mono text-[10px]">Hard-Sell {hs}</Badge>}
                       {cr > 0 && <Badge variant="outline" className="font-mono text-[10px]">Risk {cr}/10</Badge>}
                       {i.improvement_round > 0 && (
                         <Badge variant="outline" className="font-mono text-[10px]">Improved L{i.improvement_round}</Badge>
