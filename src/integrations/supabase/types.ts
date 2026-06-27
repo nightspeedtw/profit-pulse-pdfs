@@ -125,7 +125,7 @@ export type Database = {
           recommended_action: string | null
           scores: Json
           shopify_meta: Json | null
-          status: Database["public"]["Enums"]["ebook_status"]
+          status: string
           subtitle: string | null
           target_buyer: string | null
           title: string
@@ -158,7 +158,7 @@ export type Database = {
           recommended_action?: string | null
           scores?: Json
           shopify_meta?: Json | null
-          status?: Database["public"]["Enums"]["ebook_status"]
+          status?: string
           subtitle?: string | null
           target_buyer?: string | null
           title: string
@@ -191,7 +191,7 @@ export type Database = {
           recommended_action?: string | null
           scores?: Json
           shopify_meta?: Json | null
-          status?: Database["public"]["Enums"]["ebook_status"]
+          status?: string
           subtitle?: string | null
           target_buyer?: string | null
           title?: string
@@ -232,7 +232,7 @@ export type Database = {
           seo_title: string | null
           shopify_handle: string | null
           shopify_product_id: string | null
-          status: Database["public"]["Enums"]["ebook_status"]
+          status: string
           subtitle: string | null
           tags: string[]
           target_buyer: string | null
@@ -262,7 +262,7 @@ export type Database = {
           seo_title?: string | null
           shopify_handle?: string | null
           shopify_product_id?: string | null
-          status?: Database["public"]["Enums"]["ebook_status"]
+          status?: string
           subtitle?: string | null
           tags?: string[]
           target_buyer?: string | null
@@ -292,7 +292,7 @@ export type Database = {
           seo_title?: string | null
           shopify_handle?: string | null
           shopify_product_id?: string | null
-          status?: Database["public"]["Enums"]["ebook_status"]
+          status?: string
           subtitle?: string | null
           tags?: string[]
           target_buyer?: string | null
@@ -457,15 +457,6 @@ export type Database = {
     }
     Enums: {
       app_role: "admin"
-      ebook_status:
-        | "idea"
-        | "outline"
-        | "writing"
-        | "qc_failed"
-        | "approved"
-        | "uploaded"
-        | "published"
-        | "rejected"
       generation_mode: "low_cost" | "premium" | "hybrid"
       job_status: "queued" | "running" | "done" | "failed"
     }
@@ -596,16 +587,6 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin"],
-      ebook_status: [
-        "idea",
-        "outline",
-        "writing",
-        "qc_failed",
-        "approved",
-        "uploaded",
-        "published",
-        "rejected",
-      ],
       generation_mode: ["low_cost", "premium", "hybrid"],
       job_status: ["queued", "running", "done", "failed"],
     },

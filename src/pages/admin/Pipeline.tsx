@@ -9,11 +9,18 @@ type Ebook = { id: string; title: string; status: string; word_count: number; pr
 const lanes: { key: string; label: string }[] = [
   { key: "outline", label: "Outline" },
   { key: "writing", label: "Writing" },
+  { key: "ready_for_qc", label: "Ready QC" },
   { key: "qc_failed", label: "QC failed" },
   { key: "approved", label: "Approved" },
   { key: "uploaded", label: "Uploaded" },
   { key: "published", label: "Published" },
+  { key: "failed", label: "Failed" },
 ];
+
+const statusMatchesLane = (status: string, lane: string) => {
+  if (lane === "writing") return status === "writing" || status.startsWith("writing:") || status === "marketing";
+  return status === lane;
+};
 
 export default function Pipeline() {
   const [items, setItems] = useState<Ebook[]>([]);
@@ -29,9 +36,9 @@ export default function Pipeline() {
         <p className="font-mono uppercase tracking-widest text-xs">[ Pipeline ]</p>
         <h1 className="font-display text-4xl uppercase">Ebook pipeline</h1>
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3">
         {lanes.map((l) => {
-          const rows = items.filter((i) => i.status === l.key);
+          const rows = items.filter((i) => statusMatchesLane(i.status, l.key));
           return (
             <div key={l.key} className="border-2 border-foreground bg-card min-h-[200px]">
               <div className="p-2 border-b-2 border-foreground bg-highlight">
