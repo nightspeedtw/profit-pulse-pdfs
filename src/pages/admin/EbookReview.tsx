@@ -36,6 +36,30 @@ export default function EbookReview() {
   };
   useEffect(() => { load(); }, [id]);
 
+  // Poll while generation is in progress
+  const isGenerating = !!e && (e.status === "outline" || e.status === "writing" || e.status?.startsWith("writing:") || e.status === "marketing");
+  useEffect(() => {
+    if (!isGenerating) return;
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [isGenerating]);
+
+  // Parse progress: status "writing:3/10" → { done: 3, total: 10 }
+  const progress = (() => {
+    if (!e) return null;
+    const m = /^writing:(\d+)\/(\d+)$/.exec(e.status ?? "");
+    if (m) {
+      const done = Number(m[1]); const tot = Number(m[2]);
+      return { done, tot, pct: Math.round((done / tot) * 100), label: `Writing chapter ${done} of ${tot}` };
+    }
+    if (e.status === "outline") return { done: 0, tot: 1, pct: 5, label: "Designing outline…" };
+    if (e.status === "writing") return { done: 0, tot: 1, pct: 10, label: "Starting chapters…" };
+    if (e.status === "marketing") return { done: 1, tot: 1, pct: 95, label: "Writing marketing copy & SEO…" };
+    return null;
+  })();
+
+
+
   const save = async () => {
     if (!e) return;
     setBusy("save");
