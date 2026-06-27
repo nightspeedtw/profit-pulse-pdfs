@@ -42,15 +42,43 @@ type PremiumResult = {
   };
 };
 
-// Raw score is 0-60 (6 dims * 10). Display on 0-100 scale.
-const to100 = (raw: number) => Math.round((Number(raw) || 0) / 60 * 100);
+type Alt = {
+  title: string; subtitle: string; hook: string;
+  core_pain_point: string; transformation_promise: string; product_page_opening: string;
+  why_stronger: string;
+  buyer_appeal_score: number; premium_score: number; compliance_risk_score: number; idea_score: number;
+};
+type AltResult = {
+  previous_title: string;
+  reason_current_version_is_not_strong_enough: string;
+  alternative_a: Alt;
+  alternative_b: Alt;
+  ai_recommended_winner: {
+    selected_option: "A" | "B";
+    title: string; subtitle: string; hook: string; product_page_opening: string;
+    shopify_product_title: string; meta_title: string; meta_description: string;
+    url_handle: string; tags: string[];
+    final_buyer_appeal_score: number; final_premium_score: number;
+    final_compliance_risk_score: number; final_idea_score: number;
+    status: string; recommended_admin_action: string;
+  };
+};
 
-// New thresholds per product spec.
-function scoreMeta(score100: number) {
-  if (score100 >= 80) return { label: "Approved · Ready to Generate", tone: "good" as const, status: "Approved" };
-  if (score100 >= 70) return { label: "Needs Admin Review", tone: "warn" as const, status: "Needs Admin Review" };
-  if (score100 >= 60) return { label: "Needs Admin Review · Improve Again", tone: "warn" as const, status: "Needs Admin Review" };
-  return { label: "Weak · Reject or Auto-Improve Level 2", tone: "bad" as const, status: "Reject" };
+// total_score is stored on a 0-100 scale for new ideas. Legacy 0-60 ideas are scaled up.
+const to100 = (raw: number) => {
+  const n = Number(raw) || 0;
+  return n > 60 ? Math.round(n) : Math.round(n / 60 * 100);
+};
+
+// Approval thresholds combining buyer-appeal, premium, and compliance-risk scores.
+function scoreMeta(score100: number, buyerAppeal?: number, premium?: number, compliance?: number) {
+  const ba = Number(buyerAppeal ?? score100);
+  const pr = Number(premium ?? score100);
+  const cr = Number(compliance ?? 0);
+  if (ba >= 85 && pr >= 85 && cr <= 3) return { label: "Premium Featured · Ready to Generate", tone: "good" as const, status: "Premium Featured" };
+  if (ba >= 80 && pr >= 80 && cr <= 4) return { label: "Approved · Ready to Generate", tone: "good" as const, status: "Approved" };
+  if (ba >= 70 || pr >= 70) return { label: "Needs Admin Review · Generate 2 Alternatives", tone: "warn" as const, status: "Needs Admin Review" };
+  return { label: "Needs Regeneration", tone: "bad" as const, status: "Needs Regeneration" };
 }
 
 const toneClass = {
@@ -70,6 +98,9 @@ export default function Ideas() {
   const [premiumOpen, setPremiumOpen] = useState<Idea | null>(null);
   const [premiumLoading, setPremiumLoading] = useState(false);
   const [premiumResult, setPremiumResult] = useState<PremiumResult | null>(null);
+  const [altOpen, setAltOpen] = useState<Idea | null>(null);
+  const [altLoading, setAltLoading] = useState(false);
+  const [altResult, setAltResult] = useState<AltResult | null>(null);
 
   const load = async () => {
     const [{ data: ideas }, { data: c }] = await Promise.all([
@@ -158,6 +189,62 @@ export default function Ideas() {
     setPremiumResult(null);
   };
 
+  const runAlternatives = async (idea: Idea) => {
+    setAltOpen(idea);
+    setAltResult(null);
+    setAltLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-alternatives", { body: { idea_id: idea.id } });
+      if (error) throw error;
+      const res = (data as { result?: AltResult } | null)?.result;
+      if (!res) throw new Error("No result");
+      setAltResult(res);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+      setAltOpen(null);
+    } finally {
+      setAltLoading(false);
+    }
+  };
+
+  const applyAlternative = async (
+    idea: Idea,
+    alt: Alt,
+    winner?: AltResult["ai_recommended_winner"],
+  ) => {
+    await run(idea.id, "Alternative applied.", async () => {
+      const newScores = {
+        ...(idea.scores ?? {}),
+        buyer_appeal: alt.buyer_appeal_score,
+        premium: alt.premium_score,
+        compliance_risk: alt.compliance_risk_score,
+        idea: alt.idea_score,
+      };
+      const note = winner
+        ? `[alt-winner:${winner.selected_option}] ${winner.status} — ${winner.recommended_admin_action}\nShopify: ${JSON.stringify({
+            product_title: winner.shopify_product_title, meta_title: winner.meta_title,
+            meta_description: winner.meta_description, url_handle: winner.url_handle, tags: winner.tags,
+          })}`
+        : `[alt-applied] ${alt.why_stronger}`;
+      const { error } = await supabase.from("ebook_ideas").update({
+        title: alt.title,
+        subtitle: alt.subtitle,
+        hook: alt.hook,
+        core_pain_point: alt.core_pain_point,
+        transformation_promise: alt.transformation_promise,
+        scores: newScores,
+        total_score: alt.idea_score,
+        improvement_round: (idea.improvement_round ?? 0) + 1,
+        notes: (idea as unknown as { notes?: string }).notes
+          ? `${(idea as unknown as { notes?: string }).notes}\n--\n${note}`
+          : note,
+      }).eq("id", idea.id);
+      if (error) throw error;
+    });
+    setAltOpen(null);
+    setAltResult(null);
+  };
+
   return (
     <div className="space-y-4 max-w-5xl">
       <div>
@@ -177,10 +264,15 @@ export default function Ideas() {
       )}
       <div className="space-y-3">
         {items.map((i) => {
-          const s100 = to100(i.total_score);
-          const meta = scoreMeta(s100);
+          const s = i.scores ?? {};
+          const ba = Number(s.buyer_appeal ?? 0);
+          const pr = Number(s.premium ?? 0);
+          const cr = Number(s.compliance_risk ?? 0);
+          const s100 = ba ? Math.round(Number(s.idea ?? ba)) : to100(i.total_score);
+          const meta = scoreMeta(s100, ba || undefined, pr || undefined, cr || undefined);
           const isBusy = busy === i.id;
           const canPromote = i.status === "idea";
+          const isApproved = meta.status === "Approved" || meta.status === "Premium Featured";
           const vb = i.perceived_value_boosters ?? {};
           const showRaw = showRawIds.has(i.id);
           return (
@@ -193,6 +285,9 @@ export default function Ideas() {
                       <span className={`font-mono text-xs px-2 py-1 rounded ${toneClass[meta.tone]}`}>
                         Idea Score: {s100} / 100 — {meta.label}
                       </span>
+                      {ba > 0 && <Badge variant="outline" className="font-mono text-[10px]">Appeal {ba}</Badge>}
+                      {pr > 0 && <Badge variant="outline" className="font-mono text-[10px]">Premium {pr}</Badge>}
+                      {cr > 0 && <Badge variant="outline" className="font-mono text-[10px]">Risk {cr}/10</Badge>}
                       {i.improvement_round > 0 && (
                         <Badge variant="outline" className="font-mono text-[10px]">Improved L{i.improvement_round}</Badge>
                       )}
@@ -267,15 +362,20 @@ export default function Ideas() {
                   <div className="flex flex-col gap-2 shrink-0 w-44">
                     {canPromote && (
                       <>
-                        {s100 >= 80 ? (
+                        {isApproved ? (
                           <Button size="sm" onClick={() => promote(i.id)} disabled={isBusy}>
                             {isBusy ? <Loader2 className="size-4 animate-spin mr-1" /> : <ChevronRight className="size-4 mr-1" />}
                             Approve & Generate
                           </Button>
                         ) : (
                           <Button size="sm" variant="outline" onClick={() => promote(i.id)} disabled={isBusy}
-                            title="Score below 80 — generate anyway?">
+                            title="Below threshold — approve manually?">
                             <Check className="size-4 mr-1" /> Approve Anyway
+                          </Button>
+                        )}
+                        {!isApproved && (
+                          <Button size="sm" variant="default" onClick={() => runAlternatives(i)} disabled={isBusy}>
+                            <Sparkles className="size-4 mr-1" /> Generate 2 Alternatives
                           </Button>
                         )}
                         <Button size="sm" variant="secondary" onClick={() => { setImproveOpen(i); setFeedback(i.admin_feedback ?? ""); }} disabled={isBusy}>
@@ -494,6 +594,92 @@ export default function Ideas() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Generate 2 Alternatives dialog */}
+      <Dialog open={!!altOpen} onOpenChange={(o) => { if (!o) { setAltOpen(null); setAltResult(null); } }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Sparkles className="size-5" /> Generate 2 Alternatives</DialogTitle>
+          </DialogHeader>
+          {altLoading && (
+            <div className="flex items-center gap-2 py-10 justify-center text-muted-foreground">
+              <Loader2 className="size-5 animate-spin" /> Generating 2 stronger alternatives…
+            </div>
+          )}
+          {altResult && altOpen && (() => {
+            const winner = altResult.ai_recommended_winner;
+            const winnerAlt = winner.selected_option === "B" ? altResult.alternative_b : altResult.alternative_a;
+            const renderAlt = (label: "A" | "B", alt: Alt) => (
+              <Card className={`border-2 ${winner.selected_option === label ? "border-foreground bg-foreground/5" : "border-foreground/30"}`}>
+                <CardContent className="pt-4 space-y-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="font-mono">Option {label}</Badge>
+                    {winner.selected_option === label && <Badge className="bg-foreground text-background">AI Pick</Badge>}
+                    <Badge variant="secondary" className="font-mono text-[10px]">Appeal {alt.buyer_appeal_score}</Badge>
+                    <Badge variant="secondary" className="font-mono text-[10px]">Premium {alt.premium_score}</Badge>
+                    <Badge variant="outline" className="font-mono text-[10px]">Risk {alt.compliance_risk_score}/10</Badge>
+                    <Badge variant="outline" className="font-mono text-[10px]">Idea {alt.idea_score}</Badge>
+                  </div>
+                  <div className="font-display text-base">{alt.title}</div>
+                  <div className="text-muted-foreground text-xs">{alt.subtitle}</div>
+                  <div className="italic text-xs">"{alt.hook}"</div>
+                  <div className="text-xs"><strong>Pain:</strong> {alt.core_pain_point}</div>
+                  <div className="text-xs"><strong>Transformation:</strong> {alt.transformation_promise}</div>
+                  <div className="text-xs"><strong>Why stronger:</strong> {alt.why_stronger}</div>
+                  <div className="text-xs text-muted-foreground"><strong>Page opening:</strong> {alt.product_page_opening}</div>
+                  <Button size="sm" className="mt-2 w-full" variant={winner.selected_option === label ? "default" : "outline"}
+                    onClick={() => applyAlternative(altOpen, alt, winner.selected_option === label ? winner : undefined)}>
+                    <Check className="size-4 mr-1" /> Apply Option {label}
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+            return (
+              <div className="space-y-4">
+                <div className="text-xs text-muted-foreground">
+                  <strong>Reason current version is weak:</strong> {altResult.reason_current_version_is_not_strong_enough}
+                </div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  {renderAlt("A", altResult.alternative_a)}
+                  {renderAlt("B", altResult.alternative_b)}
+                </div>
+                <Card className="border-2 border-foreground bg-foreground/5">
+                  <CardContent className="pt-4 space-y-2 text-sm">
+                    <div className="font-mono uppercase text-xs">AI Recommended Winner — Option {winner.selected_option}</div>
+                    <div className="font-display text-lg">{winner.title}</div>
+                    <div className="text-muted-foreground text-xs">{winner.subtitle}</div>
+                    <div className="italic text-xs">"{winner.hook}"</div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge>Appeal {winner.final_buyer_appeal_score}</Badge>
+                      <Badge>Premium {winner.final_premium_score}</Badge>
+                      <Badge variant="outline">Risk {winner.final_compliance_risk_score}/10</Badge>
+                      <Badge variant="outline">Idea {winner.final_idea_score}</Badge>
+                      <Badge variant="secondary">{winner.status}</Badge>
+                    </div>
+                    <div className="mt-2 p-3 bg-background border border-foreground/20 space-y-1 text-xs font-mono">
+                      <div className="uppercase opacity-60">Shopify Ready</div>
+                      <div><strong>Product title:</strong> {winner.shopify_product_title}</div>
+                      <div><strong>Meta title:</strong> {winner.meta_title}</div>
+                      <div><strong>Meta description:</strong> {winner.meta_description}</div>
+                      <div><strong>URL:</strong> /{winner.url_handle}</div>
+                      <div><strong>Tags:</strong> {(winner.tags ?? []).join(", ")}</div>
+                    </div>
+                    <Button className="w-full" onClick={() => applyAlternative(altOpen, winnerAlt, winner)}>
+                      <Check className="size-4 mr-1" /> Apply AI Winner (Option {winner.selected_option})
+                    </Button>
+                  </CardContent>
+                </Card>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={() => runAlternatives(altOpen)}>
+                    <Sparkles className="size-4 mr-1" /> Regenerate Again
+                  </Button>
+                  <Button variant="ghost" onClick={() => { setAltOpen(null); setAltResult(null); }}>Close</Button>
+                </div>
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>
