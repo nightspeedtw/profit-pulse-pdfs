@@ -340,6 +340,7 @@ export type Database = {
           idea_id: string | null
           interior_visuals: Json | null
           needs_review_reason: string | null
+          pdf_qc: Json | null
           pdf_url: string | null
           price: number
           product_copy: Json
@@ -388,6 +389,7 @@ export type Database = {
           idea_id?: string | null
           interior_visuals?: Json | null
           needs_review_reason?: string | null
+          pdf_qc?: Json | null
           pdf_url?: string | null
           price?: number
           product_copy?: Json
@@ -436,6 +438,7 @@ export type Database = {
           idea_id?: string | null
           interior_visuals?: Json | null
           needs_review_reason?: string | null
+          pdf_qc?: Json | null
           pdf_url?: string | null
           price?: number
           product_copy?: Json

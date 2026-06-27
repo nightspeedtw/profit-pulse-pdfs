@@ -1,0 +1,1 @@
+ALTER TABLE public.ebooks ADD COLUMN IF NOT EXISTS pdf_qc jsonb;
