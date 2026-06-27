@@ -487,15 +487,15 @@ export default function Ideas() {
         })}
       </div>
 
-      {/* Improve Again dialog */}
+      {/* Rewrite dialog */}
       <Dialog open={!!improveOpen} onOpenChange={(o) => !o && setImproveOpen(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Improve Again — Level {(improveOpen?.improvement_round ?? 0) + 1}</DialogTitle>
+            <DialogTitle>Rewrite — Pass {(improveOpen?.improvement_round ?? 0) + 1}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Runs a stronger second-pass prompt to lift the buyer-appeal score. Optionally tell the AI what to focus on.
+              Runs the Premium Title &amp; Hard-Sell Copywriter again to lift Appeal / Premium / Hard-Sell scores. Optionally tell it what to fix.
             </p>
             <Textarea
               placeholder="Optional admin feedback — e.g. 'Title too generic', 'Buyer is too broad', 'Make the pain more urgent'…"
