@@ -132,6 +132,8 @@ Deno.serve(async (req) => {
     const chapters = ((e.chapters ?? []) as { title: string; content: string }[]).slice(0, 30);
     const chapterStartIndex: number[] = []; // 1-based "book page numbers"
     let bookPageNum = 0; // count from after-cover-after-title-after-copy-after-toc = chapter 1 page 1
+    let diagramOverflowCount = 0;
+    let diagramTruncatedCount = 0;
 
     // Helper to add an interior page with header+footer and increment counter
     type Ctx = { page: PDFPage; y: number; pageNum: number; chTitle: string };
