@@ -460,6 +460,40 @@ function renderBlock(
     case "callout": {
       return renderCallout(ctx, block, theme, fonts, newPage, chTitle);
     }
+    case "table": {
+      const cols = Math.max(block.header.length, 1);
+      const colW = CONTENT_W / cols;
+      const headerH = 26;
+      // Header
+      needSpace(headerH + 22);
+      ctx.page.drawRectangle({ x: MARGIN, y: ctx.y - headerH, width: CONTENT_W, height: headerH, color: theme.overlay });
+      for (let c = 0; c < cols; c++) {
+        const lines = wrap(stripInline(block.header[c] ?? ""), fonts.bold, 10, colW - 12).slice(0, 1);
+        if (lines[0]) ctx.page.drawText(safe(lines[0]), { x: MARGIN + c * colW + 8, y: ctx.y - 17, size: 10, font: fonts.bold, color: theme.onDark });
+      }
+      ctx.y -= headerH;
+      // Rows
+      for (let r = 0; r < block.rows.length; r++) {
+        const cells = block.rows[r];
+        const cellLines = cells.slice(0, cols).map((cell) => wrap(stripInline(cell ?? ""), fonts.reg, 10, colW - 12));
+        const rowH = Math.max(22, Math.max(...cellLines.map((l) => l.length)) * 13 + 10);
+        needSpace(rowH);
+        const bg = r % 2 === 0 ? rgb(1, 1, 1) : theme.surface;
+        ctx.page.drawRectangle({ x: MARGIN, y: ctx.y - rowH, width: CONTENT_W, height: rowH, color: bg, borderColor: theme.hair, borderWidth: 0.4 });
+        for (let c = 0; c < cols; c++) {
+          // vertical separators
+          if (c > 0) ctx.page.drawLine({ start: { x: MARGIN + c * colW, y: ctx.y }, end: { x: MARGIN + c * colW, y: ctx.y - rowH }, thickness: 0.3, color: theme.hair });
+          let ty = ctx.y - 14;
+          for (const ln of cellLines[c] ?? []) {
+            ctx.page.drawText(safe(ln), { x: MARGIN + c * colW + 8, y: ty, size: 10, font: fonts.reg, color: theme.ink });
+            ty -= 13;
+          }
+        }
+        ctx.y -= rowH;
+      }
+      ctx.y -= 10;
+      return ctx;
+    }
     case "hr": {
       needSpace(20);
       ctx.page.drawLine({ start: { x: MARGIN + 60, y: ctx.y - 8 }, end: { x: PAGE_W - MARGIN - 60, y: ctx.y - 8 }, thickness: 0.6, color: theme.hair });
