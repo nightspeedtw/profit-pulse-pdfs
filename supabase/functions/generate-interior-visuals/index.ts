@@ -51,9 +51,11 @@ Deno.serve(async (req) => {
     const { ebook_id } = await req.json();
     if (!ebook_id) throw new Error("ebook_id required");
     const { data: e } = await db.from("ebooks")
-      .select("id,title,target_buyer,hook,toc,chapters,bonuses,category_id,cost_usd")
+      .select("id,title,target_buyer,hook,toc,chapters,bonuses,category_id,cost_usd,status")
       .eq("id", ebook_id).single();
     if (!e) throw new Error("Ebook not found");
+    const prevStatus = e.status ?? "review";
+    await db.from("ebooks").update({ status: "visuals" }).eq("id", ebook_id);
 
     const category = e.category_id
       ? (await db.from("categories").select("name").eq("id", e.category_id).maybeSingle()).data?.name
@@ -100,6 +102,7 @@ Provide 3-5 framework_diagrams and 5-10 worksheets_and_templates.`,
     await db.from("ebooks").update({
       interior_visuals: ai.data as unknown as never,
       cost_usd: Number(e.cost_usd ?? 0) + ai.usage.cost_usd,
+      status: prevStatus === "visuals" ? "review" : prevStatus,
     }).eq("id", ebook_id);
 
     return new Response(JSON.stringify({ ok: true, visuals: ai.data }), {
