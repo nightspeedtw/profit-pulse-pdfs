@@ -180,6 +180,92 @@ export default function Autopilot() {
         </div>
       </div>
 
+      {/* Autopilot Control Panel */}
+      <Card className="border-2 border-foreground">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Zap className="size-4" /> Hands-Off Schedule
+            {settings?.autopilot_enabled ? (
+              <Badge className="bg-green-200 text-green-900 border-green-700 border-2 ml-2">ON</Badge>
+            ) : (
+              <Badge variant="outline" className="ml-2">OFF</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Autopilot</Label>
+            <div className="flex items-center gap-2 h-9">
+              <Switch
+                checked={settings?.autopilot_enabled ?? false}
+                onCheckedChange={(v) => saveSettings({ autopilot_enabled: v })}
+                disabled={savingSettings || !settings}
+              />
+              <span className="text-sm">{settings?.autopilot_enabled ? "Enabled" : "Disabled"}</span>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Ebooks per day</Label>
+            <Input
+              type="number" min={0} max={50}
+              value={settings?.daily_quota ?? 0}
+              onChange={(e) => setSettings(s => s ? { ...s, daily_quota: Number(e.target.value) } : s)}
+              onBlur={(e) => saveSettings({ daily_quota: Number(e.target.value) })}
+              disabled={!settings}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Mode</Label>
+            <select
+              className="h-9 w-full border-2 border-foreground bg-card px-2 text-sm font-mono uppercase"
+              value={settings?.autopilot_mode ?? "safe"}
+              onChange={(e) => saveSettings({ autopilot_mode: e.target.value })}
+              disabled={!settings}
+            >
+              <option value="safe">Safe (draft only)</option>
+              <option value="full">Full (auto-publish)</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Publish at (UTC hour)</Label>
+            <Input
+              type="number" min={0} max={23}
+              value={settings?.publish_hour_utc ?? 14}
+              onChange={(e) => setSettings(s => s ? { ...s, publish_hour_utc: Number(e.target.value) } : s)}
+              onBlur={(e) => saveSettings({ publish_hour_utc: Number(e.target.value) })}
+              disabled={!settings}
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Drafts that pass gates publish at this UTC hour.
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Daily budget</Label>
+            <div className="flex items-center gap-1">
+              <span className="text-sm font-mono">$</span>
+              <Input
+                type="number" min={0} step={0.5}
+                value={settings?.daily_budget_usd ?? 5}
+                onChange={(e) => setSettings(s => s ? { ...s, daily_budget_usd: Number(e.target.value) } : s)}
+                onBlur={(e) => saveSettings({ daily_budget_usd: Number(e.target.value) })}
+                disabled={!settings}
+              />
+            </div>
+          </div>
+        </CardContent>
+        <CardContent className="pt-0 flex flex-wrap items-center gap-3">
+          <Button onClick={runCronNow} disabled={busy === "cron"} className="bg-green-700 hover:bg-green-800 text-white">
+            {busy === "cron" ? <Loader2Spinner /> : <Play className="size-4 mr-1" />}
+            Start Autopilot Now
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Generates ideas (if pool low) → launches up to <strong>{settings?.daily_quota ?? 0}</strong> ebooks → publishes ready drafts at <strong>{settings?.publish_hour_utc ?? 14}:00 UTC</strong>.
+            When <strong>Autopilot</strong> is enabled, this runs automatically every hour.
+          </p>
+        </CardContent>
+      </Card>
+
+
       {/* Filter bar */}
       <div className="flex gap-2 flex-wrap">
         {(["all", "running", "needs_review", "rejected", "published"] as const).map((f) => (
