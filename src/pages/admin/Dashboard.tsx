@@ -68,7 +68,7 @@ export default function Dashboard() {
     const { data: jobs } = await supabase
       .from("generation_jobs")
       .select("id,type,status,error,attempts,ebook_id,idea_id,created_at")
-      .in("status", ["failed", "error"])
+      .eq("status", "failed")
       .order("created_at", { ascending: false })
       .limit(10);
     setFailedJobs((jobs ?? []) as FailedJob[]);
