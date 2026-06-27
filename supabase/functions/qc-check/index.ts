@@ -57,10 +57,8 @@ Deno.serve(async (req) => {
     await db.from("ebooks").update({ qc, status: newStatus, cost_usd: Number(e.cost_usd) + ai.usage.cost_usd }).eq("id", ebook_id);
 
     // Auto-fix loop: if failed and we haven't tried too many times, kick off qc-fix in the background.
-    const body = await req.clone().json().catch(() => ({} as Record<string, unknown>));
-    const autoFix = body.auto_fix !== false; // default on
     let auto_fix_triggered = false;
-    if (!passed && autoFix && fixAttempts < 2) {
+    if (!passed && auto_fix && fixAttempts < 2) {
       auto_fix_triggered = true;
       await db.from("ebooks").update({ qc: { ...qc, fix_attempts: fixAttempts + 1 } }).eq("id", ebook_id);
       const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/qc-fix`;
