@@ -42,15 +42,43 @@ type PremiumResult = {
   };
 };
 
-// Raw score is 0-60 (6 dims * 10). Display on 0-100 scale.
-const to100 = (raw: number) => Math.round((Number(raw) || 0) / 60 * 100);
+type Alt = {
+  title: string; subtitle: string; hook: string;
+  core_pain_point: string; transformation_promise: string; product_page_opening: string;
+  why_stronger: string;
+  buyer_appeal_score: number; premium_score: number; compliance_risk_score: number; idea_score: number;
+};
+type AltResult = {
+  previous_title: string;
+  reason_current_version_is_not_strong_enough: string;
+  alternative_a: Alt;
+  alternative_b: Alt;
+  ai_recommended_winner: {
+    selected_option: "A" | "B";
+    title: string; subtitle: string; hook: string; product_page_opening: string;
+    shopify_product_title: string; meta_title: string; meta_description: string;
+    url_handle: string; tags: string[];
+    final_buyer_appeal_score: number; final_premium_score: number;
+    final_compliance_risk_score: number; final_idea_score: number;
+    status: string; recommended_admin_action: string;
+  };
+};
 
-// New thresholds per product spec.
-function scoreMeta(score100: number) {
-  if (score100 >= 80) return { label: "Approved · Ready to Generate", tone: "good" as const, status: "Approved" };
-  if (score100 >= 70) return { label: "Needs Admin Review", tone: "warn" as const, status: "Needs Admin Review" };
-  if (score100 >= 60) return { label: "Needs Admin Review · Improve Again", tone: "warn" as const, status: "Needs Admin Review" };
-  return { label: "Weak · Reject or Auto-Improve Level 2", tone: "bad" as const, status: "Reject" };
+// total_score is stored on a 0-100 scale for new ideas. Legacy 0-60 ideas are scaled up.
+const to100 = (raw: number) => {
+  const n = Number(raw) || 0;
+  return n > 60 ? Math.round(n) : Math.round(n / 60 * 100);
+};
+
+// Approval thresholds combining buyer-appeal, premium, and compliance-risk scores.
+function scoreMeta(score100: number, buyerAppeal?: number, premium?: number, compliance?: number) {
+  const ba = Number(buyerAppeal ?? score100);
+  const pr = Number(premium ?? score100);
+  const cr = Number(compliance ?? 0);
+  if (ba >= 85 && pr >= 85 && cr <= 3) return { label: "Premium Featured · Ready to Generate", tone: "good" as const, status: "Premium Featured" };
+  if (ba >= 80 && pr >= 80 && cr <= 4) return { label: "Approved · Ready to Generate", tone: "good" as const, status: "Approved" };
+  if (ba >= 70 || pr >= 70) return { label: "Needs Admin Review · Generate 2 Alternatives", tone: "warn" as const, status: "Needs Admin Review" };
+  return { label: "Needs Regeneration", tone: "bad" as const, status: "Needs Regeneration" };
 }
 
 const toneClass = {
