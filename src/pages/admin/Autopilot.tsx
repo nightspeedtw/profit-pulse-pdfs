@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Play, RefreshCw, Upload, Rocket, FileText, Plane, Save, Zap } from "lucide-react";
+import { Play, RefreshCw, Upload, Rocket, FileText, Plane, Save, Zap, Loader2 } from "lucide-react";
 
 type Ebook = {
   id: string;
@@ -255,7 +255,7 @@ export default function Autopilot() {
         </CardContent>
         <CardContent className="pt-0 flex flex-wrap items-center gap-3">
           <Button onClick={runCronNow} disabled={busy === "cron"} className="bg-green-700 hover:bg-green-800 text-white">
-            {busy === "cron" ? <Loader2Spinner /> : <Play className="size-4 mr-1" />}
+            {busy === "cron" ? <Loader2 className="size-4 mr-1 animate-spin" /> : <Play className="size-4 mr-1" />}
             Start Autopilot Now
           </Button>
           <p className="text-xs text-muted-foreground">
