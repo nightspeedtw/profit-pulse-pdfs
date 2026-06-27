@@ -256,10 +256,10 @@ export default function Ideas() {
     <div className="space-y-4 max-w-5xl">
       <div>
         <p className="font-mono uppercase tracking-widest text-xs">[ Ideas ]</p>
-        <h1 className="font-display text-4xl uppercase">Improved ideas</h1>
+        <h1 className="font-display text-4xl uppercase">Hard-Sell Ideas</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Every raw idea is auto-improved once (Level 1) before review. Auto-generation only fires on ideas scoring <strong>80+</strong>.
-          Use <strong>Improve Again</strong> for a stronger second pass.
+          Every idea is written first-pass by the <strong>Premium Title &amp; Hard-Sell Copywriter</strong>. Auto-generation only fires when Appeal, Premium, and Hard-Sell all hit <strong>80+</strong>.
+          Use <strong>Rewrite</strong> or <strong>Generate 2 Alternatives</strong> when a concept needs lift.
         </p>
       </div>
       {items.length === 0 && (
