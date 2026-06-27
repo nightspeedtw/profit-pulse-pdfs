@@ -224,6 +224,10 @@ export default function EbookReview() {
         </CardContent>
       </Card>
 
+      <PdfWizard ebook={e} busy={busy} onRun={run} />
+
+
+
       <Card className="border-2 border-foreground">
         <CardHeader>
           <CardTitle className="flex items-center justify-between gap-2">
