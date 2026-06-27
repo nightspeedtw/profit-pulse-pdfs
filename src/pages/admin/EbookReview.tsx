@@ -239,6 +239,9 @@ export default function EbookReview() {
 
       <PdfWizard ebook={e} busy={busy} onRun={run} />
 
+      <FinalApproval ebook={e} onChanged={load} />
+
+
 
 
       <Card className="border-2 border-foreground">
