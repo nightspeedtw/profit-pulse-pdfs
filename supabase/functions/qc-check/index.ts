@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
     const { data: e } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
     if (!e) throw new Error("Ebook not found");
     const { data: settings } = await db.from("generation_settings").select("*").eq("id", 1).single();
-    const minWords: number = Number(settings?.min_word_count ?? 8000);
+    const minWords: number = Number(settings?.min_word_count ?? 18000);
     const maxRefund: number = Number(settings?.max_refund_risk ?? 6);
 
     // 1. Duplicate title check

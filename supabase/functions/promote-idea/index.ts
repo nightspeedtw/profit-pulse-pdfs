@@ -1,7 +1,7 @@
 // Promotes an idea → creates ebook → generates outline → all chapters → marketing
 import { corsHeaders, admin, aiJSON, aiText, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 
-interface Outline { toc: { title: string; brief: string }[]; bonuses: { checklist: string; workbook: string; templates: string; action_plan: string; bonus: string } }
+interface Outline { toc: { title: string; brief: string }[]; bonuses: { checklist: string; worksheet: string; templates: string; action_plan_7day: string } }
 interface Marketing { product_description: string; seo_title: string; seo_meta: string; tags: string[]; cover_prompt: string }
 
 Deno.serve(async (req) => {
@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
     if (iErr || !idea) throw new Error("Idea not found");
     const { data: settings } = await db.from("generation_settings").select("*").eq("id", 1).single();
     const mode = settings?.mode ?? "hybrid";
-    const minWords: number = Number(settings?.min_word_count ?? 8000);
+    const minWords: number = Number(settings?.min_word_count ?? 18000);
 
     const { data: cat } = idea.category_id
       ? await db.from("categories").select("*").eq("id", idea.category_id).single()
@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
     const outlineAI = await aiJSON<Outline>({
       model: outlineModel,
       system: `You design premium ebook outlines. Each chapter must deliver a specific transformation, not fluff.`,
-      user: `Title: ${idea.title}\nSubtitle: ${idea.subtitle}\nTarget buyer: ${idea.target_buyer}\nHook: ${idea.hook}\n\nDesign a table of contents with 8-12 chapters. Each chapter should have a specific title (not generic like "Introduction") and a 2-3 sentence brief on what transformation the chapter delivers.\nAlso design 5 premium bonus sections: a checklist, a workbook (with prompts), a templates section, a 30-day action plan, and one bonus surprise that overdelivers.\n\nReturn JSON: { "toc": [{"title": "...", "brief": "..."}, ...], "bonuses": { "checklist": "...", "workbook": "...", "templates": "...", "action_plan": "...", "bonus": "..." } }`,
+      user: `Title: ${idea.title}\nSubtitle: ${idea.subtitle}\nTarget buyer: ${idea.target_buyer}\nHook: ${idea.hook}\n\nDesign a table of contents with EXACTLY 10 chapters. Each chapter should have a specific title (not generic like "Introduction") and a 2-3 sentence brief on what transformation the chapter delivers.\nAlso design these premium bonus sections: a checklist, a worksheet (with prompts), a templates section, and a 7-day action plan.\n\nReturn JSON: { "toc": [{"title": "...", "brief": "..."}, ...10 items], "bonuses": { "checklist": "...", "worksheet": "...", "templates": "...", "action_plan_7day": "..." } }`,
     });
     totalCost += outlineAI.usage.cost_usd;
     await logCost(db, { ebook_id: ebook.id, step: "outline", model: outlineAI.model, ...outlineAI.usage });
@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
     }).eq("id", ebook.id);
 
     // 2. Generate each chapter (target ~1000 words/chapter)
-    const wordsPerChapter = Math.max(800, Math.ceil(minWords / Math.max(outlineAI.data.toc.length, 1)));
+    const wordsPerChapter = Math.max(1500, Math.min(1800, Math.ceil(minWords / Math.max(outlineAI.data.toc.length, 1))));
     const chapters: { title: string; content: string }[] = [];
     for (const ch of outlineAI.data.toc) {
       const chAI = await aiText({
