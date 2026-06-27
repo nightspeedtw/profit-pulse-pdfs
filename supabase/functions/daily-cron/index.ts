@@ -32,9 +32,9 @@ Deno.serve(async (req) => {
     });
     const ideaRes = await r1.json().catch(() => ({}));
 
-    // Promote top N ideas (by score) — only score >= 48/60 (~80/100), the Auto-Approve threshold.
+    // Promote top N ideas (by score) — only score >= 80/100, the Auto-Approve threshold.
     const { data: topIdeas } = await db.from("ebook_ideas")
-      .select("id").eq("status", "idea").gte("total_score", 48).order("total_score", { ascending: false }).limit(quota);
+      .select("id").eq("status", "idea").gte("total_score", 80).order("total_score", { ascending: false }).limit(quota);
 
     const promoted: string[] = [];
     for (const i of (topIdeas ?? [])) {
