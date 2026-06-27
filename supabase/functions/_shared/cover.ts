@@ -1,4 +1,5 @@
-// Cover composition helpers: build SVG with text overlay and rasterize to PNG.
+// Premium cover composition: build SVG with bulletproof text overlay and rasterize to PNG.
+// All text is rendered by code on top of a text-free AI background.
 import { initWasm, Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
 
 let wasmReady: Promise<void> | null = null;
@@ -33,32 +34,46 @@ export interface CoverSpec {
 function esc(s: string) {
   return (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
-function wrap(text: string, maxChars: number): string[] {
-  const words = (text ?? "").split(/\s+/);
+
+// Approx char width per font-size (Inter Black ~0.55em uppercase)
+function approxTitleCharW(size: number) { return size * 0.56; }
+function approxSubCharW(size: number) { return size * 0.5; }
+
+function wrapByWidth(text: string, maxWidthPx: number, charWidth: (s: number) => number, fontSize: number): string[] {
+  const cpl = Math.max(6, Math.floor(maxWidthPx / charWidth(fontSize)));
+  const words = (text ?? "").trim().split(/\s+/);
   const lines: string[] = [];
   let line = "";
   for (const w of words) {
     const t = line ? `${line} ${w}` : w;
-    if (t.length > maxChars && line) { lines.push(line); line = w; }
+    if (t.length > cpl && line) { lines.push(line); line = w; }
     else line = t;
   }
   if (line) lines.push(line);
   return lines;
 }
 
-/**
- * Build an SVG of the full cover (2:3) by embedding the background PNG as a data URL
- * and overlaying readable title/subtitle/brand/badge text. Returns the SVG string.
- */
+// Auto-fit: shrink font until title fits in maxLines and panel width
+function fitTitle(text: string, maxWidth: number, maxLines: number, startSize: number, minSize: number) {
+  let size = startSize;
+  while (size >= minSize) {
+    const lines = wrapByWidth(text.toUpperCase(), maxWidth, approxTitleCharW, size);
+    if (lines.length <= maxLines) return { size, lines };
+    size -= 6;
+  }
+  const lines = wrapByWidth(text.toUpperCase(), maxWidth, approxTitleCharW, minSize).slice(0, maxLines);
+  return { size: minSize, lines };
+}
+
 export function buildCoverSVG(spec: CoverSpec, bgPng: Uint8Array): string {
   const W = 1600, H = 2400;
   const palette = (spec.color_palette ?? []).filter(Boolean);
-  const overlay = palette[0] ?? "#000000";
+  const overlay = palette[0] ?? "#0b1a2b";
   const titleColor = palette[1] ?? "#ffffff";
   const accent = palette[2] ?? "#f5c518";
   const layout = (spec.layout_direction || "bottom").toLowerCase();
 
-  // base64 encode bg
+  // base64 bg
   let b64 = "";
   const chunk = 0x8000;
   for (let i = 0; i < bgPng.length; i += chunk) {
@@ -66,78 +81,125 @@ export function buildCoverSVG(spec: CoverSpec, bgPng: Uint8Array): string {
   }
   const bgData = `data:image/png;base64,${btoa(b64)}`;
 
-  const titleLines = wrap(spec.title_text || "", 14).slice(0, 4);
-  const subLines = wrap(spec.subtitle_text || "", 38).slice(0, 3);
-  const titleSize = titleLines.length >= 3 ? 130 : titleLines.length === 2 ? 160 : 180;
-  const subSize = 52;
-  const brandSize = 38;
-  const badgeSize = 36;
+  const PAD_X = 130;
+  const usableW = W - PAD_X * 2;
 
-  const titleLineH = titleSize * 1.05;
-  const subLineH = subSize * 1.25;
+  // ---- Auto-fit title ----
+  const titleRaw = (spec.title_text || "").trim().slice(0, 60);
+  const { size: titleSize, lines: titleLines } = fitTitle(titleRaw, usableW, 3, 220, 110);
+  const titleLineH = titleSize * 1.02;
 
-  // Compute block heights
-  const blockH = titleLines.length * titleLineH + (subLines.length ? 40 + subLines.length * subLineH : 0) + 80;
-  // panel position
-  let panelY: number, panelH: number, textTopY: number;
+  // ---- Subtitle ----
+  const subRaw = (spec.subtitle_text || "").trim().slice(0, 120);
+  const subSize = 46;
+  const subLines = wrapByWidth(subRaw, usableW, approxSubCharW, subSize).slice(0, 3);
+  const subLineH = subSize * 1.3;
+
+  // ---- Brand / badge ----
+  const brandSize = 34;
+  const badgeSize = 32;
+  const badgeText = (spec.badge_text || "").trim().slice(0, 36).toUpperCase();
+  const brandText = (spec.brand_text || "SECRET PDF").trim().toUpperCase();
+
+  // ---- Block heights ----
+  const accentBarH = 14;
+  const gapAfterAccent = 50;
+  const gapTitleSub = 60;
+  const titleBlockH = titleLines.length * titleLineH;
+  const subBlockH = subLines.length ? subLines.length * subLineH : 0;
+  const blockH = accentBarH + gapAfterAccent + titleBlockH + (subLines.length ? gapTitleSub + subBlockH : 0);
+
+  // ---- Panel placement ----
+  const panelPad = 180;
+  let panelY: number, panelH: number, contentTopY: number;
   if (layout === "top") {
-    panelY = 0; panelH = Math.max(blockH + 160, 700);
-    textTopY = 220;
+    panelH = blockH + panelPad * 1.4;
+    panelY = 0;
+    contentTopY = 280;
   } else if (layout === "center") {
-    panelH = Math.max(blockH + 160, 800);
+    panelH = blockH + panelPad;
     panelY = (H - panelH) / 2;
-    textTopY = panelY + 140;
+    contentTopY = panelY + panelPad / 2;
   } else {
-    panelH = Math.max(blockH + 200, 900);
+    panelH = blockH + panelPad + 120; // reserve brand area
     panelY = H - panelH;
-    textTopY = panelY + 160;
+    contentTopY = panelY + panelPad / 2;
   }
 
-  const titleX = 120;
-  let y = textTopY;
+  // ---- Draw title ----
+  let y = contentTopY;
+  const accentBar = `<rect x="${PAD_X}" y="${y}" width="140" height="${accentBarH}" fill="${accent}" rx="2"/>`;
+  y += accentBarH + gapAfterAccent;
+  const titleStartY = y + titleSize * 0.85;
   const titleTSpans = titleLines.map((ln, i) => {
-    const ty = y + (i + 1) * titleLineH - 30;
-    return `<text x="${titleX}" y="${ty}" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="900" font-size="${titleSize}" fill="${titleColor}" letter-spacing="-3">${esc(ln.toUpperCase())}</text>`;
+    const ty = titleStartY + i * titleLineH;
+    return `<text x="${PAD_X}" y="${ty}" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-weight="900" font-size="${titleSize}" fill="${titleColor}" letter-spacing="-3">${esc(ln)}</text>`;
   }).join("");
-  y += titleLines.length * titleLineH + 30;
+  y += titleBlockH;
 
-  const subTSpans = subLines.map((ln, i) => {
-    const ty = y + (i + 1) * subLineH;
-    return `<text x="${titleX}" y="${ty}" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="500" font-size="${subSize}" fill="${titleColor}" opacity="0.92">${esc(ln)}</text>`;
-  }).join("");
+  // ---- Subtitle ----
+  let subTSpans = "";
+  if (subLines.length) {
+    y += gapTitleSub;
+    const subStartY = y + subSize * 0.85;
+    subTSpans = subLines.map((ln, i) => {
+      const ty = subStartY + i * subLineH;
+      return `<text x="${PAD_X}" y="${ty}" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-weight="400" font-size="${subSize}" fill="${titleColor}" opacity="0.92">${esc(ln)}</text>`;
+    }).join("");
+  }
 
-  // Badge (top)
-  const badge = spec.badge_text
-    ? `<g>
-        <rect x="120" y="120" width="${Math.min(120 + spec.badge_text.length * 22, 900)}" height="80" rx="40" fill="${accent}" />
-        <text x="160" y="175" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="700" font-size="${badgeSize}" fill="#0b0b0b">${esc(spec.badge_text.toUpperCase())}</text>
-       </g>`
+  // ---- Brand pinned to bottom of panel ----
+  const brandY = panelY + panelH - 60;
+  const brand = `<text x="${PAD_X}" y="${brandY}" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="${brandSize}" fill="${titleColor}" opacity="0.85" letter-spacing="6">${esc(brandText)}</text>`;
+  // small accent dot before brand
+  const brandDot = `<circle cx="${PAD_X - 24}" cy="${brandY - 10}" r="6" fill="${accent}"/>`;
+
+  // ---- Badge at top ----
+  const badge = badgeText
+    ? (() => {
+        const padX = 32;
+        const bw = Math.min(badgeText.length * 18 + padX * 2, 1000);
+        const bh = 70;
+        const bx = PAD_X, by = 140;
+        return `<g>
+          <rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="${bh/2}" fill="${accent}"/>
+          <text x="${bx + padX}" y="${by + bh/2 + badgeSize/3}" font-family="Inter, Arial, sans-serif" font-weight="800" font-size="${badgeSize}" fill="#0b0b0b" letter-spacing="2">${esc(badgeText)}</text>
+        </g>`;
+      })()
     : "";
 
-  const brand = `<text x="120" y="${H - 100}" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="700" font-size="${brandSize}" fill="${titleColor}" opacity="0.85" letter-spacing="4">${esc((spec.brand_text || "SECRET PDF").toUpperCase())}</text>`;
-
-  const accentBar = `<rect x="120" y="${textTopY - 60}" width="120" height="10" fill="${accent}" />`;
-
-  // overlay gradient for legibility
+  // ---- Legibility gradient over background, stronger near panel ----
   const gradStops = layout === "top"
-    ? `<stop offset="0" stop-color="${overlay}" stop-opacity="0.85"/><stop offset="1" stop-color="${overlay}" stop-opacity="0"/>`
+    ? `<stop offset="0" stop-color="${overlay}" stop-opacity="0.92"/><stop offset="0.5" stop-color="${overlay}" stop-opacity="0.55"/><stop offset="1" stop-color="${overlay}" stop-opacity="0"/>`
     : layout === "center"
-    ? `<stop offset="0" stop-color="${overlay}" stop-opacity="0"/><stop offset="0.5" stop-color="${overlay}" stop-opacity="0.7"/><stop offset="1" stop-color="${overlay}" stop-opacity="0"/>`
-    : `<stop offset="0" stop-color="${overlay}" stop-opacity="0"/><stop offset="1" stop-color="${overlay}" stop-opacity="0.92"/>`;
+    ? `<stop offset="0" stop-color="${overlay}" stop-opacity="0"/><stop offset="0.5" stop-color="${overlay}" stop-opacity="0.85"/><stop offset="1" stop-color="${overlay}" stop-opacity="0"/>`
+    : `<stop offset="0" stop-color="${overlay}" stop-opacity="0"/><stop offset="0.35" stop-color="${overlay}" stop-opacity="0.4"/><stop offset="1" stop-color="${overlay}" stop-opacity="0.96"/>`;
+
+  // Subtle inner border
+  const border = `<rect x="20" y="20" width="${W-40}" height="${H-40}" fill="none" stroke="${accent}" stroke-width="3" opacity="0.35"/>`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <defs>
     <linearGradient id="g" x1="0" y1="${panelY}" x2="0" y2="${panelY + panelH}" gradientUnits="userSpaceOnUse">${gradStops}</linearGradient>
+    <filter id="ts" x="-5%" y="-5%" width="110%" height="110%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="4"/>
+      <feOffset dx="0" dy="3"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.6"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
   </defs>
-  <image href="${bgData}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="xMidYMid slice" />
-  <rect x="0" y="${panelY}" width="${W}" height="${panelH}" fill="url(#g)" />
+  <image href="${bgData}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="xMidYMid slice"/>
+  <rect x="0" y="${panelY}" width="${W}" height="${panelH}" fill="url(#g)"/>
   ${badge}
-  ${accentBar}
-  ${titleTSpans}
-  ${subTSpans}
-  ${brand}
-  <rect x="0" y="0" width="${W}" height="${H}" fill="none" stroke="${accent}" stroke-width="6" opacity="0.5"/>
+  <g filter="url(#ts)">
+    ${accentBar}
+    ${titleTSpans}
+    ${subTSpans}
+    ${brandDot}
+    ${brand}
+  </g>
+  ${border}
 </svg>`;
 }
 
