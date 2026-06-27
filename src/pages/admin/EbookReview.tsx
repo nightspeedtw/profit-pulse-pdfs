@@ -51,6 +51,8 @@ interface Ebook {
   } | null;
   conversion_score: number | null; final_quality_score: number | null;
   compliance_safety_score: number | null; shopify_status: string | null;
+  shopify_events: { at: string; kind: "queued" | "success" | "failed"; action: "push" | "publish"; message?: string; error?: string; meta?: Record<string, unknown> }[];
+  shopify_last_error: string | null; shopify_handle: string | null;
   auto_approved: boolean; auto_publish: boolean; final_approved: boolean;
   word_count: number; qc: Record<string, unknown>; price: number; vendor: string;
   product_type: string; shopify_product_id: string | null; status: string;
