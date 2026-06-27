@@ -429,7 +429,7 @@ export default function Ideas() {
                           </Button>
                         )}
                         <Button size="sm" variant="secondary" onClick={() => { setImproveOpen(i); setFeedback(i.admin_feedback ?? ""); }} disabled={isBusy}>
-                          <Sparkles className="size-4 mr-1" /> Improve Again
+                          <Sparkles className="size-4 mr-1" /> Rewrite
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => runPremium(i)} disabled={isBusy}>
                           <Crown className="size-4 mr-1" /> Premium Positioning
