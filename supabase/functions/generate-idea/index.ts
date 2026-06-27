@@ -1,4 +1,5 @@
 import { corsHeaders, admin, aiJSON, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
+import { improveIdea, applyImprovement } from "../_shared/improve.ts";
 
 interface Scores { urgency: number; transformation: number; commercial: number; evergreen: number; emotional: number; clarity: number }
 interface IdeaOut { title: string; subtitle: string; target_buyer: string; hook: string; scores: Scores; rationale: string }
@@ -68,9 +69,32 @@ Return JSON: { "ideas": [ ... ${requestedCount} items ... ] }`;
         target_buyer: idea.target_buyer, hook: idea.hook,
         scores: s, total_score: total, status,
         notes: idea.rationale, cost_usd: ai.usage.cost_usd / Math.max(ai.data.ideas?.length ?? 1, 1),
+        // Preserve the raw generation as the canonical "raw" version.
+        raw_title: idea.title, raw_subtitle: idea.subtitle,
+        raw_hook: idea.hook, raw_target_buyer: idea.target_buyer,
       }).select("id").single();
-      if (row?.id) created.push(row.id);
+      if (!row?.id) continue;
+      created.push(row.id);
+
+      // Auto Improve Level 1 — always run, so admin never sees the raw idea by default.
+      if (status === "idea") {
+        try {
+          const result = await improveIdea({
+            id: row.id, title: idea.title, subtitle: idea.subtitle,
+            target_buyer: idea.target_buyer, hook: idea.hook, total_score: total,
+            category: { name: cat?.name, description: cat?.description },
+            round: 0, action: "all", mode,
+          });
+          await applyImprovement(db, row.id, {
+            title: idea.title, subtitle: idea.subtitle, hook: idea.hook, target_buyer: idea.target_buyer,
+            raw_title: null, improvement_round: 0, notes: idea.rationale,
+          }, result, { source: "auto-level-1", action: "all" });
+        } catch (_e) {
+          // Auto-improve failure is non-fatal — raw idea remains for admin to retry.
+        }
+      }
     }
+
 
     return new Response(JSON.stringify({ created: created.length, ids: created, model: ai.model, cost_usd: ai.usage.cost_usd }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
