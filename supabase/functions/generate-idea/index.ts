@@ -1,9 +1,46 @@
+// Generate ONE best sellable ebook concept per call (premium positioning from the start).
+// Loops `count` times so each idea is independently the strongest commercial version.
 import { corsHeaders, admin, aiJSON, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
-import { improveIdea, applyImprovement } from "../_shared/improve.ts";
 
-interface Scores { urgency: number; transformation: number; commercial: number; evergreen: number; emotional: number; clarity: number }
-interface IdeaOut { title: string; subtitle: string; target_buyer: string; hook: string; scores: Scores; rationale: string }
-interface Batch { ideas: IdeaOut[] }
+interface BestConcept {
+  title: string;
+  subtitle: string;
+  hook: string;
+  core_pain_point: string;
+  deeper_emotional_fear: string;
+  transformation_promise: string;
+  product_page_opening: string;
+  perceived_value_boosters: string[];
+  why_it_sells: string;
+  buyer_appeal_score: number;
+  premium_score: number;
+  compliance_risk_score: number;
+  idea_score: number;
+  status: string;
+  recommended_admin_action: string;
+}
+interface ShopifyReady {
+  product_title: string;
+  meta_title: string;
+  meta_description: string;
+  url_handle: string;
+  tags: string[];
+  recommended_price: string;
+  recommended_category: string;
+}
+interface OneIdea {
+  raw_topic: string;
+  category: string;
+  target_buyer: string;
+  best_sellable_concept: BestConcept;
+  shopify_ready: ShopifyReady;
+}
+
+function mapStatus(s: string): "idea" | "rejected" {
+  const v = (s ?? "").toLowerCase();
+  if (v.includes("regenerat") || v.includes("reject")) return "rejected";
+  return "idea";
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -11,11 +48,10 @@ Deno.serve(async (req) => {
     await requireAdmin(req);
     const db = admin();
     const body = await req.json().catch(() => ({}));
-    const requestedCount: number = Math.min(Math.max(Number(body.count ?? 5), 1), 20);
+    const requestedCount: number = Math.min(Math.max(Number(body.count ?? 1), 1), 10);
 
     const { data: settings } = await db.from("generation_settings").select("*").eq("id", 1).single();
     const mode = settings?.mode ?? "hybrid";
-    const threshold: number = Number(settings?.min_score_threshold ?? 35);
 
     // Pick a category (round-robin among enabled)
     let categoryId: string | null = body.category_id ?? null;
@@ -34,69 +70,140 @@ Deno.serve(async (req) => {
     const { data: existing } = await db.from("ebook_ideas").select("title").order("created_at", { ascending: false }).limit(50);
     const existingTitles = (existing ?? []).map((r) => r.title).join("\n");
 
-    const model = pickModel(mode, "ideation");
-    const sys = `You are a premium digital-ebook strategist for the Printly brand.
-You generate ebook concepts that real people would pay $20-30 for and recommend to friends.
-QUALITY OVER QUANTITY. Every concept must be specific, useful, and emotionally compelling — never generic or spammy.`;
-    const user = `Generate ${requestedCount} distinct premium ebook concepts for the "${cat?.name}" category.
-Category notes: ${cat?.description ?? ""}.
+    const model = pickModel(mode, "marketing");
 
-For each, return:
-- title (clear, specific, benefit-driven, 4-9 words)
-- subtitle (one sentence explaining the transformation)
-- target_buyer (one sentence: who exactly, why they need it now)
-- hook (an honest, emotional one-liner promise — NO get-rich-quick / NO medical claims)
-- scores (1-10 integers): urgency (does it solve urgent pain?), transformation (clear before/after?), commercial (will people pay $24+?), evergreen (will sell in 2 years?), emotional (does it speak to identity/desire?), clarity (is the promise instantly understandable?)
-- rationale (one sentence on why this beats generic ebooks in this category)
+    const sys = `You are the best premium ebook title copywriter and product positioning strategist for the USA digital product market.
 
-AVOID titles already in the system:
+Your task is to generate only ONE best sellable ebook concept from the beginning.
+
+Do not generate multiple options. Do not generate rough drafts. Do not generate generic blog-style titles. Your first output must be the strongest commercial version you can create.
+
+The ebook will be sold as a premium PDF product on Shopify.
+
+Target market: USA buyers who purchase premium PDF ebooks, guides, frameworks, protocols, playbooks, templates, workbooks, and digital products.
+
+The title must feel: Premium, Practical, Clear, Emotionally compelling, Commercially attractive, Worth paying for, Specific to the target buyer, Strong enough to approve without needing another improvement round.
+
+Use buyer psychology: relief from specific pain · clarity when overwhelmed · control when life feels uncertain · systems that reduce decision fatigue · protection for family/money/health/career/future · shortcuts that save time · products that feel made for their exact identity · titles that make the buyer feel seen.
+
+Use premium product language when appropriate: Framework, Protocol, Blueprint, Playbook, Operating System, Toolkit, Field Guide, Method, System, Safety Plan, Reset Plan, Cash Flow System, Wealth Framework, Career Playbook, AI Workflow System.
+
+Rules:
+- Generate only ONE best title. Not 2, not 5, not 10.
+- No fake guarantees. No guaranteed income, savings, investment returns, health/legal/relationship outcomes.
+- Not scammy. Not academic. Not a free blog post. Avoid weak words (tips, tricks, basic guide, easy hacks).
+- American English.
+- If finance, investment, health, legal, or relationship related: keep wording educational and compliance-safe.
+
+Scoring (1-100):
+- buyer_appeal_score: how likely the target buyer wants this.
+- premium_score: how high-value and paid-product-worthy it feels.
+- compliance_risk_score: 1 safest, 10 risky.
+- idea_score: combined commercial score.
+
+Approval rules:
+- buyer_appeal >= 85 AND premium >= 85 AND compliance <= 3 → "Premium Featured / Ready to Generate"
+- buyer_appeal >= 80 AND premium >= 80 AND compliance <= 4 → "Approved / Ready to Generate"
+- buyer_appeal >= 70 OR premium >= 70 → "Needs Admin Review"
+- else → "Needs Regeneration"
+
+Output must be valid JSON only. Do not include any text before or after the JSON.`;
+
+    const userTemplate = `Input:
+Category: ${cat?.name ?? ""} — ${cat?.description ?? ""}
+Raw Topic: pick the highest-commercial-value topic in this category that has NOT been used below.
+Target Buyer: define a specific USA buyer persona for this concept.
+Buyer Pain Point: define the most urgent, specific pain.
+Planned Price: $19–$29
+Planned Word Count: ~18,000 words (70–90 page PDF)
+
+AVOID titles already in the system (do not repeat or closely echo any of these):
 ${existingTitles}
 
-AVOID generic patterns: "Ultimate Guide to X", "X for Beginners", "X 101", "Mastering X". Be specific and unusual.
-Return JSON: { "ideas": [ ... ${requestedCount} items ... ] }`;
-
-    const ai = await aiJSON<Batch>({ system: sys, user, model });
-    await logCost(db, { idea_id: null, step: "generate-idea", model: ai.model, ...ai.usage });
+Return JSON in EXACTLY this shape:
+{
+  "raw_topic": "",
+  "category": "${cat?.name ?? ""}",
+  "target_buyer": "",
+  "best_sellable_concept": {
+    "title": "",
+    "subtitle": "",
+    "hook": "",
+    "core_pain_point": "",
+    "deeper_emotional_fear": "",
+    "transformation_promise": "",
+    "product_page_opening": "",
+    "perceived_value_boosters": ["", "", ""],
+    "why_it_sells": "",
+    "buyer_appeal_score": 0,
+    "premium_score": 0,
+    "compliance_risk_score": 0,
+    "idea_score": 0,
+    "status": "Premium Featured / Ready to Generate | Approved / Ready to Generate | Needs Admin Review | Needs Regeneration",
+    "recommended_admin_action": "Approve & Generate | Generate 2 Alternatives | Reject"
+  },
+  "shopify_ready": {
+    "product_title": "",
+    "meta_title": "",
+    "meta_description": "",
+    "url_handle": "",
+    "tags": ["", "", "", ""],
+    "recommended_price": "",
+    "recommended_category": "${cat?.name ?? ""}"
+  }
+}`;
 
     const created: string[] = [];
-    for (const idea of (ai.data.ideas ?? [])) {
-      const s = idea.scores ?? { urgency: 0, transformation: 0, commercial: 0, evergreen: 0, emotional: 0, clarity: 0 };
-      const total = (s.urgency + s.transformation + s.commercial + s.evergreen + s.emotional + s.clarity);
-      const status = total >= threshold ? "idea" : "rejected";
-      const { data: row } = await db.from("ebook_ideas").insert({
-        category_id: categoryId,
-        title: idea.title, subtitle: idea.subtitle,
-        target_buyer: idea.target_buyer, hook: idea.hook,
-        scores: s, total_score: total, status,
-        notes: idea.rationale, cost_usd: ai.usage.cost_usd / Math.max(ai.data.ideas?.length ?? 1, 1),
-        // Preserve the raw generation as the canonical "raw" version.
-        raw_title: idea.title, raw_subtitle: idea.subtitle,
-        raw_hook: idea.hook, raw_target_buyer: idea.target_buyer,
-      }).select("id").single();
-      if (!row?.id) continue;
-      created.push(row.id);
+    let totalCost = 0;
 
-      // Auto Improve Level 1 — always run, so admin never sees the raw idea by default.
-      if (status === "idea") {
-        try {
-          const result = await improveIdea({
-            id: row.id, title: idea.title, subtitle: idea.subtitle,
-            target_buyer: idea.target_buyer, hook: idea.hook, total_score: total,
-            category: { name: cat?.name, description: cat?.description },
-            round: 0, action: "all", mode,
-          });
-          await applyImprovement(db, row.id, {
-            title: idea.title, subtitle: idea.subtitle, hook: idea.hook, target_buyer: idea.target_buyer,
-            raw_title: null, improvement_round: 0, notes: idea.rationale,
-          }, result, { source: "auto-level-1", action: "all" });
-        } catch (_e) {
-          // Auto-improve failure is non-fatal — raw idea remains for admin to retry.
-        }
+    for (let i = 0; i < requestedCount; i++) {
+      try {
+        const ai = await aiJSON<OneIdea>({ system: sys, user: userTemplate, model });
+        totalCost += ai.usage.cost_usd;
+        await logCost(db, { idea_id: null, step: "generate-idea", model: ai.model, ...ai.usage });
+
+        const c = ai.data.best_sellable_concept;
+        const shop = ai.data.shopify_ready ?? {} as ShopifyReady;
+        if (!c?.title) continue;
+
+        const status = mapStatus(c.status);
+        const scoreVal = Math.max(0, Math.min(100, Number(c.idea_score ?? 0)));
+
+        const { data: row } = await db.from("ebook_ideas").insert({
+          category_id: categoryId,
+          title: c.title,
+          subtitle: c.subtitle,
+          target_buyer: ai.data.target_buyer,
+          hook: c.hook,
+          scores: {
+            buyer_appeal: c.buyer_appeal_score,
+            premium: c.premium_score,
+            compliance_risk: c.compliance_risk_score,
+            idea: c.idea_score,
+          },
+          total_score: scoreVal,
+          status,
+          notes: `[one-shot-premium] ${c.status} — ${c.recommended_admin_action}\n${c.product_page_opening ?? ""}\n\nShopify: ${JSON.stringify(shop)}`,
+          cost_usd: ai.usage.cost_usd,
+          core_pain_point: c.core_pain_point,
+          deeper_emotional_fear: c.deeper_emotional_fear,
+          transformation_promise: c.transformation_promise,
+          perceived_value_boosters: c.perceived_value_boosters ?? [],
+          why_it_sells: c.why_it_sells,
+          recommended_action: c.recommended_admin_action,
+          improvement_round: 1,
+          raw_title: c.title,
+          raw_subtitle: c.subtitle,
+          raw_hook: c.hook,
+          raw_target_buyer: ai.data.target_buyer,
+        }).select("id").single();
+        if (row?.id) created.push(row.id);
+      } catch (_e) {
+        // continue — partial batch is acceptable
       }
     }
 
-
-    return new Response(JSON.stringify({ created: created.length, ids: created, model: ai.model, cost_usd: ai.usage.cost_usd }), {
+    return new Response(JSON.stringify({ created: created.length, ids: created, model, cost_usd: totalCost }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
