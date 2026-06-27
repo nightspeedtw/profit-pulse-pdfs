@@ -15,13 +15,15 @@ Deno.serve(async (req) => {
     const key = Deno.env.get("LOVABLE_API_KEY");
     if (!key) throw new Error("LOVABLE_API_KEY not configured");
 
+    const imagePrompt = `${prompt}\n\nNo text, no words, no letters in the image. Vertical book cover aspect 2:3, premium production quality.`;
+
     const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "google/gemini-3-pro-image",
-        prompt: `${prompt}\n\nNo text, no words, no letters in the image. Vertical book cover aspect 2:3, premium production quality.`,
-        size: "1024x1536",
+        messages: [{ role: "user", content: imagePrompt }],
+        modalities: ["image", "text"],
       }),
     });
     if (!res.ok) throw new Error(`Image gen ${res.status}: ${(await res.text()).slice(0, 300)}`);
