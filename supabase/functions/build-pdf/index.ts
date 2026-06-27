@@ -1042,12 +1042,19 @@ function looksFinance(s: string): boolean {
 function computePdfQc(x: {
   pageCount: number; chapters: number; diagrams: number; worksheets: number;
   hasCover: boolean; coverScore: number; hasToc: boolean; hasDisclaimer: boolean;
+  diagramOverflowCount?: number; diagramTruncatedCount?: number;
 }) {
   const coverPremiumScore = x.hasCover ? Math.min(100, Math.round(60 + x.coverScore * 0.4)) : 50;
   const thumbnailReadabilityScore = Math.min(100, Math.max(70, Math.round(x.coverScore || 80)));
   const interiorLayoutScore = Math.min(100, 70 + (x.hasToc ? 10 : 0) + (x.chapters >= 4 ? 10 : 0) + (x.pageCount >= 20 ? 10 : 0));
   const worksheetQualityScore = Math.min(100, 70 + Math.min(20, x.worksheets * 3) + 5);
-  const diagramQualityScore = Math.min(100, 70 + Math.min(20, x.diagrams * 5) + 5);
+  const overflow = x.diagramOverflowCount ?? 0;
+  const truncated = x.diagramTruncatedCount ?? 0;
+  // Diagram penalty: each cropped node -8, each truncated label -3 (cap penalty at base score)
+  const diagramQualityScore = Math.max(
+    40,
+    Math.min(100, 70 + Math.min(20, x.diagrams * 5) + 5 - overflow * 8 - truncated * 3),
+  );
   const productValueScore = Math.min(100, 70 + Math.min(15, x.diagrams * 2 + x.worksheets * 2) + (x.hasDisclaimer ? 5 : 0) + 5);
   const finalPdfPremiumScore = Math.round(
     coverPremiumScore * 0.25 + thumbnailReadabilityScore * 0.15 +
@@ -1059,7 +1066,7 @@ function computePdfQc(x: {
     thumbnail: thumbnailReadabilityScore >= 90,
     interior: interiorLayoutScore >= 85,
     worksheet: worksheetQualityScore >= 85,
-    diagram: diagramQualityScore >= 85,
+    diagram: diagramQualityScore >= 85 && overflow === 0,
     final: finalPdfPremiumScore >= 90,
   };
   const issues: string[] = [];
@@ -1067,13 +1074,17 @@ function computePdfQc(x: {
   if (!passes.thumbnail) issues.push("Cover may not read at thumbnail size.");
   if (!passes.interior) issues.push("Add more structure (TOC, chapter dividers, more pages).");
   if (!passes.worksheet) issues.push("Add more or higher-quality worksheets.");
-  if (!passes.diagram) issues.push("Add more framework diagrams.");
+  if (!passes.diagram) issues.push(overflow > 0
+    ? `${overflow} diagram node(s) cropped off page — shorten labels or split diagram.`
+    : "Add more framework diagrams.");
+  if (truncated > 0) issues.push(`${truncated} diagram label(s) truncated mid-text — shorten node text.`);
   if (!passes.final) issues.push("Overall premium score below 90.");
   return {
     pages: x.pageCount,
     coverPremiumScore, thumbnailReadabilityScore, interiorLayoutScore,
     worksheetQualityScore, diagramQualityScore, productValueScore,
     finalPdfPremiumScore, passes, issues,
+    diagramOverflowCount: overflow, diagramTruncatedCount: truncated,
     blocked_for_publish: !(passes.cover && passes.thumbnail && passes.interior && passes.worksheet && passes.diagram && passes.final),
   };
 }
