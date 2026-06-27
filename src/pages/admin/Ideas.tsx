@@ -362,15 +362,20 @@ export default function Ideas() {
                   <div className="flex flex-col gap-2 shrink-0 w-44">
                     {canPromote && (
                       <>
-                        {s100 >= 80 ? (
+                        {isApproved ? (
                           <Button size="sm" onClick={() => promote(i.id)} disabled={isBusy}>
                             {isBusy ? <Loader2 className="size-4 animate-spin mr-1" /> : <ChevronRight className="size-4 mr-1" />}
                             Approve & Generate
                           </Button>
                         ) : (
                           <Button size="sm" variant="outline" onClick={() => promote(i.id)} disabled={isBusy}
-                            title="Score below 80 — generate anyway?">
+                            title="Below threshold — approve manually?">
                             <Check className="size-4 mr-1" /> Approve Anyway
+                          </Button>
+                        )}
+                        {!isApproved && (
+                          <Button size="sm" variant="default" onClick={() => runAlternatives(i)} disabled={isBusy}>
+                            <Sparkles className="size-4 mr-1" /> Generate 2 Alternatives
                           </Button>
                         )}
                         <Button size="sm" variant="secondary" onClick={() => { setImproveOpen(i); setFeedback(i.admin_feedback ?? ""); }} disabled={isBusy}>
