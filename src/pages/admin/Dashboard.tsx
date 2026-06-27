@@ -2,9 +2,21 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Loader2, Plane, ArrowRight } from "lucide-react";
+import { Loader2, Plane, ArrowRight, FlaskConical, AlertTriangle } from "lucide-react";
 import { Link } from "react-router-dom";
+
+type FailedJob = {
+  id: string;
+  type: string;
+  status: string;
+  error: string | null;
+  attempts: number;
+  ebook_id: string | null;
+  idea_id: string | null;
+  created_at: string;
+};
 
 type Stats = {
   ideasTotal: number;
