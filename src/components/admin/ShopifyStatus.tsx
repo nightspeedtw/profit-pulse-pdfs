@@ -30,12 +30,12 @@ const STORE_DOMAIN = "digital-wealth-hub-49qgj.myshopify.com";
 
 function statusMeta(s: string | null) {
   switch (s) {
-    case "queued":     return { label: "Queued",     tone: "bg-blue-100 text-blue-800",   icon: Loader2 as const, spin: true };
-    case "publishing": return { label: "Publishing", tone: "bg-blue-100 text-blue-800",   icon: Loader2 as const, spin: true };
-    case "draft":      return { label: "Draft up",   tone: "bg-amber-100 text-amber-800", icon: CheckCircle2 as const, spin: false };
-    case "published":  return { label: "Published",  tone: "bg-green-100 text-green-800", icon: CheckCircle2 as const, spin: false };
-    case "failed":     return { label: "Failed",     tone: "bg-red-100 text-red-800",     icon: XCircle as const, spin: false };
-    default:           return { label: s ?? "Not pushed", tone: "bg-muted text-foreground", icon: CheckCircle2 as const, spin: false };
+    case "queued":     return { label: "Queued",     tone: "bg-blue-100 text-blue-800",   icon: Loader2,      spin: true };
+    case "publishing": return { label: "Publishing", tone: "bg-blue-100 text-blue-800",   icon: Loader2,      spin: true };
+    case "draft":      return { label: "Draft up",   tone: "bg-amber-100 text-amber-800", icon: CheckCircle2, spin: false };
+    case "published":  return { label: "Published",  tone: "bg-green-100 text-green-800", icon: CheckCircle2, spin: false };
+    case "failed":     return { label: "Failed",     tone: "bg-red-100 text-red-800",     icon: XCircle,      spin: false };
+    default:           return { label: s ?? "Not pushed", tone: "bg-muted text-foreground", icon: CheckCircle2, spin: false };
   }
 }
 
