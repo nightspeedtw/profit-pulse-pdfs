@@ -9,7 +9,8 @@ Deno.serve(async (req) => {
   try {
     await requireAdmin(req);
     const db = admin();
-    const { ebook_id } = await req.json();
+    const reqBody = await req.json();
+    const { ebook_id, auto_fix = true } = reqBody;
     if (!ebook_id) throw new Error("ebook_id required");
     const { data: e } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
     if (!e) throw new Error("Ebook not found");
