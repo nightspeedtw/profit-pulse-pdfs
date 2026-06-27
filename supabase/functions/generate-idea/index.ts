@@ -1,19 +1,31 @@
-// Generate ONE best sellable ebook concept per call (premium positioning from the start).
-// Loops `count` times so each idea is independently the strongest commercial version.
+// Generate ONE best sellable ebook concept per call using the
+// "Premium Title & Hard-Sell Copywriter" agent. One pass = one strongest version.
 import { corsHeaders, admin, aiJSON, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
+import { HARDSELL_COPYWRITER_SYSTEM } from "../_shared/prompts.ts";
 
+interface ObjectionHandling {
+  too_expensive: string;
+  not_for_me: string;
+  i_can_find_free_info: string;
+  i_do_not_have_time: string;
+}
 interface BestConcept {
   title: string;
   subtitle: string;
-  hook: string;
+  primary_hook: string;
+  hard_sell_opening: string;
+  buyer_identity: string;
   core_pain_point: string;
   deeper_emotional_fear: string;
+  cost_of_doing_nothing: string;
   transformation_promise: string;
-  product_page_opening: string;
+  value_proposition: string;
+  objection_handling: ObjectionHandling;
   perceived_value_boosters: string[];
   why_it_sells: string;
   buyer_appeal_score: number;
   premium_score: number;
+  hard_sell_strength_score: number;
   compliance_risk_score: number;
   idea_score: number;
   status: string;
@@ -38,7 +50,7 @@ interface OneIdea {
 
 function mapStatus(s: string): "idea" | "rejected" {
   const v = (s ?? "").toLowerCase();
-  if (v.includes("regenerat") || v.includes("reject")) return "rejected";
+  if (v.includes("reject")) return "rejected";
   return "idea";
 }
 
