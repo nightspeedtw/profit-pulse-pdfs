@@ -14,12 +14,32 @@ import { openAdminPdf } from "@/lib/pdf";
 
 
 interface Chapter { title: string; content: string }
+interface CoverSpec {
+  title_text?: string; subtitle_text?: string; badge_text?: string; brand_text?: string;
+  layout_direction?: string; color_palette?: string[]; cover_strategy?: string;
+  visual_sales_angle?: string; why_this_cover_sells?: string;
+  background_image_prompt_no_text?: string;
+}
+interface CoverQC {
+  title_readable?: boolean; subtitle_readable?: boolean; brand_visible?: boolean;
+  matches_topic?: boolean; looks_premium?: boolean; works_as_thumbnail?: boolean;
+  no_misleading_claim?: boolean; no_clutter?: boolean;
+  conversion_score?: number; issues?: string[]; improvements?: string[];
+}
+interface InteriorVisuals {
+  framework_diagrams?: { visual_name: string; chapter: string; type: string; nodes: string[] }[];
+  worksheets_and_templates?: { asset_name: string; chapter: string }[];
+  recommended_visual_count?: number;
+}
 interface Ebook {
   id: string; title: string; subtitle: string | null; target_buyer: string | null;
   hook: string | null; toc: { title: string }[]; chapters: Chapter[];
   bonuses: Record<string, unknown>; product_description: string | null;
   seo_title: string | null; seo_meta: string | null; tags: string[];
-  cover_prompt: string | null; cover_url: string | null; pdf_url: string | null;
+  cover_prompt: string | null; cover_url: string | null; cover_bg_url: string | null;
+  cover_spec: CoverSpec | null; cover_qc: CoverQC | null; cover_score: number | null;
+  cover_approved: boolean; interior_visuals: InteriorVisuals | null;
+  pdf_url: string | null;
   word_count: number; qc: Record<string, unknown>; price: number; vendor: string;
   product_type: string; shopify_product_id: string | null; status: string;
   cost_usd: number; updated_at: string;
