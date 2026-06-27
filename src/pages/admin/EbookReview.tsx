@@ -13,6 +13,7 @@ import { Loader2, ArrowLeft } from "lucide-react";
 import { downloadAdminPdf } from "@/lib/pdf";
 import { PdfWizard } from "@/components/admin/PdfWizard";
 import { FinalApproval } from "@/components/admin/FinalApproval";
+import ShopifyStatus from "@/components/admin/ShopifyStatus";
 
 
 interface Chapter { title: string; content: string }
