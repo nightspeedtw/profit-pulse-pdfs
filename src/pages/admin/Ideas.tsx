@@ -189,6 +189,62 @@ export default function Ideas() {
     setPremiumResult(null);
   };
 
+  const runAlternatives = async (idea: Idea) => {
+    setAltOpen(idea);
+    setAltResult(null);
+    setAltLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-alternatives", { body: { idea_id: idea.id } });
+      if (error) throw error;
+      const res = (data as { result?: AltResult } | null)?.result;
+      if (!res) throw new Error("No result");
+      setAltResult(res);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+      setAltOpen(null);
+    } finally {
+      setAltLoading(false);
+    }
+  };
+
+  const applyAlternative = async (
+    idea: Idea,
+    alt: Alt,
+    winner?: AltResult["ai_recommended_winner"],
+  ) => {
+    await run(idea.id, "Alternative applied.", async () => {
+      const newScores = {
+        ...(idea.scores ?? {}),
+        buyer_appeal: alt.buyer_appeal_score,
+        premium: alt.premium_score,
+        compliance_risk: alt.compliance_risk_score,
+        idea: alt.idea_score,
+      };
+      const note = winner
+        ? `[alt-winner:${winner.selected_option}] ${winner.status} — ${winner.recommended_admin_action}\nShopify: ${JSON.stringify({
+            product_title: winner.shopify_product_title, meta_title: winner.meta_title,
+            meta_description: winner.meta_description, url_handle: winner.url_handle, tags: winner.tags,
+          })}`
+        : `[alt-applied] ${alt.why_stronger}`;
+      const { error } = await supabase.from("ebook_ideas").update({
+        title: alt.title,
+        subtitle: alt.subtitle,
+        hook: alt.hook,
+        core_pain_point: alt.core_pain_point,
+        transformation_promise: alt.transformation_promise,
+        scores: newScores,
+        total_score: alt.idea_score,
+        improvement_round: (idea.improvement_round ?? 0) + 1,
+        notes: (idea as unknown as { notes?: string }).notes
+          ? `${(idea as unknown as { notes?: string }).notes}\n--\n${note}`
+          : note,
+      }).eq("id", idea.id);
+      if (error) throw error;
+    });
+    setAltOpen(null);
+    setAltResult(null);
+  };
+
   return (
     <div className="space-y-4 max-w-5xl">
       <div>
