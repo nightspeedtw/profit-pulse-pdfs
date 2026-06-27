@@ -14,6 +14,66 @@ export type Database = {
   }
   public: {
     Tables: {
+      autopilot_runs: {
+        Row: {
+          cost_usd: number
+          created_at: string
+          duration_ms: number | null
+          ebook_id: string | null
+          error: string | null
+          id: string
+          idea_id: string | null
+          payload: Json
+          rewrite_count: number
+          score: number | null
+          status: string
+          step: string
+        }
+        Insert: {
+          cost_usd?: number
+          created_at?: string
+          duration_ms?: number | null
+          ebook_id?: string | null
+          error?: string | null
+          id?: string
+          idea_id?: string | null
+          payload?: Json
+          rewrite_count?: number
+          score?: number | null
+          status: string
+          step: string
+        }
+        Update: {
+          cost_usd?: number
+          created_at?: string
+          duration_ms?: number | null
+          ebook_id?: string | null
+          error?: string | null
+          id?: string
+          idea_id?: string | null
+          payload?: Json
+          rewrite_count?: number
+          score?: number | null
+          status?: string
+          step?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "autopilot_runs_ebook_id_fkey"
+            columns: ["ebook_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "autopilot_runs_idea_id_fkey"
+            columns: ["idea_id"]
+            isOneToOne: false
+            referencedRelation: "ebook_ideas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       categories: {
         Row: {
           cover_style_prompt: string | null
@@ -104,20 +164,33 @@ export type Database = {
       ebook_ideas: {
         Row: {
           admin_feedback: string | null
+          auto_rejected_reason: string | null
           buyer_identity: string | null
           category_id: string | null
+          clarity_score: number | null
+          commercial_intent_score: number | null
+          compliance_risk_score: number | null
           core_pain_point: string | null
           cost_of_doing_nothing: string | null
           cost_usd: number
           created_at: string
           deeper_emotional_fear: string | null
           hard_sell_opening: string | null
+          hard_sell_score: number | null
           hook: string | null
           id: string
           improvement_round: number
           notes: string | null
           objection_handling: Json | null
+          outline_buyer_score: number | null
+          outline_depth_score: number | null
+          outline_duplicate_score: number | null
+          outline_practical_score: number | null
+          outline_premium_score: number | null
+          outline_rewrite_count: number
+          outline_structure_score: number | null
           perceived_value_boosters: Json
+          premium_score: number | null
           raw_hook: string | null
           raw_subtitle: string | null
           raw_target_buyer: string | null
@@ -129,6 +202,7 @@ export type Database = {
           subtitle: string | null
           target_buyer: string | null
           title: string
+          topic_rewrite_count: number
           total_score: number
           transformation_promise: string | null
           updated_at: string
@@ -137,20 +211,33 @@ export type Database = {
         }
         Insert: {
           admin_feedback?: string | null
+          auto_rejected_reason?: string | null
           buyer_identity?: string | null
           category_id?: string | null
+          clarity_score?: number | null
+          commercial_intent_score?: number | null
+          compliance_risk_score?: number | null
           core_pain_point?: string | null
           cost_of_doing_nothing?: string | null
           cost_usd?: number
           created_at?: string
           deeper_emotional_fear?: string | null
           hard_sell_opening?: string | null
+          hard_sell_score?: number | null
           hook?: string | null
           id?: string
           improvement_round?: number
           notes?: string | null
           objection_handling?: Json | null
+          outline_buyer_score?: number | null
+          outline_depth_score?: number | null
+          outline_duplicate_score?: number | null
+          outline_practical_score?: number | null
+          outline_premium_score?: number | null
+          outline_rewrite_count?: number
+          outline_structure_score?: number | null
           perceived_value_boosters?: Json
+          premium_score?: number | null
           raw_hook?: string | null
           raw_subtitle?: string | null
           raw_target_buyer?: string | null
@@ -162,6 +249,7 @@ export type Database = {
           subtitle?: string | null
           target_buyer?: string | null
           title: string
+          topic_rewrite_count?: number
           total_score?: number
           transformation_promise?: string | null
           updated_at?: string
@@ -170,20 +258,33 @@ export type Database = {
         }
         Update: {
           admin_feedback?: string | null
+          auto_rejected_reason?: string | null
           buyer_identity?: string | null
           category_id?: string | null
+          clarity_score?: number | null
+          commercial_intent_score?: number | null
+          compliance_risk_score?: number | null
           core_pain_point?: string | null
           cost_of_doing_nothing?: string | null
           cost_usd?: number
           created_at?: string
           deeper_emotional_fear?: string | null
           hard_sell_opening?: string | null
+          hard_sell_score?: number | null
           hook?: string | null
           id?: string
           improvement_round?: number
           notes?: string | null
           objection_handling?: Json | null
+          outline_buyer_score?: number | null
+          outline_depth_score?: number | null
+          outline_duplicate_score?: number | null
+          outline_practical_score?: number | null
+          outline_premium_score?: number | null
+          outline_rewrite_count?: number
+          outline_structure_score?: number | null
           perceived_value_boosters?: Json
+          premium_score?: number | null
           raw_hook?: string | null
           raw_subtitle?: string | null
           raw_target_buyer?: string | null
@@ -195,6 +296,7 @@ export type Database = {
           subtitle?: string | null
           target_buyer?: string | null
           title?: string
+          topic_rewrite_count?: number
           total_score?: number
           transformation_promise?: string | null
           updated_at?: string
@@ -213,25 +315,37 @@ export type Database = {
       }
       ebooks: {
         Row: {
+          autopilot_mode: string
+          autopilot_state: string
           bonuses: Json
           category_id: string | null
+          chapter_qc: Json
           chapters: Json
+          compliance_safety_score: number | null
+          conversion_score: number | null
           cost_usd: number
+          cover_image_url: string | null
           cover_prompt: string | null
           cover_url: string | null
           created_at: string
+          editorial_qc: Json
+          final_quality_score: number | null
           hook: string | null
           id: string
           idea_id: string | null
+          needs_review_reason: string | null
           pdf_url: string | null
           price: number
+          product_copy: Json
           product_description: string | null
+          product_page_qc: Json
           product_type: string
           qc: Json
           seo_meta: string | null
           seo_title: string | null
           shopify_handle: string | null
           shopify_product_id: string | null
+          shopify_status: string
           status: string
           subtitle: string | null
           tags: string[]
@@ -243,25 +357,37 @@ export type Database = {
           word_count: number
         }
         Insert: {
+          autopilot_mode?: string
+          autopilot_state?: string
           bonuses?: Json
           category_id?: string | null
+          chapter_qc?: Json
           chapters?: Json
+          compliance_safety_score?: number | null
+          conversion_score?: number | null
           cost_usd?: number
+          cover_image_url?: string | null
           cover_prompt?: string | null
           cover_url?: string | null
           created_at?: string
+          editorial_qc?: Json
+          final_quality_score?: number | null
           hook?: string | null
           id?: string
           idea_id?: string | null
+          needs_review_reason?: string | null
           pdf_url?: string | null
           price?: number
+          product_copy?: Json
           product_description?: string | null
+          product_page_qc?: Json
           product_type?: string
           qc?: Json
           seo_meta?: string | null
           seo_title?: string | null
           shopify_handle?: string | null
           shopify_product_id?: string | null
+          shopify_status?: string
           status?: string
           subtitle?: string | null
           tags?: string[]
@@ -273,25 +399,37 @@ export type Database = {
           word_count?: number
         }
         Update: {
+          autopilot_mode?: string
+          autopilot_state?: string
           bonuses?: Json
           category_id?: string | null
+          chapter_qc?: Json
           chapters?: Json
+          compliance_safety_score?: number | null
+          conversion_score?: number | null
           cost_usd?: number
+          cover_image_url?: string | null
           cover_prompt?: string | null
           cover_url?: string | null
           created_at?: string
+          editorial_qc?: Json
+          final_quality_score?: number | null
           hook?: string | null
           id?: string
           idea_id?: string | null
+          needs_review_reason?: string | null
           pdf_url?: string | null
           price?: number
+          product_copy?: Json
           product_description?: string | null
+          product_page_qc?: Json
           product_type?: string
           qc?: Json
           seo_meta?: string | null
           seo_title?: string | null
           shopify_handle?: string | null
           shopify_product_id?: string | null
+          shopify_status?: string
           status?: string
           subtitle?: string | null
           tags?: string[]

@@ -21,6 +21,7 @@ import Ideas from "./pages/admin/Ideas.tsx";
 import Pipeline from "./pages/admin/Pipeline.tsx";
 import EbookReview from "./pages/admin/EbookReview.tsx";
 import Costs from "./pages/admin/Costs.tsx";
+import Autopilot from "./pages/admin/Autopilot.tsx";
 
 const queryClient = new QueryClient();
 
@@ -45,6 +46,7 @@ const App = () => (
             <Route index element={<Dashboard />} />
             <Route path="ideas" element={<Ideas />} />
             <Route path="pipeline" element={<Pipeline />} />
+            <Route path="autopilot" element={<Autopilot />} />
             <Route path="ebook/:id" element={<EbookReview />} />
             <Route path="categories" element={<AdminCategories />} />
             <Route path="costs" element={<Costs />} />
