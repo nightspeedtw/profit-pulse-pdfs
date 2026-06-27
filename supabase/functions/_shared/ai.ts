@@ -36,6 +36,38 @@ export { pickModel };
 
 export type AIResult<T> = { data: T; usage: { input_tokens: number; output_tokens: number; cost_usd: number }; model: string };
 
+// Robust JSON extractor: strips fences, finds the first {...} or [...] block by
+// brace-matching (respecting strings/escapes), and parses it. Tolerates trailing
+// text from the model after the JSON payload.
+function extractJson<T>(raw: string): T {
+  let s = raw.replace(/^\uFEFF/, "").trim();
+  s = s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  const startIdx = s.search(/[\{\[]/);
+  if (startIdx === -1) throw new Error("No JSON found in model response");
+  const open = s[startIdx];
+  const close = open === "{" ? "}" : "]";
+  let depth = 0, inStr = false, esc = false, end = -1;
+  for (let i = startIdx; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === open) depth++;
+    else if (ch === close) { depth--; if (depth === 0) { end = i; break; } }
+  }
+  if (end === -1) throw new Error("Truncated JSON in model response");
+  let candidate = s.slice(startIdx, end + 1);
+  try { return JSON.parse(candidate) as T; }
+  catch {
+    candidate = candidate.replace(/,\s*([}\]])/g, "$1").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
+    return JSON.parse(candidate) as T;
+  }
+}
+
 export async function aiJSON<T>(opts: {
   system: string; user: string; model: string; schemaHint?: string;
 }): Promise<AIResult<T>> {
@@ -68,9 +100,7 @@ export async function aiJSON<T>(opts: {
   let parsed: T;
   try { parsed = JSON.parse(text); }
   catch {
-    // strip ```json fences if present
-    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
-    parsed = JSON.parse(cleaned);
+    parsed = extractJson<T>(text);
   }
   return {
     data: parsed,
