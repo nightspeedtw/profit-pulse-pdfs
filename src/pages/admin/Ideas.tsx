@@ -313,6 +313,12 @@ export default function Ideas() {
                     {i.target_buyer && <p className="text-xs text-muted-foreground mt-1"><strong>For:</strong> {i.target_buyer}</p>}
 
                     <div className="mt-3 grid sm:grid-cols-2 gap-2 text-xs">
+                      {i.buyer_identity && (
+                        <div className="border-l-2 border-foreground/40 pl-2">
+                          <div className="font-mono uppercase text-[10px] text-muted-foreground">Buyer identity</div>
+                          <div>{i.buyer_identity}</div>
+                        </div>
+                      )}
                       {i.core_pain_point && (
                         <div className="border-l-2 border-foreground/40 pl-2">
                           <div className="font-mono uppercase text-[10px] text-muted-foreground">Pain</div>
@@ -325,10 +331,28 @@ export default function Ideas() {
                           <div>{i.deeper_emotional_fear}</div>
                         </div>
                       )}
+                      {i.cost_of_doing_nothing && (
+                        <div className="border-l-2 border-destructive/60 pl-2">
+                          <div className="font-mono uppercase text-[10px] text-muted-foreground">Cost of doing nothing</div>
+                          <div>{i.cost_of_doing_nothing}</div>
+                        </div>
+                      )}
                       {i.transformation_promise && (
                         <div className="border-l-2 border-foreground/40 pl-2 sm:col-span-2">
                           <div className="font-mono uppercase text-[10px] text-muted-foreground">Transformation</div>
                           <div>{i.transformation_promise}</div>
+                        </div>
+                      )}
+                      {i.value_proposition && (
+                        <div className="border-l-2 border-foreground/40 pl-2 sm:col-span-2">
+                          <div className="font-mono uppercase text-[10px] text-muted-foreground">Value proposition</div>
+                          <div>{i.value_proposition}</div>
+                        </div>
+                      )}
+                      {i.hard_sell_opening && (
+                        <div className="border-l-2 border-foreground/40 pl-2 sm:col-span-2">
+                          <div className="font-mono uppercase text-[10px] text-muted-foreground">Hard-sell opening</div>
+                          <div className="italic">{i.hard_sell_opening}</div>
                         </div>
                       )}
                       {i.why_it_sells && (
@@ -339,14 +363,28 @@ export default function Ideas() {
                       )}
                     </div>
 
-                    {Object.keys(vb).length > 0 && (
+                    {vbEntries.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-1.5">
-                        {Object.entries(vb).filter(([, v]) => v).map(([k, v]) => (
+                        {vbEntries.map(([k, v]) => (
                           <Badge key={k} variant="outline" className="text-[10px] font-normal">
                             <span className="font-mono uppercase mr-1 opacity-60">{k.replace("_", " ")}:</span>{v}
                           </Badge>
                         ))}
                       </div>
+                    )}
+
+                    {i.objection_handling && Object.values(i.objection_handling).filter(Boolean).length > 0 && (
+                      <details className="mt-3 text-xs">
+                        <summary className="cursor-pointer font-mono uppercase text-[10px] text-muted-foreground hover:text-foreground">Objection handling</summary>
+                        <div className="mt-2 grid sm:grid-cols-2 gap-2">
+                          {Object.entries(i.objection_handling).filter(([, v]) => v).map(([k, v]) => (
+                            <div key={k} className="border border-foreground/20 p-2">
+                              <div className="font-mono uppercase text-[10px] text-muted-foreground">{k.replace(/_/g, " ")}</div>
+                              <div>{String(v)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
                     )}
 
                     {i.raw_title && (
