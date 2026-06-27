@@ -1,13 +1,15 @@
 // Generate exactly TWO stronger alternatives for an existing weak idea,
 // plus an AI-recommended winner with Shopify-ready metadata.
 import { corsHeaders, admin, aiJSON, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
+import { HARDSELL_COPYWRITER_SYSTEM } from "../_shared/prompts.ts";
 
 interface Alt {
   title: string; subtitle: string; hook: string;
-  core_pain_point: string; transformation_promise: string; product_page_opening: string;
+  core_pain_point: string; cost_of_doing_nothing: string;
+  transformation_promise: string; product_page_opening: string;
   why_stronger: string;
   buyer_appeal_score: number; premium_score: number;
-  compliance_risk_score: number; idea_score: number;
+  hard_sell_strength_score: number; compliance_risk_score: number; idea_score: number;
 }
 interface Winner {
   selected_option: "A" | "B";
@@ -15,6 +17,7 @@ interface Winner {
   shopify_product_title: string; meta_title: string; meta_description: string;
   url_handle: string; tags: string[];
   final_buyer_appeal_score: number; final_premium_score: number;
+  final_hard_sell_strength_score: number;
   final_compliance_risk_score: number; final_idea_score: number;
   status: string; recommended_admin_action: string;
 }
