@@ -81,6 +81,8 @@ export default function EbookReview() {
     if (e.status === "writing") return { done: 0, tot: 1, pct: 10, label: "Starting chapters…" };
     if (e.status === "marketing") return { done: 1, tot: 1, pct: 95, label: "Writing marketing copy & SEO…" };
     if (e.status === "cover") return { done: 1, tot: 1, pct: 80, label: "Generating cover…" };
+    if (e.status === "visuals") return { done: 1, tot: 1, pct: 85, label: "Generating interior visuals…" };
+    if (e.status === "building_pdf") return { done: 1, tot: 1, pct: 90, label: "Building PDF…" };
     return null;
   })();
 
