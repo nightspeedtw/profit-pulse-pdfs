@@ -689,7 +689,7 @@ function drawSectionTitle(page: PDFPage, theme: Theme, fonts: Fonts, label: stri
 }
 
 // ============ DIAGRAMS (premium, vertical-first, auto-fit) ============
-function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fonts: Fonts) {
+function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fonts: Fonts): { overflowNodes: number; truncatedNodes: number } {
   drawSectionTitle(page, theme, fonts, "Framework");
   const name = safe(d.visual_name || "").slice(0, 80);
   page.drawText(name, { x: MARGIN, y: PAGE_H - 160, size: 14, font: fonts.bold, color: theme.ink });
@@ -704,6 +704,70 @@ function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fo
   const areaH = top - bottom;
   const nodes = (d.nodes ?? []).map((n) => safe(n)).filter(Boolean);
   const type = (d.type || "checklist").toLowerCase();
+
+  // QC pre-pass: count how many nodes would not fit (cropped off page)
+  // and how many wrap to more lines than the renderer caps at.
+  const qc = { overflowNodes: 0, truncatedNodes: 0 };
+  const measureTruncate = (text: string, font: PDFFont, size: number, maxW: number, cap: number) => {
+    const total = wrap(text, font, size, maxW).length;
+    if (total > cap) qc.truncatedNodes++;
+  };
+  switch (type) {
+    case "process_flow": {
+      const n = Math.max(nodes.length, 1);
+      const boxH = Math.max(40, Math.min(72, (areaH - 10 * (n - 1)) / n));
+      const totalH = boxH * n + 10 * (n - 1);
+      if (totalH > areaH) qc.overflowNodes += Math.max(0, Math.ceil((totalH - areaH) / (boxH + 10)));
+      for (const t of nodes) measureTruncate(t, fonts.bold, 11, CONTENT_W - 70, 3);
+      break;
+    }
+    case "pyramid":
+      for (const t of nodes) measureTruncate(t, fonts.bold, 11, CONTENT_W - 24, 2);
+      break;
+    case "matrix_2x2": {
+      const size = Math.min(CONTENT_W, areaH);
+      const half = size / 2;
+      for (let i = 0; i < Math.min(4, nodes.length); i++) measureTruncate(nodes[i], fonts.bold, 11, half - 20, 4);
+      if (nodes.length > 4) qc.overflowNodes += nodes.length - 4;
+      break;
+    }
+    case "circle_cycle": {
+      const n = Math.max(nodes.length, 1);
+      const cardH = Math.max(46, Math.min(64, (areaH - 10 * (n - 1)) / n));
+      const totalH = cardH * n + 10 * (n - 1);
+      if (totalH > areaH) qc.overflowNodes += Math.max(0, Math.ceil((totalH - areaH) / (cardH + 10)));
+      for (const t of nodes) measureTruncate(t, fonts.bold, 11, CONTENT_W - 70, 3);
+      break;
+    }
+    case "comparison_table": {
+      const cols = 2;
+      const colW = CONTENT_W / cols;
+      let used = 0;
+      for (let r = 0; r < Math.ceil(nodes.length / cols); r++) {
+        let h = 30;
+        for (let c = 0; c < cols; c++) {
+          const idx = r * cols + c;
+          if (idx >= nodes.length) continue;
+          const lines = wrap(nodes[idx], r === 0 ? fonts.bold : fonts.reg, 10, colW - 16).length;
+          h = Math.max(h, lines * 14 + 18);
+        }
+        used += h;
+        if (used > areaH) qc.overflowNodes += Math.min(cols, nodes.length - r * cols);
+      }
+      break;
+    }
+    case "checklist":
+    default: {
+      let used = 0;
+      for (const it of nodes) {
+        const h = Math.max(20, wrap(it, fonts.reg, 11, CONTENT_W - 28).length * 15 + 6) + 8;
+        used += h;
+        if (used > areaH) qc.overflowNodes++;
+      }
+      break;
+    }
+  }
+
 
   switch (type) {
     case "process_flow": {
