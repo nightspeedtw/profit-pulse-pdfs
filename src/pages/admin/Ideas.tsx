@@ -16,9 +16,13 @@ type Idea = {
   scores: Record<string, number>; category_id: string | null; created_at: string;
   raw_title: string | null; raw_subtitle: string | null; raw_hook: string | null; raw_target_buyer: string | null;
   core_pain_point: string | null; deeper_emotional_fear: string | null; transformation_promise: string | null;
-  perceived_value_boosters: Record<string, string> | null;
+  perceived_value_boosters: Record<string, string> | string[] | null;
   why_it_sells: string | null; recommended_action: string | null;
   improvement_round: number; admin_feedback: string | null;
+  buyer_identity: string | null; cost_of_doing_nothing: string | null;
+  value_proposition: string | null; hard_sell_opening: string | null;
+  objection_handling: Record<string, string> | null;
+  shopify_meta: Record<string, unknown> | null;
 };
 type Cat = { id: string; name: string };
 
@@ -44,9 +48,11 @@ type PremiumResult = {
 
 type Alt = {
   title: string; subtitle: string; hook: string;
-  core_pain_point: string; transformation_promise: string; product_page_opening: string;
+  core_pain_point: string; cost_of_doing_nothing?: string;
+  transformation_promise: string; product_page_opening: string;
   why_stronger: string;
-  buyer_appeal_score: number; premium_score: number; compliance_risk_score: number; idea_score: number;
+  buyer_appeal_score: number; premium_score: number;
+  hard_sell_strength_score?: number; compliance_risk_score: number; idea_score: number;
 };
 type AltResult = {
   previous_title: string;
@@ -59,6 +65,7 @@ type AltResult = {
     shopify_product_title: string; meta_title: string; meta_description: string;
     url_handle: string; tags: string[];
     final_buyer_appeal_score: number; final_premium_score: number;
+    final_hard_sell_strength_score?: number;
     final_compliance_risk_score: number; final_idea_score: number;
     status: string; recommended_admin_action: string;
   };
@@ -70,15 +77,15 @@ const to100 = (raw: number) => {
   return n > 60 ? Math.round(n) : Math.round(n / 60 * 100);
 };
 
-// Approval thresholds combining buyer-appeal, premium, and compliance-risk scores.
-function scoreMeta(score100: number, buyerAppeal?: number, premium?: number, compliance?: number) {
+// Approval thresholds combining buyer-appeal, premium, hard-sell strength, and compliance.
+function scoreMeta(score100: number, buyerAppeal?: number, premium?: number, hardSell?: number, compliance?: number) {
   const ba = Number(buyerAppeal ?? score100);
   const pr = Number(premium ?? score100);
+  const hs = Number(hardSell ?? score100);
   const cr = Number(compliance ?? 0);
-  if (ba >= 85 && pr >= 85 && cr <= 3) return { label: "Premium Featured · Ready to Generate", tone: "good" as const, status: "Premium Featured" };
-  if (ba >= 80 && pr >= 80 && cr <= 4) return { label: "Approved · Ready to Generate", tone: "good" as const, status: "Approved" };
-  if (ba >= 70 || pr >= 70) return { label: "Needs Admin Review · Generate 2 Alternatives", tone: "warn" as const, status: "Needs Admin Review" };
-  return { label: "Needs Regeneration", tone: "bad" as const, status: "Needs Regeneration" };
+  if (ba >= 85 && pr >= 85 && hs >= 85 && cr <= 3) return { label: "Premium Featured · Ready to Generate", tone: "good" as const, status: "Premium Featured" };
+  if (ba >= 80 && pr >= 80 && hs >= 80 && cr <= 4) return { label: "Approved · Ready to Generate", tone: "good" as const, status: "Approved" };
+  return { label: "Needs Rewrite · Generate 2 Alternatives", tone: "warn" as const, status: "Needs Rewrite" };
 }
 
 const toneClass = {
@@ -249,10 +256,10 @@ export default function Ideas() {
     <div className="space-y-4 max-w-5xl">
       <div>
         <p className="font-mono uppercase tracking-widest text-xs">[ Ideas ]</p>
-        <h1 className="font-display text-4xl uppercase">Improved ideas</h1>
+        <h1 className="font-display text-4xl uppercase">Hard-Sell Ideas</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Every raw idea is auto-improved once (Level 1) before review. Auto-generation only fires on ideas scoring <strong>80+</strong>.
-          Use <strong>Improve Again</strong> for a stronger second pass.
+          Every idea is written first-pass by the <strong>Premium Title &amp; Hard-Sell Copywriter</strong>. Auto-generation only fires when Appeal, Premium, and Hard-Sell all hit <strong>80+</strong>.
+          Use <strong>Rewrite</strong> or <strong>Generate 2 Alternatives</strong> when a concept needs lift.
         </p>
       </div>
       {items.length === 0 && (
@@ -267,13 +274,17 @@ export default function Ideas() {
           const s = i.scores ?? {};
           const ba = Number(s.buyer_appeal ?? 0);
           const pr = Number(s.premium ?? 0);
+          const hs = Number(s.hard_sell ?? 0);
           const cr = Number(s.compliance_risk ?? 0);
           const s100 = ba ? Math.round(Number(s.idea ?? ba)) : to100(i.total_score);
-          const meta = scoreMeta(s100, ba || undefined, pr || undefined, cr || undefined);
+          const meta = scoreMeta(s100, ba || undefined, pr || undefined, hs || undefined, cr || undefined);
           const isBusy = busy === i.id;
           const canPromote = i.status === "idea";
           const isApproved = meta.status === "Approved" || meta.status === "Premium Featured";
           const vb = i.perceived_value_boosters ?? {};
+          const vbEntries: [string, string][] = Array.isArray(vb)
+            ? vb.filter(Boolean).map((v, idx) => [String(idx + 1), String(v)])
+            : Object.entries(vb).filter(([, v]) => v).map(([k, v]) => [k, String(v)]);
           const showRaw = showRawIds.has(i.id);
           return (
             <Card key={i.id} className="border-2 border-foreground">
@@ -287,6 +298,7 @@ export default function Ideas() {
                       </span>
                       {ba > 0 && <Badge variant="outline" className="font-mono text-[10px]">Appeal {ba}</Badge>}
                       {pr > 0 && <Badge variant="outline" className="font-mono text-[10px]">Premium {pr}</Badge>}
+                      {hs > 0 && <Badge variant="outline" className="font-mono text-[10px]">Hard-Sell {hs}</Badge>}
                       {cr > 0 && <Badge variant="outline" className="font-mono text-[10px]">Risk {cr}/10</Badge>}
                       {i.improvement_round > 0 && (
                         <Badge variant="outline" className="font-mono text-[10px]">Improved L{i.improvement_round}</Badge>
@@ -301,6 +313,12 @@ export default function Ideas() {
                     {i.target_buyer && <p className="text-xs text-muted-foreground mt-1"><strong>For:</strong> {i.target_buyer}</p>}
 
                     <div className="mt-3 grid sm:grid-cols-2 gap-2 text-xs">
+                      {i.buyer_identity && (
+                        <div className="border-l-2 border-foreground/40 pl-2">
+                          <div className="font-mono uppercase text-[10px] text-muted-foreground">Buyer identity</div>
+                          <div>{i.buyer_identity}</div>
+                        </div>
+                      )}
                       {i.core_pain_point && (
                         <div className="border-l-2 border-foreground/40 pl-2">
                           <div className="font-mono uppercase text-[10px] text-muted-foreground">Pain</div>
@@ -313,10 +331,28 @@ export default function Ideas() {
                           <div>{i.deeper_emotional_fear}</div>
                         </div>
                       )}
+                      {i.cost_of_doing_nothing && (
+                        <div className="border-l-2 border-destructive/60 pl-2">
+                          <div className="font-mono uppercase text-[10px] text-muted-foreground">Cost of doing nothing</div>
+                          <div>{i.cost_of_doing_nothing}</div>
+                        </div>
+                      )}
                       {i.transformation_promise && (
                         <div className="border-l-2 border-foreground/40 pl-2 sm:col-span-2">
                           <div className="font-mono uppercase text-[10px] text-muted-foreground">Transformation</div>
                           <div>{i.transformation_promise}</div>
+                        </div>
+                      )}
+                      {i.value_proposition && (
+                        <div className="border-l-2 border-foreground/40 pl-2 sm:col-span-2">
+                          <div className="font-mono uppercase text-[10px] text-muted-foreground">Value proposition</div>
+                          <div>{i.value_proposition}</div>
+                        </div>
+                      )}
+                      {i.hard_sell_opening && (
+                        <div className="border-l-2 border-foreground/40 pl-2 sm:col-span-2">
+                          <div className="font-mono uppercase text-[10px] text-muted-foreground">Hard-sell opening</div>
+                          <div className="italic">{i.hard_sell_opening}</div>
                         </div>
                       )}
                       {i.why_it_sells && (
@@ -327,14 +363,28 @@ export default function Ideas() {
                       )}
                     </div>
 
-                    {Object.keys(vb).length > 0 && (
+                    {vbEntries.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-1.5">
-                        {Object.entries(vb).filter(([, v]) => v).map(([k, v]) => (
+                        {vbEntries.map(([k, v]) => (
                           <Badge key={k} variant="outline" className="text-[10px] font-normal">
                             <span className="font-mono uppercase mr-1 opacity-60">{k.replace("_", " ")}:</span>{v}
                           </Badge>
                         ))}
                       </div>
+                    )}
+
+                    {i.objection_handling && Object.values(i.objection_handling).filter(Boolean).length > 0 && (
+                      <details className="mt-3 text-xs">
+                        <summary className="cursor-pointer font-mono uppercase text-[10px] text-muted-foreground hover:text-foreground">Objection handling</summary>
+                        <div className="mt-2 grid sm:grid-cols-2 gap-2">
+                          {Object.entries(i.objection_handling).filter(([, v]) => v).map(([k, v]) => (
+                            <div key={k} className="border border-foreground/20 p-2">
+                              <div className="font-mono uppercase text-[10px] text-muted-foreground">{k.replace(/_/g, " ")}</div>
+                              <div>{String(v)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
                     )}
 
                     {i.raw_title && (
@@ -379,7 +429,7 @@ export default function Ideas() {
                           </Button>
                         )}
                         <Button size="sm" variant="secondary" onClick={() => { setImproveOpen(i); setFeedback(i.admin_feedback ?? ""); }} disabled={isBusy}>
-                          <Sparkles className="size-4 mr-1" /> Improve Again
+                          <Sparkles className="size-4 mr-1" /> Rewrite
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => runPremium(i)} disabled={isBusy}>
                           <Crown className="size-4 mr-1" /> Premium Positioning
@@ -437,15 +487,15 @@ export default function Ideas() {
         })}
       </div>
 
-      {/* Improve Again dialog */}
+      {/* Rewrite dialog */}
       <Dialog open={!!improveOpen} onOpenChange={(o) => !o && setImproveOpen(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Improve Again — Level {(improveOpen?.improvement_round ?? 0) + 1}</DialogTitle>
+            <DialogTitle>Rewrite — Pass {(improveOpen?.improvement_round ?? 0) + 1}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Runs a stronger second-pass prompt to lift the buyer-appeal score. Optionally tell the AI what to focus on.
+              Runs the Premium Title &amp; Hard-Sell Copywriter again to lift Appeal / Premium / Hard-Sell scores. Optionally tell it what to fix.
             </p>
             <Textarea
               placeholder="Optional admin feedback — e.g. 'Title too generic', 'Buyer is too broad', 'Make the pain more urgent'…"

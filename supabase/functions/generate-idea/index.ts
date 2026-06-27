@@ -1,19 +1,31 @@
-// Generate ONE best sellable ebook concept per call (premium positioning from the start).
-// Loops `count` times so each idea is independently the strongest commercial version.
+// Generate ONE best sellable ebook concept per call using the
+// "Premium Title & Hard-Sell Copywriter" agent. One pass = one strongest version.
 import { corsHeaders, admin, aiJSON, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
+import { HARDSELL_COPYWRITER_SYSTEM } from "../_shared/prompts.ts";
 
+interface ObjectionHandling {
+  too_expensive: string;
+  not_for_me: string;
+  i_can_find_free_info: string;
+  i_do_not_have_time: string;
+}
 interface BestConcept {
   title: string;
   subtitle: string;
-  hook: string;
+  primary_hook: string;
+  hard_sell_opening: string;
+  buyer_identity: string;
   core_pain_point: string;
   deeper_emotional_fear: string;
+  cost_of_doing_nothing: string;
   transformation_promise: string;
-  product_page_opening: string;
+  value_proposition: string;
+  objection_handling: ObjectionHandling;
   perceived_value_boosters: string[];
   why_it_sells: string;
   buyer_appeal_score: number;
   premium_score: number;
+  hard_sell_strength_score: number;
   compliance_risk_score: number;
   idea_score: number;
   status: string;
@@ -38,7 +50,7 @@ interface OneIdea {
 
 function mapStatus(s: string): "idea" | "rejected" {
   const v = (s ?? "").toLowerCase();
-  if (v.includes("regenerat") || v.includes("reject")) return "rejected";
+  if (v.includes("reject")) return "rejected";
   return "idea";
 }
 
@@ -71,84 +83,55 @@ Deno.serve(async (req) => {
     const existingTitles = (existing ?? []).map((r) => r.title).join("\n");
 
     const model = pickModel(mode, "marketing");
+    const sys = HARDSELL_COPYWRITER_SYSTEM;
 
-    const sys = `You are the best premium ebook title copywriter and product positioning strategist for the USA digital product market.
+    const userTemplate = `Generate ONE best sellable ebook concept for this category. Output the strongest hard-sell version from the start — do not propose alternatives.
 
-Your task is to generate only ONE best sellable ebook concept from the beginning.
-
-Do not generate multiple options. Do not generate rough drafts. Do not generate generic blog-style titles. Your first output must be the strongest commercial version you can create.
-
-The ebook will be sold as a premium PDF product on Shopify.
-
-Target market: USA buyers who purchase premium PDF ebooks, guides, frameworks, protocols, playbooks, templates, workbooks, and digital products.
-
-The title must feel: Premium, Practical, Clear, Emotionally compelling, Commercially attractive, Worth paying for, Specific to the target buyer, Strong enough to approve without needing another improvement round.
-
-Use buyer psychology: relief from specific pain · clarity when overwhelmed · control when life feels uncertain · systems that reduce decision fatigue · protection for family/money/health/career/future · shortcuts that save time · products that feel made for their exact identity · titles that make the buyer feel seen.
-
-Use premium product language when appropriate: Framework, Protocol, Blueprint, Playbook, Operating System, Toolkit, Field Guide, Method, System, Safety Plan, Reset Plan, Cash Flow System, Wealth Framework, Career Playbook, AI Workflow System.
-
-Rules:
-- Generate only ONE best title. Not 2, not 5, not 10.
-- No fake guarantees. No guaranteed income, savings, investment returns, health/legal/relationship outcomes.
-- Not scammy. Not academic. Not a free blog post. Avoid weak words (tips, tricks, basic guide, easy hacks).
-- American English.
-- If finance, investment, health, legal, or relationship related: keep wording educational and compliance-safe.
-
-Scoring (1-100):
-- buyer_appeal_score: how likely the target buyer wants this.
-- premium_score: how high-value and paid-product-worthy it feels.
-- compliance_risk_score: 1 safest, 10 risky.
-- idea_score: combined commercial score.
-
-Approval rules:
-- buyer_appeal >= 85 AND premium >= 85 AND compliance <= 3 → "Premium Featured / Ready to Generate"
-- buyer_appeal >= 80 AND premium >= 80 AND compliance <= 4 → "Approved / Ready to Generate"
-- buyer_appeal >= 70 OR premium >= 70 → "Needs Admin Review"
-- else → "Needs Regeneration"
-
-Output must be valid JSON only. Do not include any text before or after the JSON.`;
-
-    const userTemplate = `Input:
 Category: ${cat?.name ?? ""} — ${cat?.description ?? ""}
-Raw Topic: pick the highest-commercial-value topic in this category that has NOT been used below.
-Target Buyer: define a specific USA buyer persona for this concept.
-Buyer Pain Point: define the most urgent, specific pain.
-Planned Price: $19–$29
-Planned Word Count: ~18,000 words (70–90 page PDF)
+Planned price: $19–$29 · Planned word count: ~18,000 words (70–90 page PDF)
 
 AVOID titles already in the system (do not repeat or closely echo any of these):
 ${existingTitles}
 
 Return JSON in EXACTLY this shape:
 {
-  "raw_topic": "",
   "category": "${cat?.name ?? ""}",
-  "target_buyer": "",
+  "raw_topic": "the practical topic this ebook covers",
+  "target_buyer": "specific USA persona — age/role/situation/income band",
   "best_sellable_concept": {
-    "title": "",
-    "subtitle": "",
-    "hook": "",
-    "core_pain_point": "",
-    "deeper_emotional_fear": "",
-    "transformation_promise": "",
-    "product_page_opening": "",
-    "perceived_value_boosters": ["", "", ""],
-    "why_it_sells": "",
-    "buyer_appeal_score": 0,
-    "premium_score": 0,
-    "compliance_risk_score": 0,
-    "idea_score": 0,
-    "status": "Premium Featured / Ready to Generate | Approved / Ready to Generate | Needs Admin Review | Needs Regeneration",
-    "recommended_admin_action": "Approve & Generate | Generate 2 Alternatives | Reject"
+    "title": "hard-sell, emotionally specific, premium",
+    "subtitle": "clarifies the transformation and who it's for",
+    "primary_hook": "one hard-sell sentence under 35 words",
+    "hard_sell_opening": "2-3 sentence opening that makes the buyer feel seen",
+    "buyer_identity": "the identity label the buyer uses for themselves",
+    "core_pain_point": "the concrete pain this PDF resolves",
+    "deeper_emotional_fear": "the deeper identity-level fear behind the pain",
+    "cost_of_doing_nothing": "what continues to get worse if they don't act",
+    "transformation_promise": "what they will be able to do after reading — believable, not guaranteed",
+    "value_proposition": "one sentence on why this beats free information",
+    "objection_handling": {
+      "too_expensive": "honest rebuttal",
+      "not_for_me": "honest rebuttal",
+      "i_can_find_free_info": "honest rebuttal",
+      "i_do_not_have_time": "honest rebuttal"
+    },
+    "perceived_value_boosters": ["checklist name", "template name", "workbook name", "action plan name"],
+    "why_it_sells": "1-2 sentences on commercial appeal",
+    "buyer_appeal_score": 1-100,
+    "premium_score": 1-100,
+    "hard_sell_strength_score": 1-100,
+    "compliance_risk_score": 1-10,
+    "idea_score": 1-100,
+    "status": "Premium Featured / Ready to Generate | Approved / Ready to Generate | Needs Rewrite",
+    "recommended_admin_action": "Approve & Generate | Rewrite | Reject"
   },
   "shopify_ready": {
-    "product_title": "",
-    "meta_title": "",
-    "meta_description": "",
-    "url_handle": "",
-    "tags": ["", "", "", ""],
-    "recommended_price": "",
+    "product_title": "concise storefront product title",
+    "meta_title": "<= 60 chars SEO title",
+    "meta_description": "<= 160 chars SEO description",
+    "url_handle": "kebab-case-url-handle",
+    "tags": ["tag1","tag2","tag3","tag4"],
+    "recommended_price": "$19 | $24 | $29",
     "recommended_category": "${cat?.name ?? ""}"
   }
 }`;
@@ -174,16 +157,17 @@ Return JSON in EXACTLY this shape:
           title: c.title,
           subtitle: c.subtitle,
           target_buyer: ai.data.target_buyer,
-          hook: c.hook,
+          hook: c.primary_hook,
           scores: {
             buyer_appeal: c.buyer_appeal_score,
             premium: c.premium_score,
+            hard_sell: c.hard_sell_strength_score,
             compliance_risk: c.compliance_risk_score,
             idea: c.idea_score,
           },
           total_score: scoreVal,
           status,
-          notes: `[one-shot-premium] ${c.status} — ${c.recommended_admin_action}\n${c.product_page_opening ?? ""}\n\nShopify: ${JSON.stringify(shop)}`,
+          notes: `[hard-sell-copywriter] ${c.status} — ${c.recommended_admin_action}`,
           cost_usd: ai.usage.cost_usd,
           core_pain_point: c.core_pain_point,
           deeper_emotional_fear: c.deeper_emotional_fear,
@@ -194,8 +178,14 @@ Return JSON in EXACTLY this shape:
           improvement_round: 1,
           raw_title: c.title,
           raw_subtitle: c.subtitle,
-          raw_hook: c.hook,
+          raw_hook: c.primary_hook,
           raw_target_buyer: ai.data.target_buyer,
+          buyer_identity: c.buyer_identity,
+          cost_of_doing_nothing: c.cost_of_doing_nothing,
+          value_proposition: c.value_proposition,
+          hard_sell_opening: c.hard_sell_opening,
+          objection_handling: c.objection_handling ?? {},
+          shopify_meta: shop,
         }).select("id").single();
         if (row?.id) created.push(row.id);
       } catch (_e) {

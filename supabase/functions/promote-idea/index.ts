@@ -1,5 +1,6 @@
 // Promotes an idea → creates ebook → generates outline → all chapters → marketing
 import { corsHeaders, admin, aiJSON, aiText, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
+import { PREMIUM_WRITER_SYSTEM, HARDSELL_COPYWRITER_SYSTEM } from "../_shared/prompts.ts";
 
 interface Outline { toc: { title: string; brief: string }[]; bonuses: { checklist: string; worksheet: string; templates: string; action_plan_7day: string } }
 interface Marketing { product_description: string; seo_title: string; seo_meta: string; tags: string[]; cover_prompt: string }
@@ -39,8 +40,8 @@ Deno.serve(async (req) => {
     const outlineModel = pickModel(mode, "content");
     const outlineAI = await aiJSON<Outline>({
       model: outlineModel,
-      system: `You design premium ebook outlines. Each chapter must deliver a specific transformation, not fluff.`,
-      user: `Title: ${idea.title}\nSubtitle: ${idea.subtitle}\nTarget buyer: ${idea.target_buyer}\nHook: ${idea.hook}\n\nDesign a table of contents with EXACTLY 10 chapters. Each chapter should have a specific title (not generic like "Introduction") and a 2-3 sentence brief on what transformation the chapter delivers.\nAlso design these premium bonus sections: a checklist, a worksheet (with prompts), a templates section, and a 7-day action plan.\n\nReturn JSON: { "toc": [{"title": "...", "brief": "..."}, ...10 items], "bonuses": { "checklist": "...", "worksheet": "...", "templates": "...", "action_plan_7day": "..." } }`,
+      system: PREMIUM_WRITER_SYSTEM + `\n\nYou are now designing the ebook OUTLINE. Each chapter must deliver a specific transformation, not fluff. Use 8-12 chapters when the topic supports it; this product asks for exactly 10.`,
+      user: `Title: ${idea.title}\nSubtitle: ${idea.subtitle}\nTarget buyer: ${idea.target_buyer}\nHook: ${idea.hook}\n\nDesign a table of contents with EXACTLY 10 chapters. Each chapter title must be specific (not "Introduction") and each brief must be 2-3 sentences naming the transformation that chapter delivers.\nAlso design these premium bonus sections: a checklist, a worksheet (with prompts), a templates section, and a 7-day action plan.\n\nReturn JSON: { "toc": [{"title": "...", "brief": "..."}, ...10 items], "bonuses": { "checklist": "...", "worksheet": "...", "templates": "...", "action_plan_7day": "..." } }`,
     });
     totalCost += outlineAI.usage.cost_usd;
     await logCost(db, { ebook_id: ebook.id, step: "outline", model: outlineAI.model, ...outlineAI.usage });
@@ -68,8 +69,8 @@ Deno.serve(async (req) => {
 
           const chAI = await aiText({
             model: outlineModel,
-            system: `You write premium, useful, plainspoken English ebook chapters. No fluff, no filler, no AI tells. Use specific examples, concrete numbers, and short paragraphs. Markdown allowed (## subheads, bullets, > callouts).`,
-            user: `Ebook: "${idea.title}" — ${idea.subtitle}\nReader: ${idea.target_buyer}\n\nWrite Chapter "${ch.title}" (~${wordsPerChapter} words). Brief: ${ch.brief}\n\nDo NOT include the chapter number or the word "Chapter" in the body. Start with a hook paragraph. End with a one-line key takeaway.`,
+            system: PREMIUM_WRITER_SYSTEM,
+            user: `Ebook: "${idea.title}" — ${idea.subtitle}\nReader: ${idea.target_buyer}\nHook: ${idea.hook}\n\nWrite Chapter "${ch.title}" (~${wordsPerChapter} words). Brief: ${ch.brief}\n\nFollow the chapter structure (objective → main teaching → practical example → common mistake → step-by-step → quick checklist → key takeaway). Do NOT include the chapter number or the word "Chapter" in the body. Start with a hook paragraph that names the reader's specific pain. End with a one-line key takeaway.`,
           });
           await logCost(db, { ebook_id: ebook.id, step: `chapter:${ch.title}`.slice(0, 80), model: chAI.model, ...chAI.usage });
           chapters.push({ title: ch.title, content: chAI.data });
@@ -89,8 +90,8 @@ Deno.serve(async (req) => {
         const mktModel = pickModel(mode, "marketing");
         const mktAI = await aiJSON<Marketing>({
           model: mktModel,
-          system: `You write ethical, honest, persuasive product copy for digital ebooks. Use real benefits, never hype. No fake scarcity. No medical/financial guarantees.`,
-          user: `Ebook: "${idea.title}" — ${idea.subtitle}\nReader: ${idea.target_buyer}\nHook: ${idea.hook}\nTOC: ${outlineAI.data.toc.map((t) => t.title).join("; ")}\nBonuses: ${Object.values(outlineAI.data.bonuses).join(" | ")}\n\nWrite a Shopify product description in markdown using this structure:\n1) Strong hook\n2) The pain (1-2 sentences)\n3) The transformation (1-2 sentences)\n4) Clear benefits (4-6 bullets)\n5) What's inside (chapter list + bonuses)\n6) Who it's for (3 bullets)\n7) Bonus value\n8) FAQ (3 Q&A)\n9) Strong, honest CTA (no fake urgency)\n\nReturn JSON: { "product_description": "...", "seo_title": "<=60 chars", "seo_meta": "<=160 chars", "tags": ["...", "..."], "cover_prompt": "single-paragraph image-generation prompt that matches: ${cat?.cover_style_prompt ?? "premium minimalist editorial style"}" }`,
+          system: HARDSELL_COPYWRITER_SYSTEM + `\n\nYou are now writing the Shopify product page copy for a finished premium PDF ebook. Use ethical hard-sell copywriting: name the pain, show the cost of doing nothing, frame the transformation, and handle objections — but no fake scarcity, no guaranteed outcomes.`,
+          user: `Ebook: "${idea.title}" — ${idea.subtitle}\nReader: ${idea.target_buyer}\nHook: ${idea.hook}\nTOC: ${outlineAI.data.toc.map((t) => t.title).join("; ")}\nBonuses: ${Object.values(outlineAI.data.bonuses).join(" | ")}\n\nWrite a Shopify product description in markdown using this structure:\n1) Hard-sell hook (1-2 sentences that name the buyer's pain)\n2) The cost of doing nothing (1-2 sentences)\n3) The transformation (1-2 sentences — believable, not guaranteed)\n4) Clear benefits (4-6 bullets)\n5) What's inside (chapter list + bonuses)\n6) Who it's for (3 bullets)\n7) Objection handling (3 short Q&A: "Too expensive?", "Can't I find this free?", "I don't have time")\n8) Bonus value\n9) Honest CTA (no fake urgency)\n\nReturn JSON: { "product_description": "...", "seo_title": "<=60 chars", "seo_meta": "<=160 chars", "tags": ["...","..."], "cover_prompt": "single-paragraph image-generation prompt that matches: ${cat?.cover_style_prompt ?? "premium minimalist editorial style"}" }`,
         });
         cost += mktAI.usage.cost_usd;
         await logCost(db, { ebook_id: ebook.id, step: "marketing", model: mktAI.model, ...mktAI.usage });

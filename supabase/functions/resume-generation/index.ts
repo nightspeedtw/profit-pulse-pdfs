@@ -1,6 +1,7 @@
 // Resume a stuck ebook generation. Picks up from the current chapter count
 // and re-runs chapter writing + marketing the same way promote-idea does.
 import { corsHeaders, admin, aiJSON, aiText, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
+import { PREMIUM_WRITER_SYSTEM, HARDSELL_COPYWRITER_SYSTEM } from "../_shared/prompts.ts";
 
 interface Marketing { product_description: string; seo_title: string; seo_meta: string; tags: string[]; cover_prompt: string }
 interface TocItem { title: string; brief: string }
@@ -44,8 +45,8 @@ Deno.serve(async (req) => {
 
           const chAI = await aiText({
             model: writeModel,
-            system: `You write premium, useful, plainspoken English ebook chapters. No fluff, no filler, no AI tells. Use specific examples, concrete numbers, and short paragraphs. Markdown allowed (## subheads, bullets, > callouts).`,
-            user: `Ebook: "${ebook.title}" — ${ebook.subtitle ?? ""}\nReader: ${ebook.target_buyer ?? ""}\n\nWrite Chapter "${ch.title}" (~${wordsPerChapter} words). Brief: ${ch.brief}\n\nDo NOT include the chapter number or the word "Chapter" in the body. Start with a hook paragraph. End with a one-line key takeaway.`,
+            system: PREMIUM_WRITER_SYSTEM,
+            user: `Ebook: "${ebook.title}" — ${ebook.subtitle ?? ""}\nReader: ${ebook.target_buyer ?? ""}\nHook: ${ebook.hook ?? ""}\n\nWrite Chapter "${ch.title}" (~${wordsPerChapter} words). Brief: ${ch.brief}\n\nFollow the chapter structure (objective → main teaching → practical example → common mistake → step-by-step → quick checklist → key takeaway). Do NOT include the chapter number or the word "Chapter" in the body. Start with a hook paragraph that names the reader's specific pain. End with a one-line key takeaway.`,
           });
           await logCost(db, { ebook_id: ebook.id, step: `chapter:${ch.title}`.slice(0, 80), model: chAI.model, ...chAI.usage });
           chapters.push({ title: ch.title, content: chAI.data });
@@ -65,8 +66,8 @@ Deno.serve(async (req) => {
           const mktModel = pickModel(mode, "marketing");
           const mktAI = await aiJSON<Marketing>({
             model: mktModel,
-            system: `You write ethical, honest, persuasive product copy for digital ebooks. Use real benefits, never hype. No fake scarcity. No medical/financial guarantees.`,
-            user: `Ebook: "${ebook.title}" — ${ebook.subtitle ?? ""}\nReader: ${ebook.target_buyer ?? ""}\nHook: ${ebook.hook ?? ""}\nTOC: ${toc.map((t) => t.title).join("; ")}\n\nWrite a Shopify product description in markdown using this structure:\n1) Strong hook\n2) The pain\n3) The transformation\n4) Clear benefits (4-6 bullets)\n5) What's inside (chapter list + bonuses)\n6) Who it's for (3 bullets)\n7) Bonus value\n8) FAQ (3 Q&A)\n9) Strong honest CTA.\n\nReturn JSON: { "product_description": "...", "seo_title": "<=60 chars", "seo_meta": "<=160 chars", "tags": ["...","..."], "cover_prompt": "single-paragraph cover prompt matching: ${cat?.cover_style_prompt ?? "premium minimalist editorial style"}" }`,
+            system: HARDSELL_COPYWRITER_SYSTEM + `\n\nYou are writing the Shopify product page copy for a finished premium PDF ebook. Use ethical hard-sell copywriting — no fake scarcity, no guaranteed outcomes.`,
+            user: `Ebook: "${ebook.title}" — ${ebook.subtitle ?? ""}\nReader: ${ebook.target_buyer ?? ""}\nHook: ${ebook.hook ?? ""}\nTOC: ${toc.map((t) => t.title).join("; ")}\n\nWrite a Shopify product description in markdown using this structure:\n1) Hard-sell hook (name the pain)\n2) Cost of doing nothing\n3) The transformation (believable, not guaranteed)\n4) Clear benefits (4-6 bullets)\n5) What's inside (chapter list + bonuses)\n6) Who it's for (3 bullets)\n7) Objection handling (3 short Q&A: "Too expensive?", "Can't I find this free?", "I don't have time")\n8) Bonus value\n9) Honest CTA.\n\nReturn JSON: { "product_description": "...", "seo_title": "<=60 chars", "seo_meta": "<=160 chars", "tags": ["...","..."], "cover_prompt": "single-paragraph cover prompt matching: ${cat?.cover_style_prompt ?? "premium minimalist editorial style"}" }`,
           });
           cost += mktAI.usage.cost_usd;
           await logCost(db, { ebook_id: ebook.id, step: "marketing", model: mktAI.model, ...mktAI.usage });
