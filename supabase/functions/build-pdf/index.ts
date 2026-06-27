@@ -168,7 +168,9 @@ Deno.serve(async (req) => {
         bookPageNum += 1;
         drawRunningHeader(page, theme, fonts, brand, chShort);
         drawRunningFooter(page, theme, fonts, bookPageNum);
-        drawDiagramPremium(page, d, theme, fonts);
+        const r = drawDiagramPremium(page, d, theme, fonts);
+        diagramOverflowCount += r.overflowNodes;
+        diagramTruncatedCount += r.truncatedNodes;
       }
       // -- Worksheets for chapter --
       for (const w of (wsMap.get(chNum) ?? [])) {
