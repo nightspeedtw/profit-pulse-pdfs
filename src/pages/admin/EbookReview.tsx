@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Loader2, ArrowLeft } from "lucide-react";
 import { downloadAdminPdf } from "@/lib/pdf";
 import { PdfWizard } from "@/components/admin/PdfWizard";
+import { FinalApproval } from "@/components/admin/FinalApproval";
 
 
 interface Chapter { title: string; content: string }
