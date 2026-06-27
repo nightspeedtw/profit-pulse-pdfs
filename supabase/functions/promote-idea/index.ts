@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
     const outlineAI = await aiJSON<Outline>({
       model: outlineModel,
       system: `You design premium ebook outlines. Each chapter must deliver a specific transformation, not fluff.`,
-      user: `Title: ${idea.title}\nSubtitle: ${idea.subtitle}\nTarget buyer: ${idea.target_buyer}\nHook: ${idea.hook}\n\nDesign a table of contents with 8-12 chapters. Each chapter should have a specific title (not generic like "Introduction") and a 2-3 sentence brief on what transformation the chapter delivers.\nAlso design 5 premium bonus sections: a checklist, a workbook (with prompts), a templates section, a 30-day action plan, and one bonus surprise that overdelivers.\n\nReturn JSON: { "toc": [{"title": "...", "brief": "..."}, ...], "bonuses": { "checklist": "...", "workbook": "...", "templates": "...", "action_plan": "...", "bonus": "..." } }`,
+      user: `Title: ${idea.title}\nSubtitle: ${idea.subtitle}\nTarget buyer: ${idea.target_buyer}\nHook: ${idea.hook}\n\nDesign a table of contents with EXACTLY 10 chapters. Each chapter should have a specific title (not generic like "Introduction") and a 2-3 sentence brief on what transformation the chapter delivers.\nAlso design these premium bonus sections: a checklist, a worksheet (with prompts), a templates section, and a 7-day action plan.\n\nReturn JSON: { "toc": [{"title": "...", "brief": "..."}, ...10 items], "bonuses": { "checklist": "...", "worksheet": "...", "templates": "...", "action_plan_7day": "..." } }`,
     });
     totalCost += outlineAI.usage.cost_usd;
     await logCost(db, { ebook_id: ebook.id, step: "outline", model: outlineAI.model, ...outlineAI.usage });
