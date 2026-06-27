@@ -102,6 +102,26 @@ export default function EbookReview() {
         </div>
       </div>
 
+      {progress && (
+        <Card className="border-2 border-foreground bg-muted/40">
+          <CardContent className="py-4 space-y-2">
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <div className="flex items-center gap-2 font-medium">
+                <Loader2 className="size-4 animate-spin" />
+                {progress.label}
+              </div>
+              <span className="font-mono text-xs">{progress.pct}%</span>
+            </div>
+            <Progress value={progress.pct} className="h-2" />
+            <p className="text-xs text-muted-foreground">
+              Each chapter takes ~10–20 seconds. Total ~3–5 minutes for 10 chapters. This page auto-refreshes.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+
+
       <div className="grid md:grid-cols-2 gap-4">
         <Card className="border-2 border-foreground">
           <CardHeader><CardTitle>Basics</CardTitle></CardHeader>
