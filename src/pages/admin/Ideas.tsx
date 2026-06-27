@@ -596,6 +596,92 @@ export default function Ideas() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Generate 2 Alternatives dialog */}
+      <Dialog open={!!altOpen} onOpenChange={(o) => { if (!o) { setAltOpen(null); setAltResult(null); } }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Sparkles className="size-5" /> Generate 2 Alternatives</DialogTitle>
+          </DialogHeader>
+          {altLoading && (
+            <div className="flex items-center gap-2 py-10 justify-center text-muted-foreground">
+              <Loader2 className="size-5 animate-spin" /> Generating 2 stronger alternatives…
+            </div>
+          )}
+          {altResult && altOpen && (() => {
+            const winner = altResult.ai_recommended_winner;
+            const winnerAlt = winner.selected_option === "B" ? altResult.alternative_b : altResult.alternative_a;
+            const renderAlt = (label: "A" | "B", alt: Alt) => (
+              <Card className={`border-2 ${winner.selected_option === label ? "border-foreground bg-foreground/5" : "border-foreground/30"}`}>
+                <CardContent className="pt-4 space-y-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="font-mono">Option {label}</Badge>
+                    {winner.selected_option === label && <Badge className="bg-foreground text-background">AI Pick</Badge>}
+                    <Badge variant="secondary" className="font-mono text-[10px]">Appeal {alt.buyer_appeal_score}</Badge>
+                    <Badge variant="secondary" className="font-mono text-[10px]">Premium {alt.premium_score}</Badge>
+                    <Badge variant="outline" className="font-mono text-[10px]">Risk {alt.compliance_risk_score}/10</Badge>
+                    <Badge variant="outline" className="font-mono text-[10px]">Idea {alt.idea_score}</Badge>
+                  </div>
+                  <div className="font-display text-base">{alt.title}</div>
+                  <div className="text-muted-foreground text-xs">{alt.subtitle}</div>
+                  <div className="italic text-xs">"{alt.hook}"</div>
+                  <div className="text-xs"><strong>Pain:</strong> {alt.core_pain_point}</div>
+                  <div className="text-xs"><strong>Transformation:</strong> {alt.transformation_promise}</div>
+                  <div className="text-xs"><strong>Why stronger:</strong> {alt.why_stronger}</div>
+                  <div className="text-xs text-muted-foreground"><strong>Page opening:</strong> {alt.product_page_opening}</div>
+                  <Button size="sm" className="mt-2 w-full" variant={winner.selected_option === label ? "default" : "outline"}
+                    onClick={() => applyAlternative(altOpen, alt, winner.selected_option === label ? winner : undefined)}>
+                    <Check className="size-4 mr-1" /> Apply Option {label}
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+            return (
+              <div className="space-y-4">
+                <div className="text-xs text-muted-foreground">
+                  <strong>Reason current version is weak:</strong> {altResult.reason_current_version_is_not_strong_enough}
+                </div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  {renderAlt("A", altResult.alternative_a)}
+                  {renderAlt("B", altResult.alternative_b)}
+                </div>
+                <Card className="border-2 border-foreground bg-foreground/5">
+                  <CardContent className="pt-4 space-y-2 text-sm">
+                    <div className="font-mono uppercase text-xs">AI Recommended Winner — Option {winner.selected_option}</div>
+                    <div className="font-display text-lg">{winner.title}</div>
+                    <div className="text-muted-foreground text-xs">{winner.subtitle}</div>
+                    <div className="italic text-xs">"{winner.hook}"</div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge>Appeal {winner.final_buyer_appeal_score}</Badge>
+                      <Badge>Premium {winner.final_premium_score}</Badge>
+                      <Badge variant="outline">Risk {winner.final_compliance_risk_score}/10</Badge>
+                      <Badge variant="outline">Idea {winner.final_idea_score}</Badge>
+                      <Badge variant="secondary">{winner.status}</Badge>
+                    </div>
+                    <div className="mt-2 p-3 bg-background border border-foreground/20 space-y-1 text-xs font-mono">
+                      <div className="uppercase opacity-60">Shopify Ready</div>
+                      <div><strong>Product title:</strong> {winner.shopify_product_title}</div>
+                      <div><strong>Meta title:</strong> {winner.meta_title}</div>
+                      <div><strong>Meta description:</strong> {winner.meta_description}</div>
+                      <div><strong>URL:</strong> /{winner.url_handle}</div>
+                      <div><strong>Tags:</strong> {(winner.tags ?? []).join(", ")}</div>
+                    </div>
+                    <Button className="w-full" onClick={() => applyAlternative(altOpen, winnerAlt, winner)}>
+                      <Check className="size-4 mr-1" /> Apply AI Winner (Option {winner.selected_option})
+                    </Button>
+                  </CardContent>
+                </Card>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={() => runAlternatives(altOpen)}>
+                    <Sparkles className="size-4 mr-1" /> Regenerate Again
+                  </Button>
+                  <Button variant="ghost" onClick={() => { setAltOpen(null); setAltResult(null); }}>Close</Button>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
