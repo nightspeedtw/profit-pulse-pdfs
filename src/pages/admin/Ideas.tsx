@@ -24,6 +24,24 @@ type Cat = { id: string; name: string };
 
 const dims = ["urgency", "transformation", "commercial", "evergreen", "emotional", "clarity"] as const;
 
+type ValueBoosters = { checklist?: string; template?: string; workbook?: string; calculator?: string; action_plan?: string };
+type PremiumOption = {
+  premium_title: string; premium_subtitle: string; target_buyer: string;
+  core_pain_point: string; premium_transformation_promise: string;
+  perceived_value_boosters: ValueBoosters; primary_hook: string;
+  buyer_appeal_score: number; premium_score: number; why_it_feels_premium: string;
+};
+type PremiumResult = {
+  premium_diagnosis: { why_ordinary: string; what_would_make_premium: string; best_buyer_emotion: string };
+  options: PremiumOption[];
+  best_final_choice: {
+    premium_title: string; premium_subtitle: string; primary_hook: string;
+    product_page_opening: string; recommended_category: string; recommended_price: string;
+    buyer_appeal_score: number; premium_score: number;
+    shopify_ready: { product_title: string; meta_title: string; meta_description: string; url_handle: string; tags: string[] };
+  };
+};
+
 // Raw score is 0-60 (6 dims * 10). Display on 0-100 scale.
 const to100 = (raw: number) => Math.round((Number(raw) || 0) / 60 * 100);
 
