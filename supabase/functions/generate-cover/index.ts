@@ -1,17 +1,21 @@
 import { corsHeaders, admin, logCost, requireAdmin } from "../_shared/ai.ts";
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  try {
-    await requireAdmin(req);
-    const db = admin();
-    const { ebook_id } = await req.json();
-    if (!ebook_id) throw new Error("ebook_id required");
-    const { data: e } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
-    if (!e) throw new Error("Ebook not found");
-    // QC status no longer blocks cover generation — admin can override manually.
+type EbookRow = {
+  id: string;
+  title: string;
+  cover_prompt: string | null;
+  cost_usd: number | null;
+  status: string | null;
+  qc: Record<string, unknown> | null;
+};
 
-    const prompt = e.cover_prompt ?? `Premium ebook cover for "${e.title}". Editorial, minimalist, high-contrast typography overlay area at top, no text rendered. Bold, modern composition.`;
+async function processCover(ebook: EbookRow) {
+  const db = admin();
+  const ebook_id = ebook.id;
+  const previousStatus = ebook.status ?? "review";
+
+  try {
+    const prompt = ebook.cover_prompt ?? `Premium ebook cover for "${ebook.title}". Editorial, minimalist, high-contrast typography overlay area at top, no text rendered. Bold, modern composition.`;
     const key = Deno.env.get("LOVABLE_API_KEY");
     if (!key) throw new Error("LOVABLE_API_KEY not configured");
 
@@ -39,12 +43,40 @@ Deno.serve(async (req) => {
     if (upErr) throw upErr;
     const { data: signed } = await db.storage.from("ebook-covers").createSignedUrl(path, 60 * 60 * 24 * 365);
 
-    // Cover cost approximated
     const cost = 0.04;
     await logCost(db, { ebook_id, step: "cover", model: "google/gemini-3-pro-image", input_tokens: 0, output_tokens: 0, cost_usd: cost });
-    await db.from("ebooks").update({ cover_url: signed?.signedUrl, cost_usd: Number(e.cost_usd) + cost }).eq("id", ebook_id);
+    await db.from("ebooks").update({
+      cover_url: signed?.signedUrl,
+      status: previousStatus === "cover" ? "review" : previousStatus,
+      qc: { ...(ebook.qc ?? {}), cover_error: null },
+      cost_usd: Number(ebook.cost_usd ?? 0) + cost,
+    }).eq("id", ebook_id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("cover generation failed", message);
+    await db.from("ebooks").update({
+      status: previousStatus === "cover" ? "review" : previousStatus,
+      qc: { ...(ebook.qc ?? {}), cover_error: message },
+    }).eq("id", ebook_id);
+  }
+}
 
-    return new Response(JSON.stringify({ cover_url: signed?.signedUrl }), {
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  try {
+    await requireAdmin(req);
+    const db = admin();
+    const { ebook_id } = await req.json();
+    if (!ebook_id) throw new Error("ebook_id required");
+    const { data: e } = await db.from("ebooks").select("id,title,cover_prompt,cost_usd,status,qc").eq("id", ebook_id).single();
+    if (!e) throw new Error("Ebook not found");
+    // QC status no longer blocks cover generation — admin can override manually.
+
+    await db.from("ebooks").update({ status: "cover", qc: { ...(e.qc ?? {}), cover_error: null } }).eq("id", ebook_id);
+    EdgeRuntime.waitUntil(processCover(e as EbookRow));
+
+    return new Response(JSON.stringify({ status: "cover", started: true }), {
+      status: 202,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
