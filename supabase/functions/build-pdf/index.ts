@@ -43,21 +43,21 @@ Deno.serve(async (req) => {
 
     // Who this is for / copyright page
     const introPage = pdf.addPage([PAGE_W, PAGE_H]);
-    introPage.drawText("WHO THIS IS FOR", { x: MARGIN, y: PAGE_H - MARGIN, size: 10, font: helvBold, color: black });
+    introPage.drawText(safe("WHO THIS IS FOR"), { x: MARGIN, y: PAGE_H - MARGIN, size: 10, font: helvBold, color: black });
     introPage.drawLine({ start: { x: MARGIN, y: PAGE_H - MARGIN - 8 }, end: { x: PAGE_W - MARGIN, y: PAGE_H - MARGIN - 8 }, thickness: 2, color: black });
     drawWrapped(introPage, e.target_buyer ?? "Readers who want a practical, premium guide.", MARGIN, PAGE_H - MARGIN - 40, PAGE_W - 2 * MARGIN, helv, 12, black);
     if (e.hook) drawWrapped(introPage, `"${e.hook}"`, MARGIN, PAGE_H - MARGIN - 140, PAGE_W - 2 * MARGIN, helvOblique, 14, black);
-    introPage.drawText(`© ${new Date().getFullYear()} Printly. All rights reserved.`, { x: MARGIN, y: MARGIN, size: 9, font: helv, color: black });
+    introPage.drawText(safe(`© ${new Date().getFullYear()} Printly. All rights reserved.`), { x: MARGIN, y: MARGIN, size: 9, font: helv, color: black });
 
     // Table of contents
     const toc = (e.toc ?? []) as { title: string }[];
     const tocPage = pdf.addPage([PAGE_W, PAGE_H]);
-    tocPage.drawText("CONTENTS", { x: MARGIN, y: PAGE_H - MARGIN, size: 24, font: helvBold, color: black });
+    tocPage.drawText(safe("CONTENTS"), { x: MARGIN, y: PAGE_H - MARGIN, size: 24, font: helvBold, color: black });
     tocPage.drawLine({ start: { x: MARGIN, y: PAGE_H - MARGIN - 12 }, end: { x: PAGE_W - MARGIN, y: PAGE_H - MARGIN - 12 }, thickness: 2, color: black });
     let ty = PAGE_H - MARGIN - 50;
     toc.forEach((c, i) => {
-      tocPage.drawText(`${String(i + 1).padStart(2, "0")}.`, { x: MARGIN, y: ty, size: 11, font: helvBold, color: black });
-      tocPage.drawText(c.title.slice(0, 70), { x: MARGIN + 36, y: ty, size: 11, font: helv, color: black });
+      tocPage.drawText(safe(`${String(i + 1).padStart(2, "0")}.`), { x: MARGIN, y: ty, size: 11, font: helvBold, color: black });
+      tocPage.drawText(safe(c.title.slice(0, 70)), { x: MARGIN + 36, y: ty, size: 11, font: helv, color: black });
       ty -= 22;
       if (ty < MARGIN) return;
     });
@@ -67,7 +67,7 @@ Deno.serve(async (req) => {
     for (let i = 0; i < chapters.length; i++) {
       const ch = chapters[i];
       let page = pdf.addPage([PAGE_W, PAGE_H]);
-      page.drawText(`CHAPTER ${String(i + 1).padStart(2, "0")}`, { x: MARGIN, y: PAGE_H - MARGIN, size: 10, font: helvBold, color: black });
+      page.drawText(safe(`CHAPTER ${String(i + 1).padStart(2, "0")}`), { x: MARGIN, y: PAGE_H - MARGIN, size: 10, font: helvBold, color: black });
       drawWrapped(page, ch.title.toUpperCase(), MARGIN, PAGE_H - MARGIN - 30, PAGE_W - 2 * MARGIN, helvBold, 20, black);
       page.drawLine({ start: { x: MARGIN, y: PAGE_H - MARGIN - 70 }, end: { x: PAGE_W - MARGIN, y: PAGE_H - MARGIN - 70 }, thickness: 2, color: black });
       let y = PAGE_H - MARGIN - 95;
@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
         const lines = wrap(p.replace(/^#+\s*/, "").replace(/[*_>]/g, ""), helv, 11, PAGE_W - 2 * MARGIN);
         for (const ln of lines) {
           if (y < MARGIN + 40) {
-            page.drawText(`${i + 1}`, { x: PAGE_W - MARGIN, y: MARGIN, size: 9, font: helv, color: black });
+            page.drawText(safe(`${i + 1}`), { x: PAGE_W - MARGIN, y: MARGIN, size: 9, font: helv, color: black });
             page = pdf.addPage([PAGE_W, PAGE_H]);
             y = PAGE_H - MARGIN;
           }
@@ -85,18 +85,18 @@ Deno.serve(async (req) => {
         }
         y -= 8;
       }
-      page.drawText(`${i + 1}`, { x: PAGE_W - MARGIN, y: MARGIN, size: 9, font: helv, color: black });
+      page.drawText(safe(`${i + 1}`), { x: PAGE_W - MARGIN, y: MARGIN, size: 9, font: helv, color: black });
     }
 
     // Bonus section
     const bonuses = (e.bonuses ?? {}) as Record<string, string>;
     if (Object.keys(bonuses).length > 0) {
       const bp = pdf.addPage([PAGE_W, PAGE_H]);
-      bp.drawText("BONUS MATERIALS", { x: MARGIN, y: PAGE_H - MARGIN, size: 22, font: helvBold, color: black });
+      bp.drawText(safe("BONUS MATERIALS"), { x: MARGIN, y: PAGE_H - MARGIN, size: 22, font: helvBold, color: black });
       bp.drawLine({ start: { x: MARGIN, y: PAGE_H - MARGIN - 12 }, end: { x: PAGE_W - MARGIN, y: PAGE_H - MARGIN - 12 }, thickness: 2, color: black });
       let y = PAGE_H - MARGIN - 50;
       for (const [k, v] of Object.entries(bonuses)) {
-        bp.drawText(k.toUpperCase().replace(/_/g, " "), { x: MARGIN, y, size: 12, font: helvBold, color: black });
+        bp.drawText(safe(k.toUpperCase().replace(/_/g, " ")), { x: MARGIN, y, size: 12, font: helvBold, color: black });
         y -= 18;
         const lines = wrap(String(v).slice(0, 500), helv, 11, PAGE_W - 2 * MARGIN);
         for (const ln of lines) {
@@ -111,7 +111,7 @@ Deno.serve(async (req) => {
     // Back cover
     const back = pdf.addPage([PAGE_W, PAGE_H]);
     back.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: black });
-    back.drawText("PRINTLY", { x: MARGIN, y: PAGE_H - 100, size: 36, font: helvBold, color: accent });
+    back.drawText(safe("PRINTLY"), { x: MARGIN, y: PAGE_H - 100, size: 36, font: helvBold, color: accent });
     drawWrapped(back, "Premium printables and ebooks for people who want to actually finish what they start.", MARGIN, PAGE_H - 170, PAGE_W - 2 * MARGIN, helv, 13, accent);
 
     const bytes = await pdf.save();
@@ -135,8 +135,22 @@ Deno.serve(async (req) => {
 });
 
 // Helpers
+// pdf-lib's standard fonts only support WinAnsi (Latin-1 + a few extras).
+// Normalize smart punctuation to ASCII and drop any other unsupported codepoints
+// so non-Latin characters (e.g. Cyrillic) don't crash the encoder.
+function safe(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\u2026/g, "...")
+    .replace(/\u00A0/g, " ")
+    // Keep Latin-1 range + tab/newline; drop everything else (Cyrillic, CJK, emoji, etc.)
+    .replace(/[^\x09\x0A\x0D\x20-\xFF]/g, "");
+}
 function wrap(text: string, font: import("npm:pdf-lib@1.17.1").PDFFont, size: number, maxW: number): string[] {
-  const words = text.split(/\s+/);
+  const words = safe(text).split(/\s+/);
   const lines: string[] = [];
   let line = "";
   for (const w of words) {
@@ -157,3 +171,4 @@ function drawWrapped(page: import("npm:pdf-lib@1.17.1").PDFPage, text: string, x
     cy -= size * 1.3;
   }
 }
+
