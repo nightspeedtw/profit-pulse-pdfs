@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ChevronRight, Loader2, Sparkles, Type, Zap, FolderInput, X, Check, Eye, ChevronDown } from "lucide-react";
+import { ChevronRight, Loader2, Sparkles, Type, Zap, FolderInput, X, Check, Eye, ChevronDown, Crown } from "lucide-react";
 import { Link } from "react-router-dom";
 
 type Idea = {
