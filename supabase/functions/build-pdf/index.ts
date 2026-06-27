@@ -341,9 +341,21 @@ function parseMarkdown(raw: string): Block[] {
       blocks.push({ kind: "ol", items });
       continue;
     }
+    // Markdown table: `| col | col |` followed by `|---|---|`
+    if (isTableRow(ln) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      const header = parseTableRow(ln);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && isTableRow(lines[i])) {
+        rows.push(parseTableRow(lines[i]));
+        i++;
+      }
+      blocks.push({ kind: "table", header, rows });
+      continue;
+    }
     // Paragraph (collect until blank or special)
     const buf: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|>\s?|\s*[-*]\s|\s*\d+\.\s)/.test(lines[i]) && !isHr(lines[i])) {
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|>\s?|\s*[-*]\s|\s*\d+\.\s|\s*\|)/.test(lines[i]) && !isHr(lines[i])) {
       buf.push(lines[i].trim()); i++;
     }
     if (buf.length) blocks.push({ kind: "p", text: buf.join(" ") });
