@@ -257,7 +257,19 @@ type Block =
   | { kind: "ul" | "ol"; items: string[] }
   | { kind: "callout"; variant: "key" | "mistake" | "example" | "takeaway" | "objective"; title: string; text: string }
   | { kind: "checklist"; items: string[] }
+  | { kind: "table"; header: string[]; rows: string[][] }
   | { kind: "hr" };
+
+function parseTableRow(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed.split("|").map((c) => c.trim());
+}
+function isTableSep(line: string): boolean {
+  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+}
+function isTableRow(line: string): boolean {
+  return /^\s*\|.*\|\s*$/.test(line);
+}
 
 // ============ MARKDOWN PARSER (lightweight, paid-product safe) ============
 function parseMarkdown(raw: string): Block[] {
