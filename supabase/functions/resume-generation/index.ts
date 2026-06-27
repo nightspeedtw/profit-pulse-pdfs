@@ -1,6 +1,7 @@
 // Resume a stuck ebook generation. Picks up from the current chapter count
 // and re-runs chapter writing + marketing the same way promote-idea does.
 import { corsHeaders, admin, aiJSON, aiText, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
+import { PREMIUM_WRITER_SYSTEM, HARDSELL_COPYWRITER_SYSTEM } from "../_shared/prompts.ts";
 
 interface Marketing { product_description: string; seo_title: string; seo_meta: string; tags: string[]; cover_prompt: string }
 interface TocItem { title: string; brief: string }
