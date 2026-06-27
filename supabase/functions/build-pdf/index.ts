@@ -225,6 +225,8 @@ Deno.serve(async (req) => {
       coverScore: Number(e.cover_score ?? 0),
       hasToc: tocEntries.length > 0,
       hasDisclaimer: isFinance,
+      diagramOverflowCount,
+      diagramTruncatedCount,
     });
 
     await db.from("ebooks").update({
