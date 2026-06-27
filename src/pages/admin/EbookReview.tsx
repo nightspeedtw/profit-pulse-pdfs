@@ -126,7 +126,7 @@ export default function EbookReview() {
                       {busy === "resume-generation" && <Loader2 className="size-4 animate-spin mr-1" />} Resume generation
                     </Button>
                     <Button size="sm" variant="outline" onClick={async () => {
-                      await supabase.from("ebooks").update({ status: "failed" }).eq("id", e.id);
+                      await supabase.from("ebooks").update({ status: "qc_failed" }).eq("id", e.id);
                       load();
                     }} disabled={!!busy}>Mark failed</Button>
                   </div>
