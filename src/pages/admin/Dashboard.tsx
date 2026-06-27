@@ -178,6 +178,52 @@ export default function Dashboard() {
           <p>Open the <strong>Autopilot</strong> page to set daily quota, schedule publishing, and enable hands-off mode.</p>
         </CardContent>
       </Card>
+
+      <Card className="border-2 border-foreground">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <AlertTriangle className="size-4 text-orange-600" />
+              Failed background jobs
+            </span>
+            <Badge variant={failedJobs.length > 0 ? "destructive" : "secondary"}>
+              {failedJobs.length}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm">
+          {failedJobs.length === 0 ? (
+            <p className="text-muted-foreground">No failed jobs. Pipeline is healthy.</p>
+          ) : (
+            <div className="space-y-2">
+              {failedJobs.map((j) => (
+                <div key={j.id} className="flex items-start justify-between gap-3 border border-foreground/20 rounded p-3 bg-orange-50/30">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs uppercase font-bold">{j.type}</span>
+                      <Badge variant="outline" className="text-xs">attempts: {j.attempts}</Badge>
+                      {j.ebook_id && (
+                        <Link to={`/admin/ebooks/${j.ebook_id}`} className="text-xs underline">
+                          ebook ↗
+                        </Link>
+                      )}
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {new Date(j.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    {j.error && (
+                      <p className="text-xs text-red-700 mt-1 line-clamp-2 break-words">{j.error}</p>
+                    )}
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => retryJob(j.id)}>
+                    Retry
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
