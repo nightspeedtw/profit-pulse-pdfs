@@ -34,6 +34,8 @@ export default function Dashboard() {
     ebooksNeedsReview: 0, ebooksPublished: 0, costToday: 0,
   });
   const [generating, setGenerating] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [failedJobs, setFailedJobs] = useState<FailedJob[]>([]);
 
   const load = async () => {
     const since = new Date(); since.setHours(0, 0, 0, 0);
