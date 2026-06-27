@@ -281,6 +281,9 @@ export default function Ideas() {
                         <Button size="sm" variant="secondary" onClick={() => { setImproveOpen(i); setFeedback(i.admin_feedback ?? ""); }} disabled={isBusy}>
                           <Sparkles className="size-4 mr-1" /> Improve Again
                         </Button>
+                        <Button size="sm" variant="outline" onClick={() => runPremium(i)} disabled={isBusy}>
+                          <Crown className="size-4 mr-1" /> Premium Positioning
+                        </Button>
                         <Button size="sm" variant="destructive" onClick={() => reject(i.id)} disabled={isBusy}>
                           <X className="size-4 mr-1" /> Reject
                         </Button>
