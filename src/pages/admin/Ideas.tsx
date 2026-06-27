@@ -264,10 +264,15 @@ export default function Ideas() {
       )}
       <div className="space-y-3">
         {items.map((i) => {
-          const s100 = to100(i.total_score);
-          const meta = scoreMeta(s100);
+          const s = i.scores ?? {};
+          const ba = Number(s.buyer_appeal ?? 0);
+          const pr = Number(s.premium ?? 0);
+          const cr = Number(s.compliance_risk ?? 0);
+          const s100 = ba ? Math.round(Number(s.idea ?? ba)) : to100(i.total_score);
+          const meta = scoreMeta(s100, ba || undefined, pr || undefined, cr || undefined);
           const isBusy = busy === i.id;
           const canPromote = i.status === "idea";
+          const isApproved = meta.status === "Approved" || meta.status === "Premium Featured";
           const vb = i.perceived_value_boosters ?? {};
           const showRaw = showRawIds.has(i.id);
           return (
@@ -280,6 +285,9 @@ export default function Ideas() {
                       <span className={`font-mono text-xs px-2 py-1 rounded ${toneClass[meta.tone]}`}>
                         Idea Score: {s100} / 100 — {meta.label}
                       </span>
+                      {ba > 0 && <Badge variant="outline" className="font-mono text-[10px]">Appeal {ba}</Badge>}
+                      {pr > 0 && <Badge variant="outline" className="font-mono text-[10px]">Premium {pr}</Badge>}
+                      {cr > 0 && <Badge variant="outline" className="font-mono text-[10px]">Risk {cr}/10</Badge>}
                       {i.improvement_round > 0 && (
                         <Badge variant="outline" className="font-mono text-[10px]">Improved L{i.improvement_round}</Badge>
                       )}
