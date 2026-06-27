@@ -1,5 +1,6 @@
 // Promotes an idea → creates ebook → generates outline → all chapters → marketing
 import { corsHeaders, admin, aiJSON, aiText, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
+import { PREMIUM_WRITER_SYSTEM, HARDSELL_COPYWRITER_SYSTEM } from "../_shared/prompts.ts";
 
 interface Outline { toc: { title: string; brief: string }[]; bonuses: { checklist: string; worksheet: string; templates: string; action_plan_7day: string } }
 interface Marketing { product_description: string; seo_title: string; seo_meta: string; tags: string[]; cover_prompt: string }
