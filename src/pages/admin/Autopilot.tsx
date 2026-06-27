@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Play, RefreshCw, Upload, Rocket, FileText, Plane, Save, Zap, Loader2 } from "lucide-react";
+import { openAdminPdf } from "@/lib/pdf";
 
 type Ebook = {
   id: string;
@@ -140,6 +141,17 @@ export default function Autopilot() {
       await load();
     } catch (err: any) {
       toast.error(err.message ?? "Failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function openPdf(ebookId: string) {
+    setBusy(ebookId);
+    try {
+      await openAdminPdf(ebookId);
+    } catch (err: any) {
+      toast.error(err.message ?? "Open PDF failed");
     } finally {
       setBusy(null);
     }
@@ -373,9 +385,7 @@ export default function Autopilot() {
                       </Button>
                     )}
                     {e.pdf_url && (
-                      <a href={e.pdf_url} target="_blank" rel="noopener noreferrer">
-                        <Button size="sm" variant="outline"><FileText className="size-3" /></Button>
-                      </a>
+                      <Button size="sm" variant="outline" disabled={busy === e.id} onClick={() => openPdf(e.id)}><FileText className="size-3" /></Button>
                     )}
                   </div>
                 </td>

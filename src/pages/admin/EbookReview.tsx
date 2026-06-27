@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { Loader2, ArrowLeft } from "lucide-react";
+import { openAdminPdf } from "@/lib/pdf";
 
 
 interface Chapter { title: string; content: string }
@@ -83,6 +84,18 @@ export default function EbookReview() {
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : `${fn} failed`);
     } finally { setBusy(null); }
+  };
+
+  const openPdf = async () => {
+    if (!e) return;
+    setBusy("open-pdf");
+    try {
+      await openAdminPdf(e.id);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Open PDF failed");
+    } finally {
+      setBusy(null);
+    }
   };
 
   if (!e) return <div>Loading…</div>;
@@ -191,7 +204,7 @@ export default function EbookReview() {
         <CardHeader><CardTitle>Cover & PDF</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           {e.cover_url ? <img src={e.cover_url} alt="Cover" className="max-w-xs border-2 border-foreground" /> : <p className="text-sm text-muted-foreground">No cover yet.</p>}
-          {e.pdf_url && <a href={e.pdf_url} target="_blank" rel="noreferrer" className="text-sm underline">Open PDF</a>}
+          {e.pdf_url && <Button type="button" variant="link" className="h-auto p-0 text-sm underline" onClick={openPdf} disabled={!!busy}>{busy === "open-pdf" ? "Opening…" : "Open PDF"}</Button>}
         </CardContent>
       </Card>
 
