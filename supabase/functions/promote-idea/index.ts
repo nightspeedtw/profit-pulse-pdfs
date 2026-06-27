@@ -1,7 +1,7 @@
 // Promotes an idea → creates ebook → generates outline → all chapters → marketing
 import { corsHeaders, admin, aiJSON, aiText, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 
-interface Outline { toc: { title: string; brief: string }[]; bonuses: { checklist: string; workbook: string; templates: string; action_plan: string; bonus: string } }
+interface Outline { toc: { title: string; brief: string }[]; bonuses: { checklist: string; worksheet: string; templates: string; action_plan_7day: string } }
 interface Marketing { product_description: string; seo_title: string; seo_meta: string; tags: string[]; cover_prompt: string }
 
 Deno.serve(async (req) => {
