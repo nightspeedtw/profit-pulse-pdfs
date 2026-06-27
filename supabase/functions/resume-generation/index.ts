@@ -32,7 +32,8 @@ Deno.serve(async (req) => {
     const startIdx = existing.length;
     const total = toc.length;
     const writeModel = pickModel(mode, "content");
-    const wordsPerChapter = Math.max(1500, Math.min(1800, Math.ceil(minWords / Math.max(total, 1))));
+    // Aim ~20% over target so the final book reliably clears minWords even if the model under-delivers.
+    const wordsPerChapter = Math.max(1800, Math.ceil((minWords * 1.2) / Math.max(total, 1)));
 
     const background = (async () => {
       try {
