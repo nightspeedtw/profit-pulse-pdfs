@@ -13,6 +13,7 @@ import { Loader2, ArrowLeft } from "lucide-react";
 import { downloadAdminPdf } from "@/lib/pdf";
 import { PdfWizard } from "@/components/admin/PdfWizard";
 import { FinalApproval } from "@/components/admin/FinalApproval";
+import ShopifyStatus from "@/components/admin/ShopifyStatus";
 
 
 interface Chapter { title: string; content: string }
@@ -50,6 +51,8 @@ interface Ebook {
   } | null;
   conversion_score: number | null; final_quality_score: number | null;
   compliance_safety_score: number | null; shopify_status: string | null;
+  shopify_events: { at: string; kind: "queued" | "success" | "failed"; action: "push" | "publish"; message?: string; error?: string; meta?: Record<string, unknown> }[];
+  shopify_last_error: string | null; shopify_handle: string | null;
   auto_approved: boolean; auto_publish: boolean; final_approved: boolean;
   word_count: number; qc: Record<string, unknown>; price: number; vendor: string;
   product_type: string; shopify_product_id: string | null; status: string;
@@ -372,6 +375,16 @@ export default function EbookReview() {
         </CardContent>
       </Card>
 
+      <ShopifyStatus
+        ebookId={e.id}
+        status={e.shopify_status}
+        events={(e.shopify_events ?? []) as never}
+        lastError={e.shopify_last_error}
+        productId={e.shopify_product_id}
+        handle={e.shopify_handle}
+        onChanged={load}
+      />
+
       <div className="sticky bottom-0 border-2 border-foreground bg-card p-4 flex flex-wrap gap-2">
         <Button onClick={save} disabled={busy === "save"}>{busy === "save" && <Loader2 className="size-4 animate-spin" />} Save edits</Button>
         <Button variant="outline" onClick={() => run("qc-check")} disabled={!!busy}>Run QC</Button>
@@ -379,7 +392,6 @@ export default function EbookReview() {
         <Button variant="outline" onClick={() => run("generate-cover")} disabled={!!busy}>{busy === "generate-cover" && <Loader2 className="size-4 animate-spin mr-1" />}Regenerate cover</Button>
         <Button variant="outline" onClick={() => run("generate-interior-visuals")} disabled={!!busy}>{busy === "generate-interior-visuals" && <Loader2 className="size-4 animate-spin mr-1" />}Generate visuals</Button>
         <Button variant="outline" onClick={() => run("build-pdf")} disabled={!!busy}>Build PDF</Button>
-        <Button variant="outline" onClick={() => run("push-to-shopify")} disabled={!!busy || e.status === "qc_failed"}>Push to Shopify draft</Button>
       </div>
     </div>
   );
