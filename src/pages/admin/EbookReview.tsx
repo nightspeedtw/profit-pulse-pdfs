@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { Loader2, ArrowLeft } from "lucide-react";
 import { downloadAdminPdf } from "@/lib/pdf";
+import { PdfWizard } from "@/components/admin/PdfWizard";
 
 
 interface Chapter { title: string; content: string }
@@ -58,7 +59,10 @@ export default function EbookReview() {
   useEffect(() => { load(); }, [id]);
 
   // Poll while generation is in progress
-  const isGenerating = !!e && (e.status === "outline" || e.status === "writing" || e.status?.startsWith("writing:") || e.status === "marketing" || e.status === "cover");
+  const isGenerating = !!e && (
+    e.status === "outline" || e.status === "writing" || e.status?.startsWith("writing:") ||
+    e.status === "marketing" || e.status === "cover" || e.status === "visuals" || e.status === "building_pdf"
+  );
   useEffect(() => {
     if (!isGenerating) return;
     const t = setInterval(load, 3000);
@@ -77,6 +81,8 @@ export default function EbookReview() {
     if (e.status === "writing") return { done: 0, tot: 1, pct: 10, label: "Starting chapters…" };
     if (e.status === "marketing") return { done: 1, tot: 1, pct: 95, label: "Writing marketing copy & SEO…" };
     if (e.status === "cover") return { done: 1, tot: 1, pct: 80, label: "Generating cover…" };
+    if (e.status === "visuals") return { done: 1, tot: 1, pct: 85, label: "Generating interior visuals…" };
+    if (e.status === "building_pdf") return { done: 1, tot: 1, pct: 90, label: "Building PDF…" };
     return null;
   })();
 
@@ -220,6 +226,10 @@ export default function EbookReview() {
           )}
         </CardContent>
       </Card>
+
+      <PdfWizard ebook={e} busy={busy} onRun={run} />
+
+
 
       <Card className="border-2 border-foreground">
         <CardHeader>

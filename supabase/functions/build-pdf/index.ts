@@ -42,6 +42,8 @@ Deno.serve(async (req) => {
     if (!ebook_id) throw new Error("ebook_id required");
     const { data: e } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
     if (!e) throw new Error("Ebook not found");
+    const prevStatus = e.status ?? "review";
+    await db.from("ebooks").update({ status: "building_pdf" }).eq("id", ebook_id);
 
     const pdf = await PDFDocument.create();
     const helv = await pdf.embedFont(StandardFonts.Helvetica);
@@ -199,13 +201,22 @@ Deno.serve(async (req) => {
     const { error: upErr } = await db.storage.from("ebook-pdfs").upload(path, bytes, { contentType: "application/pdf", upsert: true });
     if (upErr) throw upErr;
     const { data: signed } = await db.storage.from("ebook-pdfs").createSignedUrl(path, 60 * 60 * 24 * 365);
-    await db.from("ebooks").update({ pdf_url: signed?.signedUrl }).eq("id", ebook_id);
+    await db.from("ebooks").update({
+      pdf_url: signed?.signedUrl,
+      status: prevStatus === "building_pdf" ? "review" : prevStatus,
+    }).eq("id", ebook_id);
 
     return new Response(JSON.stringify({ pdf_url: signed?.signedUrl, pages: pdf.getPageCount() }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), {
+  } catch (err) {
+    try {
+      const db2 = admin();
+      const body = await req.clone().json().catch(() => ({} as Record<string, unknown>));
+      const id = (body as { ebook_id?: string }).ebook_id;
+      if (id) await db2.from("ebooks").update({ status: "review" }).eq("id", id);
+    } catch { /* ignore */ }
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
