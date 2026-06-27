@@ -315,6 +315,8 @@ export type Database = {
       }
       ebooks: {
         Row: {
+          auto_approved: boolean
+          auto_publish: boolean
           autopilot_mode: string
           autopilot_state: string
           bonuses: Json
@@ -334,6 +336,9 @@ export type Database = {
           cover_url: string | null
           created_at: string
           editorial_qc: Json
+          final_approved: boolean
+          final_approved_at: string | null
+          final_approved_by: string | null
           final_quality_score: number | null
           hook: string | null
           id: string
@@ -364,6 +369,8 @@ export type Database = {
           word_count: number
         }
         Insert: {
+          auto_approved?: boolean
+          auto_publish?: boolean
           autopilot_mode?: string
           autopilot_state?: string
           bonuses?: Json
@@ -383,6 +390,9 @@ export type Database = {
           cover_url?: string | null
           created_at?: string
           editorial_qc?: Json
+          final_approved?: boolean
+          final_approved_at?: string | null
+          final_approved_by?: string | null
           final_quality_score?: number | null
           hook?: string | null
           id?: string
@@ -413,6 +423,8 @@ export type Database = {
           word_count?: number
         }
         Update: {
+          auto_approved?: boolean
+          auto_publish?: boolean
           autopilot_mode?: string
           autopilot_state?: string
           bonuses?: Json
@@ -432,6 +444,9 @@ export type Database = {
           cover_url?: string | null
           created_at?: string
           editorial_qc?: Json
+          final_approved?: boolean
+          final_approved_at?: string | null
+          final_approved_by?: string | null
           final_quality_score?: number | null
           hook?: string | null
           id?: string
