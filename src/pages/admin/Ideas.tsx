@@ -123,6 +123,41 @@ export default function Ideas() {
     });
   };
 
+  const runPremium = async (idea: Idea) => {
+    setPremiumOpen(idea);
+    setPremiumResult(null);
+    setPremiumLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("premium-positioning", { body: { idea_id: idea.id } });
+      if (error) throw error;
+      const res = (data as { result?: PremiumResult } | null)?.result;
+      if (!res) throw new Error("No result");
+      setPremiumResult(res);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+      setPremiumOpen(null);
+    } finally {
+      setPremiumLoading(false);
+    }
+  };
+
+  const applyPremiumOption = async (idea: Idea, opt: PremiumOption) => {
+    await run(idea.id, "Premium positioning applied.", async () => {
+      const { error } = await supabase.from("ebook_ideas").update({
+        title: opt.premium_title,
+        subtitle: opt.premium_subtitle,
+        target_buyer: opt.target_buyer,
+        hook: opt.primary_hook,
+        core_pain_point: opt.core_pain_point,
+        transformation_promise: opt.premium_transformation_promise,
+        perceived_value_boosters: opt.perceived_value_boosters ?? {},
+      }).eq("id", idea.id);
+      if (error) throw error;
+    });
+    setPremiumOpen(null);
+    setPremiumResult(null);
+  };
+
   return (
     <div className="space-y-4 max-w-5xl">
       <div>
