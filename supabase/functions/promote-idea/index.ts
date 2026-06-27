@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
     }).eq("id", ebook.id);
 
     // 2. Generate each chapter (target ~1000 words/chapter)
-    const wordsPerChapter = Math.max(800, Math.ceil(minWords / Math.max(outlineAI.data.toc.length, 1)));
+    const wordsPerChapter = Math.max(1500, Math.min(1800, Math.ceil(minWords / Math.max(outlineAI.data.toc.length, 1))));
     const chapters: { title: string; content: string }[] = [];
     for (const ch of outlineAI.data.toc) {
       const chAI = await aiText({
