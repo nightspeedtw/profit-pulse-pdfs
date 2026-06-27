@@ -11,14 +11,18 @@ const lanes: { key: string; label: string }[] = [
   { key: "writing", label: "Writing" },
   { key: "ready_for_qc", label: "Ready QC" },
   { key: "qc_failed", label: "QC failed" },
-  { key: "approved", label: "Approved" },
+  { key: "needs_review", label: "Needs review" },
   { key: "uploaded", label: "Uploaded" },
   { key: "published", label: "Published" },
   { key: "failed", label: "Failed" },
 ];
 
 const statusMatchesLane = (status: string, lane: string) => {
-  if (lane === "writing") return status === "writing" || status.startsWith("writing:") || status === "marketing";
+  if (lane === "writing") {
+    return status === "writing" || status.startsWith("writing:") || status === "marketing" ||
+      status === "qc_topic" || status === "qc_outline" || status === "qc_editorial" ||
+      status === "product_copy" || status === "cover" || status === "build_pdf" || status === "shopify_draft";
+  }
   return status === lane;
 };
 
