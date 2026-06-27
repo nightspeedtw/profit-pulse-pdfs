@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
           const chAI = await aiText({
             model: writeModel,
             system: PREMIUM_WRITER_SYSTEM,
-            user: `Ebook: "${ebook.title}" — ${ebook.subtitle ?? ""}\nReader: ${ebook.target_buyer ?? ""}\nHook: ${ebook.hook ?? ""}\n\nWrite Chapter "${ch.title}" (~${wordsPerChapter} words). Brief: ${ch.brief}\n\nFollow the chapter structure (objective → main teaching → practical example → common mistake → step-by-step → quick checklist → key takeaway). Do NOT include the chapter number or the word "Chapter" in the body. Start with a hook paragraph that names the reader's specific pain. End with a one-line key takeaway.`,
+            user: `Ebook: "${ebook.title}" — ${ebook.subtitle ?? ""}\nReader: ${ebook.target_buyer ?? ""}\nHook: ${ebook.hook ?? ""}\n\nWrite Chapter "${ch.title}". Brief: ${ch.brief}\n\nHARD REQUIREMENT: minimum ${wordsPerChapter} words. Do not stop early. Expand each section with concrete examples, scripts, numbers, and step-by-step detail until you exceed the minimum.\n\nFollow the chapter structure (objective → main teaching → practical example → common mistake → step-by-step → quick checklist → key takeaway). Do NOT include the chapter number or the word "Chapter" in the body. Start with a hook paragraph that names the reader's specific pain. End with a one-line key takeaway.`,
           });
           await logCost(db, { ebook_id: ebook.id, step: `chapter:${ch.title}`.slice(0, 80), model: chAI.model, ...chAI.usage });
           chapters.push({ title: ch.title, content: chAI.data });
