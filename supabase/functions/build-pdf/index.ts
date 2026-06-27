@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
       bp.drawLine({ start: { x: MARGIN, y: PAGE_H - MARGIN - 12 }, end: { x: PAGE_W - MARGIN, y: PAGE_H - MARGIN - 12 }, thickness: 2, color: black });
       let y = PAGE_H - MARGIN - 50;
       for (const [k, v] of Object.entries(bonuses)) {
-        bp.drawText(k.toUpperCase().replace(/_/g, " "), { x: MARGIN, y, size: 12, font: helvBold, color: black });
+        bp.drawText(safe(k.toUpperCase().replace(/_/g, " ")), { x: MARGIN, y, size: 12, font: helvBold, color: black });
         y -= 18;
         const lines = wrap(String(v).slice(0, 500), helv, 11, PAGE_W - 2 * MARGIN);
         for (const ln of lines) {
