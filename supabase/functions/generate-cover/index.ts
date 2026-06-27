@@ -9,7 +9,7 @@ Deno.serve(async (req) => {
     if (!ebook_id) throw new Error("ebook_id required");
     const { data: e } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
     if (!e) throw new Error("Ebook not found");
-    if (e.status === "qc_failed") throw new Error("Cannot generate cover for failed QC. Re-run QC first.");
+    // QC status no longer blocks cover generation — admin can override manually.
 
     const prompt = e.cover_prompt ?? `Premium ebook cover for "${e.title}". Editorial, minimalist, high-contrast typography overlay area at top, no text rendered. Bold, modern composition.`;
     const key = Deno.env.get("LOVABLE_API_KEY");
