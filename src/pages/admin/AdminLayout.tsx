@@ -2,11 +2,12 @@ import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Settings, FolderOpen, Lightbulb, Kanban, DollarSign, LogOut, Sparkles } from "lucide-react";
+import { LayoutDashboard, Settings, FolderOpen, Lightbulb, Kanban, DollarSign, LogOut, Sparkles, Plane } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const nav = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
+  { to: "/admin/autopilot", label: "Autopilot", icon: Plane },
   { to: "/admin/ideas", label: "Ideas", icon: Lightbulb },
   { to: "/admin/pipeline", label: "Pipeline", icon: Kanban },
   { to: "/admin/categories", label: "Categories", icon: FolderOpen },
