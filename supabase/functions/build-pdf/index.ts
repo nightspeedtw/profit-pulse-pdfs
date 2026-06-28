@@ -857,8 +857,8 @@ function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fo
         let ty = y + cardH / 2 + (lines.length - 1) * 7;
         for (const ln of lines) { page.drawText(ln, { x: MARGIN + 52, y: ty, size: 11, font: fonts.bold, color: theme.ink }); ty -= 13; }
         // loop arrow on right for all except last
-        if (i < n - 1) page.drawText("↓", { x: PAGE_W - MARGIN - 18, y: y - 4, size: 14, font: fonts.bold, color: theme.accent });
-        else page.drawText("↺", { x: PAGE_W - MARGIN - 20, y: y - 4, size: 16, font: fonts.bold, color: theme.accent });
+        if (i < n - 1) page.drawText("v", { x: PAGE_W - MARGIN - 18, y: y - 4, size: 14, font: fonts.bold, color: theme.accent });
+        else page.drawText("*", { x: PAGE_W - MARGIN - 20, y: y - 4, size: 16, font: fonts.bold, color: theme.accent });
         y -= cardH + 10;
       }
       break;
