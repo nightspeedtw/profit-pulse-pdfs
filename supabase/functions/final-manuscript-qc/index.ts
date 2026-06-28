@@ -1,43 +1,83 @@
-// Milestone 4 — Final Manuscript QC.
-// Loads all chapters, runs whole-book QC (depth, reader value, practical tools,
-// editorial polish, compliance, refund risk, plus repetition/filler/formatting
-// /flow/title-match/promise/disclaimer checks). Auto-fixes up to 2x.
-// Pass rule: final_manuscript_score >= 85 AND compliance_safety_score >= 90.
+// Milestone 4 — Final Manuscript QC (structured failure reasons + targeted repair).
+//
+// Workflow:
+//   1. Pre-validate: assemble manuscript from ebook_chapters; require ≥1 chapter and >0 words.
+//      If outline has more chapters than ebook_chapters rows, mark missing_chapter
+//      reasons and let the repair loop regenerate them.
+//   2. Run deterministic + AI QC and produce a structured `failed_reasons` array,
+//      each with { code, message, repair_action, chapter_index? }.
+//   3. If failed, run targeted repairs per failed_reason (up to 3 attempts).
+//   4. Re-run QC after each repair pass.
+//   5. Save structured QC, attempts_used, and a detailed needs_review_reason —
+//      never a generic "Manuscript QC failed after auto-fix attempts."
 import { corsHeaders, admin, aiJSON, aiText, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 import { PREMIUM_WRITER_SYSTEM } from "../_shared/prompts.ts";
 import { logRun } from "../_shared/qc.ts";
 
 const PASS_MANUSCRIPT = 85;
 const PASS_COMPLIANCE = 90;
-const MIN_WORDS = 18000;
+const DEFAULT_MIN_WORDS = 18000;
+const MIN_CHAPTER_WORDS = 1200;
+const MAX_REPAIR_ATTEMPTS = 3;
 
-interface ManuscriptQC {
+type RepairAction =
+  | "expand_chapters"
+  | "regenerate_missing_chapter"
+  | "expand_chapter"
+  | "add_disclaimer"
+  | "add_worksheet_usage_section"
+  | "add_framework_explanation"
+  | "rewrite_duplicated_sections"
+  | "rewrite_repeated_passages"
+  | "rewrite_claims"
+  | "remove_and_replace_placeholders"
+  | "add_practical_examples"
+  | "add_step_by_step_action_plan"
+  | "add_checklist"
+  | "add_key_takeaway"
+  | "add_common_mistake"
+  | "rewrite_chapter";
+
+interface FailedReason {
+  code: string;
+  message: string;
+  repair_action: RepairAction;
+  chapter_index?: number;
+}
+
+interface StructuredQC {
+  passed: boolean;
+  score: number;
+  required_score: number;
+  failed_reasons: FailedReason[];
+  failed_chapters: number[];
+  missing_components: string[];
+  repairable: boolean;
+  attempts_used: number;
+  ai_scores: AiScores | null;
+}
+
+interface AiScores {
   final_content_depth_score: number;
   reader_value_score: number;
   practical_tool_score: number;
   editorial_polish_score: number;
   compliance_safety_score: number;
-  refund_risk_score: number; // 0-100, lower = safer
+  refund_risk_score: number;
   final_manuscript_score: number;
-  checks: {
-    word_count_ok: boolean;
-    no_repeated_sections: boolean;
-    no_generic_filler: boolean;
-    no_broken_formatting: boolean;
-    chapter_flow_ok: boolean;
-    title_matches_content: boolean;
-    promise_delivered: boolean;
-    practical_tools_present: boolean;
-    disclaimers_present_when_required: boolean;
-    compliance_safe_language: boolean;
-    buyer_value_strong: boolean;
-  };
+  checks: Record<string, boolean>;
   issues: string[];
   blocking_issues: string[];
-  fix_instructions_per_chapter: { chapter_index: number; instructions: string }[];
 }
 
-const SCHEMA = `{
+interface ChapterRow {
+  chapter_index: number;
+  title: string;
+  content: string;
+  word_count: number;
+}
+
+const AI_SCHEMA = `{
   "final_content_depth_score": 0-100,
   "reader_value_score": 0-100,
   "practical_tool_score": 0-100,
@@ -46,7 +86,6 @@ const SCHEMA = `{
   "refund_risk_score": 0-100,
   "final_manuscript_score": 0-100,
   "checks": {
-    "word_count_ok": true,
     "no_repeated_sections": true,
     "no_generic_filler": true,
     "no_broken_formatting": true,
@@ -54,89 +93,312 @@ const SCHEMA = `{
     "title_matches_content": true,
     "promise_delivered": true,
     "practical_tools_present": true,
-    "disclaimers_present_when_required": true,
     "compliance_safe_language": true,
-    "buyer_value_strong": true
+    "buyer_value_strong": true,
+    "no_unsafe_claims": true,
+    "no_placeholders": true
   },
-  "issues": ["short bullets, max 12"],
-  "blocking_issues": ["only issues serious enough to block publish"],
-  "fix_instructions_per_chapter": [{ "chapter_index": 1, "instructions": "..." }]
+  "issues": ["short bullets"],
+  "blocking_issues": ["serious only"]
 }`;
+
+const PLACEHOLDER_RE = /\[(?:insert|todo|tbd|placeholder|your[^\]]*)\b[^\]]*\]|as an ai (?:language )?model|lorem ipsum/i;
+const UNSAFE_CLAIM_RE = /\b(guaranteed?|guarantee|100%\s+(?:profit|results?)|risk[-\s]?free|double your|triple your|get rich)\b/i;
+const FINANCE_HEALTH_LEGAL_RE = /\b(finance|financial|invest|investing|trading|stocks?|crypto|money|wealth|tax|legal|law|health|diet|medical|therapy|nutrition|fitness)\b/i;
 
 function wc(text: string) { return text?.trim() ? text.trim().split(/\s+/).length : 0; }
 
-async function scoreManuscript(model: string, ebook: any, chapters: { chapter_index: number; title: string; content: string; word_count: number }[]) {
+function hasSection(content: string, keywords: string[]): boolean {
+  const lower = (content ?? "").toLowerCase();
+  return keywords.some((k) => lower.includes(k));
+}
+
+function detectDuplicates(chapters: ChapterRow[]): number[] {
+  // Flag chapters where the first 1200 normalized chars match another chapter's prefix.
+  const norm = (s: string) => (s ?? "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 1200);
+  const seen = new Map<string, number>();
+  const dupes = new Set<number>();
+  for (const c of chapters) {
+    const key = norm(c.content);
+    if (key.length < 200) continue;
+    if (seen.has(key)) { dupes.add(c.chapter_index); dupes.add(seen.get(key)!); }
+    else seen.set(key, c.chapter_index);
+  }
+  return [...dupes];
+}
+
+function runDeterministicChecks(
+  outline: any,
+  chapters: ChapterRow[],
+  totalWords: number,
+  minWords: number,
+  topicText: string,
+): FailedReason[] {
+  const reasons: FailedReason[] = [];
+  const outlineChapters: any[] = Array.isArray(outline?.chapters) ? outline.chapters : [];
+
+  // Missing chapters (outline vs actual)
+  const presentIdx = new Set(chapters.map((c) => c.chapter_index));
+  for (const oc of outlineChapters) {
+    const idx = Number(oc?.index ?? oc?.chapter_number ?? oc?.number);
+    if (!idx) continue;
+    if (!presentIdx.has(idx)) {
+      reasons.push({
+        code: "missing_chapter",
+        message: `Chapter ${idx} ("${oc?.title ?? oc?.chapter_title ?? "untitled"}") is missing from the manuscript.`,
+        repair_action: "regenerate_missing_chapter",
+        chapter_index: idx,
+      });
+    }
+  }
+
+  // Total word count
+  if (totalWords < minWords) {
+    reasons.push({
+      code: "word_count_too_low",
+      message: `Manuscript has ${totalWords.toLocaleString()} words, required ${minWords.toLocaleString()}.`,
+      repair_action: "expand_chapters",
+    });
+  }
+
+  // Per-chapter checks
+  for (const c of chapters) {
+    if ((c.word_count ?? 0) < MIN_CHAPTER_WORDS) {
+      reasons.push({
+        code: "chapter_too_short",
+        message: `Chapter ${c.chapter_index} ("${c.title}") has ${c.word_count} words (min ${MIN_CHAPTER_WORDS}).`,
+        repair_action: "expand_chapter",
+        chapter_index: c.chapter_index,
+      });
+      continue; // other structural checks are unreliable on tiny chapters
+    }
+    if (PLACEHOLDER_RE.test(c.content ?? "")) {
+      reasons.push({
+        code: "placeholder_text",
+        message: `Chapter ${c.chapter_index} contains placeholder/AI-leak text.`,
+        repair_action: "remove_and_replace_placeholders",
+        chapter_index: c.chapter_index,
+      });
+    }
+    if (UNSAFE_CLAIM_RE.test(c.content ?? "")) {
+      reasons.push({
+        code: "unsafe_claims",
+        message: `Chapter ${c.chapter_index} uses unsafe / guarantee-style language.`,
+        repair_action: "rewrite_claims",
+        chapter_index: c.chapter_index,
+      });
+    }
+    if (!hasSection(c.content, ["checklist", "check list", "✓", "•"])) {
+      reasons.push({
+        code: "missing_checklist",
+        message: `Chapter ${c.chapter_index} is missing a quick checklist.`,
+        repair_action: "add_checklist",
+        chapter_index: c.chapter_index,
+      });
+    }
+    if (!hasSection(c.content, ["key takeaway", "takeaway", "bottom line", "in short"])) {
+      reasons.push({
+        code: "missing_key_takeaway",
+        message: `Chapter ${c.chapter_index} is missing a key takeaway.`,
+        repair_action: "add_key_takeaway",
+        chapter_index: c.chapter_index,
+      });
+    }
+    if (!hasSection(c.content, ["common mistake", "mistake people make", "where most people"])) {
+      reasons.push({
+        code: "missing_common_mistake",
+        message: `Chapter ${c.chapter_index} is missing the common-mistake section.`,
+        repair_action: "add_common_mistake",
+        chapter_index: c.chapter_index,
+      });
+    }
+    if (!hasSection(c.content, ["step 1", "step one", "step-by-step", "1.", "first,"])) {
+      reasons.push({
+        code: "weak_action_steps",
+        message: `Chapter ${c.chapter_index} is missing a step-by-step action plan.`,
+        repair_action: "add_step_by_step_action_plan",
+        chapter_index: c.chapter_index,
+      });
+    }
+    if (!hasSection(c.content, ["example", "for instance", "case study", "scenario"])) {
+      reasons.push({
+        code: "weak_examples",
+        message: `Chapter ${c.chapter_index} is missing a practical example.`,
+        repair_action: "add_practical_examples",
+        chapter_index: c.chapter_index,
+      });
+    }
+  }
+
+  // Duplicates
+  const dupes = detectDuplicates(chapters);
+  for (const idx of dupes) {
+    reasons.push({
+      code: "duplicate_content",
+      message: `Chapter ${idx} duplicates another chapter's content.`,
+      repair_action: "rewrite_duplicated_sections",
+      chapter_index: idx,
+    });
+  }
+
+  // Disclaimer (regulated topics)
+  const disclaimerRequired = !!outline?.disclaimer_required || FINANCE_HEALTH_LEGAL_RE.test(topicText);
+  if (disclaimerRequired) {
+    const hasDisclaimer = chapters.some((c) =>
+      /disclaimer|educational purposes only|not (?:financial|medical|legal) advice/i.test(c.content ?? "")
+    );
+    if (!hasDisclaimer) {
+      reasons.push({
+        code: "missing_disclaimer",
+        message: `Regulated topic (${topicText.split(/\s+/).slice(0, 6).join(" ")}…) requires a disclaimer; none was found.`,
+        repair_action: "add_disclaimer",
+        chapter_index: 1,
+      });
+    }
+  }
+
+  // Worksheet / framework references (if outline declares them)
+  const declaresWorksheets = outlineChapters.some((c: any) => c?.worksheet || (Array.isArray(c?.worksheets_checklists_templates) && c.worksheets_checklists_templates.length));
+  const declaresFrameworks = outlineChapters.some((c: any) => c?.framework);
+  if (declaresWorksheets && !chapters.some((c) => /worksheet/i.test(c.content ?? ""))) {
+    reasons.push({
+      code: "missing_worksheet_reference",
+      message: `Outline declares worksheets but no chapter references one.`,
+      repair_action: "add_worksheet_usage_section",
+      chapter_index: chapters[0]?.chapter_index ?? 1,
+    });
+  }
+  if (declaresFrameworks && !chapters.some((c) => /framework/i.test(c.content ?? ""))) {
+    reasons.push({
+      code: "missing_framework_reference",
+      message: `Outline declares frameworks but no chapter explains one.`,
+      repair_action: "add_framework_explanation",
+      chapter_index: chapters[0]?.chapter_index ?? 1,
+    });
+  }
+
+  return reasons;
+}
+
+async function scoreManuscript(model: string, ebook: any, chapters: ChapterRow[]) {
   const outline = ebook.outline_json ?? {};
-  // Send chapter samples (truncated) to fit token budget
   const samples = chapters.map((c) =>
     `### Ch ${c.chapter_index}: ${c.title} (${c.word_count} words)\n${(c.content ?? "").slice(0, 2200)}…`
   ).join("\n\n");
   const totalWords = chapters.reduce((s, c) => s + (c.word_count ?? 0), 0);
-  const disclaimerRequired = !!outline.disclaimer_required;
 
-  return aiJSON<ManuscriptQC>({
+  return aiJSON<AiScores>({
     model,
-    schemaHint: SCHEMA,
+    schemaHint: AI_SCHEMA,
     system: PREMIUM_WRITER_SYSTEM + `
 
 You are the FINAL manuscript reviewer for a premium paid PDF ebook. Be brutal. Score the whole book on:
-- Final Content Depth · Reader Value · Practical Tool · Editorial Polish · Compliance Safety · Refund Risk · Final Manuscript Score
-Also fill the boolean checklist honestly:
-- total word count >= ${MIN_WORDS}
-- no repeated sections / paragraphs / filler
-- no generic AI-sounding filler ("in today's fast-paced world", "unlock the secrets", etc.)
-- no broken markdown / formatting
-- chapter flow is logical
-- title matches the actual content
-- promise from the outline is delivered
-- practical tools (checklists, templates, worksheets, step-by-step actions) are present in chapters
-- disclaimers are present when ${disclaimerRequired ? "REQUIRED (regulated topic)" : "not required"}
-- compliance-safe language (no guarantees, no personalized advice)
-- buyer value is strong enough to justify the price
-
-If a check fails, list it in "issues" and (if serious) "blocking_issues". For each weak chapter, give specific fix_instructions_per_chapter.
-Refund risk: 0 = no buyer would refund · 100 = refunds guaranteed.`,
+Final Content Depth · Reader Value · Practical Tool · Editorial Polish · Compliance Safety · Refund Risk · Final Manuscript Score.
+Also fill the boolean checklist honestly. Refund risk: 0 = no buyer would refund · 100 = refunds guaranteed.`,
     user: `Title: ${ebook.title}
 Subtitle: ${ebook.subtitle ?? ""}
 Target Buyer: ${ebook.target_buyer ?? ""}
 Promise: ${outline.promise_statement ?? ""}
-Disclaimer required: ${disclaimerRequired}
-Total word count: ${totalWords} (minimum ${MIN_WORDS})
+Total word count: ${totalWords}
 
-Chapter samples (truncated for token budget — judge based on what you see plus consistency across chapters):
+Chapter samples (truncated for token budget):
 ${samples}
 
 Return JSON only matching the schema.`,
   });
 }
 
-async function rewriteChapter(model: string, ebook: any, ch: { chapter_index: number; title: string; content: string }, instructions: string, wordsTarget: number) {
+function instructionsForReason(r: FailedReason, wordsTarget: number): string {
+  switch (r.repair_action) {
+    case "expand_chapter":
+    case "expand_chapters":
+      return `Expand significantly. Add more depth, an extra worked example, an additional framework, and a longer step-by-step section. HARD REQUIREMENT: at least ${wordsTarget} words.`;
+    case "regenerate_missing_chapter":
+      return `This chapter was missing entirely. Write it from scratch with full 7-beat structure (objective → main teaching → practical example → common mistake → step-by-step → quick checklist → key takeaway). At least ${wordsTarget} words.`;
+    case "add_disclaimer":
+      return `Add a clear, plain-English disclaimer paragraph at the top of this chapter: educational purposes only, not personalized financial / medical / legal advice. Keep all other content intact.`;
+    case "add_worksheet_usage_section":
+      return `Add a "How to use the worksheet" section that names the worksheet, what the reader fills in, and what they get from it.`;
+    case "add_framework_explanation":
+      return `Add a clearly-labeled "Framework" section that names the framework, explains each step, and shows how it produces the promised outcome.`;
+    case "rewrite_duplicated_sections":
+      return `This chapter duplicates another chapter. Rewrite it with a completely different persona/example, different sub-angles, and a different worked scenario.`;
+    case "rewrite_repeated_passages":
+      return `Rewrite the repeated/templated paragraphs in your own words with concrete specifics.`;
+    case "rewrite_claims":
+      return `Remove any guarantee-style or unsafe claims ("guaranteed", "100% results", "risk-free", "get rich"). Rewrite as educational, probabilistic language.`;
+    case "remove_and_replace_placeholders":
+      return `Remove every placeholder ("[insert ...]", "[TODO]", "as an AI language model", lorem ipsum) and write real, specific content in its place.`;
+    case "add_practical_examples":
+      return `Add a fully named, realistic practical example (persona name, role, situation, what they did, the outcome).`;
+    case "add_step_by_step_action_plan":
+      return `Add a numbered, step-by-step action plan the reader can execute today.`;
+    case "add_checklist":
+      return `Add a "Quick checklist" section with 4–7 concrete bullets.`;
+    case "add_key_takeaway":
+      return `Add a one-line "Key takeaway" at the end of the chapter.`;
+    case "add_common_mistake":
+      return `Add a "Common mistake" section: what most people get wrong and why.`;
+    default:
+      return `Address this issue: ${r.message}`;
+  }
+}
+
+async function rewriteChapter(model: string, ebook: any, ch: ChapterRow, instructions: string, wordsTarget: number) {
   const outline = ebook.outline_json ?? {};
-  const oc = (outline.chapters ?? []).find((x: any) => x.index === ch.chapter_index) ?? {};
+  const oc = (outline.chapters ?? []).find((x: any) => Number(x.index ?? x.chapter_number) === ch.chapter_index) ?? {};
   const disclaimer = outline.disclaimer_required
     ? "\nThis is a regulated topic. Educational language only. No personalized advice."
     : "";
   return aiText({
     model,
     system: PREMIUM_WRITER_SYSTEM + disclaimer,
-    user: `You are fixing one chapter of a premium ebook based on final manuscript QC feedback.
+    user: `You are fixing ONE chapter of a premium ebook based on final manuscript QC feedback.
 
 Ebook: "${ebook.title}" — ${ebook.subtitle ?? ""}
 Reader: ${ebook.target_buyer ?? ""}
 
 Chapter ${ch.chapter_index}: "${ch.title}"
-Objective: ${oc.objective ?? ""}
-Key teaching points: ${(oc.key_teaching_points ?? []).join(" | ")}
+Objective: ${oc.objective ?? oc.chapter_promise ?? ""}
+Key teaching points: ${(oc.key_teaching_points ?? oc.learning_outcomes ?? []).join(" | ")}
 
 FIX INSTRUCTIONS: ${instructions}
 
-Previous chapter content (rewrite/improve it to fix the issues — keep what works, fix what doesn't):
+Previous chapter content (rewrite/improve — keep what works, fix what doesn't):
 """
 ${(ch.content ?? "").slice(0, 14000)}
 """
 
-HARD REQUIREMENT: at least ${wordsTarget} words. Keep the 7-beat structure (objective → main teaching → practical example → common mistake → step-by-step → quick checklist → key takeaway). Do not start with the word "Chapter". Return the full chapter body only — no headers like "Chapter X".`,
+HARD REQUIREMENT: at least ${wordsTarget} words. Keep the 7-beat structure (objective → main teaching → practical example → common mistake → step-by-step → quick checklist → key takeaway). Do not start with the word "Chapter". Return the full chapter body only.`,
   });
+}
+
+async function writeMissingChapter(model: string, ebook: any, idx: number, wordsTarget: number) {
+  const outline = ebook.outline_json ?? {};
+  const oc = (outline.chapters ?? []).find((x: any) => Number(x.index ?? x.chapter_number) === idx) ?? {};
+  const title = oc.title ?? oc.chapter_title ?? `Chapter ${idx}`;
+  const disclaimer = outline.disclaimer_required
+    ? "\nThis is a regulated topic. Educational language only. No personalized advice."
+    : "";
+  return {
+    title,
+    ...(await aiText({
+      model,
+      system: PREMIUM_WRITER_SYSTEM + disclaimer,
+      user: `Write Chapter ${idx}: "${title}" of the ebook "${ebook.title}".
+Reader: ${ebook.target_buyer ?? ""}
+Objective: ${oc.objective ?? oc.chapter_promise ?? ""}
+Key teaching points: ${(oc.key_teaching_points ?? oc.learning_outcomes ?? []).join(" | ")}
+
+HARD REQUIREMENT: at least ${wordsTarget} words. Full 7-beat structure (objective → main teaching → practical example → common mistake → step-by-step → quick checklist → key takeaway). Do not start with the word "Chapter". Return chapter body only.`,
+    })),
+  };
+}
+
+async function loadChapters(db: ReturnType<typeof admin>, ebook_id: string): Promise<ChapterRow[]> {
+  const { data } = await db.from("ebook_chapters")
+    .select("chapter_index,title,content,word_count").eq("ebook_id", ebook_id).order("chapter_index");
+  return (data ?? []) as ChapterRow[];
 }
 
 Deno.serve(async (req) => {
@@ -152,15 +414,9 @@ Deno.serve(async (req) => {
 
     const { data: settings } = await db.from("generation_settings").select("*").eq("id", 1).single();
     const mode = settings?.mode ?? "hybrid";
-    const minWords: number = Number(settings?.min_word_count ?? MIN_WORDS);
+    const minWords: number = Number(settings?.min_word_count ?? DEFAULT_MIN_WORDS);
     const scoreModel = pickModel(mode, "qc");
     const fixModel = pickModel(mode, "content");
-
-    async function loadChapters() {
-      const { data } = await db.from("ebook_chapters")
-        .select("chapter_index,title,content,word_count").eq("ebook_id", ebook_id).order("chapter_index");
-      return (data ?? []) as { chapter_index: number; title: string; content: string; word_count: number }[];
-    }
 
     await db.from("ebooks").update({
       pipeline_status: "final_qc",
@@ -168,94 +424,204 @@ Deno.serve(async (req) => {
       manuscript_qc_status: "running",
     }).eq("id", ebook.id);
 
-    let chapters = await loadChapters();
-    if (!chapters.length) throw new Error("No chapters to QC. Run write-chapters first.");
+    let chapters = await loadChapters(db, ebook_id);
+
+    // ---- Pre-validation: ensure we have *something* to QC ----
+    if (chapters.length === 0) {
+      throw new Error("No chapters to QC. Run write-chapters first.");
+    }
+    const outlineChapterCount = Array.isArray(ebook.outline_json?.chapters) ? ebook.outline_json.chapters.length : 0;
+
+    const topicText = `${ebook.title ?? ""} ${ebook.subtitle ?? ""} ${ebook.target_buyer ?? ""} ${ebook.hook ?? ""}`;
+    const totalChapterTarget = Math.max(outlineChapterCount, chapters.length, 1);
+    const wordsTarget = Math.max(MIN_CHAPTER_WORDS + 600, Math.ceil((minWords * 1.2) / totalChapterTarget));
 
     let totalCost = 0;
-    let fixes = Number(ebook.manuscript_fix_count ?? 0);
-    let qc: ManuscriptQC | null = null;
-    let pass = false;
+    let attemptsUsed = 0;
+    let aiScores: AiScores | null = null;
+    let structured: StructuredQC | null = null;
+    let passed = false;
+    const repairLog: { attempt: number; action: string; chapter_index?: number }[] = [];
 
-    for (let attempt = 0; attempt <= 2; attempt++) {
-      const total = chapters.length;
-      const wordsTarget = Math.max(1800, Math.ceil((minWords * 1.2) / Math.max(total, 1)));
+    for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
+      chapters = await loadChapters(db, ebook_id);
+      const totalWords = chapters.reduce((s, c) => s + (c.word_count ?? 0), 0);
 
-      const s = await scoreManuscript(scoreModel, ebook, chapters);
-      totalCost += s.usage.cost_usd;
-      qc = s.data;
-      await logCost(db, { ebook_id: ebook.id, step: `manuscript_qc${attempt ? `:fix${attempt}` : ""}`, model: s.model, ...s.usage });
+      // Deterministic checks
+      const deterministic = runDeterministicChecks(ebook.outline_json ?? {}, chapters, totalWords, minWords, topicText);
 
-      // Hard override: enforce word-count check from server side
-      const totalWords = chapters.reduce((sum, c) => sum + (c.word_count ?? 0), 0);
-      if (totalWords < minWords) {
-        qc.checks.word_count_ok = false;
-        qc.issues = [...(qc.issues ?? []), `Total word count ${totalWords} < ${minWords}`];
-        qc.blocking_issues = [...(qc.blocking_issues ?? []), `Word count ${totalWords} < ${minWords}`];
+      // AI score (only if chapters have meaningful content — otherwise score is meaningless)
+      const meaningful = totalWords > 500;
+      let scoreVal = 0;
+      if (meaningful) {
+        const s = await scoreManuscript(scoreModel, ebook, chapters);
+        totalCost += s.usage.cost_usd;
+        aiScores = s.data;
+        await logCost(db, { ebook_id: ebook.id, step: `manuscript_qc${attempt ? `:fix${attempt}` : ""}`, model: s.model, ...s.usage });
+        scoreVal = aiScores.final_manuscript_score ?? 0;
+
+        // Pull AI-judged issues into structured reasons when they suggest blocking problems.
+        if (aiScores.checks?.no_unsafe_claims === false) {
+          deterministic.push({ code: "unsafe_claims", message: "AI reviewer flagged unsafe claims.", repair_action: "rewrite_claims" });
+        }
+        if (aiScores.checks?.no_repeated_sections === false) {
+          deterministic.push({ code: "repetitive_language", message: "AI reviewer flagged repeated/templated passages.", repair_action: "rewrite_repeated_passages" });
+        }
+        if (aiScores.checks?.no_placeholders === false) {
+          deterministic.push({ code: "placeholder_text", message: "AI reviewer flagged placeholder/AI-leak text.", repair_action: "remove_and_replace_placeholders" });
+        }
       }
 
-      pass = qc.final_manuscript_score >= PASS_MANUSCRIPT && qc.compliance_safety_score >= PASS_COMPLIANCE && qc.checks.word_count_ok;
+      const failedChapters = Array.from(new Set(deterministic.map((r) => r.chapter_index).filter((x): x is number => typeof x === "number")));
+      const missingComponents = Array.from(new Set(deterministic.filter((r) => r.code.startsWith("missing_")).map((r) => r.code)));
+      const aiPass = !meaningful ? false : (scoreVal >= PASS_MANUSCRIPT && (aiScores?.compliance_safety_score ?? 0) >= PASS_COMPLIANCE);
+      const blockingDeterministic = deterministic.filter((r) =>
+        r.code === "word_count_too_low" || r.code === "missing_chapter" || r.code === "chapter_too_short" ||
+        r.code === "duplicate_content" || r.code === "placeholder_text" || r.code === "unsafe_claims" ||
+        r.code === "missing_disclaimer"
+      );
+      passed = aiPass && blockingDeterministic.length === 0;
+
+      structured = {
+        passed,
+        score: scoreVal,
+        required_score: PASS_MANUSCRIPT,
+        failed_reasons: deterministic,
+        failed_chapters: failedChapters,
+        missing_components: missingComponents,
+        repairable: deterministic.length > 0,
+        attempts_used: attemptsUsed,
+        ai_scores: aiScores,
+      };
+
       await logRun(db, {
         ebook_id: ebook.id, step: "final_manuscript_qc",
-        status: pass ? "ok" : (attempt >= 2 ? "fail" : "rewrite"),
-        score: qc.final_manuscript_score, rewrite_count: attempt, cost_usd: totalCost, payload: qc as any,
+        status: passed ? "ok" : (attempt >= MAX_REPAIR_ATTEMPTS ? "fail" : "rewrite"),
+        score: scoreVal, rewrite_count: attemptsUsed, cost_usd: totalCost, payload: structured as any,
       });
 
-      if (pass || attempt === 2) break;
+      if (passed || attempt >= MAX_REPAIR_ATTEMPTS) break;
 
-      // Auto-fix worst chapters per fix_instructions_per_chapter
-      const targets = (qc.fix_instructions_per_chapter ?? []).filter((x) => x.instructions);
-      if (targets.length === 0) {
-        // Fall back: short overall instructions → re-run scoring won't help; bail.
+      // ---- Targeted repair pass ----
+      attemptsUsed++;
+      // Deduplicate: at most one action per chapter per attempt; prioritize structural fixes.
+      const priority: Record<string, number> = {
+        regenerate_missing_chapter: 0,
+        rewrite_duplicated_sections: 1,
+        remove_and_replace_placeholders: 2,
+        rewrite_claims: 3,
+        expand_chapter: 4,
+        expand_chapters: 5,
+        add_disclaimer: 6,
+        add_step_by_step_action_plan: 7,
+        add_practical_examples: 8,
+        add_common_mistake: 9,
+        add_checklist: 10,
+        add_key_takeaway: 11,
+        add_worksheet_usage_section: 12,
+        add_framework_explanation: 13,
+        rewrite_repeated_passages: 14,
+        rewrite_chapter: 15,
+      };
+      const sorted = [...deterministic].sort((a, b) => (priority[a.repair_action] ?? 99) - (priority[b.repair_action] ?? 99));
+      const seenChapters = new Set<number>();
+      const pickedExpandAll = { done: false };
+
+      for (const r of sorted) {
+        if (r.repair_action === "regenerate_missing_chapter" && r.chapter_index) {
+          const target = wordsTarget;
+          const w = await writeMissingChapter(fixModel, ebook, r.chapter_index, target);
+          totalCost += w.usage.cost_usd;
+          await logCost(db, { ebook_id: ebook.id, step: `manuscript_fix_new_ch${r.chapter_index}:r${attemptsUsed}`, model: w.model, ...w.usage });
+          await db.from("ebook_chapters").upsert({
+            ebook_id: ebook.id, chapter_index: r.chapter_index, title: w.title,
+            content: w.data, word_count: wc(w.data), pipeline_status: "chapter_qc", qc_status: "passed",
+          }, { onConflict: "ebook_id,chapter_index" });
+          repairLog.push({ attempt: attemptsUsed, action: r.repair_action, chapter_index: r.chapter_index });
+          seenChapters.add(r.chapter_index);
+          continue;
+        }
+
+        if (r.repair_action === "expand_chapters") {
+          if (pickedExpandAll.done) continue;
+          pickedExpandAll.done = true;
+          // Pick the 3 shortest chapters and expand them with a higher target.
+          const shortList = [...chapters].sort((a, b) => (a.word_count ?? 0) - (b.word_count ?? 0)).slice(0, 3);
+          const expandTarget = Math.ceil(wordsTarget * 1.3);
+          for (const ch of shortList) {
+            if (seenChapters.has(ch.chapter_index)) continue;
+            const inst = instructionsForReason({ ...r, chapter_index: ch.chapter_index }, expandTarget);
+            const x = await rewriteChapter(fixModel, ebook, ch, inst, expandTarget);
+            totalCost += x.usage.cost_usd;
+            await logCost(db, { ebook_id: ebook.id, step: `manuscript_expand_ch${ch.chapter_index}:r${attemptsUsed}`, model: x.model, ...x.usage });
+            await db.from("ebook_chapters").update({ content: x.data, word_count: wc(x.data) })
+              .eq("ebook_id", ebook.id).eq("chapter_index", ch.chapter_index);
+            repairLog.push({ attempt: attemptsUsed, action: r.repair_action, chapter_index: ch.chapter_index });
+            seenChapters.add(ch.chapter_index);
+          }
+          continue;
+        }
+
+        if (!r.chapter_index || seenChapters.has(r.chapter_index)) continue;
+        const ch = chapters.find((c) => c.chapter_index === r.chapter_index);
+        if (!ch) continue;
+        const target = r.repair_action === "expand_chapter" ? Math.ceil(wordsTarget * 1.3) : wordsTarget;
+        const x = await rewriteChapter(fixModel, ebook, ch, instructionsForReason(r, target), target);
+        totalCost += x.usage.cost_usd;
+        await logCost(db, { ebook_id: ebook.id, step: `manuscript_fix_ch${ch.chapter_index}:r${attemptsUsed}`, model: x.model, ...x.usage });
+        await db.from("ebook_chapters").update({ content: x.data, word_count: wc(x.data) })
+          .eq("ebook_id", ebook.id).eq("chapter_index", ch.chapter_index);
+        repairLog.push({ attempt: attemptsUsed, action: r.repair_action, chapter_index: ch.chapter_index });
+        seenChapters.add(ch.chapter_index);
+      }
+
+      if (seenChapters.size === 0 && !pickedExpandAll.done) {
+        // Nothing actionable was repaired — break to avoid infinite loop.
         break;
       }
-      for (const t of targets) {
-        const ch = chapters.find((c) => c.chapter_index === t.chapter_index);
-        if (!ch) continue;
-        const r = await rewriteChapter(fixModel, ebook, ch, t.instructions, wordsTarget);
-        totalCost += r.usage.cost_usd;
-        await logCost(db, { ebook_id: ebook.id, step: `manuscript_fix_ch${t.chapter_index}:r${attempt + 1}`, model: r.model, ...r.usage });
-        const newContent = r.data;
-        const newWc = wc(newContent);
-        await db.from("ebook_chapters").update({
-          content: newContent, word_count: newWc,
-          rewrite_count: (ch as any).rewrite_count ? (ch as any).rewrite_count + 1 : 1,
-        }).eq("ebook_id", ebook.id).eq("chapter_index", t.chapter_index);
-      }
-      fixes++;
-      chapters = await loadChapters();
     }
 
+    chapters = await loadChapters(db, ebook_id);
     const totalWords = chapters.reduce((s, c) => s + (c.word_count ?? 0), 0);
-    const finalStatus = pass ? "manuscript_passed" : "needs_review";
-    const writingStatus = pass ? "manuscript_passed" : "needs_review";
-    const pipelineStatus = pass ? "pdf_design" : "final_qc";
+
+    // Build detailed needs_review_reason — never a generic message.
+    const topReasons = (structured?.failed_reasons ?? []).slice(0, 4)
+      .map((r) => `• ${r.message}`).join("\n");
+    const detailedReason = passed
+      ? null
+      : `Manuscript QC failed after ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS} repair attempts.\nUnresolved issues:\n${topReasons || "(no structured reasons captured)"}`;
+
+    const finalStatus = passed ? "manuscript_passed" : "needs_review";
+    const writingStatus = passed ? "manuscript_passed" : "needs_review";
+    const pipelineStatus = passed ? "pdf_design" : "final_qc";
 
     await db.from("ebooks").update({
-      final_manuscript_qc: qc as any,
-      final_manuscript_score: qc?.final_manuscript_score ?? null,
-      reader_value_score: qc?.reader_value_score ?? null,
-      practical_tool_score: qc?.practical_tool_score ?? null,
-      editorial_polish_score: qc?.editorial_polish_score ?? null,
-      refund_risk_score: qc?.refund_risk_score ?? null,
-      compliance_safety_score: qc?.compliance_safety_score ?? null,
-      final_quality_score: qc?.final_manuscript_score ?? null,
-      content_depth_score: qc?.final_content_depth_score ?? null,
-      manuscript_fix_count: fixes,
+      final_manuscript_qc: structured as any,
+      final_manuscript_score: aiScores?.final_manuscript_score ?? null,
+      reader_value_score: aiScores?.reader_value_score ?? null,
+      practical_tool_score: aiScores?.practical_tool_score ?? null,
+      editorial_polish_score: aiScores?.editorial_polish_score ?? null,
+      refund_risk_score: aiScores?.refund_risk_score ?? null,
+      compliance_safety_score: aiScores?.compliance_safety_score ?? null,
+      final_quality_score: aiScores?.final_manuscript_score ?? null,
+      content_depth_score: aiScores?.final_content_depth_score ?? null,
+      manuscript_fix_count: attemptsUsed,
       manuscript_qc_status: finalStatus,
-      qc_status: pass ? "qc_passed" : "needs_admin_review",
-
+      qc_status: passed ? "qc_passed" : "needs_admin_review",
       total_word_count: totalWords,
       word_count: totalWords,
       writing_status: writingStatus,
       pipeline_status: pipelineStatus,
-      status: pass ? "ready_for_qc" : "needs_review",
-      rejection_reason: pass ? null : `Final QC failed after ${fixes} auto-fix attempts: ${(qc?.blocking_issues ?? qc?.issues ?? []).slice(0, 3).join("; ")}`,
+      status: passed ? "ready_for_qc" : "needs_review",
+      rejection_reason: detailedReason,
+      needs_review_reason: detailedReason,
       cost_usd: Number(ebook.cost_usd ?? 0) + totalCost,
     }).eq("id", ebook.id);
 
-    return new Response(JSON.stringify({ ok: true, pass, fixes, qc, total_word_count: totalWords }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(JSON.stringify({
+      ok: true, pass: passed, attempts_used: attemptsUsed,
+      structured, repair_log: repairLog, total_word_count: totalWords,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
