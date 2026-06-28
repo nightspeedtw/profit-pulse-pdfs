@@ -446,18 +446,44 @@ Deno.serve(async (req) => {
       (qc as Record<string, unknown>).cover_text_qc = coverTextQc;
       qc.cover_text_pass = coverTextPass;
 
+      // ---- Anti-template + specificity scoring on divider copy ----
+      const dq = scoreDividerUniqueness(dividerCopies);
+      const dividerUniquenessScore = dq.uniquenessScore;
+      const dividerSpecificityScore = dq.specificityScore;
+      (qc as Record<string, unknown>).dividerUniquenessScore = dividerUniquenessScore;
+      (qc as Record<string, unknown>).dividerSpecificityScore = dividerSpecificityScore;
+      (qc as Record<string, unknown>).templateMatches = dq.templateMatches;
+      (qc as Record<string, unknown>).duplicateBulletStructures = dq.duplicateBulletStructures;
+
+      // ---- Worksheet variety scoring ----
+      const totalWs = wsLayoutChoices.length;
+      const distinctWs = new Set(wsLayoutChoices).size;
+      const maxSameLayout = Math.max(0, ...Array.from(wsLayoutUsed.values()));
+      const worksheetVarietyScore = totalWs === 0
+        ? 100
+        : Math.max(
+            40,
+            Math.min(100, Math.round((distinctWs / Math.min(totalWs, 5)) * 100) - Math.max(0, maxSameLayout - 2) * 15),
+          );
+      (qc as Record<string, unknown>).worksheetVarietyScore = worksheetVarietyScore;
+      (qc as Record<string, unknown>).worksheetLayouts = wsLayoutChoices;
+
       const gateIssues: string[] = [];
       if (!coverTextPass) gateIssues.push("Cover missing required text (title/subtitle/brand).");
       if (qc.coverPremiumScore < 90) gateIssues.push(`cover_premium=${qc.coverPremiumScore}<90`);
       if (qc.thumbnailReadabilityScore < 90) gateIssues.push(`thumbnail=${qc.thumbnailReadabilityScore}<90`);
       if (qc.chapterDividerScore < 90) gateIssues.push(`chapter_divider=${qc.chapterDividerScore}<90`);
+      if (dividerUniquenessScore < 90) gateIssues.push(`divider_uniqueness=${dividerUniquenessScore}<90`);
+      if (dividerSpecificityScore < 90) gateIssues.push(`divider_specificity=${dividerSpecificityScore}<90`);
       if (qc.worksheetQualityScore < 90) gateIssues.push(`worksheet=${qc.worksheetQualityScore}<90`);
+      if (worksheetVarietyScore < 90) gateIssues.push(`worksheet_variety=${worksheetVarietyScore}<90`);
       if (qc.diagramQualityScore < 90) gateIssues.push(`diagram=${qc.diagramQualityScore}<90`);
       if (qc.interiorLayoutScore < 90) gateIssues.push(`interior=${qc.interiorLayoutScore}<90`);
       if (qc.finalPdfPremiumScore < 90) gateIssues.push(`final_premium=${qc.finalPdfPremiumScore}<90`);
       if (isFinance && /guaranteed (debt|payoff|savings|income)|guaranteed results/i.test(`${e.title} ${e.subtitle ?? ""} ${e.hook ?? ""}`)) {
         gateIssues.push("compliance: guarantee language detected.");
       }
+
 
       return {
         bytes, pageCount, qc, coverEmbedded: coverHasBgImage,
