@@ -595,10 +595,14 @@ export type Database = {
       ebooks: {
         Row: {
           action_plan_json: Json | null
+          admin_review_reason: string | null
           auto_approved: boolean
+          auto_fix_attempt_count: number
+          auto_fix_history: Json
           auto_publish: boolean
           autopilot_mode: string
           autopilot_state: string
+          blocked_at: string | null
           bonus_section_json: Json | null
           bonuses: Json
           buyer_appeal_score: number | null
@@ -620,6 +624,9 @@ export type Database = {
           created_at: string
           editorial_polish_score: number | null
           editorial_qc: Json
+          failed_component: string | null
+          failed_gate: string | null
+          failed_score: number | null
           final_approved: boolean
           final_approved_at: string | null
           final_approved_by: string | null
@@ -631,11 +638,14 @@ export type Database = {
           id: string
           idea_id: string | null
           interior_visuals: Json | null
+          last_auto_fix_action: string | null
           manuscript_fix_count: number
           manuscript_qc_status: string | null
+          max_auto_fix_attempts: number
           memory_state: Json
           metadata: Json
           needs_review_reason: string | null
+          next_recommended_action: string | null
           outline: Json
           outline_json: Json
           outline_qc: Json
@@ -666,6 +676,8 @@ export type Database = {
           reader_value_score: number | null
           refund_risk_score: number | null
           rejection_reason: string | null
+          required_score: number | null
+          resolved_at: string | null
           seo_meta: string | null
           seo_title: string | null
           shopify_events: Json
@@ -689,10 +701,14 @@ export type Database = {
         }
         Insert: {
           action_plan_json?: Json | null
+          admin_review_reason?: string | null
           auto_approved?: boolean
+          auto_fix_attempt_count?: number
+          auto_fix_history?: Json
           auto_publish?: boolean
           autopilot_mode?: string
           autopilot_state?: string
+          blocked_at?: string | null
           bonus_section_json?: Json | null
           bonuses?: Json
           buyer_appeal_score?: number | null
@@ -714,6 +730,9 @@ export type Database = {
           created_at?: string
           editorial_polish_score?: number | null
           editorial_qc?: Json
+          failed_component?: string | null
+          failed_gate?: string | null
+          failed_score?: number | null
           final_approved?: boolean
           final_approved_at?: string | null
           final_approved_by?: string | null
@@ -725,11 +744,14 @@ export type Database = {
           id?: string
           idea_id?: string | null
           interior_visuals?: Json | null
+          last_auto_fix_action?: string | null
           manuscript_fix_count?: number
           manuscript_qc_status?: string | null
+          max_auto_fix_attempts?: number
           memory_state?: Json
           metadata?: Json
           needs_review_reason?: string | null
+          next_recommended_action?: string | null
           outline?: Json
           outline_json?: Json
           outline_qc?: Json
@@ -760,6 +782,8 @@ export type Database = {
           reader_value_score?: number | null
           refund_risk_score?: number | null
           rejection_reason?: string | null
+          required_score?: number | null
+          resolved_at?: string | null
           seo_meta?: string | null
           seo_title?: string | null
           shopify_events?: Json
@@ -783,10 +807,14 @@ export type Database = {
         }
         Update: {
           action_plan_json?: Json | null
+          admin_review_reason?: string | null
           auto_approved?: boolean
+          auto_fix_attempt_count?: number
+          auto_fix_history?: Json
           auto_publish?: boolean
           autopilot_mode?: string
           autopilot_state?: string
+          blocked_at?: string | null
           bonus_section_json?: Json | null
           bonuses?: Json
           buyer_appeal_score?: number | null
@@ -808,6 +836,9 @@ export type Database = {
           created_at?: string
           editorial_polish_score?: number | null
           editorial_qc?: Json
+          failed_component?: string | null
+          failed_gate?: string | null
+          failed_score?: number | null
           final_approved?: boolean
           final_approved_at?: string | null
           final_approved_by?: string | null
@@ -819,11 +850,14 @@ export type Database = {
           id?: string
           idea_id?: string | null
           interior_visuals?: Json | null
+          last_auto_fix_action?: string | null
           manuscript_fix_count?: number
           manuscript_qc_status?: string | null
+          max_auto_fix_attempts?: number
           memory_state?: Json
           metadata?: Json
           needs_review_reason?: string | null
+          next_recommended_action?: string | null
           outline?: Json
           outline_json?: Json
           outline_qc?: Json
@@ -854,6 +888,8 @@ export type Database = {
           reader_value_score?: number | null
           refund_risk_score?: number | null
           rejection_reason?: string | null
+          required_score?: number | null
+          resolved_at?: string | null
           seo_meta?: string | null
           seo_title?: string | null
           shopify_events?: Json
