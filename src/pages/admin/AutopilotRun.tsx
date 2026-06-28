@@ -124,7 +124,7 @@ export default function AutopilotRun() {
         <Link to="/admin#live"><Button size="sm" variant="default"><Activity className="size-4 mr-1" />ดูสถานะรันตอนนี้</Button></Link>
         <Button size="sm" variant="outline" onClick={rerun} disabled={rerunning || isActive}>
           {rerunning ? <Loader2 className="size-4 mr-1 animate-spin" /> : <RotateCcw className="size-4 mr-1" />}
-          {run.ebook_id ? "Resume / Rerun" : "Rerun"}
+          {run.ebook_id ? "Resume Pipeline" : "Rerun"}
         </Button>
         <span className="text-xs font-mono text-muted-foreground">Run {run.id.slice(0, 8)}</span>
       </div>
