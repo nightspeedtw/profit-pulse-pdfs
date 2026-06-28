@@ -9,9 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import {
   Loader2, Plane, Play, Pause, AlertTriangle, DollarSign, FileX, ImageOff,
-  ShieldAlert, ShoppingBag, RefreshCw, FileText, ExternalLink, Sparkles, ClipboardCheck,
+  ShieldAlert, ShoppingBag, RefreshCw, FileText, ExternalLink, Sparkles, ClipboardCheck, Download,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { downloadAdminPdf } from "@/lib/pdf";
 import { BADGE_OPTIONS, EbookBadgeKind, StatusBadge, resolveEbookBadge } from "@/components/admin/StatusBadge";
 
 type Ebook = {
@@ -386,9 +387,23 @@ export default function Dashboard() {
                             </Button>
                           )}
                           {e.pdf_url && (
-                            <a href={e.pdf_url} target="_blank" rel="noopener noreferrer">
-                              <Button size="sm" variant="ghost" title="Open PDF"><FileText className="size-3" /></Button>
-                            </a>
+                            <>
+                              <a href={e.pdf_url} target="_blank" rel="noopener noreferrer">
+                                <Button size="sm" variant="ghost" title="Open PDF in new tab"><FileText className="size-3" /></Button>
+                              </a>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                title="Download PDF"
+                                onClick={() => {
+                                  downloadAdminPdf(e.id, e.title).catch((err) =>
+                                    toast.error("Download failed", { description: err?.message ?? String(err) }),
+                                  );
+                                }}
+                              >
+                                <Download className="size-3" />
+                              </Button>
+                            </>
                           )}
                           {e.shopify_product_id && (
                             <Button size="sm" variant="outline" title="Open Shopify draft" asChild>

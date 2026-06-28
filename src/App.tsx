@@ -11,6 +11,7 @@ import Category from "./pages/Category.tsx";
 import Product from "./pages/Product.tsx";
 import Bundles from "./pages/Bundles.tsx";
 import About from "./pages/About.tsx";
+import Download from "./pages/Download.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import AdminLogin from "./pages/admin/Login.tsx";
 import AdminLayout from "./pages/admin/AdminLayout.tsx";
@@ -44,6 +45,7 @@ const App = () => (
             <Route path="/product/:handle" element={<Product />} />
             <Route path="/bundles" element={<Bundles />} />
             <Route path="/about" element={<About />} />
+            <Route path="/download" element={<Download />} />
           </Route>
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminLayout />}>
