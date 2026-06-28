@@ -678,8 +678,38 @@ Deno.serve(async (req) => {
         seenChapters.add(ch.chapter_index);
       }
 
+      // Broad humanization fallback. Triggers when:
+      //   (a) repeated/templated passages remain and no per-chapter target was actionable, or
+      //   (b) we're on the final attempt and humanization-eligible reasons exist.
+      const humanizationNeeded = deterministic.some((r) =>
+        r.repair_action === "rewrite_repeated_passages" ||
+        r.code === "repeated_templated_passages" ||
+        r.code === "repetitive_language" ||
+        r.code === "repeated_chapter_opening"
+      );
+      const finalAttempt = attemptsUsed >= MAX_REPAIR_ATTEMPTS;
+      const nothingHappened = seenChapters.size === 0 && !pickedExpandAll.done;
+
+      if (humanizationNeeded && (nothingHappened || finalAttempt)) {
+        // Rewrite EVERY chapter with the humanization instruction to vary openings,
+        // transitions, and summaries across the whole manuscript.
+        const inst = instructionsForReason({ code: "humanize_manuscript", message: "", repair_action: "humanize_manuscript" }, 0);
+        for (const ch of chapters) {
+          if (seenChapters.has(ch.chapter_index)) continue;
+          const target = Math.max(ch.word_count ?? 0, MIN_CHAPTER_WORDS);
+          const x = await rewriteChapter(fixModel, ebook, ch, inst, target);
+          totalCost += x.usage.cost_usd;
+          await logCost(db, { ebook_id: ebook.id, step: `manuscript_humanize_ch${ch.chapter_index}:r${attemptsUsed}`, model: x.model, ...x.usage });
+          await db.from("ebook_chapters").update({ content: x.data, word_count: wc(x.data) })
+            .eq("ebook_id", ebook.id).eq("chapter_index", ch.chapter_index);
+          repairLog.push({ attempt: attemptsUsed, action: "humanize_manuscript", chapter_index: ch.chapter_index });
+          seenChapters.add(ch.chapter_index);
+        }
+        continue; // re-score next iteration
+      }
+
       if (seenChapters.size === 0 && !pickedExpandAll.done) {
-        // Nothing actionable was repaired — break to avoid infinite loop.
+        // Truly nothing actionable — exit.
         break;
       }
     }
