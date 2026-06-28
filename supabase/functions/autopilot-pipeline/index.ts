@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
       // Track one or more pipeline steps as a single underlying action.
       async function track(stepNames: string[], message: string, fn: () => Promise<void>) {
         if (await tracker.isPauseRequested()) {
-          await tracker["patchRun"]?.({ status: "paused", current_action_message: "Paused after current step" });
+          await tracker.markPaused();
           throw new Error("paused_by_admin");
         }
         for (const n of stepNames) await tracker.startStep(n, message);
