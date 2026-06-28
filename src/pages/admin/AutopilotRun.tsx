@@ -92,6 +92,31 @@ export default function AutopilotRun() {
     loadAll();
   }
 
+  const [rerunning, setRerunning] = useState(false);
+  async function rerun() {
+    if (!run) return;
+    setRerunning(true);
+    try {
+      const body: Record<string, unknown> = {
+        mode: run.mode ?? "safe",
+        test_mode: !!run.test_mode,
+      };
+      if (run.ebook_id) body.ebook_id = run.ebook_id;
+      const { data, error } = await supabase.functions.invoke("autopilot-pipeline", { body });
+      if (error || (data as { error?: string } | null)?.error) {
+        throw new Error(error?.message ?? (data as { error?: string }).error);
+      }
+      const newId = (data as { run_id?: string } | null)?.run_id;
+      toast.success(run.ebook_id ? "Resumed pipeline" : "Started new run");
+      if (newId && newId !== run.id) window.location.href = `/admin/autopilot/run/${newId}`;
+      else loadAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Rerun failed");
+    } finally {
+      setRerunning(false);
+    }
+  }
+
   return (
     <div className="max-w-5xl space-y-6 p-2">
       <div className="flex items-center gap-2 flex-wrap">
