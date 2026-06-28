@@ -44,6 +44,7 @@ export default function Dashboard() {
   });
   const [generating, setGenerating] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testRun, setTestRun] = useState<TestRun>(null);
   const [failedJobs, setFailedJobs] = useState<FailedJob[]>([]);
 
   const load = async () => {
