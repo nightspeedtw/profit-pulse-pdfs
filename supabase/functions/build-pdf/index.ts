@@ -634,6 +634,17 @@ function drawCoverOverlay(
   const blockH = (subLines.length ? subLines.length * subLineH + 18 : 0) + titleLines.length * titleLineH + 22;
   let y = bottomAnchor + blockH;
 
+  // Solid opaque dark plate behind the entire title+subtitle block so background
+  // image details (card edges, highlights) cannot bleed through and create phantom glyphs.
+  if (hasBgImage) {
+    const plateBottom = 0;
+    const plateTop = y + 14;
+    page.drawRectangle({
+      x: 0, y: plateBottom, width: PAGE_W, height: plateTop - plateBottom,
+      color: theme.overlay, opacity: 1,
+    });
+  }
+
   // Accent bar above title
   page.drawRectangle({ x: MARGIN, y: y - 6, width: 56, height: 5, color: theme.accent });
   y -= 22;
