@@ -70,6 +70,12 @@ type Settings = {
   autopilot_mode: string;
   publish_hour_utc: number;
   daily_budget_usd: number;
+  per_ebook_budget_usd: number;
+  auto_publish: boolean;
+  paused: boolean;
+  shopify_draft_upload_enabled: boolean;
+  auto_rewrite_limit: number;
+  category_mix: Record<string, number>;
 };
 
 export default function Autopilot() {
@@ -307,7 +313,7 @@ export default function Autopilot() {
                     size="sm"
                     className="w-full"
                     disabled={busy === i.id}
-                    onClick={() => run("autopilot-orchestrator", { idea_id: i.id, mode }, `Autopilot started (${mode})`, i.id)}
+                    onClick={() => run("autopilot-pipeline", { idea_id: i.id, mode }, `Autopilot started (${mode})`, i.id)}
                   >
                     <Plane className="size-3 mr-1" /> Launch {mode.toUpperCase()}
                   </Button>
