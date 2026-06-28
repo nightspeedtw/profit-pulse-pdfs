@@ -1,130 +1,140 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Plane, ArrowRight, FlaskConical, AlertTriangle, PauseCircle, DollarSign, ImageOff, FileX, ShieldAlert, ShoppingBag } from "lucide-react";
+import {
+  Loader2, Plane, Play, Pause, AlertTriangle, DollarSign, FileX, ImageOff,
+  ShieldAlert, ShoppingBag, RefreshCw, FileText, ExternalLink, Sparkles, ClipboardCheck,
+} from "lucide-react";
 import { Link } from "react-router-dom";
+import { BADGE_OPTIONS, EbookBadgeKind, StatusBadge, resolveEbookBadge } from "@/components/admin/StatusBadge";
 
-type FailedJob = {
+type Ebook = {
   id: string;
-  type: string;
-  status: string;
-  error: string | null;
-  attempts: number;
-  ebook_id: string | null;
-  idea_id: string | null;
+  title: string;
+  category_id: string | null;
+  autopilot_state: string | null;
+  autopilot_mode: string | null;
+  shopify_status: string | null;
+  shopify_product_id: string | null;
+  manuscript_qc_status: string | null;
+  pdf_status: string | null;
+  pdf_url: string | null;
+  cover_url: string | null;
+  word_count: number | null;
+  final_quality_score: number | null;
+  compliance_safety_score: number | null;
+  cost_usd: number | null;
+  needs_review_reason: string | null;
+  updated_at: string;
   created_at: string;
 };
 
-type Stats = {
-  ideasTotal: number;
-  ideasToday: number;
-  ebooksWriting: number;
-  ebooksReady: number;
-  ebooksNeedsReview: number;
-  ebooksPublished: number;
-  costToday: number;
+type Settings = {
+  paused: boolean;
+  autopilot_mode: string;
+  daily_quota: number;
+  daily_budget_usd: number;
+  cost_limit_reached: boolean;
+  cost_limit_reason: string | null;
 };
 
-type TestRun = {
-  status: "idle" | "starting" | "running" | "ready" | "failed";
-  message: string;
-  ideaId?: string;
-  ebookId?: string;
-  ebookState?: string | null;
-  startedAt?: number;
-} | null;
+type Stats = {
+  producedToday: number;
+  writing: number;
+  needsReview: number;
+  published: number;
+  costToday: number;
+  failedToday: number;
+  qcPassToday: number;
+  qcFailToday: number;
+  shopifyDrafts: number;
+};
 
-type ProdAlert = {
-  paused: boolean;
-  costLimitReached: boolean;
-  costLimitReason: string | null;
-  costLimitAt: string | null;
-  failedPipelines: number;
-  failedPdf: number;
-  failedShopify: number;
-  failedCover: number;
-  failedQc: number;
+type Category = { id: string; name: string };
+
+type FilterState = {
+  status: "all" | EbookBadgeKind;
+  category: string;
+  minScore: number;
+  date: "all" | "today" | "7d" | "30d";
+  failedOnly: boolean;
+  draftUploaded: boolean;
+  published: boolean;
+};
+
+const DEFAULT_FILTERS: FilterState = {
+  status: "all",
+  category: "all",
+  minScore: 0,
+  date: "all",
+  failedOnly: false,
+  draftUploaded: false,
+  published: false,
 };
 
 export default function Dashboard() {
+  const [ebooks, setEbooks] = useState<Ebook[]>([]);
+  const [settings, setSettings] = useState<Settings | null>(null);
   const [stats, setStats] = useState<Stats>({
-    ideasTotal: 0, ideasToday: 0, ebooksWriting: 0, ebooksReady: 0,
-    ebooksNeedsReview: 0, ebooksPublished: 0, costToday: 0,
+    producedToday: 0, writing: 0, needsReview: 0, published: 0,
+    costToday: 0, failedToday: 0, qcPassToday: 0, qcFailToday: 0, shopifyDrafts: 0,
   });
-  const [generating, setGenerating] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testRun, setTestRun] = useState<TestRun>(null);
-  const [failedJobs, setFailedJobs] = useState<FailedJob[]>([]);
-  const [prodAlert, setProdAlert] = useState<ProdAlert | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [busy, setBusy] = useState<string | null>(null);
 
-  const load = async () => {
+  async function load() {
     const since = new Date(); since.setHours(0, 0, 0, 0);
     const [
-      { count: ideasTotal },
-      { count: ideasToday },
-      { count: ebooksWriting },
-      { count: ebooksReady },
-      { count: ebooksNeedsReview },
-      { count: ebooksPublished },
+      { data: e },
+      { data: s },
+      { data: cats },
+      { count: producedToday },
+      { count: writing },
+      { count: needsReview },
+      { count: published },
       { data: costs },
+      { count: failedToday },
+      { count: qcPassToday },
+      { count: qcFailToday },
+      { count: shopifyDrafts },
     ] = await Promise.all([
-      supabase.from("ebook_ideas").select("id", { count: "exact", head: true }),
-      supabase.from("ebook_ideas").select("id", { count: "exact", head: true }).gte("created_at", since.toISOString()),
-      supabase.from("ebooks").select("id", { count: "exact", head: true }).like("autopilot_state", "writing%"),
-      supabase.from("ebooks").select("id", { count: "exact", head: true }).eq("autopilot_state", "ready_to_publish"),
+      supabase.from("ebooks")
+        .select("id,title,category_id,autopilot_state,autopilot_mode,shopify_status,shopify_product_id,manuscript_qc_status,pdf_status,pdf_url,cover_url,word_count,final_quality_score,compliance_safety_score,cost_usd,needs_review_reason,updated_at,created_at")
+        .order("updated_at", { ascending: false }).limit(60),
+      supabase.from("generation_settings").select("paused, autopilot_mode, daily_quota, daily_budget_usd, cost_limit_reached, cost_limit_reason").eq("id", 1).maybeSingle(),
+      supabase.from("categories").select("id, name").order("name"),
+      supabase.from("ebooks").select("id", { count: "exact", head: true }).gte("created_at", since.toISOString()),
+      supabase.from("ebooks").select("id", { count: "exact", head: true }).in("autopilot_state", ["running", "outline"]).or("autopilot_state.like.writing%"),
       supabase.from("ebooks").select("id", { count: "exact", head: true }).eq("autopilot_state", "needs_review"),
       supabase.from("ebooks").select("id", { count: "exact", head: true }).eq("shopify_status", "published"),
       supabase.from("cost_log").select("cost_usd").gte("created_at", since.toISOString()),
+      supabase.from("pipeline_step_logs").select("id", { count: "exact", head: true }).eq("status", "fail").gte("started_at", since.toISOString()),
+      supabase.from("pipeline_step_logs").select("id", { count: "exact", head: true }).eq("status", "ok").ilike("step_name", "%qc%").gte("started_at", since.toISOString()),
+      supabase.from("pipeline_step_logs").select("id", { count: "exact", head: true }).eq("status", "fail").ilike("step_name", "%qc%").gte("started_at", since.toISOString()),
+      supabase.from("ebooks").select("id", { count: "exact", head: true }).eq("shopify_status", "draft"),
     ]);
+    setEbooks((e ?? []) as Ebook[]);
+    setSettings(s as Settings | null);
+    setCategories((cats ?? []) as Category[]);
     setStats({
-      ideasTotal: ideasTotal ?? 0,
-      ideasToday: ideasToday ?? 0,
-      ebooksWriting: ebooksWriting ?? 0,
-      ebooksReady: ebooksReady ?? 0,
-      ebooksNeedsReview: ebooksNeedsReview ?? 0,
-      ebooksPublished: ebooksPublished ?? 0,
-      costToday: (costs ?? []).reduce((s, r) => s + Number(r.cost_usd ?? 0), 0),
+      producedToday: producedToday ?? 0,
+      writing: writing ?? 0,
+      needsReview: needsReview ?? 0,
+      published: published ?? 0,
+      costToday: (costs ?? []).reduce((acc, r) => acc + Number(r.cost_usd ?? 0), 0),
+      failedToday: failedToday ?? 0,
+      qcPassToday: qcPassToday ?? 0,
+      qcFailToday: qcFailToday ?? 0,
+      shopifyDrafts: shopifyDrafts ?? 0,
     });
-    const { data: jobs } = await supabase
-      .from("generation_jobs")
-      .select("id,type,status,error,attempts,ebook_id,idea_id,created_at")
-      .eq("status", "failed")
-      .order("created_at", { ascending: false })
-      .limit(10);
-    setFailedJobs((jobs ?? []) as FailedJob[]);
-
-    // ---- Milestone 10 — production alerts ----
-    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const [
-      { data: setRow },
-      { count: failedPipelines },
-      { count: failedPdf },
-      { count: failedShopify },
-      { count: failedCover },
-      { count: failedQc },
-    ] = await Promise.all([
-      supabase.from("generation_settings").select("paused, cost_limit_reached, cost_limit_reason, cost_limit_reached_at").eq("id", 1).maybeSingle(),
-      supabase.from("pipeline_step_logs").select("id", { count: "exact", head: true }).eq("status", "fail").gte("started_at", dayAgo),
-      supabase.from("pipeline_step_logs").select("id", { count: "exact", head: true }).eq("status", "fail").ilike("step_name", "%pdf%").gte("started_at", dayAgo),
-      supabase.from("pipeline_step_logs").select("id", { count: "exact", head: true }).eq("status", "fail").ilike("step_name", "%shopify%").gte("started_at", dayAgo),
-      supabase.from("pipeline_step_logs").select("id", { count: "exact", head: true }).eq("status", "fail").ilike("step_name", "%cover%").gte("started_at", dayAgo),
-      supabase.from("pipeline_step_logs").select("id", { count: "exact", head: true }).eq("status", "fail").ilike("step_name", "%qc%").gte("started_at", dayAgo),
-    ]);
-    setProdAlert({
-      paused: !!setRow?.paused,
-      costLimitReached: !!setRow?.cost_limit_reached,
-      costLimitReason: setRow?.cost_limit_reason ?? null,
-      costLimitAt: setRow?.cost_limit_reached_at ?? null,
-      failedPipelines: failedPipelines ?? 0,
-      failedPdf: failedPdf ?? 0,
-      failedShopify: failedShopify ?? 0,
-      failedCover: failedCover ?? 0,
-      failedQc: failedQc ?? 0,
-    });
-  };
+  }
 
   useEffect(() => {
     load();
@@ -132,274 +142,305 @@ export default function Dashboard() {
     return () => clearInterval(t);
   }, []);
 
-  // Poll active test run progress
-  useEffect(() => {
-    if (!testRun?.ideaId || testRun.status === "ready" || testRun.status === "failed") return;
-    let cancelled = false;
-    const tick = async () => {
-      const { data: eb } = await supabase
-        .from("ebooks")
-        .select("id, autopilot_state")
-        .eq("idea_id", testRun.ideaId!)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (cancelled) return;
-      if (eb) {
-        const state = eb.autopilot_state ?? "queued";
-        const done = state === "ready_to_publish" || state === "needs_review" || state === "published";
-        setTestRun((prev) => prev ? {
-          ...prev,
-          status: done ? "ready" : "running",
-          message: `State: ${state}`,
-          ebookId: eb.id,
-          ebookState: state,
-        } : prev);
-      }
-    };
-    tick();
-    const t = setInterval(tick, 5_000);
-    return () => { cancelled = true; clearInterval(t); };
-  }, [testRun?.ideaId, testRun?.status]);
-
-  const generateNow = async () => {
-    setGenerating(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("generate-idea", { body: {} });
-      if (error) throw error;
-      toast.success(`Generated ${data?.created ?? 0} idea(s).`);
-      load();
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Generation failed");
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const runSampleTest = async () => {
-    setTesting(true);
-    setTestRun({ status: "starting", message: "Creating fixture idea…" });
-    try {
-      const { data, error } = await supabase.functions.invoke("test-sample-pdf", { body: {} });
-      if (error) throw error;
-      const ideaId = data?.idea_id as string | undefined;
-      setTestRun({ status: "running", message: "Pipeline started. Polling…", ideaId, startedAt: Date.now() });
-      toast.success(data?.message ?? "Test pipeline started");
-      load();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Test failed to start";
-      setTestRun({ status: "failed", message: msg });
-      toast.error(msg);
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const retryJob = async (id: string) => {
-    const { error } = await supabase
-      .from("generation_jobs")
-      .update({ status: "queued", attempts: 0, error: null, scheduled_for: new Date().toISOString() })
-      .eq("id", id);
+  async function togglePause() {
+    if (!settings) return;
+    const next = !settings.paused;
+    const { error } = await supabase.from("generation_settings").update({
+      paused: next,
+      ...(next ? {} : { cost_limit_reached: false, cost_limit_reason: null }),
+    }).eq("id", 1);
     if (error) toast.error(error.message);
-    else { toast.success("Job requeued"); load(); }
-  };
+    else { toast.success(next ? "Autopilot paused" : "Autopilot resumed"); load(); }
+  }
 
-  const tiles: { label: string; value: number | string; tone?: string }[] = [
-    { label: "Ideas (total)", value: stats.ideasTotal },
-    { label: "Ideas (today)", value: stats.ideasToday },
-    { label: "Writing", value: stats.ebooksWriting, tone: "text-blue-700" },
-    { label: "Ready to publish", value: stats.ebooksReady, tone: "text-green-700" },
-    { label: "Needs review", value: stats.ebooksNeedsReview, tone: "text-orange-700" },
-    { label: "Published", value: stats.ebooksPublished, tone: "text-green-800" },
-    { label: "AI cost (today)", value: `$${stats.costToday.toFixed(4)}` },
-  ];
+  async function invoke(name: string, body: Record<string, unknown>, msg: string, key: string) {
+    setBusy(key);
+    try {
+      const { data, error } = await supabase.functions.invoke(name, { body });
+      if (error || (data as { error?: string } | null)?.error) {
+        throw new Error(error?.message ?? (data as { error?: string }).error);
+      }
+      toast.success(msg);
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function generateOneNow() {
+    if (settings?.paused) {
+      toast.error("Autopilot is paused — resume first.");
+      return;
+    }
+    await invoke("autopilot-pipeline", { mode: settings?.autopilot_mode ?? "safe" }, "Started one ebook", "gen-one");
+  }
+
+  const categoryMap = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c.name])), [categories]);
+
+  const filtered = useMemo(() => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    return ebooks.filter((e) => {
+      const badge = resolveEbookBadge(e);
+      if (filters.status !== "all" && badge !== filters.status) return false;
+      if (filters.category !== "all" && e.category_id !== filters.category) return false;
+      if (filters.minScore > 0 && (e.final_quality_score ?? 0) < filters.minScore) return false;
+      if (filters.date !== "all") {
+        const horizon = filters.date === "today" ? day : filters.date === "7d" ? 7 * day : 30 * day;
+        if (now - new Date(e.updated_at).getTime() > horizon) return false;
+      }
+      if (filters.failedOnly && !["failed", "qc_failed", "rejected"].includes(badge)) return false;
+      if (filters.draftUploaded && e.shopify_status !== "draft") return false;
+      if (filters.published && e.shopify_status !== "published") return false;
+      return true;
+    });
+  }, [ebooks, filters]);
+
+  const autopilotKind: EbookBadgeKind = settings?.cost_limit_reached ? "paused"
+    : settings?.paused ? "paused" : "ready";
+  const costPct = settings ? Math.min(100, (stats.costToday / Math.max(0.01, Number(settings.daily_budget_usd))) * 100) : 0;
+  const quotaPct = settings ? Math.min(100, (stats.producedToday / Math.max(1, settings.daily_quota)) * 100) : 0;
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <p className="font-mono uppercase tracking-widest text-xs">[ Overview ]</p>
-          <h1 className="font-display text-4xl uppercase">Dashboard</h1>
+          <p className="font-mono uppercase tracking-widest text-xs text-muted-foreground">[ Overview ]</p>
+          <h1 className="font-display text-4xl uppercase">Ebook Factory</h1>
         </div>
         <div className="flex gap-2">
-          <Button onClick={runSampleTest} disabled={testing || testRun?.status === "running" || testRun?.status === "starting"}>
-            {(testing || testRun?.status === "running" || testRun?.status === "starting") ? <Loader2 className="size-4 animate-spin mr-1" /> : <FlaskConical className="size-4 mr-1" />}
-            Run Test Sample PDF
-          </Button>
-          <Button onClick={generateNow} disabled={generating} variant="outline">
-            {generating ? <Loader2 className="size-4 animate-spin mr-1" /> : null}
-            Generate ideas now
+          <Button onClick={generateOneNow} disabled={busy === "gen-one" || settings?.paused}>
+            {busy === "gen-one" ? <Loader2 className="size-4 animate-spin mr-1" /> : <Sparkles className="size-4 mr-1" />}
+            Generate One Ebook
           </Button>
           <Link to="/admin/autopilot">
-            <Button><Plane className="size-4 mr-1" /> Open Autopilot</Button>
+            <Button variant="outline"><Plane className="size-4 mr-1" /> Autopilot settings</Button>
           </Link>
         </div>
       </div>
 
-      {testRun && (
-        <Card className="border-2 border-foreground">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-mono uppercase flex items-center gap-2">
-              <FlaskConical className="size-4" />
-              Test Sample PDF Run
-              <Badge
-                variant={testRun.status === "failed" ? "destructive" : testRun.status === "ready" ? "default" : "secondary"}
-                className="ml-2"
-              >
-                {testRun.status}
-              </Badge>
-              {(testRun.status === "running" || testRun.status === "starting") && (
-                <Loader2 className="size-4 animate-spin text-muted-foreground" />
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm space-y-2">
-            <p className="text-muted-foreground">{testRun.message}</p>
-            {testRun.startedAt && (
-              <p className="text-xs font-mono text-muted-foreground">
-                Elapsed: {Math.floor((Date.now() - testRun.startedAt) / 1000)}s
-              </p>
-            )}
-            <div className="flex gap-2 flex-wrap pt-1">
-              {testRun.ebookId && (
-                <Link to={`/admin/ebook/${testRun.ebookId}`}>
-                  <Button size="sm" variant="outline">Open ebook review →</Button>
-                </Link>
-              )}
-              <Link to="/admin/pipeline">
-                <Button size="sm" variant="ghost">View pipeline</Button>
-              </Link>
-              <Button size="sm" variant="ghost" onClick={() => setTestRun(null)}>Dismiss</Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-        {tiles.map((t) => (
-          <Card key={t.label} className="border-2 border-foreground">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-mono uppercase text-muted-foreground">{t.label}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className={`font-display text-3xl ${t.tone ?? ""}`}>{t.value}</div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Milestone 10 — Production alerts */}
-      {prodAlert && (prodAlert.paused || prodAlert.costLimitReached || prodAlert.failedPipelines > 0) && (
-        <Card className="border-2 border-orange-700 bg-orange-50/40">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ShieldAlert className="size-5 text-orange-700" /> Production alerts (last 24h)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            {prodAlert.costLimitReached && (
-              <div className="flex items-start gap-2 border-l-4 border-red-700 pl-3 py-1">
-                <DollarSign className="size-4 text-red-700 mt-0.5" />
-                <div className="flex-1">
-                  <p className="font-bold text-red-800">Cost limit reached — autopilot paused</p>
-                  <p className="text-xs text-muted-foreground">{prodAlert.costLimitReason ?? "Daily budget exceeded."}</p>
-                  {prodAlert.costLimitAt && <p className="text-[10px] font-mono text-muted-foreground">Tripped at {new Date(prodAlert.costLimitAt).toLocaleString()}</p>}
-                </div>
-                <Link to="/admin/autopilot"><Button size="sm" variant="outline">Resolve</Button></Link>
-              </div>
-            )}
-            {prodAlert.paused && !prodAlert.costLimitReached && (
-              <div className="flex items-center gap-2 border-l-4 border-yellow-700 pl-3 py-1">
-                <PauseCircle className="size-4 text-yellow-700" />
-                <p className="flex-1"><strong>Autopilot is paused.</strong> No new ebooks will be generated.</p>
-                <Link to="/admin/autopilot"><Button size="sm" variant="outline">Open</Button></Link>
-              </div>
-            )}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-              <AlertTile icon={<AlertTriangle className="size-4" />} label="Pipeline fails" value={prodAlert.failedPipelines} tone="orange" />
-              <AlertTile icon={<FileX className="size-4" />} label="PDF render errors" value={prodAlert.failedPdf} tone="red" />
-              <AlertTile icon={<ImageOff className="size-4" />} label="Cover errors" value={prodAlert.failedCover} tone="red" />
-              <AlertTile icon={<ShoppingBag className="size-4" />} label="Shopify errors" value={prodAlert.failedShopify} tone="red" />
-              <AlertTile icon={<ShieldAlert className="size-4" />} label="QC failures" value={prodAlert.failedQc} tone="orange" />
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-
-
+      {/* Autopilot status card */}
       <Card className="border-2 border-foreground">
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <span>Autopilot pipeline</span>
-            <Link to="/admin/autopilot" className="text-xs font-mono uppercase hover:underline flex items-center gap-1">
-              Manage <ArrowRight className="size-3" />
-            </Link>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm space-y-2 text-muted-foreground">
-          <p>QC gates at every step: topic → outline → chapters → editorial → product copy → cover → PDF → Shopify draft → publish.</p>
-          <p>Publish thresholds: Final ≥ 90 · Conversion ≥ 85 · Compliance Safety ≥ 90.</p>
-          <p>Open the <strong>Autopilot</strong> page to set daily quota, schedule publishing, and enable hands-off mode.</p>
+        <CardContent className="p-5 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-center">
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <StatusBadge kind={autopilotKind} />
+              <span className="font-mono text-xs uppercase text-muted-foreground">Mode:</span>
+              <span className="font-mono text-xs uppercase">{settings?.autopilot_mode ?? "safe"}</span>
+              {settings?.cost_limit_reached && (
+                <span className="text-xs text-red-700 font-bold flex items-center gap-1">
+                  <DollarSign className="size-3" /> Cost limit reached
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-4 max-w-xl">
+              <Meter label={`Today's production (${stats.producedToday} / ${settings?.daily_quota ?? 0})`} pct={quotaPct} tone="emerald" />
+              <Meter label={`Daily cost ($${stats.costToday.toFixed(3)} / $${Number(settings?.daily_budget_usd ?? 0).toFixed(2)})`} pct={costPct} tone={costPct >= 90 ? "red" : "sky"} />
+            </div>
+            {settings?.cost_limit_reason && (
+              <p className="text-xs text-muted-foreground">{settings.cost_limit_reason}</p>
+            )}
+          </div>
+          <div className="flex flex-col gap-2 md:items-end">
+            <Button onClick={togglePause} variant={settings?.paused ? "default" : "outline"} className="min-w-[150px]">
+              {settings?.paused ? <Play className="size-4 mr-1" /> : <Pause className="size-4 mr-1" />}
+              {settings?.paused ? "Resume Autopilot" : "Pause Autopilot"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
+      {/* KPI tiles */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        <Kpi label="Produced today" value={stats.producedToday} />
+        <Kpi label="Writing now"    value={stats.writing}    tone="text-sky-700" />
+        <Kpi label="Needs review"   value={stats.needsReview} tone="text-orange-700" />
+        <Kpi label="Published"      value={stats.published}  tone="text-emerald-700" />
+        <Kpi label="Drafts uploaded" value={stats.shopifyDrafts} tone="text-violet-700" />
+        <Kpi label="QC pass / fail" value={`${stats.qcPassToday} / ${stats.qcFailToday}`} tone={stats.qcFailToday > 0 ? "text-amber-700" : "text-emerald-700"} />
+        <Kpi label="Cost today"     value={`$${stats.costToday.toFixed(3)}`} />
+      </div>
+
+      {/* Alerts */}
+      {(stats.failedToday > 0 || settings?.cost_limit_reached) && (
+        <Card className="border-2 border-orange-700 bg-orange-50/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldAlert className="size-5 text-orange-700" /> Alerts (24h)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <AlertTile icon={<AlertTriangle className="size-4" />} label="Step failures" value={stats.failedToday} tone={stats.failedToday > 0 ? "orange" : "muted"} />
+            <AlertTile icon={<FileX className="size-4" />}          label="PDF/Cover/Shopify errors" value={0} tone="muted" hidden />
+            <AlertTile icon={<DollarSign className="size-4" />}     label="Cost guard" value={settings?.cost_limit_reached ? 1 : 0} tone={settings?.cost_limit_reached ? "red" : "muted"} />
+            <AlertTile icon={<ImageOff className="size-4" />}       label="QC failures" value={stats.qcFailToday} tone={stats.qcFailToday > 0 ? "amber" : "muted"} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Filters */}
       <Card className="border-2 border-foreground">
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <span className="flex items-center gap-2">
-              <AlertTriangle className="size-4 text-orange-600" />
-              Failed background jobs
-            </span>
-            <Badge variant={failedJobs.length > 0 ? "destructive" : "secondary"}>
-              {failedJobs.length}
-            </Badge>
-          </CardTitle>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-mono uppercase">Filters</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm">
-          {failedJobs.length === 0 ? (
-            <p className="text-muted-foreground">No failed jobs. Pipeline is healthy.</p>
-          ) : (
-            <div className="space-y-2">
-              {failedJobs.map((j) => (
-                <div key={j.id} className="flex items-start justify-between gap-3 border border-foreground/20 rounded p-3 bg-orange-50/30">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-xs uppercase font-bold">{j.type}</span>
-                      <Badge variant="outline" className="text-xs">attempts: {j.attempts}</Badge>
-                      {j.ebook_id && (
-                        <Link to={`/admin/ebooks/${j.ebook_id}`} className="text-xs underline">
-                          ebook ↗
-                        </Link>
-                      )}
-                      <span className="text-xs text-muted-foreground ml-auto">
-                        {new Date(j.created_at).toLocaleString()}
-                      </span>
-                    </div>
-                    {j.error && (
-                      <p className="text-xs text-red-700 mt-1 line-clamp-2 break-words">{j.error}</p>
-                    )}
-                  </div>
-                  <Button size="sm" variant="outline" onClick={() => retryJob(j.id)}>
-                    Retry
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
+        <CardContent className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+          <FilterField label="Status">
+            <Select value={filters.status} onValueChange={(v) => setFilters((f) => ({ ...f, status: v as EbookBadgeKind | "all" }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {BADGE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </FilterField>
+          <FilterField label="Category">
+            <Select value={filters.category} onValueChange={(v) => setFilters((f) => ({ ...f, category: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </FilterField>
+          <FilterField label={`Min QC score: ${filters.minScore}`}>
+            <Input type="range" min={0} max={100} value={filters.minScore}
+              onChange={(e) => setFilters((f) => ({ ...f, minScore: Number(e.target.value) }))} />
+          </FilterField>
+          <FilterField label="Date">
+            <Select value={filters.date} onValueChange={(v) => setFilters((f) => ({ ...f, date: v as FilterState["date"] }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All time</SelectItem>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="7d">Last 7 days</SelectItem>
+                <SelectItem value="30d">Last 30 days</SelectItem>
+              </SelectContent>
+            </Select>
+          </FilterField>
+          <div className="space-y-2 md:col-span-2">
+            <div className="flex items-center gap-2"><Switch checked={filters.failedOnly} onCheckedChange={(v) => setFilters((f) => ({ ...f, failedOnly: v }))} /><Label className="text-xs">Failed only</Label></div>
+            <div className="flex items-center gap-2"><Switch checked={filters.draftUploaded} onCheckedChange={(v) => setFilters((f) => ({ ...f, draftUploaded: v }))} /><Label className="text-xs">Draft uploaded</Label></div>
+            <div className="flex items-center gap-2"><Switch checked={filters.published} onCheckedChange={(v) => setFilters((f) => ({ ...f, published: v }))} /><Label className="text-xs">Published only</Label></div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Ebook list */}
+      <Card className="border-2 border-foreground">
+        <CardHeader className="pb-3 flex flex-row items-center justify-between">
+          <CardTitle className="text-sm font-mono uppercase">Latest Ebooks ({filtered.length})</CardTitle>
+          <Button variant="ghost" size="sm" onClick={load}><RefreshCw className="size-3 mr-1" /> Refresh</Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted border-b-2 border-foreground/20">
+                <tr className="text-left font-mono uppercase text-[10px] tracking-wide">
+                  <th className="p-3">Title</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Category</th>
+                  <th className="p-3">QC / Safety</th>
+                  <th className="p-3">Words</th>
+                  <th className="p-3">Cost</th>
+                  <th className="p-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 && (
+                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground text-sm">No ebooks match the current filters.</td></tr>
+                )}
+                {filtered.map((e) => {
+                  const badge = resolveEbookBadge(e);
+                  const showResume = badge === "failed" || badge === "qc_failed" || badge === "needs_review";
+                  return (
+                    <tr key={e.id} className="border-b border-foreground/10 align-top hover:bg-muted/30">
+                      <td className="p-3 max-w-[360px]">
+                        <Link to={`/admin/ebook/${e.id}`} className="font-medium hover:underline line-clamp-2">{e.title}</Link>
+                        {e.needs_review_reason && <p className="text-[11px] text-orange-700 mt-1 line-clamp-2">⚠ {e.needs_review_reason}</p>}
+                      </td>
+                      <td className="p-3"><StatusBadge kind={badge} /></td>
+                      <td className="p-3 text-xs text-muted-foreground">{e.category_id ? categoryMap[e.category_id] ?? "—" : "—"}</td>
+                      <td className="p-3 text-xs font-mono">
+                        <span className={e.final_quality_score && e.final_quality_score >= 85 ? "text-emerald-700 font-bold" : "text-muted-foreground"}>
+                          {e.final_quality_score ?? "—"}
+                        </span>
+                        <span className="text-muted-foreground"> / </span>
+                        <span className={e.compliance_safety_score && e.compliance_safety_score >= 90 ? "text-emerald-700 font-bold" : "text-muted-foreground"}>
+                          {e.compliance_safety_score ?? "—"}
+                        </span>
+                      </td>
+                      <td className="p-3 text-xs font-mono">{(e.word_count ?? 0).toLocaleString()}</td>
+                      <td className="p-3 text-xs font-mono">${Number(e.cost_usd ?? 0).toFixed(3)}</td>
+                      <td className="p-3">
+                        <div className="flex flex-wrap gap-1 justify-end">
+                          <Link to={`/admin/ebook/${e.id}`}>
+                            <Button size="sm" variant="ghost" title="Open QC report"><ClipboardCheck className="size-3" /></Button>
+                          </Link>
+                          {showResume && (
+                            <Button size="sm" variant="outline" title="Resume from failed step" disabled={busy === e.id}
+                              onClick={() => invoke("autopilot-pipeline", { ebook_id: e.id, mode: settings?.autopilot_mode ?? "safe" }, "Resumed", e.id)}>
+                              <RefreshCw className="size-3" />
+                            </Button>
+                          )}
+                          {e.pdf_url && (
+                            <a href={e.pdf_url} target="_blank" rel="noopener noreferrer">
+                              <Button size="sm" variant="ghost" title="Open PDF"><FileText className="size-3" /></Button>
+                            </a>
+                          )}
+                          {e.shopify_product_id && (
+                            <Button size="sm" variant="outline" title="Open Shopify draft" asChild>
+                              <a href={`https://admin.shopify.com/store/digital-wealth-hub-49qgj/products/${e.shopify_product_id}`} target="_blank" rel="noopener noreferrer">
+                                <ShoppingBag className="size-3" />
+                                <ExternalLink className="size-3 ml-1" />
+                              </a>
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
     </div>
   );
 }
 
-function AlertTile({ icon, label, value, tone }: { icon: ReactNode; label: string; value: number; tone: "red" | "orange" }) {
-  const toneCls = tone === "red"
-    ? (value > 0 ? "border-red-700 bg-red-50 text-red-800" : "border-foreground/20 text-muted-foreground")
-    : (value > 0 ? "border-orange-700 bg-orange-50 text-orange-800" : "border-foreground/20 text-muted-foreground");
+function Kpi({ label, value, tone }: { label: string; value: number | string; tone?: string }) {
   return (
-    <div className={`border-2 p-2 flex items-center gap-2 ${toneCls}`}>
+    <Card className="border-2 border-foreground">
+      <CardHeader className="pb-2"><CardTitle className="text-[10px] font-mono uppercase text-muted-foreground tracking-wide">{label}</CardTitle></CardHeader>
+      <CardContent><div className={`font-display text-3xl leading-none ${tone ?? ""}`}>{value}</div></CardContent>
+    </Card>
+  );
+}
+
+function Meter({ label, pct, tone }: { label: string; pct: number; tone: "emerald" | "sky" | "red" }) {
+  const bar = tone === "emerald" ? "bg-emerald-600" : tone === "red" ? "bg-red-600" : "bg-sky-600";
+  return (
+    <div>
+      <p className="text-[10px] font-mono uppercase text-muted-foreground tracking-wide mb-1">{label}</p>
+      <div className="h-2 bg-muted border border-foreground/10 overflow-hidden">
+        <div className={`h-full ${bar} transition-all`} style={{ width: `${Math.max(2, pct)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function AlertTile({ icon, label, value, tone, hidden }: { icon: ReactNode; label: string; value: number; tone: "red" | "orange" | "amber" | "muted"; hidden?: boolean }) {
+  if (hidden) return null;
+  const cls = tone === "red" ? "border-red-700 bg-red-50 text-red-800"
+    : tone === "orange" ? "border-orange-700 bg-orange-50 text-orange-800"
+    : tone === "amber"  ? "border-amber-700 bg-amber-50 text-amber-900"
+    : "border-foreground/20 text-muted-foreground";
+  return (
+    <div className={`border-2 p-2 flex items-center gap-2 ${cls}`}>
       {icon}
       <div className="flex-1 min-w-0">
         <p className="text-[10px] font-mono uppercase leading-tight">{label}</p>
@@ -409,3 +450,11 @@ function AlertTile({ icon, label, value, tone }: { icon: ReactNode; label: strin
   );
 }
 
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-[10px] font-mono uppercase text-muted-foreground tracking-wide">{label}</Label>
+      {children}
+    </div>
+  );
+}
