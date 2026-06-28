@@ -1,51 +1,95 @@
-// Milestone 3 — Premium ebook outline generator with auto-QC + auto-improve.
+// Milestone 3 — Premium ebook outline generator with strict JSON contract.
 // Input: { idea_id, ebook_id? }. Creates an ebook row if needed, then generates
-// a premium outline JSON, scores it, and rewrites up to 2 times if any score < 80.
+// a premium outline JSON, normalizes & validates against a strict schema, and
+// retries up to 3 times before escalating to admin. Saves to ebook.outline_json.
 import { corsHeaders, admin, aiJSON, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 import { PREMIUM_WRITER_SYSTEM } from "../_shared/prompts.ts";
-import { scoreOutline, outlineGate, TH, logRun } from "../_shared/qc.ts";
+import { scoreOutline, outlineGate, logRun } from "../_shared/qc.ts";
 
-interface OutlineChapter {
-  index: number;
+// ---------------- Strict outline schema ----------------
+interface OutlineSection {
+  section_title: string;
+  section_goal: string;
+  key_points: string[];
+}
+interface OutlineWorksheet {
   title: string;
-  objective: string;
-  key_teaching_points: string[];
-  practical_examples: string[];
-  worksheets_checklists_templates: string[];
+  type: string;
+  purpose: string;
+  fields: string[];
+}
+interface OutlineFramework {
+  title: string;
+  type: string;
+  purpose: string;
+  items: string[];
+}
+interface OutlineChapter {
+  chapter_number: number;
+  chapter_title: string;
+  chapter_promise: string;
+  learning_outcomes: string[];
+  sections: OutlineSection[];
+  worksheet: OutlineWorksheet;
+  framework: OutlineFramework;
+}
+interface OutlineBonus {
+  title: string;
+  type: string;
+  purpose: string;
 }
 interface OutlineJson {
   title: string;
   subtitle: string;
   target_buyer: string;
-  promise_statement: string;
-  disclaimer_required: boolean;
-  disclaimer_text: string | null;
-  table_of_contents: { index: number; title: string }[];
+  buyer_pain: string;
+  core_promise: string;
+  positioning: string;
   chapters: OutlineChapter[];
-  action_plan: { title: string; steps: string[] };
-  bonus_section: { checklist: string; worksheet: string; templates: string; action_plan_7day: string };
+  bonus_materials: OutlineBonus[];
+  // legacy/extra
+  disclaimer_required?: boolean;
+  disclaimer_text?: string | null;
+  action_plan?: { title: string; steps: string[] };
+  bonus_section?: { checklist: string; worksheet: string; templates: string; action_plan_7day: string };
+  table_of_contents?: { index: number; title: string }[];
 }
+
+const MIN_CHAPTERS = 8;
 
 const SCHEMA_HINT = `{
   "title": "string",
   "subtitle": "string",
   "target_buyer": "string",
-  "promise_statement": "1 sentence transformation promise",
-  "disclaimer_required": true,
-  "disclaimer_text": "educational disclaimer if finance/health/legal/medical/relationship/investing — else null",
-  "table_of_contents": [{ "index": 1, "title": "..." }],
+  "buyer_pain": "string",
+  "core_promise": "string",
+  "positioning": "string",
   "chapters": [
     {
-      "index": 1,
-      "title": "...",
-      "objective": "what reader can do after this chapter",
-      "key_teaching_points": ["3-6 short bullets"],
-      "practical_examples": ["2-4 named realistic scenarios"],
-      "worksheets_checklists_templates": ["assets included in this chapter"]
+      "chapter_number": 1,
+      "chapter_title": "string",
+      "chapter_promise": "1 sentence transformation promise",
+      "learning_outcomes": ["outcome 1", "outcome 2", "outcome 3"],
+      "sections": [
+        { "section_title": "string", "section_goal": "string", "key_points": ["point","point","point"] }
+      ],
+      "worksheet": {
+        "title": "string",
+        "type": "tracker | calculator | checklist | script_log | timeline | scorecard | reflection | action_plan",
+        "purpose": "string",
+        "fields": ["field","field","field"]
+      },
+      "framework": {
+        "title": "string",
+        "type": "quadrant_matrix | vertical_steps | before_after | checklist_grid | comparison_table | timeline | scorecard | process_map | ladder",
+        "purpose": "string",
+        "items": ["item","item","item"]
+      }
     }
   ],
-  "action_plan": { "title": "7-Day Action Plan", "steps": ["7 numbered steps"] },
-  "bonus_section": { "checklist": "...", "worksheet": "...", "templates": "...", "action_plan_7day": "..." }
+  "bonus_materials": [
+    { "title": "string", "type": "worksheet | template | checklist | calculator | script", "purpose": "string" }
+  ]
 }`;
 
 function compliance(topic: string): boolean {
@@ -53,12 +97,206 @@ function compliance(topic: string): boolean {
   return /(finance|invest|money|wealth|health|medical|legal|law|relationship|diet|weight|cure)/i.test(t);
 }
 
-async function generateOutline(model: string, idea: any): Promise<{ data: OutlineJson; usage: any; model: string }> {
+// ---------------- Normalize ----------------
+// Accept raw AI output (string or already-parsed object) and remap common
+// alternate field names so the final object always exposes `chapters`.
+export function normalizeOutlineOutput(raw: unknown): OutlineJson {
+  let obj: any = raw;
+  if (typeof obj === "string") {
+    let s = obj.replace(/^\uFEFF/, "").trim();
+    s = s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+    try { obj = JSON.parse(s); }
+    catch {
+      // Brace-match extraction
+      const start = s.search(/[\{\[]/);
+      if (start === -1) throw new Error("No JSON in outline output");
+      const open = s[start], close = open === "{" ? "}" : "]";
+      let depth = 0, inStr = false, esc = false, end = -1;
+      for (let i = start; i < s.length; i++) {
+        const ch = s[i];
+        if (inStr) { if (esc) esc = false; else if (ch === "\\") esc = true; else if (ch === '"') inStr = false; continue; }
+        if (ch === '"') { inStr = true; continue; }
+        if (ch === open) depth++;
+        else if (ch === close) { depth--; if (depth === 0) { end = i; break; } }
+      }
+      if (end === -1) throw new Error("Truncated JSON in outline output");
+      obj = JSON.parse(s.slice(start, end + 1));
+    }
+  }
+  if (!obj || typeof obj !== "object") throw new Error("Outline output is not an object");
+
+  // Unwrap common envelopes
+  if (obj.data?.outline) obj = { ...obj, ...obj.data.outline };
+  if (obj.outline && typeof obj.outline === "object" && !Array.isArray(obj.outline)) {
+    obj = { ...obj, ...obj.outline };
+  }
+
+  // Map alternate chapter aliases → chapters
+  let chapters: any[] | undefined =
+    obj.chapters ??
+    obj.chapter_plan ??
+    obj.chapterPlan ??
+    obj.outline_chapters ??
+    obj.sections; // only if sections look chapter-like
+
+  if (!Array.isArray(chapters) && Array.isArray(obj.table_of_contents)) {
+    const toc = obj.table_of_contents;
+    // Only treat as chapters if entries look richer than {index,title}
+    if (toc.length && (toc[0].chapter_promise || toc[0].learning_outcomes || toc[0].sections)) {
+      chapters = toc;
+    }
+  }
+
+  if (!Array.isArray(chapters)) chapters = [];
+
+  // Normalize each chapter to the strict shape
+  const normChapters: OutlineChapter[] = chapters.map((c: any, i: number) => {
+    const chapter_number = Number(c.chapter_number ?? c.index ?? c.number ?? i + 1);
+    const chapter_title = String(c.chapter_title ?? c.title ?? `Chapter ${chapter_number}`);
+    const chapter_promise = String(
+      c.chapter_promise ?? c.promise ?? c.objective ?? c.brief ?? "",
+    );
+    let outcomes: string[] = Array.isArray(c.learning_outcomes)
+      ? c.learning_outcomes.map(String)
+      : Array.isArray(c.key_teaching_points) ? c.key_teaching_points.map(String)
+      : Array.isArray(c.outcomes) ? c.outcomes.map(String)
+      : [];
+    // Force exactly 3 outcomes
+    if (outcomes.length > 3) outcomes = outcomes.slice(0, 3);
+    while (outcomes.length < 3) outcomes.push(`Outcome ${outcomes.length + 1}`);
+
+    let sections: OutlineSection[] = Array.isArray(c.sections)
+      ? c.sections.map((s: any, j: number) => ({
+        section_title: String(s.section_title ?? s.title ?? `Section ${j + 1}`),
+        section_goal: String(s.section_goal ?? s.goal ?? s.objective ?? ""),
+        key_points: Array.isArray(s.key_points) ? s.key_points.map(String)
+          : Array.isArray(s.points) ? s.points.map(String) : [],
+      }))
+      : [];
+    if (sections.length === 0) {
+      sections = [{
+        section_title: "Overview",
+        section_goal: chapter_promise || "Set up the chapter premise.",
+        key_points: outcomes.slice(0, 3),
+      }];
+    }
+
+    const wsSrc = c.worksheet ?? c.workbook ?? null;
+    const worksheet: OutlineWorksheet = wsSrc && typeof wsSrc === "object"
+      ? {
+        title: String(wsSrc.title ?? `${chapter_title} worksheet`),
+        type: String(wsSrc.type ?? "checklist"),
+        purpose: String(wsSrc.purpose ?? "Help reader apply this chapter."),
+        fields: Array.isArray(wsSrc.fields) ? wsSrc.fields.map(String)
+          : Array.isArray(wsSrc.items) ? wsSrc.items.map(String) : ["", "", ""],
+      }
+      : {
+        title: `${chapter_title} worksheet`,
+        type: "checklist",
+        purpose: "Help reader apply this chapter.",
+        fields: outcomes.slice(0, 3),
+      };
+
+    const fwSrc = c.framework ?? c.model ?? null;
+    const framework: OutlineFramework = fwSrc && typeof fwSrc === "object"
+      ? {
+        title: String(fwSrc.title ?? `${chapter_title} framework`),
+        type: String(fwSrc.type ?? "vertical_steps"),
+        purpose: String(fwSrc.purpose ?? "Visual model for this chapter."),
+        items: Array.isArray(fwSrc.items) ? fwSrc.items.map(String)
+          : Array.isArray(fwSrc.steps) ? fwSrc.steps.map(String) : [],
+      }
+      : {
+        title: `${chapter_title} framework`,
+        type: "vertical_steps",
+        purpose: "Visual model for this chapter.",
+        items: outcomes.slice(0, 3),
+      };
+
+    return { chapter_number, chapter_title, chapter_promise, learning_outcomes: outcomes, sections, worksheet, framework };
+  });
+
+  // Bonus materials
+  let bonus_materials: OutlineBonus[] = Array.isArray(obj.bonus_materials)
+    ? obj.bonus_materials.map((b: any) => ({
+      title: String(b.title ?? ""),
+      type: String(b.type ?? "checklist"),
+      purpose: String(b.purpose ?? ""),
+    }))
+    : [];
+  if (bonus_materials.length === 0 && obj.bonus_section) {
+    const bs = obj.bonus_section;
+    if (bs.checklist) bonus_materials.push({ title: "Master checklist", type: "checklist", purpose: String(bs.checklist) });
+    if (bs.worksheet) bonus_materials.push({ title: "Worksheet pack", type: "worksheet", purpose: String(bs.worksheet) });
+    if (bs.templates) bonus_materials.push({ title: "Templates", type: "template", purpose: String(bs.templates) });
+    if (bs.action_plan_7day) bonus_materials.push({ title: "7-day action plan", type: "checklist", purpose: String(bs.action_plan_7day) });
+  }
+
+  return {
+    title: String(obj.title ?? ""),
+    subtitle: String(obj.subtitle ?? ""),
+    target_buyer: String(obj.target_buyer ?? ""),
+    buyer_pain: String(obj.buyer_pain ?? obj.core_pain ?? obj.core_pain_point ?? ""),
+    core_promise: String(obj.core_promise ?? obj.promise_statement ?? obj.transformation_promise ?? ""),
+    positioning: String(obj.positioning ?? obj.angle ?? ""),
+    chapters: normChapters,
+    bonus_materials,
+    disclaimer_required: obj.disclaimer_required ?? false,
+    disclaimer_text: obj.disclaimer_text ?? null,
+    action_plan: obj.action_plan,
+    bonus_section: obj.bonus_section,
+  };
+}
+
+// ---------------- Validate ----------------
+export interface OutlineValidation {
+  ok: boolean;
+  reason: string;
+  missing_fields: string[];
+  chapter_count: number;
+}
+
+export function validateOutlineJson(o: OutlineJson | any): OutlineValidation {
+  const missing: string[] = [];
+  if (!o || typeof o !== "object") {
+    return { ok: false, reason: "outline_json is not an object", missing_fields: ["outline_json"], chapter_count: 0 };
+  }
+  if (!Array.isArray(o.chapters)) {
+    return { ok: false, reason: "outline_json.chapters is not an array", missing_fields: ["outline_json.chapters"], chapter_count: 0 };
+  }
+  const count = o.chapters.length;
+  if (count < MIN_CHAPTERS) {
+    return { ok: false, reason: `outline_json.chapters must have at least ${MIN_CHAPTERS} entries (got ${count})`, missing_fields: ["outline_json.chapters"], chapter_count: count };
+  }
+  o.chapters.forEach((c: any, i: number) => {
+    if (c.chapter_number == null) missing.push(`chapters[${i}].chapter_number`);
+    if (!c.chapter_title) missing.push(`chapters[${i}].chapter_title`);
+    if (!c.chapter_promise) missing.push(`chapters[${i}].chapter_promise`);
+    if (!Array.isArray(c.learning_outcomes) || c.learning_outcomes.length !== 3) {
+      missing.push(`chapters[${i}].learning_outcomes (need exactly 3)`);
+    }
+    if (!Array.isArray(c.sections) || c.sections.length === 0) missing.push(`chapters[${i}].sections`);
+    if (!c.worksheet || typeof c.worksheet !== "object") missing.push(`chapters[${i}].worksheet`);
+    if (!c.framework || typeof c.framework !== "object") missing.push(`chapters[${i}].framework`);
+  });
+  if (missing.length > 0) {
+    return { ok: false, reason: `Missing required fields: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""}`, missing_fields: missing, chapter_count: count };
+  }
+  return { ok: true, reason: "ok", missing_fields: [], chapter_count: count };
+}
+
+// ---------------- AI calls ----------------
+async function generateOutline(model: string, idea: any, correction?: string) {
   const needsDisclaimer = compliance([idea.title, idea.subtitle, idea.hook, idea.category_name].filter(Boolean).join(" "));
+  const correctionBlock = correction
+    ? `\n\nIMPORTANT CORRECTION (your previous output was invalid):\n${correction}\nReturn valid JSON only with a "chapters" array of at least ${MIN_CHAPTERS} chapters. No markdown. No prose. No explanation.\n`
+    : "";
   return aiJSON<OutlineJson>({
     model,
     schemaHint: SCHEMA_HINT,
-    system: PREMIUM_WRITER_SYSTEM + `\n\nYou are designing a PREMIUM PAID PDF EBOOK outline. The outline must read like a paid product, not a blog. Generate 8-12 chapters; each must deliver a specific transformation. No generic "Introduction" chapter.`,
+    system: PREMIUM_WRITER_SYSTEM +
+      `\n\nYou are designing a PREMIUM PAID PDF EBOOK outline. The outline must read like a paid product, not a blog. Generate ${MIN_CHAPTERS}-12 chapters; each must deliver a specific transformation. No generic "Introduction" chapter.` +
+      `\n\nSTRICT OUTPUT CONTRACT: Return a single JSON object matching the schema. The top-level key MUST be "chapters" (array). Each chapter MUST include: chapter_number, chapter_title, chapter_promise, learning_outcomes (exactly 3), sections (array), worksheet (object), framework (object). Respond with JSON only — no markdown fences, no prose.`,
     user: `Approved ebook idea:
 Title: ${idea.title}
 Subtitle: ${idea.subtitle ?? ""}
@@ -67,38 +305,23 @@ Hook: ${idea.hook ?? ""}
 Core pain: ${idea.core_pain_point ?? ""}
 Transformation promise: ${idea.transformation_promise ?? ""}
 
-Design the full premium ebook outline. Use 8-12 chapters (aim 10). Each chapter MUST include an objective, key teaching points, practical examples, and any worksheets/checklists/templates the chapter delivers. Also produce an action plan and a bonus section.
+Design the full premium ebook outline. Use ${MIN_CHAPTERS}-12 chapters (aim 10). Each chapter MUST include chapter_number, chapter_title, chapter_promise, exactly 3 learning_outcomes, a sections array, a worksheet object, and a framework object. Also include bonus_materials.
 
-${needsDisclaimer ? 'This topic is in a regulated area (finance/health/legal/medical/relationship). Set disclaimer_required=true and write a short educational disclaimer ("This guide is for educational purposes only and is not professional advice. Consult a qualified professional for your situation.").' : 'Set disclaimer_required=false and disclaimer_text=null.'}
-
+${needsDisclaimer ? 'This topic is regulated (finance/health/legal/medical/relationship). Set disclaimer_required=true and write a short educational disclaimer.' : 'Set disclaimer_required=false and disclaimer_text=null.'}
+${correctionBlock}
 Return JSON only.`,
   });
 }
 
-async function improveOutline(model: string, idea: any, previous: OutlineJson, weakness: string) {
-  return aiJSON<OutlineJson>({
-    model,
-    schemaHint: SCHEMA_HINT,
-    system: PREMIUM_WRITER_SYSTEM + `\n\nYou are improving a premium ebook outline. Fix the listed weaknesses. Keep chapters between 8-12. Strengthen practicality, depth, premium feel, buyer usefulness. Remove duplication.`,
-    user: `Title: ${idea.title}
-Target Buyer: ${idea.target_buyer ?? ""}
-Hook: ${idea.hook ?? ""}
-
-Previous outline (JSON):
-${JSON.stringify(previous).slice(0, 8000)}
-
-Weaknesses to fix: ${weakness}
-
-Return the FULL improved outline JSON.`,
-  });
-}
-
-function bonusesRecord(o: OutlineJson) {
+function legacyBonuses(o: OutlineJson) {
+  if (o.bonus_section) return o.bonus_section;
+  const m = o.bonus_materials ?? [];
+  const find = (t: string) => m.find((b) => b.type === t)?.purpose ?? "";
   return {
-    checklist: o.bonus_section?.checklist ?? "",
-    worksheet: o.bonus_section?.worksheet ?? "",
-    templates: o.bonus_section?.templates ?? "",
-    action_plan_7day: o.bonus_section?.action_plan_7day ?? "",
+    checklist: find("checklist"),
+    worksheet: find("worksheet"),
+    templates: find("template"),
+    action_plan_7day: o.action_plan?.steps?.join("; ") ?? "",
   };
 }
 
@@ -153,38 +376,71 @@ Deno.serve(async (req) => {
 
     await db.from("ebooks").update({ writing_status: "outline_generating", pipeline_status: "outline_generation" }).eq("id", ebook.id);
 
-    let outlineRes = await generateOutline(model, ctx);
-    await logCost(db, { ebook_id: ebook.id, step: "outline", model: outlineRes.model, ...outlineRes.usage });
-    let totalCost = outlineRes.usage.cost_usd;
-    let outline = outlineRes.data;
+    // ---- Strict generate-normalize-validate loop (up to 3 attempts) ----
+    let outline: OutlineJson | null = null;
+    let validation: OutlineValidation = { ok: false, reason: "not yet generated", missing_fields: [], chapter_count: 0 };
+    let totalCost = 0;
+    let attempts = 0;
+    let lastCorrection: string | undefined;
 
-    let rewrites = 0;
-    let scores = await scoreOutline(model, {
+    while (attempts < 3 && !validation.ok) {
+      attempts++;
+      let raw: any;
+      try {
+        const res = await generateOutline(model, ctx, lastCorrection);
+        await logCost(db, { ebook_id: ebook.id, step: `outline_attempt_${attempts}`, model: res.model, ...res.usage });
+        totalCost += res.usage.cost_usd;
+        raw = res.data;
+      } catch (e) {
+        lastCorrection = `Previous attempt threw: ${(e as Error).message}. Return strict JSON only.`;
+        await logRun(db, { ebook_id: ebook.id, step: "outline", status: "fail", error: (e as Error).message, rewrite_count: attempts - 1 });
+        continue;
+      }
+
+      try {
+        outline = normalizeOutlineOutput(raw);
+      } catch (e) {
+        lastCorrection = `Could not parse your previous JSON: ${(e as Error).message}. Return ONLY a JSON object whose top-level key "chapters" is an array of at least ${MIN_CHAPTERS} chapters.`;
+        validation = { ok: false, reason: `normalize failed: ${(e as Error).message}`, missing_fields: ["outline_json"], chapter_count: 0 };
+        await logRun(db, { ebook_id: ebook.id, step: "outline", status: "rewrite", error: validation.reason, rewrite_count: attempts - 1 });
+        continue;
+      }
+
+      validation = validateOutlineJson(outline);
+      if (!validation.ok) {
+        lastCorrection = `Your previous output was invalid because it did not include a valid outline_json.chapters array (reason: ${validation.reason}). Return valid JSON only with a "chapters" array of at least ${MIN_CHAPTERS} chapters, each with chapter_number, chapter_title, chapter_promise, exactly 3 learning_outcomes, sections[], worksheet{}, framework{}.`;
+        await logRun(db, { ebook_id: ebook.id, step: "outline", status: "rewrite", error: validation.reason, rewrite_count: attempts - 1, payload: { missing_fields: validation.missing_fields, chapter_count: validation.chapter_count } });
+      } else {
+        await logRun(db, { ebook_id: ebook.id, step: "outline", status: "ok", rewrite_count: attempts - 1, payload: { chapter_count: validation.chapter_count } });
+      }
+    }
+
+    if (!validation.ok || !outline) {
+      // Persist failure so the UI can surface a precise admin message
+      await db.from("ebooks").update({
+        writing_status: "needs_review",
+        qc_status: "outline_failed",
+        pipeline_status: "rejected",
+        rejection_reason: `Admin needed because generate_outline did not return a valid chapters array after ${attempts} attempts. Missing: outline_json.chapters (${validation.reason})`,
+        cost_usd: (Number(ebook.cost_usd ?? 0) + totalCost),
+      }).eq("id", ebook.id);
+      return new Response(JSON.stringify({
+        error: `generate-outline did not return a valid chapters array (got ${validation.chapter_count}).`,
+        attempts,
+        validation,
+      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ---- Outline QC (only runs after schema is valid) ----
+    const scores = await scoreOutline(model, {
       title: outline.title,
-      toc: outline.chapters.map((c) => ({ title: c.title, brief: c.objective })),
-      bonuses: bonusesRecord(outline),
+      toc: outline.chapters.map((c) => ({ title: c.chapter_title, brief: c.chapter_promise })),
+      bonuses: legacyBonuses(outline) as any,
     });
     totalCost += scores.usage.cost_usd;
     await logCost(db, { ebook_id: ebook.id, step: "outline_qc", model: scores.model, ...scores.usage });
-    let gate = outlineGate(scores.data);
-    await logRun(db, { ebook_id: ebook.id, step: "outline_qc", status: gate.pass ? "ok" : "rewrite", score: scores.data.structure_score, rewrite_count: 0, cost_usd: totalCost, payload: scores.data as any });
-
-    while (!gate.pass && rewrites < 2) {
-      rewrites++;
-      const improved = await improveOutline(model, ctx, outline, gate.reason);
-      totalCost += improved.usage.cost_usd;
-      await logCost(db, { ebook_id: ebook.id, step: `outline_improve_${rewrites}`, model: improved.model, ...improved.usage });
-      outline = improved.data;
-      scores = await scoreOutline(model, {
-        title: outline.title,
-        toc: outline.chapters.map((c) => ({ title: c.title, brief: c.objective })),
-        bonuses: bonusesRecord(outline),
-      });
-      totalCost += scores.usage.cost_usd;
-      await logCost(db, { ebook_id: ebook.id, step: `outline_qc_${rewrites}`, model: scores.model, ...scores.usage });
-      gate = outlineGate(scores.data);
-      await logRun(db, { ebook_id: ebook.id, step: "outline_qc", status: gate.pass ? "ok" : "rewrite", score: scores.data.structure_score, rewrite_count: rewrites, cost_usd: totalCost, payload: scores.data as any });
-    }
+    const gate = outlineGate(scores.data);
+    await logRun(db, { ebook_id: ebook.id, step: "outline_qc", status: gate.pass ? "ok" : "rewrite", score: scores.data.structure_score, rewrite_count: attempts - 1, cost_usd: totalCost, payload: scores.data as any });
 
     const writing_status = gate.pass ? "outline_ready" : "needs_review";
     const qc_status = gate.pass ? "outline_passed" : "outline_failed";
@@ -193,23 +449,29 @@ Deno.serve(async (req) => {
     await db.from("ebooks").update({
       outline_json: outline as any,
       outline_qc: scores.data as any,
-      outline_rewrite_count: rewrites,
-      toc: outline.chapters.map((c) => ({ title: c.title, brief: c.objective })),
-      bonuses: bonusesRecord(outline),
-      title: outline.title,
-      subtitle: outline.subtitle,
-      target_buyer: outline.target_buyer,
+      outline_rewrite_count: attempts - 1,
+      toc: outline.chapters.map((c) => ({ title: c.chapter_title, brief: c.chapter_promise })),
+      bonuses: legacyBonuses(outline) as any,
+      title: outline.title || ebook.title,
+      subtitle: outline.subtitle || ebook.subtitle,
+      target_buyer: outline.target_buyer || ebook.target_buyer,
       writing_status,
       qc_status,
       pipeline_status,
-      rejection_reason: gate.pass ? null : `Outline QC failed after ${rewrites} rewrites: ${gate.reason}`,
+      rejection_reason: gate.pass ? null : `Outline QC failed after ${attempts - 1} rewrites: ${gate.reason}`,
       cost_usd: (Number(ebook.cost_usd ?? 0) + totalCost),
       status: gate.pass ? "outline" : "needs_review",
     }).eq("id", ebook.id);
 
-    return new Response(JSON.stringify({ ebook_id: ebook.id, writing_status, qc_status, scores: scores.data, rewrites, outline }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(JSON.stringify({
+      ebook_id: ebook.id,
+      writing_status,
+      qc_status,
+      scores: scores.data,
+      rewrites: attempts - 1,
+      chapter_count: validation.chapter_count,
+      outline,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },

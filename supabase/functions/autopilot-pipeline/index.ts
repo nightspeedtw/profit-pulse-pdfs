@@ -247,7 +247,7 @@ Deno.serve(async (req) => {
         };
 
         // ---------- STEP 4 + 5 — Outline + QC (with strict dependency validation) ----------
-        const MIN_OUTLINE_CHAPTERS = 3;
+        const MIN_OUTLINE_CHAPTERS = 8;
         const hasValidOutline = (e: any) => {
           const o = e?.outline_json as any;
           return !!(o && Array.isArray(o.chapters) && o.chapters.length >= MIN_OUTLINE_CHAPTERS);
@@ -271,7 +271,7 @@ Deno.serve(async (req) => {
               }).eq("id", ebook.id);
               await needsAdmin(
                 "outline",
-                "Outline generation failed 3× during dependency repair.",
+                "Admin needed because generate_outline did not return a valid chapters array after 3 attempts. Missing: outline_json.chapters",
                 "Inspect generate-outline logs or regenerate manually.",
               );
               throw new Error("outline_dependency_repair_exhausted");
@@ -283,7 +283,7 @@ Deno.serve(async (req) => {
             }
             const label = attempts === 1
               ? "Generating chapter outline and running outline QC…"
-              : `Outline missing chapters — repairing (attempt ${attempts}/3)…`;
+              : `Generating outline — repairing invalid outline JSON, attempt ${attempts}/3`;
             try {
               await track(["outline", "outline_qc"], label, async () => {
                 await runStep("4_5_outline_qc", "generate-outline", { ebook_id: ebook.id });
