@@ -1580,6 +1580,7 @@ export type Database = {
       generation_mode: "low_cost" | "premium" | "hybrid"
       job_status: "queued" | "running" | "done" | "failed"
       pipeline_status:
+        | "ideation"
         | "idea_generated"
         | "title_copywriting"
         | "outline_generation"
@@ -1723,6 +1724,7 @@ export const Constants = {
       generation_mode: ["low_cost", "premium", "hybrid"],
       job_status: ["queued", "running", "done", "failed"],
       pipeline_status: [
+        "ideation",
         "idea_generated",
         "title_copywriting",
         "outline_generation",
