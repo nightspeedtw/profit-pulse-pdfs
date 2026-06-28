@@ -326,71 +326,128 @@ Deno.serve(async (req) => {
 
         await ensureValidOutline();
 
-        // ---------- STEP 6 + 7 — Write chapters ----------
+        // ---------- STEP 6 + 7 — Write chapters (sequential w/ heartbeat) ----------
         // Hard dependency: outline must be valid before we ever invoke write-chapters.
         if (!hasValidOutline(ebook)) {
-          // Defensive: should be impossible after ensureValidOutline, but never call
-          // write-chapters without an outline (that's the bug we're fixing).
           await needsAdmin("chapter_writing", "Outline still missing after repair — refusing to start chapter writing.");
           throw new Error("outline_missing_before_write_chapters");
         }
-        if ((ebook.total_word_count ?? 0) < (Number(settings.min_word_count ?? 18000) * 0.9)) {
-          if (await overBudget() || await overAiCalls()) {
-            await needsAdmin("chapter_writing", "Budget cap reached before chapter writing.", "Raise per-ebook budget or unblock the job.");
-            return;
+
+        // Per-chapter minimum used to decide "missing or too weak".
+        const MIN_CHAPTER_WORDS = 600;
+
+        // Return list of outline chapter indices that are missing or below threshold.
+        async function findIncompleteChapters(): Promise<number[]> {
+          const outlineChapters: any[] = Array.isArray((ebook.outline_json as any)?.chapters)
+            ? (ebook.outline_json as any).chapters : [];
+          const { data: rows } = await db.from("ebook_chapters")
+            .select("chapter_index,word_count,content").eq("ebook_id", ebook.id);
+          const have = new Map<number, { wc: number; len: number }>();
+          for (const r of rows ?? []) {
+            have.set(Number(r.chapter_index), {
+              wc: Number(r.word_count ?? 0),
+              len: typeof r.content === "string" ? r.content.trim().length : 0,
+            });
           }
-          await track(
-            ["chapter_writing", "chapter_qc"],
-            "Writing chapters and running per-chapter QC…",
-            async () => {
-              // Re-validate immediately before the call (cheap insurance against races).
-              await refreshEbook();
-              if (!hasValidOutline(ebook)) {
-                // Self-heal once more rather than crashing the run.
-                await ensureValidOutline();
-              }
-              await runStep("6_7_write_qc_chapters", "write-chapters", { ebook_id: ebook.id, full: true });
-              await refreshEbook();
-            },
-          );
-        } else {
-          await skip(["chapter_writing", "chapter_qc"], "Chapters already written");
+          const missing: number[] = [];
+          for (let i = 0; i < outlineChapters.length; i++) {
+            const oc: any = outlineChapters[i];
+            const idx = Number(oc?.index ?? oc?.chapter_number ?? oc?.number ?? i + 1);
+            const h = have.get(idx);
+            if (!h || h.len === 0 || h.wc < MIN_CHAPTER_WORDS) missing.push(idx);
+          }
+          return missing.sort((a, b) => a - b);
+        }
+
+        // Generate the listed chapter indices sequentially via single-chapter mode,
+        // updating the live tracker heartbeat after each one. This replaces the old
+        // "background all=true" call that returned before chapters were saved and
+        // left manuscript QC to regenerate them later.
+        async function writeChaptersSequentially(indices: number[], label: (cur: number, total: number, idx: number) => string) {
+          let cur = 0;
+          for (const idx of indices) {
+            cur++;
+            if (await tracker.isPauseRequested()) {
+              await tracker.markPaused();
+              throw new Error("paused_by_admin");
+            }
+            await tracker.updateStep("chapter_writing", { message: label(cur, indices.length, idx) });
+            await runStep(`6_write_chapter_${idx}`, "write-chapters", { ebook_id: ebook.id, chapter_index: idx });
+          }
+          await refreshEbook();
+        }
+
+        // Initial write pass: only write chapters that aren't already complete.
+        {
+          const incompleteBefore = await findIncompleteChapters();
+          if (incompleteBefore.length === 0) {
+            await skip(["chapter_writing", "chapter_qc"], "Chapters already written");
+          } else {
+            if (await overBudget() || await overAiCalls()) {
+              await needsAdmin("chapter_writing", "Budget cap reached before chapter writing.", "Raise per-ebook budget or unblock the job.");
+              return;
+            }
+            await track(
+              ["chapter_writing", "chapter_qc"],
+              `Writing ${incompleteBefore.length} chapter${incompleteBefore.length === 1 ? "" : "s"} with per-chapter QC…`,
+              async () => {
+                await writeChaptersSequentially(
+                  incompleteBefore,
+                  (cur, total, idx) => `Writing chapter ${cur}/${total} (outline #${idx})…`,
+                );
+                // Repair loop: up to 3 passes targeting only still-missing chapters.
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                  const stillMissing = await findIncompleteChapters();
+                  if (stillMissing.length === 0) return;
+                  await tracker.updateStep("chapter_writing", {
+                    message: `Repairing ${stillMissing.length} missing chapter${stillMissing.length === 1 ? "" : "s"} (pass ${attempt}/3)…`,
+                  });
+                  await writeChaptersSequentially(
+                    stillMissing,
+                    (cur, total, idx) => `Generating missing chapter ${cur}/${total} (outline #${idx}) — pass ${attempt}/3`,
+                  );
+                }
+                const finalMissing = await findIncompleteChapters();
+                if (finalMissing.length > 0) {
+                  throw new Error(`chapter_writing incomplete: missing chapters [${finalMissing.join(", ")}] after 3 repair passes`);
+                }
+              },
+            );
+          }
         }
 
         // ---------- STEP 8 — Final manuscript QC ----------
+        // Guarantee: never enter manuscript QC with missing chapters. If anything
+        // is still missing here (e.g. resume path that skipped writing), route
+        // back to chapter_writing and repair via write-chapters — manuscript QC
+        // must not regenerate many chapters internally.
         if (ebook.manuscript_qc_status !== "manuscript_passed" && ebook.manuscript_qc_status !== "pass" && ebook.manuscript_qc_status !== "approved") {
           if (await overBudget()) {
             await needsAdmin("manuscript_qc", "Budget cap reached before manuscript QC.");
             return;
           }
 
-          // Pre-validation: ensure chapters exist for every outline chapter before QC.
-          // If some are missing but write-chapters already ran, the QC step itself
-          // will regenerate them via "regenerate_missing_chapter" repair action.
-          const { data: chRows } = await db.from("ebook_chapters")
-            .select("chapter_index,word_count").eq("ebook_id", ebook.id);
-          const outlineCount = Array.isArray((ebook.outline_json as any)?.chapters)
-            ? (ebook.outline_json as any).chapters.length : 0;
-          const present = (chRows ?? []).length;
-          const sumWc = (chRows ?? []).reduce((s, r: any) => s + Number(r.word_count ?? 0), 0);
-
-          if (present === 0 || sumWc === 0) {
-            // Nothing to QC — go back to write-chapters once instead of failing.
+          const missingNow = await findIncompleteChapters();
+          if (missingNow.length > 0) {
             await track(
               ["chapter_writing", "chapter_qc"],
-              "Manuscript empty — rebuilding chapters from outline before QC…",
+              `Manuscript QC found ${missingNow.length} missing chapter${missingNow.length === 1 ? "" : "s"}. Returning to Writing Chapters to generate only the missing ones…`,
               async () => {
-                await runStep("6_7_write_qc_chapters", "write-chapters", { ebook_id: ebook.id, full: true });
-                await refreshEbook();
+                await writeChaptersSequentially(
+                  missingNow,
+                  (cur, total, idx) => `Generating missing chapter ${cur}/${total} (outline #${idx})…`,
+                );
+                const stillMissing = await findIncompleteChapters();
+                if (stillMissing.length > 0) {
+                  throw new Error(`Missing chapters still unresolved after repair: [${stillMissing.join(", ")}]`);
+                }
               },
             );
           }
 
           await track(
             ["manuscript_qc"],
-            present < outlineCount
-              ? `Running final manuscript QC (will regenerate ${outlineCount - present} missing chapter${outlineCount - present === 1 ? "" : "s"})…`
-              : "Running final manuscript QC across the whole book…",
+            "Running final manuscript QC across the whole book…",
             async () => {
               await runStep("8_final_manuscript_qc", "final-manuscript-qc", { ebook_id: ebook.id });
               await refreshEbook();
@@ -398,7 +455,6 @@ Deno.serve(async (req) => {
           );
 
           if (ebook.manuscript_qc_status === "needs_review") {
-            // Build a DETAILED admin message from the structured failed_reasons.
             const qc = (ebook.final_manuscript_qc as any) ?? {};
             const reasons: Array<{ message?: string; code?: string }> = Array.isArray(qc.failed_reasons) ? qc.failed_reasons : [];
             const attemptsUsed: number = Number(qc.attempts_used ?? ebook.manuscript_fix_count ?? 0);
@@ -416,6 +472,7 @@ Deno.serve(async (req) => {
         } else {
           await skip(["manuscript_qc"], "Manuscript QC already passed");
         }
+
 
         // ---------- STEP 9 — Cover + thumbnail ----------
         if (!ebook.cover_url) {
