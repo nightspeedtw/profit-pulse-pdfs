@@ -18,6 +18,13 @@ type Ebook = {
   pdf_status: string | null;
   final_quality_score: number | null;
   updated_at: string;
+  qc_status: string | null;
+  failed_gate: string | null;
+  failed_score: number | null;
+  required_score: number | null;
+  auto_fix_attempt_count: number | null;
+  max_auto_fix_attempts: number | null;
+  last_auto_fix_action: string | null;
 };
 
 type Settings = {
