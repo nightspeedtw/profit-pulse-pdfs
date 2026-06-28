@@ -51,11 +51,19 @@ Return JSON only:
   "works_as_thumbnail": true|false,
   "no_misleading_claim": true|false,
   "no_clutter": true|false,
+  "no_overlap": true|false,
+  "strong_contrast": true|false,
+  "no_ai_text_errors": true|false,
+  "mobile_thumbnail_readable": true|false,
   "conversion_score": 0-100,
   "issues": ["..."],
   "improvements": ["..."]
 }
-Score harshly. >= 85 required to pass.`;
+Score harshly. >= 85 required to pass.
+no_ai_text_errors: the BACKGROUND must contain ZERO letters/words/numbers. If the background prompt or strategy implies text in the image, mark false.
+no_overlap: title, subtitle, badge, brand must not visually overlap given the layout_direction and panel placement.
+strong_contrast: overlay color vs primary_text color must have strong luminance contrast.`;
+
 
 async function generateBackgroundPNG(prompt: string): Promise<{ bytes: Uint8Array; cost: number }> {
   const key = Deno.env.get("LOVABLE_API_KEY");
@@ -77,15 +85,24 @@ async function generateBackgroundPNG(prompt: string): Promise<{ bytes: Uint8Arra
   return { bytes: Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), cost: 0.04 };
 }
 
-async function processCover(ebook: EbookRow, regenerateSpec: boolean) {
+type CoverMode = "full" | "spec" | "background" | "overlay";
+
+interface ProcessOpts {
+  mode: CoverMode;
+  spec_overrides?: Partial<CoverSpec>;
+}
+
+async function processCover(ebook: EbookRow, opts: ProcessOpts) {
   const db = admin();
   const ebook_id = ebook.id;
   const previousStatus = ebook.status ?? "review";
   let totalCost = 0;
+  const mode = opts.mode;
   try {
-    // 1) Cover strategy (skip if cached spec & not regenerating)
+    // 1) Cover strategy spec
     let spec: CoverSpec = ebook.cover_spec as CoverSpec;
-    if (!spec || regenerateSpec) {
+    const needNewSpec = !spec || mode === "full" || mode === "spec";
+    if (needNewSpec) {
       const category = ebook.category_id
         ? (await db.from("categories").select("name").eq("id", ebook.category_id).maybeSingle()).data?.name
         : null;
@@ -124,7 +141,6 @@ Return JSON with this exact schema:
       totalCost += ai.usage.cost_usd;
       await logCost(db, { ebook_id, step: "cover_spec", model: ai.model, ...ai.usage });
       spec = ai.data;
-      // sanity defaults
       spec.brand_text = spec.brand_text || "SECRET PDF";
       spec.title_text = (spec.title_text || ebook.title).slice(0, 60);
       spec.subtitle_text = (spec.subtitle_text || ebook.subtitle || "").slice(0, 120);
@@ -134,18 +150,31 @@ Return JSON with this exact schema:
       spec.layout_direction = spec.layout_direction || "bottom";
     }
 
-    // 2) Background image (no text)
-    const bg = await generateBackgroundPNG(spec.background_image_prompt_no_text || ebook.cover_prompt || `Premium editorial cover image for "${ebook.title}"`);
-    totalCost += bg.cost;
+    // Apply admin overrides (title/subtitle/badge/brand/colors/layout edits)
+    if (opts.spec_overrides) {
+      spec = { ...spec, ...opts.spec_overrides } as CoverSpec;
+    }
+
+    // 2) Background image — generate fresh on full/background; reuse on spec/overlay
     const bgPath = `${ebook_id}/bg.png`;
-    {
-      const { error } = await db.storage.from("ebook-covers").upload(bgPath, bg.bytes, { contentType: "image/png", upsert: true });
+    let bgBytes: Uint8Array | null = null;
+    const needNewBg = mode === "full" || mode === "background";
+    if (needNewBg) {
+      const bg = await generateBackgroundPNG(spec.background_image_prompt_no_text || ebook.cover_prompt || `Premium editorial cover image for "${ebook.title}"`);
+      totalCost += bg.cost;
+      bgBytes = bg.bytes;
+      const { error } = await db.storage.from("ebook-covers").upload(bgPath, bgBytes, { contentType: "image/png", upsert: true });
       if (error) throw error;
+    } else {
+      // Re-download existing background for SVG composition
+      const { data, error } = await db.storage.from("ebook-covers").download(bgPath);
+      if (error || !data) throw new Error("No existing background to reuse — run full or background mode first.");
+      bgBytes = new Uint8Array(await data.arrayBuffer());
     }
     const { data: bgSigned } = await db.storage.from("ebook-covers").createSignedUrl(bgPath, 60 * 60 * 24 * 365);
 
-    // 3) Compose SVG → rasterize PNG
-    const svg = buildCoverSVG(spec, bg.bytes);
+    // 3) Compose SVG → rasterize PNG (Shopify product cover + PDF cover page)
+    const svg = buildCoverSVG(spec, bgBytes);
     const coverPng = await rasterizeSVG(svg, 1600);
     const coverPath = `${ebook_id}/cover.png`;
     {
@@ -154,11 +183,13 @@ Return JSON with this exact schema:
     }
     const { data: coverSigned } = await db.storage.from("ebook-covers").createSignedUrl(coverPath, 60 * 60 * 24 * 365);
 
-    // 4) Cover QC
+    // 4) Cover QC (expanded dimensions)
     const qc = await aiJSON<{
       title_readable: boolean; subtitle_readable: boolean; brand_visible: boolean;
       matches_topic: boolean; looks_premium: boolean; works_as_thumbnail: boolean;
       no_misleading_claim: boolean; no_clutter: boolean;
+      no_overlap: boolean; strong_contrast: boolean;
+      no_ai_text_errors: boolean; mobile_thumbnail_readable: boolean;
       conversion_score: number; issues: string[]; improvements: string[];
     }>({
       model: "google/gemini-3.1-pro-preview",
@@ -173,7 +204,9 @@ Return JSON with this exact schema:
       qc.data.title_readable && qc.data.subtitle_readable &&
       qc.data.brand_visible && qc.data.matches_topic &&
       qc.data.looks_premium && qc.data.works_as_thumbnail &&
-      qc.data.no_misleading_claim && qc.data.no_clutter;
+      qc.data.no_misleading_claim && qc.data.no_clutter &&
+      qc.data.no_overlap && qc.data.strong_contrast &&
+      qc.data.no_ai_text_errors && qc.data.mobile_thumbnail_readable;
 
     await db.from("ebooks").update({
       cover_url: coverSigned?.signedUrl,
@@ -182,7 +215,7 @@ Return JSON with this exact schema:
       cover_spec: spec as unknown as never,
       cover_qc: qc.data as unknown as never,
       cover_score: score,
-      cover_approved: false,
+      cover_approved: false, // editing/regenerating always re-requires admin approval
       status: previousStatus === "cover" ? "review" : previousStatus,
       qc: { ...(ebook.qc ?? {}), cover_error: null, cover_passed: passed },
       cost_usd: Number(ebook.cost_usd ?? 0) + totalCost,
@@ -190,6 +223,7 @@ Return JSON with this exact schema:
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("cover generation failed", message);
+
     await db.from("ebooks").update({
       status: previousStatus === "cover" ? "review" : previousStatus,
       qc: { ...(ebook.qc ?? {}), cover_error: message },
@@ -203,8 +237,16 @@ Deno.serve(async (req) => {
     await requireAdmin(req);
     const db = admin();
     const body = await req.json().catch(() => ({}));
-    const { ebook_id, regenerate_spec = true } = body as { ebook_id?: string; regenerate_spec?: boolean };
+    const { ebook_id, mode, regenerate_spec, spec_overrides } = body as {
+      ebook_id?: string;
+      mode?: CoverMode;
+      regenerate_spec?: boolean;
+      spec_overrides?: Partial<CoverSpec>;
+    };
     if (!ebook_id) throw new Error("ebook_id required");
+    // Back-compat: legacy `regenerate_spec` flag maps to mode if not provided.
+    const resolvedMode: CoverMode = mode ?? (regenerate_spec === false ? "background" : "full");
+
     const { data: e } = await db.from("ebooks")
       .select("id,title,subtitle,target_buyer,hook,product_description,cover_prompt,cost_usd,status,qc,cover_spec,category_id")
       .eq("id", ebook_id).single();
@@ -212,11 +254,12 @@ Deno.serve(async (req) => {
 
     await db.from("ebooks").update({ status: "cover", qc: { ...(e.qc ?? {}), cover_error: null } }).eq("id", ebook_id);
     (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<void>) => void } })
-      .EdgeRuntime?.waitUntil?.(processCover(e as unknown as EbookRow, regenerate_spec));
+      .EdgeRuntime?.waitUntil?.(processCover(e as unknown as EbookRow, { mode: resolvedMode, spec_overrides }));
 
-    return new Response(JSON.stringify({ status: "cover", started: true }), {
+    return new Response(JSON.stringify({ status: "cover", started: true, mode: resolvedMode }), {
       status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
   } catch (e) {
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -375,7 +375,10 @@ export default function EbookWriting() {
               <XCircle className="size-4" /> Reject
             </Button>
           </div>
-          <Link to="/admin/pipeline" className="text-sm underline text-muted-foreground">← Back to pipeline</Link>
+          <div className="flex gap-4">
+            <Link to={`/admin/ebook/${ebook.id}/cover`} className="text-sm underline">Cover design →</Link>
+            <Link to="/admin/pipeline" className="text-sm underline text-muted-foreground">← Back to pipeline</Link>
+          </div>
         </CardContent>
       </Card>
     </div>
