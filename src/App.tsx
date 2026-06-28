@@ -20,6 +20,7 @@ import AdminCategories from "./pages/admin/Categories.tsx";
 import Ideas from "./pages/admin/Ideas.tsx";
 import Pipeline from "./pages/admin/Pipeline.tsx";
 import EbookReview from "./pages/admin/EbookReview.tsx";
+import EbookWriting from "./pages/admin/EbookWriting.tsx";
 import Costs from "./pages/admin/Costs.tsx";
 import Autopilot from "./pages/admin/Autopilot.tsx";
 
@@ -48,6 +49,7 @@ const App = () => (
             <Route path="pipeline" element={<Pipeline />} />
             <Route path="autopilot" element={<Autopilot />} />
             <Route path="ebook/:id" element={<EbookReview />} />
+            <Route path="ebook/:id/writing" element={<EbookWriting />} />
             <Route path="categories" element={<AdminCategories />} />
             <Route path="costs" element={<Costs />} />
             <Route path="settings" element={<SettingsPage />} />

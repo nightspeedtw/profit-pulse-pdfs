@@ -333,6 +333,8 @@ export type Database = {
           metadata: Json
           pipeline_status: Database["public"]["Enums"]["pipeline_status"]
           qc_scores: Json
+          qc_status: string | null
+          rejection_reason: string | null
           rewrite_count: number
           title: string
           updated_at: string
@@ -348,6 +350,8 @@ export type Database = {
           metadata?: Json
           pipeline_status?: Database["public"]["Enums"]["pipeline_status"]
           qc_scores?: Json
+          qc_status?: string | null
+          rejection_reason?: string | null
           rewrite_count?: number
           title: string
           updated_at?: string
@@ -363,6 +367,8 @@ export type Database = {
           metadata?: Json
           pipeline_status?: Database["public"]["Enums"]["pipeline_status"]
           qc_scores?: Json
+          qc_status?: string | null
+          rejection_reason?: string | null
           rewrite_count?: number
           title?: string
           updated_at?: string
@@ -624,6 +630,9 @@ export type Database = {
           metadata: Json
           needs_review_reason: string | null
           outline: Json
+          outline_json: Json
+          outline_qc: Json
+          outline_rewrite_count: number
           pdf_layout_score: number | null
           pdf_qc: Json | null
           pdf_url: string | null
@@ -635,6 +644,8 @@ export type Database = {
           product_page_qc: Json
           product_type: string
           qc: Json
+          qc_status: string | null
+          rejection_reason: string | null
           seo_meta: string | null
           seo_title: string | null
           shopify_events: Json
@@ -649,10 +660,12 @@ export type Database = {
           target_buyer: string | null
           title: string
           toc: Json
+          total_word_count: number | null
           updated_at: string
           vendor: string
           visual_plan: Json
           word_count: number
+          writing_status: string
         }
         Insert: {
           auto_approved?: boolean
@@ -691,6 +704,9 @@ export type Database = {
           metadata?: Json
           needs_review_reason?: string | null
           outline?: Json
+          outline_json?: Json
+          outline_qc?: Json
+          outline_rewrite_count?: number
           pdf_layout_score?: number | null
           pdf_qc?: Json | null
           pdf_url?: string | null
@@ -702,6 +718,8 @@ export type Database = {
           product_page_qc?: Json
           product_type?: string
           qc?: Json
+          qc_status?: string | null
+          rejection_reason?: string | null
           seo_meta?: string | null
           seo_title?: string | null
           shopify_events?: Json
@@ -716,10 +734,12 @@ export type Database = {
           target_buyer?: string | null
           title: string
           toc?: Json
+          total_word_count?: number | null
           updated_at?: string
           vendor?: string
           visual_plan?: Json
           word_count?: number
+          writing_status?: string
         }
         Update: {
           auto_approved?: boolean
@@ -758,6 +778,9 @@ export type Database = {
           metadata?: Json
           needs_review_reason?: string | null
           outline?: Json
+          outline_json?: Json
+          outline_qc?: Json
+          outline_rewrite_count?: number
           pdf_layout_score?: number | null
           pdf_qc?: Json | null
           pdf_url?: string | null
@@ -769,6 +792,8 @@ export type Database = {
           product_page_qc?: Json
           product_type?: string
           qc?: Json
+          qc_status?: string | null
+          rejection_reason?: string | null
           seo_meta?: string | null
           seo_title?: string | null
           shopify_events?: Json
@@ -783,10 +808,12 @@ export type Database = {
           target_buyer?: string | null
           title?: string
           toc?: Json
+          total_word_count?: number | null
           updated_at?: string
           vendor?: string
           visual_plan?: Json
           word_count?: number
+          writing_status?: string
         }
         Relationships: [
           {

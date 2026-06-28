@@ -51,7 +51,7 @@ export default function Pipeline() {
               </div>
               <div className="p-2 space-y-2">
                 {rows.map((r) => (
-                  <Link to={`/admin/ebook/${r.id}`} key={r.id}>
+                  <Link to={`/admin/ebook/${r.id}/writing`} key={r.id}>
                     <Card className="border-2 border-foreground/30 hover:border-foreground transition-colors">
                       <CardContent className="p-3 space-y-1">
                         <p className="text-sm font-medium line-clamp-2">{r.title}</p>
