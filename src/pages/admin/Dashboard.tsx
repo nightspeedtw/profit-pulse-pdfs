@@ -194,6 +194,46 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {testRun && (
+        <Card className="border-2 border-foreground">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-mono uppercase flex items-center gap-2">
+              <FlaskConical className="size-4" />
+              Test Sample PDF Run
+              <Badge
+                variant={testRun.status === "failed" ? "destructive" : testRun.status === "ready" ? "default" : "secondary"}
+                className="ml-2"
+              >
+                {testRun.status}
+              </Badge>
+              {(testRun.status === "running" || testRun.status === "starting") && (
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm space-y-2">
+            <p className="text-muted-foreground">{testRun.message}</p>
+            {testRun.startedAt && (
+              <p className="text-xs font-mono text-muted-foreground">
+                Elapsed: {Math.floor((Date.now() - testRun.startedAt) / 1000)}s
+              </p>
+            )}
+            <div className="flex gap-2 flex-wrap pt-1">
+              {testRun.ebookId && (
+                <Link to={`/admin/ebook/${testRun.ebookId}`}>
+                  <Button size="sm" variant="outline">Open ebook review →</Button>
+                </Link>
+              )}
+              <Link to="/admin/pipeline">
+                <Button size="sm" variant="ghost">View pipeline</Button>
+              </Link>
+              <Button size="sm" variant="ghost" onClick={() => setTestRun(null)}>Dismiss</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         {tiles.map((t) => (
           <Card key={t.label} className="border-2 border-foreground">
