@@ -1198,10 +1198,12 @@ export type Database = {
           created_at: string
           ebook_id: string | null
           error: string | null
+          file_upload_status: string | null
           id: string
           metadata: Json
           request_payload: Json
           response_payload: Json
+          retry_count: number
           shopify_product_id: string | null
           status: string
           updated_at: string
@@ -1211,10 +1213,12 @@ export type Database = {
           created_at?: string
           ebook_id?: string | null
           error?: string | null
+          file_upload_status?: string | null
           id?: string
           metadata?: Json
           request_payload?: Json
           response_payload?: Json
+          retry_count?: number
           shopify_product_id?: string | null
           status: string
           updated_at?: string
@@ -1224,10 +1228,12 @@ export type Database = {
           created_at?: string
           ebook_id?: string | null
           error?: string | null
+          file_upload_status?: string | null
           id?: string
           metadata?: Json
           request_payload?: Json
           response_payload?: Json
+          retry_count?: number
           shopify_product_id?: string | null
           status?: string
           updated_at?: string

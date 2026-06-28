@@ -218,6 +218,7 @@ export default function EbookPDF() {
               <div className="text-sm pt-2 space-x-4">
                 <Link to={`/admin/ebook/${ebook.id}/writing`} className="underline text-muted-foreground">← Writing</Link>
                 <Link to={`/admin/ebook/${ebook.id}/cover`} className="underline text-muted-foreground">← Cover</Link>
+                <Link to={`/admin/ebook/${ebook.id}/shopify`} className="underline text-muted-foreground">Shopify Draft →</Link>
               </div>
             </CardContent>
           </Card>
