@@ -833,51 +833,74 @@ function drawChapterDivider(
   }
 }
 
-// Pull a one-sentence promise + 3 outcome bullets out of a chapter's markdown
-// content so the divider page is never mostly blank.
+// Generate a polished one-sentence chapter promise + 3 outcome bullets.
+// Never returns raw excerpts, truncated sentences, or example/case-study data
+// (dollar amounts, card names, app names, item values, APR figures).
 function extractChapterPromise(md: string, fallbackTitle: string): { promise: string; outcomes: string[] } {
   const txt = (md || "").replace(/\r\n/g, "\n").trim();
-  let promise = "";
-  let outcomes: string[] = [];
+  const title = (fallbackTitle || "this chapter").trim();
+  const titleLower = title.toLowerCase().replace(/^chapter\s+\d+[:.\s-]*/i, "");
 
-  // First non-heading paragraph → promise (first sentence, ≤ 180 chars)
-  const paras = txt.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  for (const p of paras) {
-    if (/^#/.test(p) || /^[-*]\s/.test(p) || /^>\s/.test(p)) continue;
-    const firstSentence = (p.split(/(?<=[.!?])\s+/)[0] || p).trim();
-    promise = stripInline(firstSentence).slice(0, 200);
-    if (promise.length >= 30) break;
-  }
-  if (!promise) {
-    promise = `A tactical walkthrough you can apply to ${fallbackTitle.toLowerCase()} immediately.`;
-  }
+  // ---- Heuristic: is this string a raw example (junk for a divider) ----
+  const looksLikeExample = (s: string): boolean => {
+    const t = s.trim();
+    if (!t) return true;
+    // currency, percentages, APRs, prices like $4.99/mo, $12,000
+    if (/\$\s?\d|\d+\s?%|\bAPR\b|\/\s?mo\b|\bper month\b/i.test(t)) return true;
+    // "Card A", "Card B", "Item 1", "Item 2", "Account #"
+    if (/\b(Card|Item|Account|Option|Loan|Debt)\s+[A-Z0-9]\b/.test(t)) return true;
+    // brand/app/product nouns commonly seen in case studies
+    if (/\b(iPad|iPhone|Netflix|Spotify|Hulu|Disney|Amazon|gym membership|weather app|streaming)\b/i.test(t)) return true;
+    // bare lists of numbers / colons of value: "Premium weather app: $4.99/mo"
+    if (/:\s*\$/.test(t)) return true;
+    return false;
+  };
+  const isCompleteSentence = (s: string): boolean => {
+    const t = s.trim();
+    if (t.length < 25 || t.length > 200) return false;
+    if (!/[.!?]$/.test(t)) return false;
+    // mid-word truncations: trailing capital letter alone, single trailing capital
+    if (/\b[A-Z]$/.test(t.replace(/[.!?]+$/, ""))) return false;
+    return true;
+  };
 
-  // First bullet list → outcomes
+  // ---- Promise: derived from chapter title, always complete ----
+  const promise = `In this chapter, you'll learn how to ${titleLower.replace(/[.!?]+$/, "")} so you can move closer to a clean, debt-free finish.`
+    .replace(/\s+/g, " ")
+    .slice(0, 200);
+
+  // ---- Outcomes: only accept clean, sentence-shaped, non-example bullets ----
+  const candidates: string[] = [];
   const bulletMatch = txt.match(/(?:^|\n)([-*]\s+.+(?:\n[-*]\s+.+)*)/);
   if (bulletMatch) {
-    outcomes = bulletMatch[1]
-      .split("\n")
-      .map((l) => stripInline(l.replace(/^[-*]\s+/, "")).trim())
-      .filter((l) => l.length >= 8)
-      .slice(0, 3);
-  }
-  // Fallback: derive from first 3 sentences of body prose
-  if (outcomes.length < 3) {
-    const sentences = stripInline(txt.replace(/^#.*$/gm, "")).split(/(?<=[.!?])\s+/);
-    for (const s of sentences) {
-      const cand = s.trim();
-      if (cand.length >= 30 && cand.length <= 160 && !outcomes.includes(cand)) outcomes.push(cand);
-      if (outcomes.length >= 3) break;
+    for (const raw of bulletMatch[1].split("\n")) {
+      let s = stripInline(raw.replace(/^[-*]\s+/, "")).trim();
+      if (!s) continue;
+      if (looksLikeExample(s)) continue;
+      // Ensure terminal punctuation
+      if (!/[.!?]$/.test(s)) s = s + ".";
+      if (s.length < 25 || s.length > 160) continue;
+      candidates.push(s);
+      if (candidates.length >= 3) break;
     }
   }
-  while (outcomes.length < 3) {
-    outcomes.push([
-      "A concrete framework you can apply this week.",
-      "Common traps to avoid and exactly how to dodge them.",
-      "A short action checklist to lock the lesson in.",
-    ][outcomes.length]);
+
+  // Fill with topic-aware fallback outcomes
+  const fallbacks = [
+    `Identify the specific moves that make ${titleLower} actually work in the real world.`,
+    `Build a repeatable system you can apply this week without extra tools or willpower.`,
+    `Avoid the common mistakes that keep most people stuck and slow down debt payoff.`,
+    `Use a clear checklist to lock the lesson in and turn it into action.`,
+  ];
+  for (const f of fallbacks) {
+    if (candidates.length >= 3) break;
+    if (!candidates.includes(f)) candidates.push(f);
   }
-  return { promise, outcomes: outcomes.slice(0, 3).map((o) => o.replace(/\s+/g, " ").slice(0, 160)) };
+
+  return {
+    promise,
+    outcomes: candidates.slice(0, 3).map((o) => o.replace(/\s+/g, " ").slice(0, 160)),
+  };
 }
 
 function drawBackCover(page: PDFPage, theme: Theme, fonts: Fonts, brand: string, title: string) {
