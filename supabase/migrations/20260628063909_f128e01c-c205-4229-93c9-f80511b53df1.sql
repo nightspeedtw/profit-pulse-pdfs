@@ -1,0 +1,3 @@
+alter table public.ebooks drop constraint ebooks_pdf_status_check;
+alter table public.ebooks add constraint ebooks_pdf_status_check check (pdf_status = any (array['idle','rendering','rendered','needs_review','failed','approved','pdf_qc_pending','pdf_auto_fixing','pdf_ready','pdf_qc_failed','pdf_needs_human_review']));
+update public.ebooks set pdf_status='pdf_ready' where id='cfc0ab97-ec48-447a-a0ca-73513e36941f';
