@@ -2,7 +2,7 @@
 // Strict UX: ONE autopilot toggle, ONE "Generate 1 Ebook Now" button,
 // a status strip, six KPI tiles, recent jobs list. Nothing else.
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Loader2, Play, Pause, Sparkles, AlertTriangle, DollarSign, FlaskConical
 import { toast } from "sonner";
 import { StatusBadge, resolveEbookBadge } from "@/components/admin/StatusBadge";
 import { AutoFixChip } from "@/components/admin/AutoFixChip";
+import { LiveAutopilotCard } from "@/components/admin/LiveAutopilotCard";
 
 type Ebook = {
   id: string; title: string;
@@ -46,6 +47,7 @@ type Stats = {
 };
 
 export default function CommandCenter() {
+  const navigate = useNavigate();
   const [ebooks, setEbooks] = useState<Ebook[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [stats, setStats] = useState<Stats>({
@@ -122,6 +124,8 @@ export default function CommandCenter() {
         throw new Error(error?.message ?? (data as { error?: string }).error);
       }
       toast.success("Started 1 ebook");
+      const runId = (data as { run_id?: string } | null)?.run_id;
+      if (runId) navigate(`/admin/autopilot/run/${runId}`);
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
@@ -139,7 +143,9 @@ export default function CommandCenter() {
       if (error || (data as { error?: string } | null)?.error) {
         throw new Error(error?.message ?? (data as { error?: string }).error);
       }
-      toast.success("Full Autopilot Test started — running end-to-end through Shopify draft");
+      toast.success("Full Autopilot Test started — opening live run…");
+      const runId = (data as { run_id?: string } | null)?.run_id;
+      if (runId) navigate(`/admin/autopilot/run/${runId}`);
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Test failed to start");
@@ -186,6 +192,9 @@ export default function CommandCenter() {
           </Button>
         </div>
       </div>
+
+      {/* Live Autopilot run — only renders when a run is active */}
+      <LiveAutopilotCard />
 
       {/* Autopilot status strip */}
       <Card className="border-2 border-foreground">
