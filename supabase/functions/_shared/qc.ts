@@ -317,6 +317,8 @@ export function publishGate(e: {
   shopify_product_id?: string | null;
   cover_approved?: boolean | null;
   cover_score?: number | null;
+  pdf_approved?: boolean | null;
+  pdf_score?: number | null;
 }): { pass: boolean; reasons: string[] } {
   const r: string[] = [];
   if ((e.final_quality_score ?? 0) < TH.publishMinFinalQuality) r.push(`final_quality<${TH.publishMinFinalQuality}`);
@@ -326,9 +328,10 @@ export function publishGate(e: {
   if (!e.pdf_url) r.push("missing pdf");
   if (!e.product_description) r.push("missing description");
   if (!e.shopify_product_id) r.push("missing shopify draft");
-  // Cover QC gate — block publish if cover QC failed or admin hasn't approved.
   if ((e.cover_score ?? 0) < 85) r.push(`cover_score<85`);
   if (!e.cover_approved) r.push("cover not approved");
+  if ((e.pdf_score ?? 0) < 85) r.push(`pdf_score<85`);
+  if (!e.pdf_approved) r.push("pdf not approved");
   return { pass: r.length === 0, reasons: r };
 }
 
