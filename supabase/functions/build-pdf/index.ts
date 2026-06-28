@@ -245,7 +245,11 @@ Deno.serve(async (req) => {
       hasDisclaimer: isFinance,
       diagramOverflowCount,
       diagramTruncatedCount,
+      dividerIssueCount,
     });
+    const chapterDividerScore = Math.max(40, 100 - dividerIssueCount * 15);
+    (pdfQc as Record<string, unknown>).chapterDividerScore = chapterDividerScore;
+    (pdfQc as Record<string, unknown>).dividerIssueCount = dividerIssueCount;
     // Hard gate: cover text + per-axis scores per product policy.
     (pdfQc as Record<string, unknown>).cover_text_qc = coverTextQc;
     (pdfQc as Record<string, unknown>).cover_text_pass = coverTextPass;
