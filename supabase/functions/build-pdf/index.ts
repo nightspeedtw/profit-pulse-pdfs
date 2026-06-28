@@ -591,6 +591,17 @@ Deno.serve(async (req) => {
       },
     };
 
+    // Global Auto-Fix gate state for the PDF pipeline.
+    const qcStatus = chosen.gatePass ? "ready_to_continue" : "needs_admin_review";
+    const blockedAt = chosen.gatePass ? null : new Date().toISOString();
+    const resolvedAt = chosen.gatePass ? new Date().toISOString() : null;
+    const adminReason = chosen.gatePass
+      ? null
+      : `PDF auto-QC failed after ${attempts.length} attempt(s): ${chosen.gateIssues.join("; ")}`;
+    const nextAction = chosen.gatePass
+      ? null
+      : "Open PDF QC report, fix the listed issues, then rebuild PDF.";
+
     await db.from("ebooks").update({
       pdf_url: signed?.signedUrl,
       pdf_qc: fullQc as unknown as never,
@@ -605,6 +616,18 @@ Deno.serve(async (req) => {
       pdf_worksheet_score: chosen.qc.worksheetQualityScore,
       pdf_diagram_score: chosen.qc.diagramQualityScore,
       pdf_readability_score: chosen.qc.thumbnailReadabilityScore,
+      // Global Auto-Fix tracking.
+      qc_status: qcStatus,
+      failed_gate: chosen.gatePass ? null : "pdf_layout",
+      failed_component: null,
+      failed_score: chosen.gatePass ? null : chosen.qc.finalPdfPremiumScore,
+      required_score: chosen.gatePass ? null : 90,
+      auto_fix_attempt_count: attempts.length,
+      last_auto_fix_action: attempts.length > 1 ? "rebuild_pdf_strict" : "build_pdf",
+      admin_review_reason: adminReason,
+      next_recommended_action: nextAction,
+      blocked_at: blockedAt,
+      resolved_at: resolvedAt,
     }).eq("id", ebook_id);
 
     return new Response(JSON.stringify({
