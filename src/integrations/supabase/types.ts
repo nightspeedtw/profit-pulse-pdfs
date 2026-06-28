@@ -594,10 +594,12 @@ export type Database = {
       }
       ebooks: {
         Row: {
+          action_plan_json: Json | null
           auto_approved: boolean
           auto_publish: boolean
           autopilot_mode: string
           autopilot_state: string
+          bonus_section_json: Json | null
           bonuses: Json
           buyer_appeal_score: number | null
           category_id: string | null
@@ -638,9 +640,19 @@ export type Database = {
           outline_json: Json
           outline_qc: Json
           outline_rewrite_count: number
+          pdf_approved: boolean
+          pdf_diagram_score: number | null
+          pdf_generated_at: string | null
+          pdf_html_url: string | null
           pdf_layout_score: number | null
+          pdf_page_count: number | null
           pdf_qc: Json | null
+          pdf_readability_score: number | null
+          pdf_render_count: number
+          pdf_score: number | null
+          pdf_status: string
           pdf_url: string | null
+          pdf_worksheet_score: number | null
           pipeline_status: Database["public"]["Enums"]["pipeline_status"]
           practical_tool_score: number | null
           premium_score: number | null
@@ -676,10 +688,12 @@ export type Database = {
           writing_status: string
         }
         Insert: {
+          action_plan_json?: Json | null
           auto_approved?: boolean
           auto_publish?: boolean
           autopilot_mode?: string
           autopilot_state?: string
+          bonus_section_json?: Json | null
           bonuses?: Json
           buyer_appeal_score?: number | null
           category_id?: string | null
@@ -720,9 +734,19 @@ export type Database = {
           outline_json?: Json
           outline_qc?: Json
           outline_rewrite_count?: number
+          pdf_approved?: boolean
+          pdf_diagram_score?: number | null
+          pdf_generated_at?: string | null
+          pdf_html_url?: string | null
           pdf_layout_score?: number | null
+          pdf_page_count?: number | null
           pdf_qc?: Json | null
+          pdf_readability_score?: number | null
+          pdf_render_count?: number
+          pdf_score?: number | null
+          pdf_status?: string
           pdf_url?: string | null
+          pdf_worksheet_score?: number | null
           pipeline_status?: Database["public"]["Enums"]["pipeline_status"]
           practical_tool_score?: number | null
           premium_score?: number | null
@@ -758,10 +782,12 @@ export type Database = {
           writing_status?: string
         }
         Update: {
+          action_plan_json?: Json | null
           auto_approved?: boolean
           auto_publish?: boolean
           autopilot_mode?: string
           autopilot_state?: string
+          bonus_section_json?: Json | null
           bonuses?: Json
           buyer_appeal_score?: number | null
           category_id?: string | null
@@ -802,9 +828,19 @@ export type Database = {
           outline_json?: Json
           outline_qc?: Json
           outline_rewrite_count?: number
+          pdf_approved?: boolean
+          pdf_diagram_score?: number | null
+          pdf_generated_at?: string | null
+          pdf_html_url?: string | null
           pdf_layout_score?: number | null
+          pdf_page_count?: number | null
           pdf_qc?: Json | null
+          pdf_readability_score?: number | null
+          pdf_render_count?: number
+          pdf_score?: number | null
+          pdf_status?: string
           pdf_url?: string | null
+          pdf_worksheet_score?: number | null
           pipeline_status?: Database["public"]["Enums"]["pipeline_status"]
           practical_tool_score?: number | null
           premium_score?: number | null
