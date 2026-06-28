@@ -555,27 +555,89 @@ function renderCallout(ctx: Ctx, b: Extract<Block, { kind: "callout" }>, theme: 
 }
 
 // ============ COVER / FRONT MATTER ============
+// Premium overlay drawn on top of the AI background (or a solid color when no bg).
+// Layout: badge top-left, accent bar, large bold title, subtitle, brand pinned bottom.
+// A dark gradient veil ensures contrast on any background.
+function drawCoverOverlay(
+  page: PDFPage, theme: Theme, fonts: Fonts,
+  title: string, subtitle: string, brand: string, badge: string | undefined,
+  hasBgImage: boolean,
+) {
+  // Legibility veil: stack semi-opaque dark rects to fake a vertical gradient (bottom-heavy).
+  if (hasBgImage) {
+    const veilSteps = 14;
+    const veilH = PAGE_H * 0.62;
+    for (let i = 0; i < veilSteps; i++) {
+      const op = 0.06 + (i / veilSteps) * 0.55; // 0.06 → ~0.6 toward bottom
+      page.drawRectangle({
+        x: 0, y: (veilSteps - 1 - i) * (veilH / veilSteps),
+        width: PAGE_W, height: veilH / veilSteps + 1,
+        color: theme.overlay, opacity: op,
+      });
+    }
+    // Solid base strip at the very bottom for the brand line
+    page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: 80, color: theme.overlay, opacity: 0.85 });
+  }
+
+  // ---- Badge (top-left) ----
+  if (badge && badge.trim()) {
+    const t = safe(badge.trim().toUpperCase()).slice(0, 36);
+    const tw = fonts.bold.widthOfTextAtSize(t, 10);
+    const bw = tw + 28, bh = 22;
+    const bx = MARGIN, by = PAGE_H - 70;
+    page.drawRectangle({ x: bx, y: by, width: bw, height: bh, color: theme.accent });
+    page.drawText(t, { x: bx + 14, y: by + 7, size: 10, font: fonts.bold, color: rgb(0.05, 0.05, 0.05) });
+  }
+
+  // ---- Title (bottom-aligned block) ----
+  // Auto-fit: shrink size until lines fit in <= 4 lines.
+  const maxW = PAGE_W - MARGIN * 2;
+  let titleSize = 44;
+  let titleLines = wrap(title.toUpperCase(), fonts.bold, titleSize, maxW);
+  while (titleLines.length > 4 && titleSize > 22) {
+    titleSize -= 2;
+    titleLines = wrap(title.toUpperCase(), fonts.bold, titleSize, maxW);
+  }
+  const titleLineH = titleSize * 1.05;
+
+  // Subtitle wrap
+  const subSize = 14;
+  const subLines = wrap(subtitle, fonts.reg, subSize, maxW).slice(0, 3);
+  const subLineH = subSize * 1.4;
+
+  // Compute total text block height & place from a fixed bottom anchor
+  const bottomAnchor = 110; // leaves room for brand line at ~y=40
+  const blockH = (subLines.length ? subLines.length * subLineH + 18 : 0) + titleLines.length * titleLineH + 22;
+  let y = bottomAnchor + blockH;
+
+  // Accent bar above title
+  page.drawRectangle({ x: MARGIN, y: y - 6, width: 56, height: 5, color: theme.accent });
+  y -= 22;
+
+  // Title lines (top-to-bottom)
+  for (const ln of titleLines) {
+    y -= titleLineH;
+    page.drawText(safe(ln), { x: MARGIN, y: y + titleLineH - titleSize * 0.85, size: titleSize, font: fonts.bold, color: theme.onDark });
+  }
+
+  // Subtitle
+  if (subLines.length) {
+    y -= 18;
+    for (const ln of subLines) {
+      y -= subLineH;
+      page.drawText(safe(ln), { x: MARGIN, y: y + subLineH - subSize * 0.85, size: subSize, font: fonts.reg, color: theme.onDark, opacity: 0.95 });
+    }
+  }
+
+  // ---- Brand (bottom) ----
+  page.drawRectangle({ x: MARGIN, y: 56, width: 24, height: 2, color: theme.accent });
+  page.drawText(safe(brand), { x: MARGIN, y: 36, size: 11, font: fonts.bold, color: theme.onDark, opacity: 0.92 });
+  page.drawText("PREMIUM PDF GUIDE", { x: PAGE_W - MARGIN - fonts.bold.widthOfTextAtSize("PREMIUM PDF GUIDE", 9), y: 38, size: 9, font: fonts.bold, color: theme.accent });
+}
+
+// Kept for compatibility — delegates to the overlay renderer with no bg.
 function drawFallbackCover(page: PDFPage, theme: Theme, fonts: Fonts, title: string, subtitle: string, brand: string, badge?: string) {
-  page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: theme.overlay });
-  // accent bar
-  page.drawRectangle({ x: MARGIN, y: PAGE_H - 200, width: 60, height: 6, color: theme.accent });
-  // title
-  let size = 38;
-  let lines = wrap(title.toUpperCase(), fonts.bold, size, PAGE_W - MARGIN * 2);
-  while (lines.length > 4 && size > 22) { size -= 2; lines = wrap(title.toUpperCase(), fonts.bold, size, PAGE_W - MARGIN * 2); }
-  let y = PAGE_H - 240;
-  for (const ln of lines) { page.drawText(safe(ln), { x: MARGIN, y, size, font: fonts.bold, color: theme.onDark }); y -= size * 1.05; }
-  // subtitle
-  y -= 20;
-  for (const ln of wrap(subtitle, fonts.reg, 14, PAGE_W - MARGIN * 2).slice(0, 3)) {
-    page.drawText(safe(ln), { x: MARGIN, y, size: 14, font: fonts.reg, color: theme.onDark }); y -= 20;
-  }
-  // brand bottom
-  page.drawText(brand, { x: MARGIN, y: MARGIN + 12, size: 11, font: fonts.bold, color: theme.accent });
-  if (badge) {
-    page.drawRectangle({ x: MARGIN, y: PAGE_H - 80, width: badge.length * 6 + 24, height: 22, color: theme.accent });
-    page.drawText(safe(badge.toUpperCase()), { x: MARGIN + 12, y: PAGE_H - 73, size: 10, font: fonts.bold, color: rgb(0.05, 0.05, 0.05) });
-  }
+  drawCoverOverlay(page, theme, fonts, title, subtitle, brand, badge, false);
 }
 
 function drawTitlePage(page: PDFPage, theme: Theme, fonts: Fonts, title: string, subtitle: string, brand: string, badge?: string) {
