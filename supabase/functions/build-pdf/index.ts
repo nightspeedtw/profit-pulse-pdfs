@@ -1377,6 +1377,7 @@ function computePdfQc(x: {
   pageCount: number; chapters: number; diagrams: number; worksheets: number;
   hasCover: boolean; coverScore: number; hasToc: boolean; hasDisclaimer: boolean;
   diagramOverflowCount?: number; diagramTruncatedCount?: number;
+  dividerIssueCount?: number;
 }) {
   const coverPremiumScore = x.hasCover ? Math.min(100, Math.round(60 + x.coverScore * 0.4)) : 50;
   // Thumbnail readability: covers always overlay the title at 22-44pt bold via pdf-lib,
