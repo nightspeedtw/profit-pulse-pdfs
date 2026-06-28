@@ -99,19 +99,20 @@ Deno.serve(async (req) => {
       } catch { /* fall through to overlay-only cover */ }
     }
     // Always overlay title/subtitle/brand/badge on top of the background (or solid overlay).
-    drawCoverOverlay(coverPage, theme, fonts, titleText, subtitleText, brand, spec.badge_text, coverHasBgImage);
+    drawCoverOverlay(coverPage, theme, fonts, titleText, subtitleText, brand, badgeText, coverHasBgImage);
     const coverEmbedded = coverHasBgImage;
-    // Hard text QC: title + brand are mandatory for a sellable cover.
+    // Hard text QC: title + subtitle + brand are all mandatory for a sellable cover.
     const coverTextQc = {
       title_present: titleText.trim().length >= 4,
       subtitle_present: subtitleText.trim().length >= 4,
       brand_present: brand.trim().length >= 2,
+      badge_present: badgeText.trim().length >= 2,
     };
-    const coverTextPass = coverTextQc.title_present && coverTextQc.brand_present;
+    const coverTextPass = coverTextQc.title_present && coverTextQc.subtitle_present && coverTextQc.brand_present;
 
     // ============ 2) TITLE PAGE ============
     const titlePage = pdf.addPage([PAGE_W, PAGE_H]);
-    drawTitlePage(titlePage, theme, fonts, titleText, subtitleText, brand, spec.badge_text);
+    drawTitlePage(titlePage, theme, fonts, titleText, subtitleText, brand, badgeText);
 
     // ============ 3) COPYRIGHT / DISCLAIMER ============
     const copyPage = pdf.addPage([PAGE_W, PAGE_H]);
