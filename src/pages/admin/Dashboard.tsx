@@ -124,6 +124,8 @@ export default function CommandCenter() {
         throw new Error(error?.message ?? (data as { error?: string }).error);
       }
       toast.success("Started 1 ebook");
+      const runId = (data as { run_id?: string } | null)?.run_id;
+      if (runId) navigate(`/admin/autopilot/run/${runId}`);
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
@@ -141,7 +143,9 @@ export default function CommandCenter() {
       if (error || (data as { error?: string } | null)?.error) {
         throw new Error(error?.message ?? (data as { error?: string }).error);
       }
-      toast.success("Full Autopilot Test started — running end-to-end through Shopify draft");
+      toast.success("Full Autopilot Test started — opening live run…");
+      const runId = (data as { run_id?: string } | null)?.run_id;
+      if (runId) navigate(`/admin/autopilot/run/${runId}`);
       load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Test failed to start");
