@@ -187,6 +187,8 @@ export function FinalApproval({ ebook, onChanged }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <AutoFixPanel ebookId={ebook.id} state={ebook} onChanged={onChanged} />
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <ScoreTile label="Cover" value={coverScore} min={THRESHOLDS.cover} />
           <ScoreTile label="Thumbnail" value={thumbScore} min={THRESHOLDS.thumbnail} />
