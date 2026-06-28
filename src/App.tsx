@@ -15,18 +15,15 @@ import Download from "./pages/Download.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import AdminLogin from "./pages/admin/Login.tsx";
 import AdminLayout from "./pages/admin/AdminLayout.tsx";
-import Dashboard from "./pages/admin/Dashboard.tsx";
+import CommandCenter from "./pages/admin/Dashboard.tsx";
+import Production from "./pages/admin/Production.tsx";
+import Products from "./pages/admin/Products.tsx";
 import SettingsPage from "./pages/admin/Settings.tsx";
-import AdminCategories from "./pages/admin/Categories.tsx";
-import Ideas from "./pages/admin/Ideas.tsx";
-import Pipeline from "./pages/admin/Pipeline.tsx";
 import EbookReview from "./pages/admin/EbookReview.tsx";
 import EbookWriting from "./pages/admin/EbookWriting.tsx";
 import EbookCover from "./pages/admin/EbookCover.tsx";
 import EbookPDF from "./pages/admin/EbookPDF.tsx";
 import EbookShopify from "./pages/admin/EbookShopify.tsx";
-import Costs from "./pages/admin/Costs.tsx";
-import Autopilot from "./pages/admin/Autopilot.tsx";
 
 const queryClient = new QueryClient();
 
@@ -49,18 +46,15 @@ const App = () => (
           </Route>
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminLayout />}>
-            <Route index element={<Dashboard />} />
-            <Route path="ideas" element={<Ideas />} />
-            <Route path="pipeline" element={<Pipeline />} />
-            <Route path="autopilot" element={<Autopilot />} />
+            <Route index element={<CommandCenter />} />
+            <Route path="production" element={<Production />} />
+            <Route path="products" element={<Products />} />
+            <Route path="settings" element={<SettingsPage />} />
             <Route path="ebook/:id" element={<EbookReview />} />
             <Route path="ebook/:id/writing" element={<EbookWriting />} />
             <Route path="ebook/:id/cover" element={<EbookCover />} />
             <Route path="ebook/:id/pdf" element={<EbookPDF />} />
             <Route path="ebook/:id/shopify" element={<EbookShopify />} />
-            <Route path="categories" element={<AdminCategories />} />
-            <Route path="costs" element={<Costs />} />
-            <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
