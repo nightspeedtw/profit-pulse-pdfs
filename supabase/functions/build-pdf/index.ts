@@ -959,7 +959,8 @@ function extractChapterPromise(md: string, fallbackTitle: string, strict = false
 
   // ---- Outcomes: only accept action-verb, non-definition, non-example bullets ----
   const candidates: string[] = [];
-  const bulletMatch = txt.match(/(?:^|\n)([-*]\s+.+(?:\n[-*]\s+.+)*)/);
+  // Strict auto-fix mode: skip raw bullet extraction entirely and rely on the curated pool.
+  const bulletMatch = strict ? null : txt.match(/(?:^|\n)([-*]\s+.+(?:\n[-*]\s+.+)*)/);
   if (bulletMatch) {
     for (const raw of bulletMatch[1].split("\n")) {
       let s = stripInline(raw.replace(/^[-*]\s+/, "")).trim();
