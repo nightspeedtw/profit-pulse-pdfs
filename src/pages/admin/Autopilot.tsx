@@ -462,7 +462,8 @@ export default function Autopilot() {
                 <td className="p-3">
                   <div className="flex flex-wrap gap-1">
                     <Button size="sm" variant="outline" disabled={busy === e.id}
-                      onClick={() => run("autopilot-orchestrator", { ebook_id: e.id, mode }, "Resumed", e.id)}>
+                      title="Resume from failed step"
+                      onClick={() => run("autopilot-pipeline", { ebook_id: e.id, mode }, "Resumed from failed step", e.id)}>
                       <RefreshCw className="size-3" />
                     </Button>
                     {e.shopify_product_id && (
