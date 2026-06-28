@@ -47,6 +47,7 @@ type Stats = {
 };
 
 export default function CommandCenter() {
+  const navigate = useNavigate();
   const [ebooks, setEbooks] = useState<Ebook[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [stats, setStats] = useState<Stats>({
