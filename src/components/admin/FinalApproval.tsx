@@ -126,7 +126,8 @@ export function FinalApproval({ ebook, onChanged }: Props) {
 
   const allPass = gates.every((g) => g.pass);
   const failingBlocking = gates.filter((g) => !g.pass && g.blocking);
-  const blocked = qc.blocked_for_publish === true || failingBlocking.length > 0;
+  const qcBlocked = ebook.qc_status === "needs_admin_review" || ebook.qc_status === "auto_fix_failed" || ebook.qc_status === "auto_fixing";
+  const blocked = qc.blocked_for_publish === true || failingBlocking.length > 0 || qcBlocked;
   const canPublish = allPass && !!ebook.final_approved && !blocked;
 
   const update = async (patch: Partial<EbookLike>) => {
