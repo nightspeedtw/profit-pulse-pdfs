@@ -1,0 +1,1 @@
+UPDATE ebooks SET outline_json='{}'::jsonb, outline_qc='{}'::jsonb, toc='[]'::jsonb, writing_status='outline_generating', pipeline_status='outline_generation', qc_status=null, rejection_reason=null, outline_rewrite_count=0, autopilot_state='running' WHERE id='72637baf-f4c3-4d19-9290-674939291ff3';

@@ -325,6 +325,108 @@ function legacyBonuses(o: OutlineJson) {
   };
 }
 
+// ---------------- Deterministic fallback outline ----------------
+// Used when the AI fails to return a valid chapters array after 3 attempts.
+// Produces a generic but valid premium outline that passes validateOutlineJson.
+export function generateFallbackOutline(ebook: any, idea: any): OutlineJson {
+  const title = String(ebook?.title ?? idea?.title ?? "Untitled Premium Guide");
+  const subtitle = String(ebook?.subtitle ?? idea?.subtitle ?? "A practical step-by-step playbook");
+  const topic = String(idea?.category_name ?? idea?.niche ?? title);
+  const buyer = String(ebook?.target_buyer ?? idea?.target_buyer ?? "motivated readers");
+  const pain = String(idea?.core_pain_point ?? "they struggle to get consistent results");
+  const promise = String(idea?.transformation_promise ?? `master ${topic} with a proven system`);
+
+  const archetypes = [
+    { kind: "Diagnose", verb: "audit", focus: "current state" },
+    { kind: "Foundations", verb: "understand", focus: "core framework" },
+    { kind: "Setup", verb: "set up", focus: "tools and environment" },
+    { kind: "Execution", verb: "execute", focus: "tactical playbook" },
+    { kind: "Mistakes", verb: "avoid", focus: "common traps" },
+    { kind: "Automation", verb: "automate", focus: "repeatable routines" },
+    { kind: "Optimization", verb: "optimize", focus: "advanced tactics" },
+    { kind: "Case Study", verb: "study", focus: "real-world example" },
+    { kind: "Measurement", verb: "measure", focus: "metrics and tracking" },
+    { kind: "Mastery", verb: "sustain", focus: "long-term maintenance" },
+  ];
+
+  const chapters: OutlineChapter[] = archetypes.map((a, i) => {
+    const n = i + 1;
+    const chapter_title = `${a.kind}: ${a.verb[0].toUpperCase() + a.verb.slice(1)} your ${topic} ${a.focus}`;
+    const chapter_promise = `By the end of this chapter, you will ${a.verb} your ${topic} ${a.focus} so that ${promise}.`;
+    const learning_outcomes = [
+      `Identify the key levers in ${topic} ${a.focus}.`,
+      `Apply a step-by-step ${a.kind.toLowerCase()} method to your situation.`,
+      `Produce a concrete artifact you can reuse immediately.`,
+    ];
+    const sections: OutlineSection[] = [
+      {
+        section_title: `Why ${a.focus} matters for ${buyer}`,
+        section_goal: `Frame the problem and stakes for ${a.focus}.`,
+        key_points: [`Context for ${buyer}`, `Cost of ignoring ${a.focus}`, `What success looks like`],
+      },
+      {
+        section_title: `The ${a.kind} framework`,
+        section_goal: `Teach the reusable framework for ${a.focus}.`,
+        key_points: [`Core principles`, `When to use it`, `Common variations`],
+      },
+      {
+        section_title: `Step-by-step walkthrough`,
+        section_goal: `Show exactly how to ${a.verb} ${a.focus}.`,
+        key_points: [`Prepare inputs`, `Run the steps`, `Verify the output`],
+      },
+      {
+        section_title: `Templates, prompts, and checks`,
+        section_goal: `Hand reader copy-paste assets to act today.`,
+        key_points: [`Template`, `Prompt or script`, `Self-check questions`],
+      },
+    ];
+    const worksheet: OutlineWorksheet = {
+      title: `${a.kind} worksheet`,
+      type: "checklist",
+      purpose: `Help the reader ${a.verb} their own ${a.focus}.`,
+      fields: [
+        `Current state of ${a.focus}`,
+        `Next 3 actions for ${a.focus}`,
+        `Owner / deadline for each action`,
+      ],
+    };
+    const framework: OutlineFramework = {
+      title: `${a.kind} framework`,
+      type: "vertical_steps",
+      purpose: `Visual model of the ${a.kind.toLowerCase()} process.`,
+      items: [
+        `Step 1 — assess ${a.focus}`,
+        `Step 2 — apply the ${a.kind.toLowerCase()} method`,
+        `Step 3 — measure and iterate`,
+      ],
+    };
+    return { chapter_number: n, chapter_title, chapter_promise, learning_outcomes, sections, worksheet, framework };
+  });
+
+  const bonus_materials: OutlineBonus[] = [
+    { title: `${title} master checklist`, type: "checklist", purpose: `One-page checklist covering every chapter of ${title}.` },
+    { title: `${topic} worksheet pack`, type: "worksheet", purpose: `Printable worksheet bundle for every chapter.` },
+    { title: `${topic} templates`, type: "template", purpose: `Copy-paste templates for the most common ${topic} tasks.` },
+    { title: `7-day ${topic} action plan`, type: "checklist", purpose: `Day-by-day plan to apply the book in one week.` },
+  ];
+
+  return {
+    title,
+    subtitle,
+    target_buyer: buyer,
+    buyer_pain: pain,
+    core_promise: promise,
+    positioning: `A premium, no-fluff guide on ${topic} for ${buyer}.`,
+    chapters,
+    bonus_materials,
+    disclaimer_required: compliance([title, subtitle, topic].join(" ")),
+    disclaimer_text: compliance([title, subtitle, topic].join(" "))
+      ? "This material is for educational purposes only and does not constitute professional advice."
+      : null,
+  };
+}
+
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -415,21 +517,33 @@ Deno.serve(async (req) => {
       }
     }
 
+    let usedFallback = false;
     if (!validation.ok || !outline) {
-      // Persist failure so the UI can surface a precise admin message
-      await db.from("ebooks").update({
-        writing_status: "needs_review",
-        qc_status: "outline_failed",
-        pipeline_status: "rejected",
-        rejection_reason: `Admin needed because generate_outline did not return a valid chapters array after ${attempts} attempts. Missing: outline_json.chapters (${validation.reason})`,
-        cost_usd: (Number(ebook.cost_usd ?? 0) + totalCost),
-      }).eq("id", ebook.id);
-      return new Response(JSON.stringify({
-        error: `generate-outline did not return a valid chapters array (got ${validation.chapter_count}).`,
-        attempts,
-        validation,
-      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      // AI failed after 3 attempts — build a deterministic fallback outline so
+      // the pipeline can continue instead of escalating to admin.
+      const fallback = generateFallbackOutline(ebook, ctx);
+      const fbValidation = validateOutlineJson(fallback);
+      if (!fbValidation.ok) {
+        await db.from("ebooks").update({
+          writing_status: "needs_review",
+          qc_status: "needs_admin_review",
+          pipeline_status: "rejected",
+          rejection_reason: `Admin needed because generate_outline did not return a valid chapters array after ${attempts} attempts AND the fallback outline failed validation (${fbValidation.reason}).`,
+          cost_usd: (Number(ebook.cost_usd ?? 0) + totalCost),
+        }).eq("id", ebook.id);
+        return new Response(JSON.stringify({
+          error: `generate-outline did not return a valid chapters array (got ${validation.chapter_count}) and fallback failed.`,
+          attempts,
+          validation,
+          fallback_validation: fbValidation,
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      outline = fallback;
+      validation = fbValidation;
+      usedFallback = true;
+      await logRun(db, { ebook_id: ebook.id, step: "outline", status: "ok", rewrite_count: attempts, payload: { chapter_count: fbValidation.chapter_count, fallback: true } });
     }
+
 
     // ---- Outline QC (only runs after schema is valid) ----
     const scores = await scoreOutline(model, {
@@ -443,10 +557,11 @@ Deno.serve(async (req) => {
     await logRun(db, { ebook_id: ebook.id, step: "outline_qc", status: gate.pass ? "ok" : "rewrite", score: scores.data.structure_score, rewrite_count: attempts - 1, cost_usd: totalCost, payload: scores.data as any });
 
     const writing_status = gate.pass ? "outline_ready" : "needs_review";
-    const qc_status = gate.pass ? "outline_passed" : "outline_failed";
+    const qc_status = gate.pass ? "qc_passed" : "needs_admin_review";
     const pipeline_status = gate.pass ? "outline_generation" : "rejected";
 
-    await db.from("ebooks").update({
+
+    const { error: updErr, data: updRow } = await db.from("ebooks").update({
       outline_json: outline as any,
       outline_qc: scores.data as any,
       outline_rewrite_count: attempts - 1,
@@ -461,7 +576,13 @@ Deno.serve(async (req) => {
       rejection_reason: gate.pass ? null : `Outline QC failed after ${attempts - 1} rewrites: ${gate.reason}`,
       cost_usd: (Number(ebook.cost_usd ?? 0) + totalCost),
       status: gate.pass ? "outline" : "needs_review",
-    }).eq("id", ebook.id);
+    }).eq("id", ebook.id).select("id, writing_status").maybeSingle();
+    if (updErr) {
+      console.error("generate-outline: ebooks update failed", updErr);
+      throw new Error(`Failed to persist outline_json: ${updErr.message}`);
+    }
+    console.log("generate-outline: saved outline", { ebook_id: ebook.id, chapters: outline.chapters.length, updRow });
+
 
     return new Response(JSON.stringify({
       ebook_id: ebook.id,
@@ -470,6 +591,7 @@ Deno.serve(async (req) => {
       scores: scores.data,
       rewrites: attempts - 1,
       chapter_count: validation.chapter_count,
+      used_fallback: usedFallback,
       outline,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
