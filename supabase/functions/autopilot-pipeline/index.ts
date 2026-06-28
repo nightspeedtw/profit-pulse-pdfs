@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
         // STEP 1 — generate topic if no input
         if (!idea_id && !ebook_id) {
           const gen = await runStep("1_generate_topic", "generate-idea", { count: 1, category_mix: settings.category_mix ?? null });
-          idea_id = gen.body?.ideas?.[0]?.id ?? gen.body?.id;
+          idea_id = gen.body?.ids?.[0] ?? gen.body?.ideas?.[0]?.id ?? gen.body?.id;
           if (!idea_id) throw new Error("generate-idea returned no idea");
         }
 
