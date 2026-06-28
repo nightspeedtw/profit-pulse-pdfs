@@ -271,7 +271,7 @@ Deno.serve(async (req) => {
               }).eq("id", ebook.id);
               await needsAdmin(
                 "outline",
-                "Outline generation failed 3× during dependency repair.",
+                "Admin needed because generate_outline did not return a valid chapters array after 3 attempts. Missing: outline_json.chapters",
                 "Inspect generate-outline logs or regenerate manually.",
               );
               throw new Error("outline_dependency_repair_exhausted");
