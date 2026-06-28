@@ -326,6 +326,19 @@ Deno.serve(async (req) => {
       let diagramTruncatedCount = 0;
       let dividerIssueCount = 0;
 
+      // ---- Divider Copywriter Agent (run once per build) ----
+      // On strict retry we re-call the AI (fresh sample) so failures from the
+      // first attempt regenerate with new wording rather than reuse the same copy.
+      const aiCopies = await generateUniqueDividerCopy(
+        titleText, subtitleText, String(e.target_buyer ?? ""), chapters,
+      );
+      const dividerCopies: DividerCopy[] = chapters.map((ch, i) => {
+        const c = aiCopies?.[i];
+        if (c && /[.!?]$/.test(c.promise) && c.outcomes.length >= 3) return c;
+        const fb = extractChapterPromise(ch.content || "", safe(ch.title), strict);
+        return { promise: fb.promise, outcomes: fb.outcomes };
+      });
+
       type Ctx = { page: PDFPage; y: number; pageNum: number; chTitle: string };
       const newInteriorPage = (chTitle: string, withHeader = true): Ctx => {
         const page = pdf.addPage([PAGE_W, PAGE_H]);
@@ -335,12 +348,15 @@ Deno.serve(async (req) => {
         return { page, y: PAGE_H - MARGIN - 50, pageNum: bookPageNum, chTitle };
       };
 
+      // ---- Worksheet layout planner state (across all chapters) ----
+      const wsLayoutUsed = new Map<WorksheetLayout, number>();
+      const wsLayoutChoices: WorksheetLayout[] = [];
+
       for (let i = 0; i < chapters.length; i++) {
         const ch = chapters[i];
         const chNum = i + 1;
         const chShort = safe(ch.title);
-        // strict mode skips raw bullet extraction entirely — pool-only outcomes.
-        const { promise, outcomes } = extractChapterPromise(ch.content || "", chShort, strict);
+        const { promise, outcomes } = dividerCopies[i];
         const promiseOk = /[.!?]$/.test(promise.trim()) && promise.trim().length >= 30;
         const outcomesOk = outcomes.length >= 3 && outcomes.every((o) => /[.!?]$/.test(o.trim()) && o.trim().length >= 25);
         if (!promiseOk || !outcomesOk) dividerIssueCount += 1;
@@ -361,7 +377,6 @@ Deno.serve(async (req) => {
           bookPageNum += 1;
           drawRunningHeader(page, theme, fonts, brand, chShort);
           drawRunningFooter(page, theme, fonts, bookPageNum);
-          // In strict mode, hard-truncate node text to prevent any overflow/truncation.
           const safeDiagram: FrameworkDiagram = strict
             ? { ...d, nodes: (d.nodes ?? []).map((n) => safe(n).slice(0, 80)) }
             : d;
@@ -374,9 +389,14 @@ Deno.serve(async (req) => {
           bookPageNum += 1;
           drawRunningHeader(page, theme, fonts, brand, chShort);
           drawRunningFooter(page, theme, fonts, bookPageNum);
-          drawWorksheetPremium(page, w, theme, fonts);
+          const layout = pickWorksheetLayout(w, wsLayoutUsed);
+          wsLayoutUsed.set(layout, (wsLayoutUsed.get(layout) ?? 0) + 1);
+          wsLayoutChoices.push(layout);
+          drawWorksheetByLayout(page, w, layout, theme, fonts);
         }
       }
+
+
 
       // ---- Bonuses ----
       const bonuses = (e.bonuses ?? {}) as Record<string, string>;
