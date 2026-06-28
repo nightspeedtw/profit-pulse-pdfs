@@ -242,4 +242,8 @@ export class RunTracker {
       .maybeSingle();
     return !!data?.pause_requested;
   }
+
+  async markPaused() {
+    await this.patchRun({ status: "paused", current_action_message: "Paused after current step" });
+  }
 }
