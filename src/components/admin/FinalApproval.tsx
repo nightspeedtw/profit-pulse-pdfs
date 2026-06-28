@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { ChevronDown, ChevronUp, Check, X, Loader2, ShieldCheck, Send, Lock } from "lucide-react";
 import { toast } from "sonner";
+import { AutoFixPanel, type AutoFixState } from "./AutoFixPanel";
 
 interface PdfQc {
   // legacy snake_case
