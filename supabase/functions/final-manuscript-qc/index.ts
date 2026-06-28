@@ -415,7 +415,9 @@ function instructionsForReason(r: FailedReason, wordsTarget: number): string {
     case "rewrite_duplicated_sections":
       return `This chapter duplicates another chapter. Rewrite it with a completely different persona/example, different sub-angles, and a different worked scenario.`;
     case "rewrite_repeated_passages":
-      return `Rewrite the repeated/templated paragraphs in your own words with concrete specifics.`;
+      return `Rewrite this section so it keeps the same meaning but removes repeated AI-template phrasing. Make it specific, concrete, premium, and human-written. Vary sentence rhythm. Do not use the same sentence pattern as other chapters. Do not start sentences with "this chapter gives you", "apply this to your real numbers", "sidestep the silent traps", "in this chapter, you'll", "by the end of this chapter", "let's dive in", or other AI-template openers. Add chapter-specific concrete examples. Do not add unsafe claims.`;
+    case "humanize_manuscript":
+      return `Humanization pass: rewrite the chapter so it reads like a human premium editor wrote it. Vary the opening sentence pattern, vary transitions, vary the chapter summary/outcome bullets. Remove any repeated AI-template phrases such as "this chapter gives you…", "apply this to your real numbers…", "sidestep the silent traps…", "in this chapter, you'll…", "by the end of this chapter…", "let's dive in", "at the end of the day", "in today's fast-paced world". Preserve all facts, numbers, worksheets, frameworks, structure, length, and compliance safety.`;
     case "rewrite_claims":
       return `Remove any guarantee-style or unsafe claims ("guaranteed", "100% results", "risk-free", "get rich"). Rewrite as educational, probabilistic language.`;
     case "remove_and_replace_placeholders":
