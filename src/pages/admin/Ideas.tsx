@@ -537,23 +537,26 @@ export default function Ideas() {
                             Approve & Generate
                           </Button>
                         ) : (
-                          <Button size="sm" variant="outline" onClick={() => promote(i.id)} disabled={isBusy}
+                          <Button size="sm" variant="outline" onClick={() => approveAndGenerate(i)} disabled={isBusy}
                             title="Below threshold — approve manually?">
                             <Check className="size-4 mr-1" /> Approve Anyway
                           </Button>
                         )}
                         {!isApproved && (
-                          <Button size="sm" variant="default" onClick={() => runAlternatives(i)} disabled={isBusy}>
+                          <Button size="sm" variant="default" onClick={() => generateTwoAlternativeRows(i)} disabled={isBusy}>
                             <Sparkles className="size-4 mr-1" /> Generate 2 Alternatives
                           </Button>
                         )}
+                        <Button size="sm" variant="outline" onClick={() => openEdit(i)} disabled={isBusy}>
+                          <Pencil className="size-4 mr-1" /> Edit Manually
+                        </Button>
                         <Button size="sm" variant="secondary" onClick={() => { setImproveOpen(i); setFeedback(i.admin_feedback ?? ""); }} disabled={isBusy}>
                           <Sparkles className="size-4 mr-1" /> Rewrite
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => runPremium(i)} disabled={isBusy}>
                           <Crown className="size-4 mr-1" /> Premium Positioning
                         </Button>
-                        <Button size="sm" variant="destructive" onClick={() => reject(i.id)} disabled={isBusy}>
+                        <Button size="sm" variant="destructive" onClick={() => { setRejectOpen(i); setRejectReason(""); }} disabled={isBusy}>
                           <X className="size-4 mr-1" /> Reject
                         </Button>
                         <details className="text-xs">
