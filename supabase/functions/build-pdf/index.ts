@@ -241,6 +241,10 @@ Deno.serve(async (req) => {
       gatePass: boolean;
     };
 
+    // Cache AI divider copy across retry attempts so we don't re-bill / re-burn
+    // wall time on each pass and so strict retries don't lose good copy.
+    let cachedAiCopies: DividerCopy[] | null | undefined;
+
     // ---- Single build attempt with optional strict auto-fix mode ----
     const attemptBuild = async (strict: boolean): Promise<Attempt> => {
       const pdf = await PDFDocument.create();
