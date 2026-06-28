@@ -100,11 +100,12 @@ export class RunTracker {
   }
 
   private async progress() {
+    // Count any "done" status (passed, passed_existing, skipped) toward progress.
     const { count } = await this.db
       .from("autopilot_pipeline_steps")
       .select("id", { count: "exact", head: true })
       .eq("run_id", this.runId)
-      .eq("status", "passed");
+      .in("status", ["passed", "passed_existing", "skipped"]);
     return Math.min(100, Math.round(((count ?? 0) / TOTAL) * 100));
   }
 
@@ -213,10 +214,13 @@ export class RunTracker {
     });
   }
 
-  async skipStep(step_name: string, message?: string) {
+  async skipStep(step_name: string, message?: string, opts: { existing?: boolean } = {}) {
+    const existing = !!opts.existing;
     await this.patchStep(step_name, {
-      status: "skipped",
-      message: message ?? `${this.label(step_name)} skipped`,
+      status: existing ? "passed_existing" : "skipped",
+      message: message ?? (existing
+        ? `${this.label(step_name)} — existing output found`
+        : `${this.label(step_name)} skipped`),
       completed_at: new Date().toISOString(),
     });
     const pct = await this.progress();
