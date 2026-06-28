@@ -146,6 +146,7 @@ Deno.serve(async (req) => {
     let bookPageNum = 0; // count from after-cover-after-title-after-copy-after-toc = chapter 1 page 1
     let diagramOverflowCount = 0;
     let diagramTruncatedCount = 0;
+    let dividerIssueCount = 0;
 
     // Helper to add an interior page with header+footer and increment counter
     type Ctx = { page: PDFPage; y: number; pageNum: number; chTitle: string };
@@ -162,6 +163,10 @@ Deno.serve(async (req) => {
       const chNum = i + 1;
       const chShort = safe(ch.title);
       const { promise, outcomes } = extractChapterPromise(ch.content || "", chShort);
+      // QC: every divider must have a complete promise sentence + 3 outcome sentences.
+      const promiseOk = /[.!?]$/.test(promise.trim()) && promise.trim().length >= 30;
+      const outcomesOk = outcomes.length >= 3 && outcomes.every((o) => /[.!?]$/.test(o.trim()) && o.trim().length >= 25);
+      if (!promiseOk || !outcomesOk) dividerIssueCount += 1;
 
       // -- Chapter divider page --
       const divider = pdf.addPage([PAGE_W, PAGE_H]);
@@ -240,7 +245,11 @@ Deno.serve(async (req) => {
       hasDisclaimer: isFinance,
       diagramOverflowCount,
       diagramTruncatedCount,
+      dividerIssueCount,
     });
+    const chapterDividerScore = Math.max(40, 100 - dividerIssueCount * 15);
+    (pdfQc as Record<string, unknown>).chapterDividerScore = chapterDividerScore;
+    (pdfQc as Record<string, unknown>).dividerIssueCount = dividerIssueCount;
     // Hard gate: cover text + per-axis scores per product policy.
     (pdfQc as Record<string, unknown>).cover_text_qc = coverTextQc;
     (pdfQc as Record<string, unknown>).cover_text_pass = coverTextPass;
@@ -651,19 +660,22 @@ function drawCoverOverlay(
     });
   }
 
-  // Accent bar above title
-  page.drawRectangle({ x: MARGIN, y: y - 6, width: 56, height: 5, color: theme.accent });
+  // Accent bar above title (thicker for stronger visual anchor)
+  page.drawRectangle({ x: MARGIN, y: y - 6, width: 72, height: 6, color: theme.accent });
   y -= 22;
 
-  // Title lines (top-to-bottom)
+  // Title lines (top-to-bottom) — full opacity, larger weight for dominance
   for (const ln of titleLines) {
     y -= titleLineH;
     page.drawText(safe(ln), { x: MARGIN, y: y + titleLineH - titleSize * 0.85, size: titleSize, font: fonts.bold, color: theme.onDark });
   }
 
+  // Gold underline beneath the title block for sales-impact contrast
+  page.drawRectangle({ x: MARGIN, y: y - 10, width: PAGE_W - MARGIN * 2, height: 1.2, color: theme.accent, opacity: 0.6 });
+
   // Subtitle
   if (subLines.length) {
-    y -= 18;
+    y -= 22;
     for (const ln of subLines) {
       y -= subLineH;
       page.drawText(safe(ln), { x: MARGIN, y: y + subLineH - subSize * 0.85, size: subSize, font: fonts.reg, color: theme.onDark, opacity: 0.95 });
@@ -707,9 +719,15 @@ function drawTitlePage(page: PDFPage, theme: Theme, fonts: Fonts, title: string,
   for (const ln of wrap(subtitle, fonts.italic, 14, PAGE_W - MARGIN * 2).slice(0, 3)) {
     page.drawText(safe(ln), { x: MARGIN, y, size: 14, font: fonts.italic, color: theme.sub }); y -= 20;
   }
+  // short product promise
+  y -= 14;
+  const promiseLine = "A premium tactical workbook with frameworks, worksheets, and a step-by-step playbook you can apply this week.";
+  for (const ln of wrap(promiseLine, fonts.reg, 11, PAGE_W - MARGIN * 2).slice(0, 4)) {
+    page.drawText(safe(ln), { x: MARGIN, y, size: 11, font: fonts.reg, color: theme.ink }); y -= 16;
+  }
   // bottom rule + brand
   page.drawLine({ start: { x: MARGIN, y: MARGIN + 40 }, end: { x: PAGE_W - MARGIN, y: MARGIN + 40 }, thickness: 0.6, color: theme.hair });
-  page.drawText(`${brand}  ·  PREMIUM PDF GUIDE`, { x: MARGIN, y: MARGIN + 22, size: 9, font: fonts.bold, color: theme.sub });
+  page.drawText(`${brand}  ·  PREMIUM TACTICAL WORKBOOK`, { x: MARGIN, y: MARGIN + 22, size: 9, font: fonts.bold, color: theme.sub });
 }
 
 function drawCopyrightPage(page: PDFPage, theme: Theme, fonts: Fonts, brand: string, finance: boolean) {
@@ -833,51 +851,74 @@ function drawChapterDivider(
   }
 }
 
-// Pull a one-sentence promise + 3 outcome bullets out of a chapter's markdown
-// content so the divider page is never mostly blank.
+// Generate a polished one-sentence chapter promise + 3 outcome bullets.
+// Never returns raw excerpts, truncated sentences, or example/case-study data
+// (dollar amounts, card names, app names, item values, APR figures).
 function extractChapterPromise(md: string, fallbackTitle: string): { promise: string; outcomes: string[] } {
   const txt = (md || "").replace(/\r\n/g, "\n").trim();
-  let promise = "";
-  let outcomes: string[] = [];
+  const title = (fallbackTitle || "this chapter").trim();
+  const titleLower = title.toLowerCase().replace(/^chapter\s+\d+[:.\s-]*/i, "");
 
-  // First non-heading paragraph → promise (first sentence, ≤ 180 chars)
-  const paras = txt.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  for (const p of paras) {
-    if (/^#/.test(p) || /^[-*]\s/.test(p) || /^>\s/.test(p)) continue;
-    const firstSentence = (p.split(/(?<=[.!?])\s+/)[0] || p).trim();
-    promise = stripInline(firstSentence).slice(0, 200);
-    if (promise.length >= 30) break;
-  }
-  if (!promise) {
-    promise = `A tactical walkthrough you can apply to ${fallbackTitle.toLowerCase()} immediately.`;
-  }
+  // ---- Heuristic: is this string a raw example (junk for a divider) ----
+  const looksLikeExample = (s: string): boolean => {
+    const t = s.trim();
+    if (!t) return true;
+    // currency, percentages, APRs, prices like $4.99/mo, $12,000
+    if (/\$\s?\d|\d+\s?%|\bAPR\b|\/\s?mo\b|\bper month\b/i.test(t)) return true;
+    // "Card A", "Card B", "Item 1", "Item 2", "Account #"
+    if (/\b(Card|Item|Account|Option|Loan|Debt)\s+[A-Z0-9]\b/.test(t)) return true;
+    // brand/app/product nouns commonly seen in case studies
+    if (/\b(iPad|iPhone|Netflix|Spotify|Hulu|Disney|Amazon|gym membership|weather app|streaming)\b/i.test(t)) return true;
+    // bare lists of numbers / colons of value: "Premium weather app: $4.99/mo"
+    if (/:\s*\$/.test(t)) return true;
+    return false;
+  };
+  const isCompleteSentence = (s: string): boolean => {
+    const t = s.trim();
+    if (t.length < 25 || t.length > 200) return false;
+    if (!/[.!?]$/.test(t)) return false;
+    // mid-word truncations: trailing capital letter alone, single trailing capital
+    if (/\b[A-Z]$/.test(t.replace(/[.!?]+$/, ""))) return false;
+    return true;
+  };
 
-  // First bullet list → outcomes
+  // ---- Promise: derived from chapter title, always complete ----
+  const promise = `In this chapter, you'll learn how to ${titleLower.replace(/[.!?]+$/, "")} so you can move closer to a clean, debt-free finish.`
+    .replace(/\s+/g, " ")
+    .slice(0, 200);
+
+  // ---- Outcomes: only accept clean, sentence-shaped, non-example bullets ----
+  const candidates: string[] = [];
   const bulletMatch = txt.match(/(?:^|\n)([-*]\s+.+(?:\n[-*]\s+.+)*)/);
   if (bulletMatch) {
-    outcomes = bulletMatch[1]
-      .split("\n")
-      .map((l) => stripInline(l.replace(/^[-*]\s+/, "")).trim())
-      .filter((l) => l.length >= 8)
-      .slice(0, 3);
-  }
-  // Fallback: derive from first 3 sentences of body prose
-  if (outcomes.length < 3) {
-    const sentences = stripInline(txt.replace(/^#.*$/gm, "")).split(/(?<=[.!?])\s+/);
-    for (const s of sentences) {
-      const cand = s.trim();
-      if (cand.length >= 30 && cand.length <= 160 && !outcomes.includes(cand)) outcomes.push(cand);
-      if (outcomes.length >= 3) break;
+    for (const raw of bulletMatch[1].split("\n")) {
+      let s = stripInline(raw.replace(/^[-*]\s+/, "")).trim();
+      if (!s) continue;
+      if (looksLikeExample(s)) continue;
+      // Ensure terminal punctuation
+      if (!/[.!?]$/.test(s)) s = s + ".";
+      if (s.length < 25 || s.length > 160) continue;
+      candidates.push(s);
+      if (candidates.length >= 3) break;
     }
   }
-  while (outcomes.length < 3) {
-    outcomes.push([
-      "A concrete framework you can apply this week.",
-      "Common traps to avoid and exactly how to dodge them.",
-      "A short action checklist to lock the lesson in.",
-    ][outcomes.length]);
+
+  // Fill with topic-aware fallback outcomes
+  const fallbacks = [
+    `Identify the specific moves that make ${titleLower} actually work in the real world.`,
+    `Build a repeatable system you can apply this week without extra tools or willpower.`,
+    `Avoid the common mistakes that keep most people stuck and slow down debt payoff.`,
+    `Use a clear checklist to lock the lesson in and turn it into action.`,
+  ];
+  for (const f of fallbacks) {
+    if (candidates.length >= 3) break;
+    if (!candidates.includes(f)) candidates.push(f);
   }
-  return { promise, outcomes: outcomes.slice(0, 3).map((o) => o.replace(/\s+/g, " ").slice(0, 160)) };
+
+  return {
+    promise,
+    outcomes: candidates.slice(0, 3).map((o) => o.replace(/\s+/g, " ").slice(0, 160)),
+  };
 }
 
 function drawBackCover(page: PDFPage, theme: Theme, fonts: Fonts, brand: string, title: string) {
@@ -1042,32 +1083,54 @@ function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fo
       break;
     }
     case "matrix_2x2": {
+      // Premium quadrant grid. Axis labels are intentionally NOT drawn —
+      // they previously truncated and left stray letters (a, B, l, n) at page edges.
+      // Each quadrant is a self-contained labelled box.
+      const gap = 12;
       const size = Math.min(CONTENT_W, areaH);
       const x0 = (PAGE_W - size) / 2;
       const y0 = bottom + (areaH - size) / 2;
-      const half = size / 2;
+      const half = (size - gap) / 2;
+      // Detect debt-strike prioritization → use fixed, sellable labels
+      const isDebt = /debt|apr|balance|priorit/i.test(`${d.visual_name} ${d.purpose}`);
+      const defaults = isDebt
+        ? [
+            { label: "HIGH BALANCE / LOW APR", caption: "Steady payoff. Avoid feeding new charges." },
+            { label: "HIGH BALANCE / HIGH APR", caption: "Top priority. Attack with every surplus dollar." },
+            { label: "LOW BALANCE / LOW APR", caption: "Park. Pay minimum until others clear." },
+            { label: "LOW BALANCE / HIGH APR", caption: "Quick wins. Eliminate fast to free cash flow." },
+          ]
+        : [
+            { label: nodes[0] ?? "QUADRANT 1", caption: "" },
+            { label: nodes[1] ?? "QUADRANT 2", caption: "" },
+            { label: nodes[2] ?? "QUADRANT 3", caption: "" },
+            { label: nodes[3] ?? "QUADRANT 4", caption: "" },
+          ];
       const cells = [
-        { x: x0, y: y0 + half, fill: theme.surfaceOk },
-        { x: x0 + half, y: y0 + half, fill: theme.surface },
-        { x: x0, y: y0, fill: theme.surfaceDanger },
-        { x: x0 + half, y: y0, fill: theme.surfaceWarm },
+        { x: x0, y: y0 + half + gap, fill: theme.surface, ...defaults[0] },               // top-left
+        { x: x0 + half + gap, y: y0 + half + gap, fill: theme.surfaceDanger, ...defaults[1] }, // top-right
+        { x: x0, y: y0, fill: theme.surfaceOk, ...defaults[2] },                          // bottom-left
+        { x: x0 + half + gap, y: y0, fill: theme.surfaceWarm, ...defaults[3] },           // bottom-right
       ];
-      cells.forEach((c, i) => {
-        page.drawRectangle({ x: c.x, y: c.y, width: half, height: half, color: c.fill, borderColor: theme.hair, borderWidth: 0.6 });
-        const lines = wrap(nodes[i] ?? "", fonts.bold, 11, half - 20).slice(0, 4);
-        let ty = c.y + half - 16;
-        for (const ln of lines) { page.drawText(safe(ln), { x: c.x + 10, y: ty, size: 11, font: fonts.bold, color: theme.ink }); ty -= 14; }
-      });
-      if (d.labels?.x_axis) {
-        page.drawText(safe(d.labels.x_axis[0]), { x: x0, y: y0 - 14, size: 9, font: fonts.reg, color: theme.sub });
-        const t = safe(d.labels.x_axis[1]);
-        const tw = fonts.reg.widthOfTextAtSize(t, 9);
-        page.drawText(t, { x: x0 + size - tw, y: y0 - 14, size: 9, font: fonts.reg, color: theme.sub });
+      for (const c of cells) {
+        page.drawRectangle({ x: c.x, y: c.y, width: half, height: half, color: c.fill, borderColor: theme.hair, borderWidth: 0.8 });
+        // top accent strip per cell
+        page.drawRectangle({ x: c.x, y: c.y + half - 4, width: half, height: 4, color: theme.accent });
+        const labelLines = wrap(c.label, fonts.bold, 11, half - 20).slice(0, 2);
+        let ty = c.y + half - 22;
+        for (const ln of labelLines) {
+          page.drawText(safe(ln), { x: c.x + 12, y: ty, size: 11, font: fonts.bold, color: theme.ink });
+          ty -= 14;
+        }
+        if (c.caption) {
+          ty -= 4;
+          for (const ln of wrap(c.caption, fonts.reg, 9, half - 20).slice(0, 3)) {
+            page.drawText(safe(ln), { x: c.x + 12, y: ty, size: 9, font: fonts.reg, color: theme.sub });
+            ty -= 12;
+          }
+        }
       }
-      if (d.labels?.y_axis) {
-        page.drawText(safe(d.labels.y_axis[1]), { x: x0 - 50, y: y0 + size - 10, size: 9, font: fonts.reg, color: theme.sub });
-        page.drawText(safe(d.labels.y_axis[0]), { x: x0 - 50, y: y0 + 4, size: 9, font: fonts.reg, color: theme.sub });
-      }
+      // NOTE: axis labels (d.labels.x_axis / y_axis) are intentionally not rendered.
       break;
     }
     case "circle_cycle": {
@@ -1314,6 +1377,7 @@ function computePdfQc(x: {
   pageCount: number; chapters: number; diagrams: number; worksheets: number;
   hasCover: boolean; coverScore: number; hasToc: boolean; hasDisclaimer: boolean;
   diagramOverflowCount?: number; diagramTruncatedCount?: number;
+  dividerIssueCount?: number;
 }) {
   const coverPremiumScore = x.hasCover ? Math.min(100, Math.round(60 + x.coverScore * 0.4)) : 50;
   // Thumbnail readability: covers always overlay the title at 22-44pt bold via pdf-lib,
