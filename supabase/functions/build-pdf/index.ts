@@ -645,7 +645,15 @@ Deno.serve(async (req) => {
       const db2 = admin();
       const body = await req.clone().json().catch(() => ({} as Record<string, unknown>));
       const id = (body as { ebook_id?: string }).ebook_id;
-      if (id) await db2.from("ebooks").update({ status: "review", pdf_status: "pdf_qc_failed" }).eq("id", id);
+      if (id) await db2.from("ebooks").update({
+        status: "review",
+        pdf_status: "pdf_qc_failed",
+        qc_status: "needs_admin_review",
+        failed_gate: "pdf_layout",
+        admin_review_reason: err instanceof Error ? err.message : String(err),
+        next_recommended_action: "Check build-pdf logs and rebuild.",
+        blocked_at: new Date().toISOString(),
+      }).eq("id", id);
     } catch { /* ignore */ }
     return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
