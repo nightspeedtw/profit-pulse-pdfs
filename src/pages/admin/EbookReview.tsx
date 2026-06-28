@@ -387,11 +387,9 @@ export default function EbookReview() {
 
       <div className="sticky bottom-0 border-2 border-foreground bg-card p-4 flex flex-wrap gap-2">
         <Button onClick={save} disabled={busy === "save"}>{busy === "save" && <Loader2 className="size-4 animate-spin" />} Save edits</Button>
-        <Button variant="outline" onClick={() => run("qc-check")} disabled={!!busy}>Run QC</Button>
-        <Button variant="outline" onClick={() => run("qc-fix")} disabled={!!busy}>Auto-fix QC</Button>
         <Button variant="outline" onClick={() => run("generate-cover")} disabled={!!busy}>{busy === "generate-cover" && <Loader2 className="size-4 animate-spin mr-1" />}Regenerate cover</Button>
         <Button variant="outline" onClick={() => run("generate-interior-visuals")} disabled={!!busy}>{busy === "generate-interior-visuals" && <Loader2 className="size-4 animate-spin mr-1" />}Generate visuals</Button>
-        <Button variant="outline" onClick={() => run("build-pdf")} disabled={!!busy}>Build PDF</Button>
+        <Button variant="outline" onClick={() => run("build-pdf")} disabled={!!busy}>Build PDF (auto-QC)</Button>
       </div>
     </div>
   );

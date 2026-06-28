@@ -10,6 +10,7 @@ import { ChevronDown, ChevronUp, Check, X, Loader2, ShieldCheck, Send, Lock } fr
 import { toast } from "sonner";
 
 interface PdfQc {
+  // legacy snake_case
   cover_premium_score?: number;
   thumbnail_readability_score?: number;
   interior_layout_score?: number;
@@ -17,7 +18,17 @@ interface PdfQc {
   diagram_quality_score?: number;
   product_value_score?: number;
   final_pdf_premium_score?: number;
+  // current camelCase from build-pdf
+  coverPremiumScore?: number;
+  thumbnailReadabilityScore?: number;
+  interiorLayoutScore?: number;
+  worksheetQualityScore?: number;
+  diagramQualityScore?: number;
+  productValueScore?: number;
+  finalPdfPremiumScore?: number;
+  pdf_status?: string;
   blocked_for_publish?: boolean;
+  report?: Record<string, unknown>;
   notes?: string[];
 }
 
@@ -89,27 +100,28 @@ export function FinalApproval({ ebook, onChanged }: Props) {
   const [open, setOpen] = useState(false);
 
   const qc = ebook.pdf_qc ?? {};
-  const coverScore = qc.cover_premium_score ?? ebook.cover_score ?? undefined;
-  const productScore = qc.product_value_score ?? ebook.conversion_score ?? undefined;
+  // Read scores from both camelCase (current build-pdf) and snake_case (legacy / report block).
+  const r = (qc.report ?? {}) as Record<string, number | undefined>;
+  const pick = (...vals: (number | undefined)[]) => vals.find((v) => typeof v === "number");
+  const coverScore = pick(qc.coverPremiumScore, qc.cover_premium_score, r.cover_score, ebook.cover_score ?? undefined);
+  const thumbScore = pick(qc.thumbnailReadabilityScore, qc.thumbnail_readability_score, r.thumbnail_score);
+  const interiorScore = pick(qc.interiorLayoutScore, qc.interior_layout_score, r.interior_score);
+  const worksheetScore = pick(qc.worksheetQualityScore, qc.worksheet_quality_score, r.worksheet_score);
+  const diagramScore = pick(qc.diagramQualityScore, qc.diagram_quality_score, r.diagram_score);
+  const finalScore = pick(qc.finalPdfPremiumScore, qc.final_pdf_premium_score, r.final_pdf_premium_score, ebook.final_quality_score ?? undefined);
+  const productScore = pick(qc.productValueScore, qc.product_value_score, ebook.conversion_score ?? undefined);
+  const pdfReady = qc.pdf_status === "pdf_ready";
 
-  const gates = useMemo<Gate[]>(() => {
-    const list: Gate[] = [
-      { label: `Cover Premium Score ≥ ${THRESHOLDS.cover}`, pass: (coverScore ?? 0) >= THRESHOLDS.cover, detail: `score ${coverScore ?? "—"}`, blocking: true },
-      { label: `Thumbnail Readability ≥ ${THRESHOLDS.thumbnail}`, pass: (qc.thumbnail_readability_score ?? 0) >= THRESHOLDS.thumbnail, detail: `score ${qc.thumbnail_readability_score ?? "—"}`, blocking: true },
-      { label: `Interior Layout ≥ ${THRESHOLDS.interior}`, pass: (qc.interior_layout_score ?? 0) >= THRESHOLDS.interior, detail: `score ${qc.interior_layout_score ?? "—"} — no broken layout / cropped diagrams`, blocking: true },
-      { label: `Worksheet Quality ≥ ${THRESHOLDS.worksheet}`, pass: (qc.worksheet_quality_score ?? 0) >= THRESHOLDS.worksheet, detail: `score ${qc.worksheet_quality_score ?? "—"} — worksheets must look usable`, blocking: true },
-      { label: `Diagram Quality ≥ ${THRESHOLDS.diagram}`, pass: (qc.diagram_quality_score ?? 0) >= THRESHOLDS.diagram, detail: `score ${qc.diagram_quality_score ?? "—"} — diagrams not cropped`, blocking: true },
-      { label: `Product Page Value ≥ ${THRESHOLDS.product}`, pass: (productScore ?? 0) >= THRESHOLDS.product, detail: `score ${productScore ?? "—"}`, blocking: true },
-      { label: `Final PDF Premium Score ≥ ${THRESHOLDS.final}`, pass: (qc.final_pdf_premium_score ?? 0) >= THRESHOLDS.final, detail: `score ${qc.final_pdf_premium_score ?? "—"}`, blocking: true },
-      { label: "Cover approved by admin", pass: !!ebook.cover_approved, detail: "cover text legible, premium, on-topic", blocking: true },
-      { label: "Cover image present", pass: !!ebook.cover_url, detail: ebook.cover_url ? "OK" : "missing cover_url", blocking: true },
-      { label: "PDF download link present", pass: !!ebook.pdf_url, detail: ebook.pdf_url ? "OK" : "build PDF first", blocking: true },
-      { label: "Shopify product description present", pass: !!ebook.product_description, detail: ebook.product_description ? "OK" : "missing metadata", blocking: true },
-      { label: "Shopify draft created", pass: !!ebook.shopify_product_id, detail: ebook.shopify_product_id ? `id ${ebook.shopify_product_id}` : "push to Shopify draft first", blocking: true },
-      { label: "Not flagged blocked_for_publish", pass: !qc.blocked_for_publish, detail: qc.blocked_for_publish ? "QC flagged PDF as not premium" : "OK", blocking: true },
-    ];
-    return list;
-  }, [ebook, qc, coverScore, productScore]);
+  // Collapsed gate set — the PDF auto-QC pipeline already enforces cover/thumbnail/
+  // interior/worksheet/diagram/final-premium internally. Only show the gates an
+  // admin still actively controls: PDF Ready, cover approval, product copy, Shopify.
+  const gates = useMemo<Gate[]>(() => ([
+    { label: "PDF passed premium auto-QC", pass: pdfReady && !qc.blocked_for_publish, detail: pdfReady ? `pdf_status=pdf_ready · score ${finalScore ?? "—"}` : `pdf_status=${qc.pdf_status ?? "—"} (must be pdf_ready)`, blocking: true },
+    { label: "Cover approved by admin", pass: !!ebook.cover_approved && !!ebook.cover_url, detail: ebook.cover_approved ? "cover text legible, premium, on-topic" : "review and approve cover", blocking: true },
+    { label: `Product page conversion ≥ ${THRESHOLDS.product}`, pass: (productScore ?? 0) >= THRESHOLDS.product, detail: `score ${productScore ?? "—"}`, blocking: true },
+    { label: "Shopify product description present", pass: !!ebook.product_description, detail: ebook.product_description ? "OK" : "missing metadata", blocking: true },
+    { label: "Shopify draft created", pass: !!ebook.shopify_product_id, detail: ebook.shopify_product_id ? `id ${ebook.shopify_product_id}` : "push to Shopify draft first", blocking: true },
+  ]), [ebook, qc, productScore, finalScore, pdfReady]);
 
   const allPass = gates.every((g) => g.pass);
   const failingBlocking = gates.filter((g) => !g.pass && g.blocking);
@@ -175,12 +187,12 @@ export function FinalApproval({ ebook, onChanged }: Props) {
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <ScoreTile label="Cover" value={coverScore} min={THRESHOLDS.cover} />
-          <ScoreTile label="Thumbnail" value={qc.thumbnail_readability_score} min={THRESHOLDS.thumbnail} />
-          <ScoreTile label="Interior" value={qc.interior_layout_score} min={THRESHOLDS.interior} />
-          <ScoreTile label="Worksheet" value={qc.worksheet_quality_score} min={THRESHOLDS.worksheet} />
-          <ScoreTile label="Diagram" value={qc.diagram_quality_score} min={THRESHOLDS.diagram} />
+          <ScoreTile label="Thumbnail" value={thumbScore} min={THRESHOLDS.thumbnail} />
+          <ScoreTile label="Interior" value={interiorScore} min={THRESHOLDS.interior} />
+          <ScoreTile label="Worksheet" value={worksheetScore} min={THRESHOLDS.worksheet} />
+          <ScoreTile label="Diagram" value={diagramScore} min={THRESHOLDS.diagram} />
           <ScoreTile label="Product Page" value={productScore} min={THRESHOLDS.product} />
-          <ScoreTile label="Final Premium" value={qc.final_pdf_premium_score} min={THRESHOLDS.final} />
+          <ScoreTile label="Final Premium" value={finalScore} min={THRESHOLDS.final} />
           <div className="border-2 border-foreground/15 p-3 flex flex-col justify-between">
             <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Gates passed</div>
             <div className="text-2xl font-bold">{gates.filter((g) => g.pass).length}/{gates.length}</div>
