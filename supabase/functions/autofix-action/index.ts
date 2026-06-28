@@ -36,7 +36,13 @@ Deno.serve(async (req) => {
     const db = admin();
 
     if (action === "reset" || action === "retry") {
-      await db.from("ebooks").update({
+      // Clear QC blockers AND re-arm pipeline stages so retry actually
+      // re-runs diagnose + targeted repair (not just clears flags).
+      const { data: cur } = await db.from("ebooks")
+        .select("manuscript_qc_status, pdf_status, autopilot_state")
+        .eq("id", ebook_id).single();
+
+      const patch: Record<string, unknown> = {
         qc_status: "qc_pending",
         failed_gate: null,
         failed_component: null,
@@ -46,7 +52,31 @@ Deno.serve(async (req) => {
         admin_review_reason: null,
         next_recommended_action: null,
         blocked_at: null,
-      }).eq("id", ebook_id);
+        autopilot_state: "running",
+        needs_review_reason: null,
+      };
+      // If manuscript QC is the blocker, force the pipeline to re-run it.
+      if (cur?.manuscript_qc_status === "needs_review") {
+        patch.manuscript_qc_status = "pending";
+        patch.manuscript_fix_count = 0;
+      }
+      await db.from("ebooks").update(patch).eq("id", ebook_id);
+
+      // Kick the pipeline so the retry actually does work.
+      const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/autopilot-pipeline`;
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        },
+        body: JSON.stringify({ ebook_id, mode: "full" }),
+      });
+      const body = await r.json().catch(() => ({}));
+      return new Response(JSON.stringify({ ok: r.ok, resumed: body }), {
+        status: r.ok ? 200 : 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     } else if (action === "rebuild_pdf") {
       // Invoke build-pdf inline.
       const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/build-pdf`;
