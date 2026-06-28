@@ -4,7 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, Activity } from "lucide-react";
+import { ArrowLeft, Loader2, Activity, RotateCcw } from "lucide-react";
 import { RunStepTimeline, type RunStepRow } from "@/components/admin/RunStepTimeline";
 import { RunFinalReport, type RunSummary } from "@/components/admin/RunFinalReport";
 import { AdminNeededPanel, type AdminNeededState } from "@/components/admin/AdminNeededPanel";
@@ -38,6 +38,7 @@ export default function AutopilotRun() {
   const [steps, setSteps] = useState<RunStepRow[]>([]);
   const [ebook, setEbook] = useState<AdminNeededState | null>(null);
   const [totalCost, setTotalCost] = useState(0);
+  const [rerunning, setRerunning] = useState(false);
 
   async function loadAll() {
     if (!runId) return;
@@ -92,11 +93,39 @@ export default function AutopilotRun() {
     loadAll();
   }
 
+  async function rerun() {
+    if (!run) return;
+    setRerunning(true);
+    try {
+      const body: Record<string, unknown> = {
+        mode: run.mode ?? "safe",
+        test_mode: !!run.test_mode,
+      };
+      if (run.ebook_id) body.ebook_id = run.ebook_id;
+      const { data, error } = await supabase.functions.invoke("autopilot-pipeline", { body });
+      if (error || (data as { error?: string } | null)?.error) {
+        throw new Error(error?.message ?? (data as { error?: string }).error);
+      }
+      const newId = (data as { run_id?: string } | null)?.run_id;
+      toast.success(run.ebook_id ? "Resumed pipeline" : "Started new run");
+      if (newId && newId !== run.id) window.location.href = `/admin/autopilot/run/${newId}`;
+      else loadAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Rerun failed");
+    } finally {
+      setRerunning(false);
+    }
+  }
+
   return (
     <div className="max-w-5xl space-y-6 p-2">
       <div className="flex items-center gap-2 flex-wrap">
         <Link to="/admin"><Button size="sm" variant="ghost"><ArrowLeft className="size-4 mr-1" />Command Center</Button></Link>
         <Link to="/admin#live"><Button size="sm" variant="default"><Activity className="size-4 mr-1" />ดูสถานะรันตอนนี้</Button></Link>
+        <Button size="sm" variant="outline" onClick={rerun} disabled={rerunning || isActive}>
+          {rerunning ? <Loader2 className="size-4 mr-1 animate-spin" /> : <RotateCcw className="size-4 mr-1" />}
+          {run.ebook_id ? "Resume / Rerun" : "Rerun"}
+        </Button>
         <span className="text-xs font-mono text-muted-foreground">Run {run.id.slice(0, 8)}</span>
       </div>
 
