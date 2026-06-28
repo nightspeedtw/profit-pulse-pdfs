@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Loader2, Plane, ArrowRight, FlaskConical, AlertTriangle } from "lucide-react";
+import { Loader2, Plane, ArrowRight, FlaskConical, AlertTriangle, PauseCircle, DollarSign, ImageOff, FileX, ShieldAlert, ShoppingBag } from "lucide-react";
 import { Link } from "react-router-dom";
 
 type FailedJob = {
