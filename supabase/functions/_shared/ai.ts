@@ -141,9 +141,12 @@ export async function logCost(db: ReturnType<typeof admin>, row: {
 }
 
 export async function requireAdmin(req: Request) {
+  // TEMP BYPASS (user requested) — when ADMIN_AUTH_BYPASS=1, skip all auth checks.
+  if (Deno.env.get("ADMIN_AUTH_BYPASS") === "1") {
+    return { id: "bypass-admin", email: "bypass@autopilot" } as { id: string; email: string };
+  }
   const auth = req.headers.get("Authorization");
   if (!auth) throw new Error("Not authenticated");
-  // Allow service-role calls (used by the autopilot pipeline + cron) to bypass.
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (serviceKey && auth === `Bearer ${serviceKey}`) {
     return { id: "service-role", email: "service@autopilot" } as { id: string; email: string };
