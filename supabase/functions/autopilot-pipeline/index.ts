@@ -123,9 +123,11 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Skip multiple steps with a single message (used when section is already complete).
-      async function skip(stepNames: string[], message: string) {
-        for (const n of stepNames) await tracker.skipStep(n, message);
+      // Skip multiple steps with a single message. When `existing` is true
+      // (the section already has valid saved output) the UI shows
+      // "Passed — existing output found" instead of a confusing "Skipped".
+      async function skip(stepNames: string[], message: string, existing = true) {
+        for (const n of stepNames) await tracker.skipStep(n, message, { existing });
       }
 
       // Translate "needs_review" exits into a clear admin-needed marker on the run.
