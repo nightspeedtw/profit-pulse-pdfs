@@ -10,6 +10,7 @@ import { ChevronDown, ChevronUp, Check, X, Loader2, ShieldCheck, Send, Lock } fr
 import { toast } from "sonner";
 
 interface PdfQc {
+  // legacy snake_case
   cover_premium_score?: number;
   thumbnail_readability_score?: number;
   interior_layout_score?: number;
@@ -17,7 +18,17 @@ interface PdfQc {
   diagram_quality_score?: number;
   product_value_score?: number;
   final_pdf_premium_score?: number;
+  // current camelCase from build-pdf
+  coverPremiumScore?: number;
+  thumbnailReadabilityScore?: number;
+  interiorLayoutScore?: number;
+  worksheetQualityScore?: number;
+  diagramQualityScore?: number;
+  productValueScore?: number;
+  finalPdfPremiumScore?: number;
+  pdf_status?: string;
   blocked_for_publish?: boolean;
+  report?: Record<string, unknown>;
   notes?: string[];
 }
 
