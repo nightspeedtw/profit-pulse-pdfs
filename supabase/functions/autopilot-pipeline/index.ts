@@ -64,6 +64,16 @@ Deno.serve(async (req) => {
       return json({ skipped: `cost_limit_reached ($${guard.spent.toFixed(2)} ≥ $${guard.budget.toFixed(2)})` });
     }
 
+    // ---- Live run tracker (visible to admin UI via Realtime) ----
+    const tracker = await RunTracker.start(db, {
+      ebook_id: ebook_id ?? null,
+      idea_id: idea_id ?? null,
+      mode,
+      test_mode: !!test_mode,
+      triggered_by,
+    });
+    const run_id = tracker.runId;
+
     // ---- Pipeline (background) ----
     const pipeline = (async () => {
       let ebook: any = null;
@@ -96,42 +106,78 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Track one or more pipeline steps as a single underlying action.
+      async function track(stepNames: string[], message: string, fn: () => Promise<void>) {
+        if (await tracker.isPauseRequested()) {
+          await tracker["patchRun"]?.({ status: "paused", current_action_message: "Paused after current step" });
+          throw new Error("paused_by_admin");
+        }
+        for (const n of stepNames) await tracker.startStep(n, message);
+        try {
+          await fn();
+          for (const n of stepNames) await tracker.passStep(n);
+        } catch (err) {
+          const msg = (err as Error).message ?? String(err);
+          await tracker.failStep(stepNames[stepNames.length - 1], msg);
+          throw err;
+        }
+      }
+
+      // Skip multiple steps with a single message (used when section is already complete).
+      async function skip(stepNames: string[], message: string) {
+        for (const n of stepNames) await tracker.skipStep(n, message);
+      }
+
+      // Translate "needs_review" exits into a clear admin-needed marker on the run.
+      async function needsAdmin(step: string, reason: string, recommended?: string) {
+        await tracker.needsAdmin(step, reason, recommended);
+      }
+
       try {
-        // STEP 1 — generate topic if no input
+        // ---------- STEP 1+2+3 — Generate idea + title/hook + idea QC ----------
         if (!idea_id && !ebook_id) {
-          const gen = await runStep("1_generate_topic", "generate-idea", { count: 1, category_mix: settings.category_mix ?? null });
-          idea_id = gen.body?.ids?.[0] ?? gen.body?.ideas?.[0]?.id ?? gen.body?.id;
-          if (!idea_id) throw new Error("generate-idea returned no idea");
+          await track(
+            ["generate_idea", "title_and_hook", "idea_qc"],
+            "Generating one premium ebook idea, writing title & hook, and running idea QC…",
+            async () => {
+              const gen = await runStep("1_generate_topic", "generate-idea", { count: 1, category_mix: settings.category_mix ?? null });
+              idea_id = gen.body?.ids?.[0] ?? gen.body?.ideas?.[0]?.id ?? gen.body?.id;
+              if (!idea_id) throw new Error("generate-idea returned no idea");
+            },
+          );
+        } else {
+          await skip(["generate_idea"], "Idea already provided");
         }
 
-        // STEP 2 + 3 — best title + QC idea
-        // Only invoke idea-copywriter QC for freshly generated ideas (no title yet).
-        // For pre-existing/manually-created ideas with a title, mark as scored and continue.
         if (idea_id) {
           const { data: i } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
           idea = i;
           if (idea?.status === "rejected") {
             await logRun(db, { idea_id, step: "qc_idea", status: "reject", error: idea.auto_rejected_reason });
+            await needsAdmin("idea_qc", `Idea rejected: ${idea.auto_rejected_reason ?? "unknown reason"}`, "Generate a new idea or unblock this one manually.");
             return;
           }
           if (idea && idea.premium_score == null && (!idea.title || idea.title.trim().length < 5)) {
-            // No title yet — run copywriter to generate best concept (requires category).
-            await runStep("2_best_title_qc", "idea-copywriter", { mode: "generate_one_best_concept", category_id: idea.category_id });
-            const { data: i2 } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
-            idea = i2;
+            await track(
+              ["title_and_hook", "idea_qc"],
+              "Writing title, subtitle, and hard-sell hook…",
+              async () => {
+                await runStep("2_best_title_qc", "idea-copywriter", { mode: "generate_one_best_concept", category_id: idea.category_id });
+                const { data: i2 } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
+                idea = i2;
+              },
+            );
           } else if (idea && idea.premium_score == null) {
-            // Pre-existing idea with title — mark as auto-scored (passes by default) and continue.
             await db.from("ebook_ideas").update({
-              premium_score: 85,
-              hard_sell_score: 85,
-              buyer_appeal_score: 85,
-              idea_score: 85,
-              compliance_risk_score: 2,
-              topic_rewrite_count: 1,
+              premium_score: 85, hard_sell_score: 85, buyer_appeal_score: 85,
+              idea_score: 85, compliance_risk_score: 2, topic_rewrite_count: 1,
             }).eq("id", idea_id);
             await logRun(db, { idea_id, step: "2_best_title_qc", status: "ok", payload: { skipped: "existing idea, auto-scored" } });
+            await skip(["title_and_hook", "idea_qc"], "Existing idea — auto-scored");
             const { data: i2 } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
             idea = i2;
+          } else {
+            await skip(["title_and_hook", "idea_qc"], "Idea already scored");
           }
         }
 
@@ -158,8 +204,8 @@ Deno.serve(async (req) => {
           ebook = e;
         }
         if (!ebook) throw new Error("no ebook to drive pipeline");
+        await tracker.setEbook(ebook.id);
 
-        // Reset previous failure if user clicked "Resume".
         if (ebook.autopilot_state === "failed") {
           await db.from("ebooks").update({ autopilot_state: "running", needs_review_reason: null }).eq("id", ebook.id);
         } else {
@@ -200,56 +246,112 @@ Deno.serve(async (req) => {
           return (count ?? 0) >= maxShopifyPerDay;
         };
 
-        // STEP 4 + 5 — Outline + QC
+        // ---------- STEP 4 + 5 — Outline + QC ----------
         if (!ebook.outline_json && !(ebook.toc && Array.isArray(ebook.toc) && ebook.toc.length)) {
-          if (await overBudget() || await overAiCalls()) return;
-          await runStep("4_5_outline_qc", "generate-outline", { ebook_id: ebook.id });
-          await refreshEbook();
+          if (await overBudget() || await overAiCalls()) {
+            await needsAdmin("outline", "Budget or AI-call cap reached before outline.", "Raise per-ebook budget or unblock the job.");
+            return;
+          }
+          await track(
+            ["outline", "outline_qc"],
+            "Generating chapter outline and running outline QC…",
+            async () => {
+              await runStep("4_5_outline_qc", "generate-outline", { ebook_id: ebook.id });
+              await refreshEbook();
+            },
+          );
           if (ebook.writing_status === "outline_rejected") {
             await db.from("ebooks").update({ autopilot_state: "needs_review", needs_review_reason: "outline QC failed" }).eq("id", ebook.id);
+            await needsAdmin("outline_qc", "Outline QC failed after auto-fix attempts.", "Edit outline or regenerate.");
             return;
           }
+        } else {
+          await skip(["outline", "outline_qc"], "Outline already present");
         }
 
-        // STEP 6 + 7 — Write chapters with per-chapter QC
+        // ---------- STEP 6 + 7 — Write chapters ----------
         if ((ebook.total_word_count ?? 0) < (Number(settings.min_word_count ?? 18000) * 0.9)) {
-          if (await overBudget() || await overAiCalls()) return;
-          await runStep("6_7_write_qc_chapters", "write-chapters", { ebook_id: ebook.id, full: true });
-          await refreshEbook();
+          if (await overBudget() || await overAiCalls()) {
+            await needsAdmin("chapter_writing", "Budget cap reached before chapter writing.", "Raise per-ebook budget or unblock the job.");
+            return;
+          }
+          await track(
+            ["chapter_writing", "chapter_qc"],
+            "Writing chapters and running per-chapter QC…",
+            async () => {
+              await runStep("6_7_write_qc_chapters", "write-chapters", { ebook_id: ebook.id, full: true });
+              await refreshEbook();
+            },
+          );
+        } else {
+          await skip(["chapter_writing", "chapter_qc"], "Chapters already written");
         }
 
-        // STEP 8 — Final manuscript QC
+        // ---------- STEP 8 — Final manuscript QC ----------
         if (ebook.manuscript_qc_status !== "pass" && ebook.manuscript_qc_status !== "approved") {
-          if (await overBudget()) return;
-          await runStep("8_final_manuscript_qc", "final-manuscript-qc", { ebook_id: ebook.id });
-          await refreshEbook();
+          if (await overBudget()) {
+            await needsAdmin("manuscript_qc", "Budget cap reached before manuscript QC.");
+            return;
+          }
+          await track(
+            ["manuscript_qc"],
+            "Running final manuscript QC across the whole book…",
+            async () => {
+              await runStep("8_final_manuscript_qc", "final-manuscript-qc", { ebook_id: ebook.id });
+              await refreshEbook();
+            },
+          );
           if (ebook.manuscript_qc_status === "needs_review") {
             await db.from("ebooks").update({ autopilot_state: "needs_review", needs_review_reason: "manuscript QC needs review" }).eq("id", ebook.id);
+            await needsAdmin("manuscript_qc", "Manuscript QC failed after auto-fix attempts.", "Edit chapters or rerun manuscript QC.");
             return;
           }
+        } else {
+          await skip(["manuscript_qc"], "Manuscript QC already passed");
         }
 
-        // STEP 9 — Cover
+        // ---------- STEP 9 — Cover + thumbnail ----------
         if (!ebook.cover_url) {
-          if (await overBudget()) return;
-          await runStep("9_cover", "generate-cover", { ebook_id: ebook.id, mode: "full" });
-          await refreshEbook();
+          if (await overBudget()) {
+            await needsAdmin("cover", "Budget cap reached before cover.");
+            return;
+          }
+          await track(
+            ["cover", "cover_qc", "thumbnail", "thumbnail_qc"],
+            "Generating premium cover and thumbnail with text overlay…",
+            async () => {
+              await runStep("9_cover", "generate-cover", { ebook_id: ebook.id, mode: "full" });
+              await refreshEbook();
+            },
+          );
+        } else {
+          await skip(["cover", "cover_qc", "thumbnail", "thumbnail_qc"], "Cover already present");
         }
-        // Cover approval is automatic when cover QC passes — no admin gate in hands-off Autopilot.
 
-        // STEP 10 + 11 — Render PDF (auto QC inside)
+        // ---------- STEP 10 + 11 — PDF ----------
         if (!ebook.pdf_url || ebook.pdf_status === "needs_review" || ebook.pdf_status === "failed") {
-          if (await overBudget()) return;
-          await runStep("10_11_render_pdf_qc", "render-pdf", { ebook_id: ebook.id });
-          await refreshEbook();
+          if (await overBudget()) {
+            await needsAdmin("pdf_render", "Budget cap reached before PDF render.");
+            return;
+          }
+          await track(
+            ["pdf_layout", "pdf_render", "pdf_qc"],
+            "Designing and rendering premium PDF, then running PDF QC…",
+            async () => {
+              await runStep("10_11_render_pdf_qc", "render-pdf", { ebook_id: ebook.id });
+              await refreshEbook();
+            },
+          );
           if (ebook.pdf_status === "needs_review") {
             await db.from("ebooks").update({ autopilot_state: "needs_review", needs_review_reason: "PDF QC needs review" }).eq("id", ebook.id);
+            await needsAdmin("pdf_qc", "PDF QC failed after auto-fix attempts.", "Edit cover/layout or regenerate PDF.");
             return;
           }
+        } else {
+          await skip(["pdf_layout", "pdf_render", "pdf_qc"], "PDF already rendered");
         }
-        // PDF approval is automatic when pdf_status === "pdf_ready" — no admin gate in hands-off Autopilot.
 
-        // STEP 12 — Shopify draft upload
+        // ---------- STEP 12 — Shopify draft ----------
         if (shopifyDraftEnabled && !ebook.shopify_product_id) {
           if (await shopifyOverDay()) {
             await db.from("ebooks").update({
@@ -257,13 +359,22 @@ Deno.serve(async (req) => {
               needs_review_reason: `Daily Shopify upload cap reached (${maxShopifyPerDay}/day)`,
             }).eq("id", ebook.id);
             await logRun(db, { ebook_id: ebook.id, step: "12_shopify_draft", status: "skip", error: "shopify daily cap" });
+            await needsAdmin("shopify_draft", `Daily Shopify upload cap reached (${maxShopifyPerDay}/day).`, "Raise the daily cap or wait for tomorrow.");
             return;
           }
-          await runStep("12_shopify_draft", "shopify-draft-upload", { ebook_id: ebook.id });
-          await refreshEbook();
+          await track(
+            ["product_copy", "product_qc", "shopify_draft", "shopify_verify"],
+            "Writing product copy, running product page QC, and uploading Shopify draft…",
+            async () => {
+              await runStep("12_shopify_draft", "shopify-draft-upload", { ebook_id: ebook.id });
+              await refreshEbook();
+            },
+          );
+        } else {
+          await skip(["product_copy", "product_qc", "shopify_draft", "shopify_verify"], "Shopify draft already uploaded");
         }
 
-        // Optional auto-publish — Full mode + auto_publish=true only.
+        // Optional auto-publish
         if (autoPublish && ebook.shopify_product_id && ebook.shopify_status === "draft") {
           await runStep("13_publish", "shopify-publish", { ebook_id: ebook.id });
         }
@@ -279,6 +390,20 @@ Deno.serve(async (req) => {
           payload: { mode, auto_publish: autoPublish, shopify_draft: shopifyDraftEnabled },
         });
 
+        await tracker.complete({
+          ebook_id: ebook.id,
+          title: ebook.title,
+          pdf_url: ebook.pdf_url,
+          cover_url: ebook.cover_url,
+          shopify_product_id: ebook.shopify_product_id,
+          shopify_status: ebook.shopify_status,
+          final_quality_score: ebook.final_quality_score,
+          conversion_score: ebook.conversion_score,
+          compliance_safety_score: ebook.compliance_safety_score,
+          duration_ms: Date.now() - t0,
+          auto_publish: autoPublish,
+        });
+
         async function refreshEbook() {
           const { data } = await db.from("ebooks").select("*").eq("id", ebook.id).maybeSingle();
           if (data) ebook = data;
@@ -286,6 +411,10 @@ Deno.serve(async (req) => {
       } catch (e) {
         const msg = (e as Error).message ?? String(e);
         console.error("autopilot-pipeline failed:", e);
+        if (msg === "paused_by_admin") {
+          await logRun(db, { ebook_id: ebook?.id, idea_id: idea?.id, step: "pipeline", status: "skip", error: "paused by admin" });
+          return;
+        }
         if (ebook?.id) {
           await db.from("ebooks").update({
             autopilot_state: "failed",
@@ -294,6 +423,15 @@ Deno.serve(async (req) => {
           await markQueueFailed(db, ebook.id, "pipeline", msg);
         }
         await logRun(db, { ebook_id: ebook?.id, idea_id: idea?.id, step: "pipeline", status: "fail", error: msg });
+        // Surface failure on the live run too.
+        try {
+          await db.from("autopilot_pipeline_runs").update({
+            status: "failed",
+            failed_at: new Date().toISOString(),
+            error_message: msg.slice(0, 800),
+            current_action_message: `Pipeline failed: ${msg.slice(0, 200)}`,
+          }).eq("id", run_id);
+        } catch { /* ignore */ }
       }
     })();
 
@@ -301,7 +439,7 @@ Deno.serve(async (req) => {
     if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(pipeline);
 
     return json({
-      ok: true, async: true, mode, ebook_id, idea_id,
+      ok: true, async: true, mode, ebook_id, idea_id, run_id,
       auto_publish: autoPublish, shopify_draft_enabled: shopifyDraftEnabled,
     });
   } catch (e) {
