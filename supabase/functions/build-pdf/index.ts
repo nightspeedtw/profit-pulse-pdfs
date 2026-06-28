@@ -1715,3 +1715,196 @@ function computePdfQc(x: {
     blocked_for_publish: !(passes.cover && passes.thumbnail && passes.interior && passes.worksheet && passes.diagram && passes.final),
   };
 }
+
+// ============ WORKSHEET LAYOUT RENDERERS ============
+// Dispatcher: route to the layout-appropriate renderer; "input_boxes" is the
+// existing premium boxed worksheet. New layouts give the ebook variety.
+function drawWorksheetByLayout(page: PDFPage, w: Worksheet, layout: WorksheetLayout, theme: Theme, fonts: Fonts) {
+  switch (layout) {
+    case "table": return drawWorksheetTable(page, w, theme, fonts);
+    case "scorecard": return drawWorksheetScorecard(page, w, theme, fonts);
+    case "checklist_grid": return drawWorksheetChecklist(page, w, theme, fonts);
+    case "script_blocks": return drawWorksheetScript(page, w, theme, fonts);
+    case "calendar": return drawWorksheetCalendar(page, w, theme, fonts);
+    case "calculator": return drawWorksheetCalculator(page, w, theme, fonts);
+    case "input_boxes":
+    default: return drawWorksheetPremium(page, w, theme, fonts);
+  }
+}
+
+function drawWorksheetHeader(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts, kind: string): number {
+  drawSectionTitle(page, theme, fonts, kind);
+  page.drawText(safe(w.asset_name || "").slice(0, 80), {
+    x: MARGIN, y: PAGE_H - 160, size: 14, font: fonts.bold, color: theme.ink,
+  });
+  let y = PAGE_H - 180;
+  const purposeText = (w.purpose && w.purpose.trim()) ? w.purpose
+    : "Use this layout to lock in what you just learned. Fill it in this week.";
+  const lines = wrap(purposeText, fonts.italic, 10, CONTENT_W - 24).slice(0, 3);
+  const h = lines.length * 14 + 16;
+  page.drawRectangle({ x: MARGIN, y: y - h, width: CONTENT_W, height: h, color: theme.surfaceWarm });
+  page.drawRectangle({ x: MARGIN, y: y - h, width: 5, height: h, color: theme.accent });
+  let ly = y - 12;
+  for (const ln of lines) {
+    page.drawText(safe(ln), { x: MARGIN + 14, y: ly, size: 10, font: fonts.italic, color: theme.ink });
+    ly -= 14;
+  }
+  return y - h - 18;
+}
+
+function drawWorksheetTable(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
+  let y = drawWorksheetHeader(page, w, theme, fonts, "Tracker");
+  const rawCols = (w.fields_or_sections ?? []).slice(0, 5);
+  const cols = rawCols.length >= 2 ? rawCols : ["Item", "Amount", "Priority", "Action", "Date"];
+  const colW = CONTENT_W / cols.length;
+  const headerH = 26;
+  // Header
+  page.drawRectangle({ x: MARGIN, y: y - headerH, width: CONTENT_W, height: headerH, color: theme.overlay });
+  for (let i = 0; i < cols.length; i++) {
+    page.drawText(safe(cols[i]).slice(0, 22).toUpperCase(), {
+      x: MARGIN + i * colW + 8, y: y - headerH / 2 - 4,
+      size: 9, font: fonts.bold, color: theme.onDark,
+    });
+  }
+  y -= headerH;
+  const bottom = MARGIN + 40;
+  const rowH = 28;
+  const rows = Math.floor((y - bottom) / rowH);
+  for (let r = 0; r < rows; r++) {
+    const ry = y - (r + 1) * rowH;
+    const bg = r % 2 === 0 ? rgb(1, 1, 1) : theme.surface;
+    page.drawRectangle({ x: MARGIN, y: ry, width: CONTENT_W, height: rowH, color: bg, borderColor: theme.hair, borderWidth: 0.5 });
+    for (let i = 1; i < cols.length; i++) {
+      page.drawLine({ start: { x: MARGIN + i * colW, y: ry }, end: { x: MARGIN + i * colW, y: ry + rowH }, thickness: 0.4, color: theme.hair });
+    }
+  }
+}
+
+function drawWorksheetScorecard(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
+  let y = drawWorksheetHeader(page, w, theme, fonts, "Scorecard");
+  const items = (w.fields_or_sections ?? []).slice(0, 8);
+  if (!items.length) items.push("Option A", "Option B", "Option C", "Option D");
+  page.drawText("RATE EACH 1-10 — CIRCLE YOUR SCORE", {
+    x: MARGIN, y, size: 8, font: fonts.bold, color: theme.sub,
+  });
+  y -= 16;
+  const rowH = 38;
+  const scaleStart = PAGE_W - MARGIN - 250;
+  for (let i = 0; i < items.length; i++) {
+    if (y - rowH < MARGIN + 40) break;
+    page.drawRectangle({ x: MARGIN, y: y - rowH, width: CONTENT_W, height: rowH, color: i % 2 ? theme.surface : rgb(1, 1, 1), borderColor: theme.hair, borderWidth: 0.5 });
+    page.drawRectangle({ x: MARGIN, y: y - rowH, width: 4, height: rowH, color: theme.accent });
+    page.drawText(safe(items[i]).slice(0, 60), { x: MARGIN + 12, y: y - rowH / 2 - 4, size: 11, font: fonts.bold, color: theme.ink });
+    // 1-10 circles
+    for (let n = 1; n <= 10; n++) {
+      const cx = scaleStart + (n - 1) * 24;
+      const cy = y - rowH / 2;
+      page.drawCircle({ x: cx, y: cy, size: 9, borderColor: theme.ink, borderWidth: 0.6, color: rgb(1, 1, 1) });
+      const tw = fonts.reg.widthOfTextAtSize(String(n), 8);
+      page.drawText(String(n), { x: cx - tw / 2, y: cy - 3, size: 8, font: fonts.reg, color: theme.ink });
+    }
+    y -= rowH + 6;
+  }
+}
+
+function drawWorksheetChecklist(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
+  let y = drawWorksheetHeader(page, w, theme, fonts, "Checklist");
+  const items = (w.fields_or_sections ?? []).slice(0, 14);
+  if (!items.length) items.push("Set the date", "Gather your numbers", "Run the calculation", "Send the message", "Confirm follow-up");
+  const rowH = 30;
+  for (let i = 0; i < items.length; i++) {
+    if (y - rowH < MARGIN + 40) break;
+    // Checkbox
+    page.drawRectangle({ x: MARGIN + 4, y: y - 20, width: 16, height: 16, color: rgb(1, 1, 1), borderColor: theme.ink, borderWidth: 0.8 });
+    // Step number
+    const num = String(i + 1).padStart(2, "0");
+    page.drawText(num, { x: MARGIN + 30, y: y - 18, size: 11, font: fonts.bold, color: theme.accent });
+    // Label
+    const lines = wrap(safe(items[i]), fonts.reg, 11, CONTENT_W - 80).slice(0, 1);
+    page.drawText(lines[0] ?? "", { x: MARGIN + 56, y: y - 18, size: 11, font: fonts.reg, color: theme.ink });
+    page.drawLine({ start: { x: MARGIN, y: y - rowH }, end: { x: PAGE_W - MARGIN, y: y - rowH }, thickness: 0.3, color: theme.hair });
+    y -= rowH;
+  }
+}
+
+function drawWorksheetScript(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
+  let y = drawWorksheetHeader(page, w, theme, fonts, "Script Template");
+  const sections = (w.fields_or_sections ?? []).slice(0, 4);
+  if (!sections.length) sections.push("Opening", "Reason / leverage", "Your specific ask", "Confirmation + next step");
+  const bottom = MARGIN + 40;
+  const totalH = y - bottom;
+  const sectH = Math.floor(totalH / sections.length) - 10;
+  for (let i = 0; i < sections.length; i++) {
+    const top = y;
+    // Speaker tab
+    page.drawRectangle({ x: MARGIN, y: top - 22, width: 100, height: 22, color: theme.overlay });
+    page.drawText(`YOU — ${safe(sections[i]).slice(0, 14).toUpperCase()}`, { x: MARGIN + 8, y: top - 16, size: 8, font: fonts.bold, color: theme.onDark });
+    // Body box
+    const bodyTop = top - 22;
+    const bodyH = sectH - 22;
+    page.drawRectangle({ x: MARGIN, y: bodyTop - bodyH, width: CONTENT_W, height: bodyH, color: theme.surface, borderColor: theme.hair, borderWidth: 0.5 });
+    // ruled lines
+    let ry = bodyTop - 18;
+    while (ry > bodyTop - bodyH + 6) {
+      page.drawLine({ start: { x: MARGIN + 10, y: ry }, end: { x: PAGE_W - MARGIN - 10, y: ry }, thickness: 0.3, color: theme.hair });
+      ry -= 18;
+    }
+    y = bodyTop - bodyH - 10;
+  }
+}
+
+function drawWorksheetCalendar(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
+  let y = drawWorksheetHeader(page, w, theme, fonts, "Weekly Plan");
+  const days = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+  const colW = CONTENT_W / 7;
+  const headerH = 22;
+  page.drawRectangle({ x: MARGIN, y: y - headerH, width: CONTENT_W, height: headerH, color: theme.overlay });
+  for (let i = 0; i < 7; i++) {
+    const tw = fonts.bold.widthOfTextAtSize(days[i], 9);
+    page.drawText(days[i], { x: MARGIN + i * colW + colW / 2 - tw / 2, y: y - headerH / 2 - 3, size: 9, font: fonts.bold, color: theme.onDark });
+  }
+  y -= headerH;
+  const bottom = MARGIN + 40;
+  const cellH = y - bottom;
+  for (let i = 0; i < 7; i++) {
+    page.drawRectangle({ x: MARGIN + i * colW, y: bottom, width: colW, height: cellH, color: rgb(1, 1, 1), borderColor: theme.hair, borderWidth: 0.5 });
+    // ruled lines inside each day
+    let ry = y - 18;
+    while (ry > bottom + 8) {
+      page.drawLine({ start: { x: MARGIN + i * colW + 4, y: ry }, end: { x: MARGIN + (i + 1) * colW - 4, y: ry }, thickness: 0.25, color: theme.hair });
+      ry -= 18;
+    }
+  }
+  // Foci row at bottom
+  const sections = (w.fields_or_sections ?? []).slice(0, 7);
+  for (let i = 0; i < Math.min(7, sections.length); i++) {
+    page.drawText(safe(sections[i]).slice(0, 12), { x: MARGIN + i * colW + 4, y: y - 14, size: 8, font: fonts.italic, color: theme.sub });
+  }
+}
+
+function drawWorksheetCalculator(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
+  let y = drawWorksheetHeader(page, w, theme, fonts, "Calculator");
+  const inputs = (w.fields_or_sections ?? []).slice(0, 6);
+  if (!inputs.length) inputs.push("Starting balance", "Interest rate (APR)", "Monthly payment", "Extra payment", "Months elapsed", "Projected payoff");
+  const rowH = 36;
+  for (let i = 0; i < inputs.length; i++) {
+    if (y - rowH < MARGIN + 60) break;
+    page.drawRectangle({ x: MARGIN, y: y - rowH, width: CONTENT_W, height: rowH, color: i % 2 ? theme.surface : rgb(1, 1, 1), borderColor: theme.hair, borderWidth: 0.5 });
+    page.drawText(safe(inputs[i]).slice(0, 50), { x: MARGIN + 12, y: y - rowH / 2 - 3, size: 11, font: fonts.bold, color: theme.ink });
+    // input field on right
+    const fieldW = 180;
+    const fx = PAGE_W - MARGIN - fieldW - 8;
+    page.drawRectangle({ x: fx, y: y - rowH + 6, width: fieldW, height: rowH - 12, color: rgb(1, 1, 1), borderColor: theme.ink, borderWidth: 0.8 });
+    page.drawText("=", { x: fx - 16, y: y - rowH / 2 - 3, size: 14, font: fonts.bold, color: theme.accent });
+    y -= rowH + 4;
+  }
+  // Result strip
+  if (y > MARGIN + 50) {
+    page.drawRectangle({ x: MARGIN, y: MARGIN + 30, width: CONTENT_W, height: 40, color: theme.overlay });
+    page.drawText("RESULT / DECISION", { x: MARGIN + 12, y: MARGIN + 52, size: 9, font: fonts.bold, color: theme.accent });
+    page.drawText("________________________________________________________", {
+      x: MARGIN + 12, y: MARGIN + 36, size: 11, font: fonts.reg, color: theme.onDark,
+    });
+  }
+}
+
