@@ -266,6 +266,12 @@ Deno.serve(async (req) => {
       pdf_qc: pdfQc as unknown as never,
       pdf_status: gatePass ? "ready" : "needs_review",
       status: prevStatus === "building_pdf" ? "review" : prevStatus,
+      // Sync gate-relevant columns so publishGate() sees the latest QC.
+      pdf_score: qcAny.finalPdfPremiumScore,
+      pdf_approved: gatePass,
+      cover_score: qcAny.coverPremiumScore,
+      cover_approved: coverTextPass,
+      final_quality_score: qcAny.finalPdfPremiumScore,
     }).eq("id", ebook_id);
 
 
