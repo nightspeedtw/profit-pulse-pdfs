@@ -1,131 +1,106 @@
-## AI Ebook Factory — Full A-Z Autopilot System
+# Global Auto-Fix QC System
 
-Transform the current semi-manual pipeline into a hands-off autopilot that generates, QCs, writes, packages, and uploads premium PDF ebooks to Shopify — with automated quality gates at every step.
+A single, reusable auto-fix loop wired into every QC gate. Targeted fixes only, hard cap at 3 attempts per gate, then stop and flag for admin. No silent failures, no auto-publish after manual override.
 
----
+## 1. Database (one migration)
 
-### 1. Database changes (one migration)
+Add columns to `ebooks` for gate-level tracking:
 
-Extend `ebook_ideas` and `ebooks` with QC + autopilot fields:
+- `qc_status` text — `qc_pending | qc_passed | auto_fixing | auto_fix_failed | needs_admin_review | ready_to_continue`
+- `failed_gate` text — e.g. `cover`, `thumbnail`, `chapter`, `diagram`, `shopify_upload`
+- `failed_component` text — sub-id (chapter index, diagram slug, etc.)
+- `failed_score` numeric, `required_score` numeric
+- `auto_fix_attempt_count` int default 0
+- `max_auto_fix_attempts` int default 3
+- `last_auto_fix_action` text
+- `auto_fix_history` jsonb default `[]`
+- `admin_review_reason` text
+- `next_recommended_action` text
+- `blocked_at` timestamptz, `resolved_at` timestamptz
 
-**`ebook_ideas`** — add:
-- `premium_score`, `hard_sell_score`, `commercial_intent_score`, `clarity_score`, `compliance_risk_score` (int)
-- `outline_structure_score`, `outline_practical_score`, `outline_buyer_score`, `outline_depth_score`, `outline_premium_score`, `outline_duplicate_score` (int)
-- `topic_rewrite_count`, `outline_rewrite_count` (int default 0)
-- `auto_rejected_reason` (text)
+History entry shape:
+```json
+{ "attempt": 1, "gate": "thumbnail", "component": null,
+  "reason": "score 82 < 90", "action": "rerender_thumbnail",
+  "before": 82, "after": 91, "result": "pass", "at": "ISO" }
+```
 
-**`ebooks`** — add:
-- `chapter_qc` (jsonb — per-chapter scores + rewrite counts)
-- `editorial_qc` (jsonb — final editorial scores + issues)
-- `product_page_qc` (jsonb — conversion/hook/clarity/premium/compliance/seo)
-- `final_quality_score`, `conversion_score`, `compliance_safety_score` (int)
-- `shopify_product_id`, `shopify_status` (text: draft|published|failed)
-- `autopilot_mode` (text: safe|full|manual)
-- `autopilot_state` (text: running|paused|rejected|done|needs_review)
-- `needs_review_reason` (text)
-- `cover_image_url` (text)
-- `product_copy` (jsonb — title, subtitle, bullets, faq, meta, tags, handle)
+## 2. Shared auto-fix engine
 
-New table **`autopilot_runs`** — log every pipeline step (step, status, score, cost, duration, error) for the dashboard.
+New file `supabase/functions/_shared/autofix.ts`:
 
----
+```text
+runWithAutoFix({ ebookId, gate, component, run, fix, max=3 })
+  → loops: run() → if pass, record + return
+                → else fix() → record attempt → loop
+  → after max fails: set qc_status='needs_admin_review',
+    failed_gate/score, blocked_at, recommended_action
+```
 
-### 2. Edge functions (new + refactored)
+Every gate is wrapped through this single helper so retry/cap/history logic exists in one place.
 
-**New shared module** `supabase/functions/_shared/qc.ts`:
-- Single `scoreContent(kind, payload)` helper that calls Lovable AI Gateway and returns strict JSON scores. Uses a robust balanced-brace JSON extractor.
-- Threshold constants and a `gate(scores, rules)` helper returning `{pass, failedFields, action}`.
+## 3. Gate registry
 
-**New functions:**
-- `autopilot-orchestrator` — the brain. Given an `ebook_idea_id` and `mode`, walks the entire pipeline by chaining the existing/new step functions. Writes progress to `ebooks.autopilot_state` and `autopilot_runs`.
-- `qc-topic` — scores topic across 6 dimensions, auto-rewrites up to 2x via the existing premium copywriter prompt, rejects if still failing.
-- `qc-outline` — scores outline 6 dims, auto-improves up to 2x, rejects on failure.
-- `qc-chapter` — runs after each chapter writes; rewrites chapter in place if any score <80.
-- `qc-editorial` — full-book pass; fixes repetition, thin content, missing disclaimers; up to 2 rewrite rounds.
-- `generate-product-copy` — Shopify copy + meta + tags + handle.
-- `qc-product-copy` — 6-dim score + auto-rewrite.
-- `generate-cover` — premium cover prompt → Lovable AI image gen → upload to `ebook-covers` bucket.
-- `shopify-upload-draft` — creates Shopify draft product (Admin API), attaches cover + PDF link, sets price/tags/SEO.
-- `qc-final-product` — pre-publish checklist (all assets exist, no placeholders, link works).
-- `shopify-publish` — flips draft to active **only** if final gate passes; otherwise marks `needs_review`.
+`supabase/functions/_shared/qc-gates.ts` exports one entry per gate with a `check` and a targeted `fix`:
 
-**Refactored:**
-- `promote-idea` and `resume-generation` — call `qc-chapter` after each chapter; on fail, rewrite once before continuing.
-- `generate-idea` — single best title only (already done); now also stores the 6 topic scores and triggers `qc-topic` inline.
+```text
+idea            → rewrite title/subtitle/hook
+outline         → strengthen structure, add missing sections
+chapter[i]      → rewrite one chapter
+final_manuscript→ fix only failed sections
+cover           → adjust overlay/contrast, regenerate bg if needed
+thumbnail       → rerender from final cover, bigger title, stronger gradient
+chapter_divider → rewrite promise + outcome bullets only
+worksheet[i]    → switch layout type, add fields
+diagram[i]      → rebuild with approved component
+pdf_layout      → add premium blocks, fix spacing/page breaks
+product_page    → rewrite title/desc/FAQ/CTA/SEO
+shopify_upload  → retry upload, verify assets
+final_approval  → recurse into the specific failed sub-gate
+```
 
----
+Fix functions reuse existing generators (`generate-cover`, `write-chapters`, `build-pdf`, `generate-product-page`, `push-to-shopify`, etc.) — no full-ebook regen unless the failed component demands it.
 
-### 3. Auto rules (enforced server-side)
+## 4. Pipeline wiring
 
-| Gate | Threshold | Action if fail |
-|---|---|---|
-| Topic Buyer/Premium/Hard-Sell | ≥80 | rewrite ×2 → reject |
-| Topic Compliance Risk | ≤4 | rewrite safer ×2 → reject |
-| Outline (all 6) | ≥80 | improve ×2 → reject |
-| Chapter (all 6) | ≥80 | rewrite that chapter once |
-| Editorial | pass full checklist | auto-fix ×2 → reject |
-| Product copy | ≥80 | rewrite once |
-| Final ebook quality | ≥90 | else draft only |
-| Conversion | ≥85 | else draft only |
-| Compliance safety | ≥90 | else draft only |
+`autopilot-pipeline` and each step function call gates through `runWithAutoFix` instead of failing fast. On `needs_admin_review` the pipeline:
 
-Full Autopilot publishes only when **all** publish-gates pass.
-Safe Autopilot stops at draft, never publishes.
+- stops further steps
+- never sets `pdf_status='pdf_ready'`, never calls `push-to-shopify`, never flips `status='completed'`
+- records the failure in `pipeline_step_logs`
 
----
+## 5. Final Approval UI
 
-### 4. Dashboard (`src/pages/admin/`)
+`src/components/admin/FinalApproval.tsx` + new `AutoFixPanel`:
 
-**New page** `Autopilot.tsx`:
-- Pipeline view per ebook: timeline of steps with status pill, score, rewrite count, cost.
-- Filters: running / needs_review / rejected / published.
-- Per-row buttons: Pause, Resume, Regenerate, Force Draft Upload, Force Publish, Reject, View QC Report.
-- Mode toggle: Safe Autopilot / Full Autopilot / Manual.
+- Status banner: `Auto-fixing failed QC gate… attempt N/3` / `Auto-fixed and passed` / `Needs Admin Review`
+- On `needs_admin_review`: show failed gate, score vs required, all attempt rows (action / before → after / reason), and buttons:
+  - Retry Auto-Fix Once
+  - Edit Manually
+  - Regenerate Component
+  - Reject
+  - Mark Approved Manually (audit-logged; suppresses any auto-publish)
 
-**Update** `EbookReview.tsx`:
-- Show all QC reports (topic, outline, per-chapter, editorial, product, final).
-- Show Shopify status + link to draft.
+## 6. Safety rules enforced in code
 
-**Update** `Pipeline.tsx`:
-- Add lanes: `qc_topic`, `qc_outline`, `writing`, `qc_chapter`, `qc_editorial`, `cover`, `product_copy`, `shopify_draft`, `qc_final`, `published`, `needs_review`, `rejected`.
+- `publishGate` in `_shared/qc.ts` already blocks publish unless `pdf_status='pdf_ready'`; extend it to also require `qc_status IN ('qc_passed','ready_to_continue')` and reject when `manual_override=true` unless admin explicitly clicked Publish.
+- Hard cost cap: each gate's fix is targeted; the engine refuses to call fix if `auto_fix_attempt_count >= max`.
 
----
+## 7. Backfill / current ebook
 
-### 5. Shopify integration
+After the migration, set existing rows to `qc_status='ready_to_continue'` where `pdf_status='pdf_ready'` so the current "Six-Month Debt Exit Strategy" doesn't get re-flagged.
 
-Use existing Shopify connection (already authorized). On `shopify-upload-draft`:
-- Upload cover to Shopify Files API.
-- Create product as `status: DRAFT` with title, body_html (from product_copy), price, tags, SEO meta, product_type=Digital.
-- Add a variant with `requires_shipping: false`.
-- Attach PDF via a metafield (`custom.pdf_url`) pointing to a signed URL from `ebook-pdfs` bucket (24h expiry → refreshed on customer order via existing/future fulfillment flow).
-- Store returned `shopify_product_id`.
+## Technical notes
 
-On `shopify-publish`: PATCH product status → `ACTIVE`.
+- One migration, one shared engine, one gate registry — no per-function reinvention.
+- Existing functions stay intact; we only wrap their callers.
+- History is append-only JSONB; no separate table needed (low row volume per ebook).
+- Frontend changes confined to `FinalApproval.tsx` + a new `AutoFixPanel.tsx`.
 
----
+## Out of scope (ask if you want these)
 
-### 6. Safety / compliance
+- Separate `qc_attempts` table (JSONB is enough for now).
+- Per-gate cost metering beyond attempt count.
+- Background worker / cron — fixes run inline in the existing edge functions.
 
-- Compliance rewriter prompt: strip absolute claims, add educational framing, add disclaimer chapter when category ∈ {finance, health, legal, relationships}.
-- Auto-injected disclaimer page in PDF when compliance category triggered.
-- Never publish if `compliance_safety_score < 90`.
-
----
-
-### Technical notes
-
-- All AI outputs return JSON only; every parser uses the shared balanced-brace extractor in `_shared/qc.ts`.
-- Orchestrator is idempotent — safe to resume from any step using `ebooks.autopilot_state`.
-- All long steps run async (orchestrator returns 202, work continues in background via `EdgeRuntime.waitUntil`).
-- Costs logged to existing `cost_log` table tagged by step.
-- Default model: `google/gemini-3-flash-preview` for QC/scoring; same for writing (already set).
-
----
-
-### Out of scope (this round)
-
-- Customer-facing PDF fulfillment automation (signed-URL email on order).
-- A/B testing of titles after publish.
-- Multi-language output.
-
-Confirm and I'll start with the migration, then ship orchestrator + QC functions, then the Autopilot dashboard.
+Approve and I'll implement in this order: migration → shared engine + registry → wire into build-pdf/push-to-shopify/autopilot → FinalApproval UI → backfill.

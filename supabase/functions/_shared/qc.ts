@@ -320,12 +320,16 @@ export function publishGate(e: {
   pdf_approved?: boolean | null;
   pdf_score?: number | null;
   pdf_status?: string | null;
+  qc_status?: string | null;
 }): { pass: boolean; reasons: string[] } {
   const r: string[] = [];
   // Permanent global Premium PDF Auto-QC gate: PDF must be 'pdf_ready'.
-  // 'pdf_needs_human_review' / 'pdf_qc_failed' / 'pdf_auto_fixing' / 'pdf_qc_pending' all block.
   if (e.pdf_status && e.pdf_status !== "pdf_ready" && e.pdf_status !== "ready") {
     r.push(`pdf_status=${e.pdf_status} (must be pdf_ready)`);
+  }
+  // Global Auto-Fix gate: any unresolved auto-fix must clear before publish.
+  if (e.qc_status && !["qc_passed", "ready_to_continue"].includes(e.qc_status)) {
+    r.push(`qc_status=${e.qc_status} (must be qc_passed or ready_to_continue)`);
   }
   if ((e.final_quality_score ?? 0) < TH.publishMinFinalQuality) r.push(`final_quality<${TH.publishMinFinalQuality}`);
   if ((e.conversion_score ?? 0) < TH.publishMinConversion) r.push(`conversion<${TH.publishMinConversion}`);

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { ChevronDown, ChevronUp, Check, X, Loader2, ShieldCheck, Send, Lock } from "lucide-react";
 import { toast } from "sonner";
+import { AutoFixPanel, type AutoFixState } from "./AutoFixPanel";
 
 interface PdfQc {
   // legacy snake_case
@@ -32,7 +33,7 @@ interface PdfQc {
   notes?: string[];
 }
 
-interface EbookLike {
+interface EbookLike extends AutoFixState {
   id: string;
   cover_url: string | null;
   cover_score: number | null;
@@ -125,7 +126,8 @@ export function FinalApproval({ ebook, onChanged }: Props) {
 
   const allPass = gates.every((g) => g.pass);
   const failingBlocking = gates.filter((g) => !g.pass && g.blocking);
-  const blocked = qc.blocked_for_publish === true || failingBlocking.length > 0;
+  const qcBlocked = ebook.qc_status === "needs_admin_review" || ebook.qc_status === "auto_fix_failed" || ebook.qc_status === "auto_fixing";
+  const blocked = qc.blocked_for_publish === true || failingBlocking.length > 0 || qcBlocked;
   const canPublish = allPass && !!ebook.final_approved && !blocked;
 
   const update = async (patch: Partial<EbookLike>) => {
@@ -185,6 +187,8 @@ export function FinalApproval({ ebook, onChanged }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <AutoFixPanel ebookId={ebook.id} state={ebook} onChanged={onChanged} />
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <ScoreTile label="Cover" value={coverScore} min={THRESHOLDS.cover} />
           <ScoreTile label="Thumbnail" value={thumbScore} min={THRESHOLDS.thumbnail} />
