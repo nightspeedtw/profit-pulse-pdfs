@@ -90,6 +90,36 @@ export default function Dashboard() {
     return () => clearInterval(t);
   }, []);
 
+  // Poll active test run progress
+  useEffect(() => {
+    if (!testRun?.ideaId || testRun.status === "ready" || testRun.status === "failed") return;
+    let cancelled = false;
+    const tick = async () => {
+      const { data: eb } = await supabase
+        .from("ebooks")
+        .select("id, autopilot_state, autopilot_error")
+        .eq("source_idea_id", testRun.ideaId!)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      if (eb) {
+        const state = eb.autopilot_state ?? "queued";
+        const done = state === "ready_to_publish" || state === "needs_review" || state === "published";
+        setTestRun((prev) => prev ? {
+          ...prev,
+          status: done ? "ready" : (eb.autopilot_error ? "failed" : "running"),
+          message: eb.autopilot_error ?? `State: ${state}`,
+          ebookId: eb.id,
+          ebookState: state,
+        } : prev);
+      }
+    };
+    tick();
+    const t = setInterval(tick, 5_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [testRun?.ideaId, testRun?.status]);
+
   const generateNow = async () => {
     setGenerating(true);
     try {
