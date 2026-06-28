@@ -9,7 +9,7 @@
 // - back cover + compliance disclaimer for finance topics
 // - lightweight QC scoring written back to ebooks.pdf_qc
 import { PDFDocument, PDFFont, PDFPage, RGB, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
-import { corsHeaders, admin, requireAdmin } from "../_shared/ai.ts";
+import { corsHeaders, admin, requireAdmin, aiJSON, pickModel } from "../_shared/ai.ts";
 
 const PAGE_W = 612;  // Letter
 const PAGE_H = 792;
