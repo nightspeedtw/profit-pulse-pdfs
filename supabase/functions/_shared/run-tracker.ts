@@ -100,11 +100,12 @@ export class RunTracker {
   }
 
   private async progress() {
+    // Count any "done" status (passed, passed_existing, skipped) toward progress.
     const { count } = await this.db
       .from("autopilot_pipeline_steps")
       .select("id", { count: "exact", head: true })
       .eq("run_id", this.runId)
-      .eq("status", "passed");
+      .in("status", ["passed", "passed_existing", "skipped"]);
     return Math.min(100, Math.round(((count ?? 0) / TOTAL) * 100));
   }
 
