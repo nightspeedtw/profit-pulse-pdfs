@@ -83,6 +83,7 @@ export const STEP_STATUS_LABEL: Record<string, string> = {
   pending: "Pending",
   running: "Running",
   passed: "Passed",
+  passed_existing: "Passed — existing",
   auto_fixing: "Auto-Fixing",
   failed: "Failed",
   needs_admin: "Needs Admin",
