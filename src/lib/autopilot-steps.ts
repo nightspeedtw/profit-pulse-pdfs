@@ -18,6 +18,7 @@ export type AutopilotStepName =
   | "pdf_layout"
   | "pdf_render"
   | "pdf_qc"
+  | "pricing"
   | "product_copy"
   | "product_qc"
   | "shopify_draft"
