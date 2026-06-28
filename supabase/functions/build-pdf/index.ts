@@ -163,9 +163,7 @@ function scoreDividerUniqueness(copies: DividerCopy[]): {
     if (specificWords.test(o) || /\d/.test(o)) s += 25;
     bulletSpecificity += s;
   }
-    if (specificWords.test(o)) s += 30;
-    bulletSpecificity += s;
-  }
+
   const specificityScore = Math.round(
     (promiseSpecificity / Math.max(1, copies.length) * 0.4) +
     (bulletSpecificity / Math.max(1, totalBullets) * 0.6),
