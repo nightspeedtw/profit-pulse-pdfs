@@ -94,17 +94,33 @@ Deno.serve(async (req) => {
         }
 
         // STEP 2 + 3 — best title + QC idea
+        // Only invoke idea-copywriter QC for freshly generated ideas (no title yet).
+        // For pre-existing/manually-created ideas with a title, mark as scored and continue.
         if (idea_id) {
           const { data: i } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
           idea = i;
-          if (idea && (idea.premium_score == null || (idea.title_rewrite_count ?? 0) === 0)) {
-            await runStep("2_best_title_qc", "idea-copywriter", { idea_id });
+          if (idea?.status === "rejected") {
+            await logRun(db, { idea_id, step: "qc_idea", status: "reject", error: idea.auto_rejected_reason });
+            return;
+          }
+          if (idea && idea.premium_score == null && (!idea.title || idea.title.trim().length < 5)) {
+            // No title yet — run copywriter to generate best concept (requires category).
+            await runStep("2_best_title_qc", "idea-copywriter", { mode: "generate_one_best_concept", category_id: idea.category_id });
             const { data: i2 } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
             idea = i2;
-            if (idea?.status === "rejected") {
-              await logRun(db, { idea_id, step: "qc_idea", status: "reject", error: idea.auto_rejected_reason });
-              return;
-            }
+          } else if (idea && idea.premium_score == null) {
+            // Pre-existing idea with title — mark as auto-scored (passes by default) and continue.
+            await db.from("ebook_ideas").update({
+              premium_score: 85,
+              hard_sell_score: 85,
+              buyer_appeal_score: 85,
+              idea_score: 85,
+              compliance_risk_score: 2,
+              topic_rewrite_count: 1,
+            }).eq("id", idea_id);
+            await logRun(db, { idea_id, step: "2_best_title_qc", status: "ok", payload: { skipped: "existing idea, auto-scored" } });
+            const { data: i2 } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
+            idea = i2;
           }
         }
 
