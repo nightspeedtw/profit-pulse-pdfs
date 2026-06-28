@@ -13,6 +13,9 @@ Deno.serve(async (req) => {
     if (!settings?.autopilot_enabled && !settings?.cron_enabled) {
       return new Response(JSON.stringify({ skipped: "autopilot disabled" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    if (settings.paused) {
+      return new Response(JSON.stringify({ skipped: "autopilot paused" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     const quota: number = Math.max(0, Number(settings.daily_quota ?? 0));
     const mode: string = settings.autopilot_mode ?? "safe";
     const publishHour: number = Number(settings.publish_hour_utc ?? 14);
@@ -59,7 +62,10 @@ Deno.serve(async (req) => {
         result.launched = [];
         for (const i of ideas ?? []) {
           try {
-            const r = await fetch(`${url}/functions/v1/autopilot-orchestrator`, {
+            // Use the Milestone-8 pipeline so every step calls the modern
+            // generate-outline / write-chapters / final-manuscript-qc /
+            // generate-cover / render-pdf / shopify-draft-upload functions.
+            const r = await fetch(`${url}/functions/v1/autopilot-pipeline`, {
               method: "POST", headers: auth, body: JSON.stringify({ idea_id: i.id, mode }),
             });
             const j = await r.json().catch(() => ({}));
@@ -76,9 +82,10 @@ Deno.serve(async (req) => {
     }
 
     // --- B) SCHEDULED PUBLISH ---
-    // Only fire at the chosen UTC hour (idempotent per-hour because we only flip drafts)
+    // Auto-publish ONLY when generation_settings.auto_publish=true AND mode=full.
+    // Defaults: auto_publish OFF → Shopify items stay as drafts for admin review.
     const currentHour = new Date().getUTCHours();
-    if (mode === "full" || mode === "safe") {
+    if (settings.auto_publish && mode === "full") {
       if (currentHour === publishHour) {
         const { data: ready } = await db.from("ebooks")
           .select("id,title")
@@ -99,6 +106,8 @@ Deno.serve(async (req) => {
       } else {
         result.publish_window = `current ${currentHour}:00 UTC, scheduled ${publishHour}:00 UTC`;
       }
+    } else {
+      result.publish_skipped = "auto_publish OFF or not Full mode (drafts stay in Shopify for admin review)";
     }
 
     return new Response(JSON.stringify(result), {

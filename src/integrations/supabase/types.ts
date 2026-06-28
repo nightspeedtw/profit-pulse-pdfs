@@ -955,8 +955,10 @@ export type Database = {
       generation_settings: {
         Row: {
           auto_publish: boolean
+          auto_rewrite_limit: number
           autopilot_enabled: boolean
           autopilot_mode: string
+          category_mix: Json
           cron_enabled: boolean
           daily_budget_usd: number
           daily_quota: number
@@ -966,13 +968,18 @@ export type Database = {
           min_score_threshold: number
           min_word_count: number
           mode: Database["public"]["Enums"]["generation_mode"]
+          paused: boolean
+          per_ebook_budget_usd: number
           publish_hour_utc: number
+          shopify_draft_upload_enabled: boolean
           updated_at: string
         }
         Insert: {
           auto_publish?: boolean
+          auto_rewrite_limit?: number
           autopilot_enabled?: boolean
           autopilot_mode?: string
+          category_mix?: Json
           cron_enabled?: boolean
           daily_budget_usd?: number
           daily_quota?: number
@@ -982,13 +989,18 @@ export type Database = {
           min_score_threshold?: number
           min_word_count?: number
           mode?: Database["public"]["Enums"]["generation_mode"]
+          paused?: boolean
+          per_ebook_budget_usd?: number
           publish_hour_utc?: number
+          shopify_draft_upload_enabled?: boolean
           updated_at?: string
         }
         Update: {
           auto_publish?: boolean
+          auto_rewrite_limit?: number
           autopilot_enabled?: boolean
           autopilot_mode?: string
+          category_mix?: Json
           cron_enabled?: boolean
           daily_budget_usd?: number
           daily_quota?: number
@@ -998,7 +1010,10 @@ export type Database = {
           min_score_threshold?: number
           min_word_count?: number
           mode?: Database["public"]["Enums"]["generation_mode"]
+          paused?: boolean
+          per_ebook_budget_usd?: number
           publish_hour_utc?: number
+          shopify_draft_upload_enabled?: boolean
           updated_at?: string
         }
         Relationships: []
