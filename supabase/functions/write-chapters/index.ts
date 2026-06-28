@@ -14,6 +14,44 @@ interface OutlineChapter {
   worksheets_checklists_templates?: string[];
 }
 
+// Map either the legacy outline shape OR the new strict premium schema
+// (chapter_number / chapter_title / chapter_promise / learning_outcomes /
+// sections / worksheet / framework) into the legacy OutlineChapter the
+// chapter writer expects. This keeps downstream writers stable while the
+// outline generator evolves.
+function adaptChapter(c: any, fallbackIndex: number): OutlineChapter {
+  const index = Number(c?.index ?? c?.chapter_number ?? c?.number ?? fallbackIndex);
+  const title = String(c?.title ?? c?.chapter_title ?? `Chapter ${index}`);
+  const objective = String(c?.objective ?? c?.chapter_promise ?? c?.promise ?? "");
+  const learning = Array.isArray(c?.key_teaching_points)
+    ? c.key_teaching_points.map(String)
+    : Array.isArray(c?.learning_outcomes) ? c.learning_outcomes.map(String) : [];
+  const sectionPoints: string[] = Array.isArray(c?.sections)
+    ? c.sections.flatMap((s: any) => [
+      s?.section_title, s?.section_goal,
+      ...(Array.isArray(s?.key_points) ? s.key_points : []),
+    ]).filter(Boolean).map(String)
+    : [];
+  const practical: string[] = Array.isArray(c?.practical_examples)
+    ? c.practical_examples.map(String)
+    : sectionPoints.slice(0, 4);
+  const tools: string[] = Array.isArray(c?.worksheets_checklists_templates)
+    ? c.worksheets_checklists_templates.map(String)
+    : [
+      ...(c?.worksheet ? [`${c.worksheet.title ?? "Worksheet"} (${c.worksheet.type ?? "checklist"}) — ${c.worksheet.purpose ?? ""}`] : []),
+      ...(c?.framework ? [`${c.framework.title ?? "Framework"} (${c.framework.type ?? "vertical_steps"}) — ${c.framework.purpose ?? ""}`] : []),
+    ].filter(Boolean);
+  return {
+    index,
+    title,
+    objective,
+    key_teaching_points: learning,
+    practical_examples: practical,
+    worksheets_checklists_templates: tools,
+  };
+}
+
+
 function wc(text: string) {
   const t = text?.trim() ?? "";
   return t ? t.split(/\s+/).length : 0;
@@ -120,13 +158,14 @@ Deno.serve(async (req) => {
     const { data: settings } = await db.from("generation_settings").select("*").eq("id", 1).single();
     const mode = settings?.mode ?? "hybrid";
     const minWords: number = Number(settings?.min_word_count ?? 18000);
-    const total = outline.chapters.length;
+    const adaptedChapters: OutlineChapter[] = (outline.chapters as any[]).map((c, i) => adaptChapter(c, i + 1));
+    const total = adaptedChapters.length;
     const wordsTarget = Math.max(1800, Math.ceil((minWords * 1.2) / total));
     const model = pickModel(mode, "content");
 
     // Single-chapter mode (synchronous, ~30-90s)
     if (!all && typeof chapter_index === "number") {
-      const ch: OutlineChapter = outline.chapters.find((c: OutlineChapter) => c.index === chapter_index);
+      const ch: OutlineChapter | undefined = adaptedChapters.find((c) => c.index === chapter_index);
       if (!ch) throw new Error(`Chapter ${chapter_index} not found in outline`);
       await db.from("ebooks").update({ writing_status: "writing", pipeline_status: "writing" }).eq("id", ebook.id);
       const r = await processChapter(db, ebook, ch, wordsTarget, model);
@@ -141,7 +180,7 @@ Deno.serve(async (req) => {
         word_count: totalWc,
         writing_status: r.passed ? (allPassed ? "manuscript_ready" : "writing") : "needs_review",
         pipeline_status: r.passed ? (allPassed ? "chapter_qc" : "writing") : "writing",
-        qc_status: r.passed ? null : "chapter_failed",
+        qc_status: r.passed ? null : "needs_admin_review",
         rejection_reason: r.passed ? null : `Chapter ${chapter_index}: ${r.scores ? JSON.stringify(r.scores.issues ?? []) : "QC failed"}`,
         cost_usd: Number(ebook.cost_usd ?? 0) + r.cost,
       }).eq("id", ebook.id);
@@ -158,11 +197,13 @@ Deno.serve(async (req) => {
       try {
         let totalCost = 0;
         let allOk = true;
-        for (const ch of outline.chapters as OutlineChapter[]) {
+        for (const ch of adaptedChapters) {
           // Skip already-passed chapters (resume support)
           const { data: existing } = await db.from("ebook_chapters")
             .select("qc_status,word_count").eq("ebook_id", ebook.id).eq("chapter_index", ch.index).maybeSingle();
           if (existing?.qc_status === "passed" && (existing.word_count ?? 0) > 0) continue;
+
+
 
           const r = await processChapter(db, ebook, ch, wordsTarget, model);
           totalCost += r.cost;
@@ -181,7 +222,7 @@ Deno.serve(async (req) => {
             await db.from("ebooks").update({
               writing_status: "needs_review",
               pipeline_status: "writing",
-              qc_status: "chapter_failed",
+              qc_status: "needs_admin_review",
               rejection_reason: `Chapter ${ch.index} failed QC after 2 rewrites: ${r.scores ? (r.scores.issues ?? []).join("; ") : "unknown"}`,
             }).eq("id", ebook.id);
             return;
@@ -190,7 +231,7 @@ Deno.serve(async (req) => {
         await db.from("ebooks").update({
           writing_status: allOk ? "manuscript_ready" : "needs_review",
           pipeline_status: allOk ? "chapter_qc" : "writing",
-          qc_status: allOk ? "chapters_passed" : "chapter_failed",
+          qc_status: allOk ? "qc_passed" : "needs_admin_review",
         }).eq("id", ebook.id);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
