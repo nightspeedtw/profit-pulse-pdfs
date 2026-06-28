@@ -64,7 +64,7 @@ export default function CommandCenter() {
       { count: failedToday },
     ] = await Promise.all([
       supabase.from("ebooks")
-        .select("id,title,autopilot_state,shopify_status,manuscript_qc_status,pdf_status,final_quality_score,updated_at")
+        .select("id,title,autopilot_state,shopify_status,manuscript_qc_status,pdf_status,final_quality_score,updated_at,qc_status,failed_gate,failed_score,required_score,auto_fix_attempt_count,max_auto_fix_attempts,last_auto_fix_action")
         .order("updated_at", { ascending: false }).limit(8),
       supabase.from("generation_settings")
         .select("paused, autopilot_mode, daily_quota, daily_budget_usd, cost_limit_reached, cost_limit_reason")
