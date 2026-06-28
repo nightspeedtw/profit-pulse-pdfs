@@ -959,12 +959,18 @@ export type Database = {
           autopilot_enabled: boolean
           autopilot_mode: string
           category_mix: Json
+          cost_limit_reached: boolean
+          cost_limit_reached_at: string | null
+          cost_limit_reason: string | null
           cron_enabled: boolean
           daily_budget_usd: number
           daily_quota: number
           enabled_category_ids: string[]
           id: number
+          max_ai_calls_per_ebook: number
           max_refund_risk: number
+          max_rewrite_attempts: number
+          max_shopify_uploads_per_day: number
           min_score_threshold: number
           min_word_count: number
           mode: Database["public"]["Enums"]["generation_mode"]
@@ -980,12 +986,18 @@ export type Database = {
           autopilot_enabled?: boolean
           autopilot_mode?: string
           category_mix?: Json
+          cost_limit_reached?: boolean
+          cost_limit_reached_at?: string | null
+          cost_limit_reason?: string | null
           cron_enabled?: boolean
           daily_budget_usd?: number
           daily_quota?: number
           enabled_category_ids?: string[]
           id?: number
+          max_ai_calls_per_ebook?: number
           max_refund_risk?: number
+          max_rewrite_attempts?: number
+          max_shopify_uploads_per_day?: number
           min_score_threshold?: number
           min_word_count?: number
           mode?: Database["public"]["Enums"]["generation_mode"]
@@ -1001,12 +1013,18 @@ export type Database = {
           autopilot_enabled?: boolean
           autopilot_mode?: string
           category_mix?: Json
+          cost_limit_reached?: boolean
+          cost_limit_reached_at?: string | null
+          cost_limit_reason?: string | null
           cron_enabled?: boolean
           daily_budget_usd?: number
           daily_quota?: number
           enabled_category_ids?: string[]
           id?: number
+          max_ai_calls_per_ebook?: number
           max_refund_risk?: number
+          max_rewrite_attempts?: number
+          max_shopify_uploads_per_day?: number
           min_score_threshold?: number
           min_word_count?: number
           mode?: Database["public"]["Enums"]["generation_mode"]
@@ -1058,6 +1076,69 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_step_logs: {
+        Row: {
+          completed_at: string | null
+          cost_estimate: number
+          created_at: string
+          duration_ms: number | null
+          ebook_id: string | null
+          error_message: string | null
+          id: string
+          idea_id: string | null
+          payload: Json
+          retry_count: number
+          started_at: string
+          status: string
+          step_name: string
+        }
+        Insert: {
+          completed_at?: string | null
+          cost_estimate?: number
+          created_at?: string
+          duration_ms?: number | null
+          ebook_id?: string | null
+          error_message?: string | null
+          id?: string
+          idea_id?: string | null
+          payload?: Json
+          retry_count?: number
+          started_at?: string
+          status: string
+          step_name: string
+        }
+        Update: {
+          completed_at?: string | null
+          cost_estimate?: number
+          created_at?: string
+          duration_ms?: number | null
+          ebook_id?: string | null
+          error_message?: string | null
+          id?: string
+          idea_id?: string | null
+          payload?: Json
+          retry_count?: number
+          started_at?: string
+          status?: string
+          step_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_step_logs_ebook_id_fkey"
+            columns: ["ebook_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipeline_step_logs_idea_id_fkey"
+            columns: ["idea_id"]
+            isOneToOne: false
+            referencedRelation: "ebook_ideas"
             referencedColumns: ["id"]
           },
         ]
