@@ -37,6 +37,18 @@ type TestRun = {
   startedAt?: number;
 } | null;
 
+type ProdAlert = {
+  paused: boolean;
+  costLimitReached: boolean;
+  costLimitReason: string | null;
+  costLimitAt: string | null;
+  failedPipelines: number;
+  failedPdf: number;
+  failedShopify: number;
+  failedCover: number;
+  failedQc: number;
+};
+
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats>({
     ideasTotal: 0, ideasToday: 0, ebooksWriting: 0, ebooksReady: 0,
@@ -46,6 +58,7 @@ export default function Dashboard() {
   const [testing, setTesting] = useState(false);
   const [testRun, setTestRun] = useState<TestRun>(null);
   const [failedJobs, setFailedJobs] = useState<FailedJob[]>([]);
+  const [prodAlert, setProdAlert] = useState<ProdAlert | null>(null);
 
   const load = async () => {
     const since = new Date(); since.setHours(0, 0, 0, 0);
