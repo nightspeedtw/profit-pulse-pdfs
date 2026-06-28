@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Play, Pause, Sparkles, AlertTriangle, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge, resolveEbookBadge } from "@/components/admin/StatusBadge";
+import { AutoFixChip } from "@/components/admin/AutoFixChip";
 
 type Ebook = {
   id: string; title: string;
@@ -18,6 +19,13 @@ type Ebook = {
   pdf_status: string | null;
   final_quality_score: number | null;
   updated_at: string;
+  qc_status: string | null;
+  failed_gate: string | null;
+  failed_score: number | null;
+  required_score: number | null;
+  auto_fix_attempt_count: number | null;
+  max_auto_fix_attempts: number | null;
+  last_auto_fix_action: string | null;
 };
 
 type Settings = {
@@ -57,7 +65,7 @@ export default function CommandCenter() {
       { count: failedToday },
     ] = await Promise.all([
       supabase.from("ebooks")
-        .select("id,title,autopilot_state,shopify_status,manuscript_qc_status,pdf_status,final_quality_score,updated_at")
+        .select("id,title,autopilot_state,shopify_status,manuscript_qc_status,pdf_status,final_quality_score,updated_at,qc_status,failed_gate,failed_score,required_score,auto_fix_attempt_count,max_auto_fix_attempts,last_auto_fix_action")
         .order("updated_at", { ascending: false }).limit(8),
       supabase.from("generation_settings")
         .select("paused, autopilot_mode, daily_quota, daily_budget_usd, cost_limit_reached, cost_limit_reason")
@@ -230,6 +238,7 @@ export default function CommandCenter() {
                       </Link>
                     </td>
                     <td className="p-3 w-32"><StatusBadge kind={badge} /></td>
+                    <td className="p-3"><AutoFixChip ebook={e} onChanged={load} /></td>
                     <td className="p-3 w-24 text-right font-mono text-xs">
                       {e.final_quality_score != null ? `QC ${e.final_quality_score}` : "—"}
                     </td>
