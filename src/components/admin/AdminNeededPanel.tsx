@@ -45,10 +45,34 @@ export function AdminNeededPanel({ ebook, onChanged }: Props) {
   const attempts = ebook.auto_fix_attempt_count ?? 0;
   const maxAttempts = ebook.max_auto_fix_attempts ?? 3;
   const gate = ebook.failed_gate ?? ebook.autopilot_state ?? "unknown";
-  const reason =
-    ebook.admin_review_reason ??
-    ebook.needs_review_reason ??
-    `Auto-fix could not resolve "${gate}" after ${attempts}/${maxAttempts} attempts.`;
+  const rawReason = ebook.admin_review_reason ?? ebook.needs_review_reason ?? "";
+  const exhausted = attempts >= maxAttempts;
+  // Detect a recoverable pipeline-dependency issue (e.g. outline missing) so we
+  // don't mislabel it as "Auto-fix exhausted" when no auto-fix attempts were used.
+  const isDependencyIssue =
+    !exhausted &&
+    /outline|dependency|missing|no outline|repair/i.test(`${rawReason} ${gate}`);
+
+  let badgeLabel: string;
+  let badgeVariant: "destructive" | "default" | "outline" = "destructive";
+  let heading = "Admin Needed";
+  let reason: string;
+
+  if (isDependencyIssue) {
+    heading = "Dependency Repair Needed";
+    badgeLabel = "Pipeline dependency repair";
+    badgeVariant = "default";
+    reason =
+      rawReason ||
+      "Autopilot detected that a required dependency (likely the outline) is missing. The system is going back to Generate Outline and will resume chapter writing automatically.";
+  } else if (exhausted) {
+    badgeLabel = "Auto-fix exhausted";
+    reason = rawReason || `Auto-fix could not resolve "${gate}" after ${attempts}/${maxAttempts} attempts.`;
+  } else {
+    badgeLabel = "Pipeline blocked";
+    reason = rawReason || `Pipeline blocked on "${gate}".`;
+  }
+
   const history = Array.isArray(ebook.auto_fix_history) ? ebook.auto_fix_history : [];
 
   async function callAction(action: "retry" | "reset" | "reject" | "rebuild_pdf") {
@@ -76,8 +100,8 @@ export function AdminNeededPanel({ ebook, onChanged }: Props) {
           <AlertTriangle className="size-6 text-orange-700 mt-0.5 shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="font-display text-xl uppercase tracking-wide">Admin Needed</h2>
-              <Badge variant="destructive">Auto-fix exhausted</Badge>
+              <h2 className="font-display text-xl uppercase tracking-wide">{heading}</h2>
+              <Badge variant={badgeVariant}>{badgeLabel}</Badge>
               <Badge variant="outline" className="font-mono">{gate}</Badge>
             </div>
             <p className="mt-2 text-sm">{reason}</p>
