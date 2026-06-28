@@ -517,21 +517,33 @@ Deno.serve(async (req) => {
       }
     }
 
+    let usedFallback = false;
     if (!validation.ok || !outline) {
-      // Persist failure so the UI can surface a precise admin message
-      await db.from("ebooks").update({
-        writing_status: "needs_review",
-        qc_status: "outline_failed",
-        pipeline_status: "rejected",
-        rejection_reason: `Admin needed because generate_outline did not return a valid chapters array after ${attempts} attempts. Missing: outline_json.chapters (${validation.reason})`,
-        cost_usd: (Number(ebook.cost_usd ?? 0) + totalCost),
-      }).eq("id", ebook.id);
-      return new Response(JSON.stringify({
-        error: `generate-outline did not return a valid chapters array (got ${validation.chapter_count}).`,
-        attempts,
-        validation,
-      }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      // AI failed after 3 attempts — build a deterministic fallback outline so
+      // the pipeline can continue instead of escalating to admin.
+      const fallback = generateFallbackOutline(ebook, ctx);
+      const fbValidation = validateOutlineJson(fallback);
+      if (!fbValidation.ok) {
+        await db.from("ebooks").update({
+          writing_status: "needs_review",
+          qc_status: "outline_failed",
+          pipeline_status: "rejected",
+          rejection_reason: `Admin needed because generate_outline did not return a valid chapters array after ${attempts} attempts AND the fallback outline failed validation (${fbValidation.reason}).`,
+          cost_usd: (Number(ebook.cost_usd ?? 0) + totalCost),
+        }).eq("id", ebook.id);
+        return new Response(JSON.stringify({
+          error: `generate-outline did not return a valid chapters array (got ${validation.chapter_count}) and fallback failed.`,
+          attempts,
+          validation,
+          fallback_validation: fbValidation,
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      outline = fallback;
+      validation = fbValidation;
+      usedFallback = true;
+      await logRun(db, { ebook_id: ebook.id, step: "outline", status: "ok", rewrite_count: attempts, payload: { chapter_count: fbValidation.chapter_count, fallback: true } });
     }
+
 
     // ---- Outline QC (only runs after schema is valid) ----
     const scores = await scoreOutline(model, {
