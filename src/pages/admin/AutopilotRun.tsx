@@ -152,6 +152,17 @@ export default function AutopilotRun() {
         </CardContent>
       </Card>
 
+      {/* Pricing engine */}
+      {run.ebook_id && (
+        <PricingPanel
+          ebookId={run.ebook_id}
+          report={((ebook as any)?.pricing_report ?? null) as PricingReportShape | null}
+          livePrice={(ebook as any)?.price ?? null}
+          confidence={(ebook as any)?.price_confidence_score ?? null}
+          onRecompute={loadAll}
+        />
+      )}
+
       {/* Final report */}
       {run.status === "completed" && (
         <RunFinalReport
