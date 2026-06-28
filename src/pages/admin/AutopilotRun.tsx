@@ -38,6 +38,7 @@ export default function AutopilotRun() {
   const [steps, setSteps] = useState<RunStepRow[]>([]);
   const [ebook, setEbook] = useState<AdminNeededState | null>(null);
   const [totalCost, setTotalCost] = useState(0);
+  const [rerunning, setRerunning] = useState(false);
 
   async function loadAll() {
     if (!runId) return;
