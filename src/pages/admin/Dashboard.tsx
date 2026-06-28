@@ -28,6 +28,15 @@ type Stats = {
   costToday: number;
 };
 
+type TestRun = {
+  status: "idle" | "starting" | "running" | "ready" | "failed";
+  message: string;
+  ideaId?: string;
+  ebookId?: string;
+  ebookState?: string | null;
+  startedAt?: number;
+} | null;
+
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats>({
     ideasTotal: 0, ideasToday: 0, ebooksWriting: 0, ebooksReady: 0,
