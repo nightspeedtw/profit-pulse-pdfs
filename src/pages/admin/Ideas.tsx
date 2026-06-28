@@ -373,13 +373,19 @@ export default function Ideas() {
 
   return (
     <div className="space-y-4 max-w-5xl">
-      <div>
-        <p className="font-mono uppercase tracking-widest text-xs">[ Ideas ]</p>
-        <h1 className="font-display text-4xl uppercase">Hard-Sell Ideas</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Every idea is written first-pass by the <strong>Premium Title &amp; Hard-Sell Copywriter</strong>. Auto-generation only fires when Appeal, Premium, and Hard-Sell all hit <strong>80+</strong>.
-          Use <strong>Rewrite</strong> or <strong>Generate 2 Alternatives</strong> when a concept needs lift.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <p className="font-mono uppercase tracking-widest text-xs">[ Ideas ]</p>
+          <h1 className="font-display text-4xl uppercase">Hard-Sell Ideas</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Every idea is written first-pass by the <strong>Premium Title &amp; Hard-Sell Copywriter</strong>. Auto-generation only fires when Appeal, Premium, and Hard-Sell all hit <strong>80+</strong>.
+            Use <strong>Generate 2 Alternatives</strong> (creates two new rows) or <strong>Edit Manually</strong> when a concept needs lift.
+          </p>
+        </div>
+        <Button onClick={generateBestConcept} disabled={headerBusy} size="lg">
+          {headerBusy ? <Loader2 className="size-4 animate-spin mr-1" /> : <Wand2 className="size-4 mr-1" />}
+          Generate Best Concept
+        </Button>
       </div>
       {items.length === 0 && (
         <Card className="border-2 border-dashed border-foreground/30">
