@@ -80,7 +80,7 @@ export default function SettingsPage() {
     if (!s) return;
     const next = { ...s, ...patch };
     setS(next);
-    const { error } = await supabase.from("generation_settings").update(patch).eq("id", 1);
+    const { error } = await supabase.from("generation_settings").update(patch as never).eq("id", 1);
     if (error) toast.error(error.message);
   }
 
