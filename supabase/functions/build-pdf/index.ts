@@ -710,9 +710,15 @@ function drawTitlePage(page: PDFPage, theme: Theme, fonts: Fonts, title: string,
   for (const ln of wrap(subtitle, fonts.italic, 14, PAGE_W - MARGIN * 2).slice(0, 3)) {
     page.drawText(safe(ln), { x: MARGIN, y, size: 14, font: fonts.italic, color: theme.sub }); y -= 20;
   }
+  // short product promise
+  y -= 14;
+  const promiseLine = "A premium tactical workbook with frameworks, worksheets, and a step-by-step playbook you can apply this week.";
+  for (const ln of wrap(promiseLine, fonts.reg, 11, PAGE_W - MARGIN * 2).slice(0, 4)) {
+    page.drawText(safe(ln), { x: MARGIN, y, size: 11, font: fonts.reg, color: theme.ink }); y -= 16;
+  }
   // bottom rule + brand
   page.drawLine({ start: { x: MARGIN, y: MARGIN + 40 }, end: { x: PAGE_W - MARGIN, y: MARGIN + 40 }, thickness: 0.6, color: theme.hair });
-  page.drawText(`${brand}  ·  PREMIUM PDF GUIDE`, { x: MARGIN, y: MARGIN + 22, size: 9, font: fonts.bold, color: theme.sub });
+  page.drawText(`${brand}  ·  PREMIUM TACTICAL WORKBOOK`, { x: MARGIN, y: MARGIN + 22, size: 9, font: fonts.bold, color: theme.sub });
 }
 
 function drawCopyrightPage(page: PDFPage, theme: Theme, fonts: Fonts, brand: string, finance: boolean) {
