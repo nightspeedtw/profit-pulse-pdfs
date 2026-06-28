@@ -584,6 +584,10 @@ Deno.serve(async (req) => {
         final_pdf_premium_score: chosen.qc.finalPdfPremiumScore,
         template_matches: (chosen.qc as Record<string, unknown>).templateMatches,
         duplicate_bullet_structures: (chosen.qc as Record<string, unknown>).duplicateBulletStructures,
+        premium_learning_block_score: (chosen.qc as Record<string, unknown>).premiumLearningBlockScore,
+        diagram_template_score: (chosen.qc as Record<string, unknown>).diagramTemplateScore,
+        total_learning_blocks: (chosen.qc as Record<string, unknown>).totalLearningBlocks,
+        unknown_diagram_types: (chosen.qc as Record<string, unknown>).unknownDiagramTypes,
       },
     };
 
