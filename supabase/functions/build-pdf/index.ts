@@ -921,7 +921,7 @@ function drawChapterDivider(
 
 // Generate a polished one-sentence chapter promise + 3 outcome bullets.
 // Never returns raw excerpts, truncated sentences, definitions, or example data.
-function extractChapterPromise(md: string, fallbackTitle: string): { promise: string; outcomes: string[] } {
+function extractChapterPromise(md: string, fallbackTitle: string, strict = false): { promise: string; outcomes: string[] } {
   const txt = (md || "").replace(/\r\n/g, "\n").trim();
   const rawTitle = (fallbackTitle || "this chapter").trim().replace(/[.!?]+$/, "");
   // Strip "The " prefix and any leading "Chapter NN:" so the title slots into sentences cleanly.
