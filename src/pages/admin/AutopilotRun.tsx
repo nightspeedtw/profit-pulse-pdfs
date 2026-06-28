@@ -93,7 +93,6 @@ export default function AutopilotRun() {
     loadAll();
   }
 
-  const [rerunning, setRerunning] = useState(false);
   async function rerun() {
     if (!run) return;
     setRerunning(true);
