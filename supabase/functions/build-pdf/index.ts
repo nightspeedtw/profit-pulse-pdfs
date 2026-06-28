@@ -332,6 +332,11 @@ Deno.serve(async (req) => {
       let diagramOverflowCount = 0;
       let diagramTruncatedCount = 0;
       let dividerIssueCount = 0;
+      // Premium learning block tracking: count callout/checklist/table/list blocks
+      // per chapter so we can score how "text-heavy" the interior feels.
+      let totalLearningBlocks = 0;
+      let chaptersWithEnoughBlocks = 0;
+      let unknownDiagramTypes = 0;
 
       // ---- Divider Copywriter Agent (run once per build) ----
       // On strict retry we re-call the AI (fresh sample) so failures from the
