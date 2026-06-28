@@ -208,6 +208,23 @@ Deno.serve(async (req) => {
         if (!ebook) throw new Error("no ebook to drive pipeline");
         await tracker.setEbook(ebook.id);
 
+        // ---- Resume path: when ebook_id was provided directly, the title/idea
+        // QC tracks above are skipped (no idea_id), leaving them pending. Mark
+        // them as passed_existing based on saved ebook data so the timeline
+        // reflects "continue from existing work", not "restart from scratch".
+        if (!idea_id && ebook?.idea_id) {
+          idea_id = ebook.idea_id as string;
+          const { data: i } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
+          idea = i;
+        }
+        if (ebook?.title && (ebook.title as string).trim().length >= 3) {
+          await skip(["title_and_hook"], "Title & hook — existing output found");
+        }
+        if (idea?.premium_score != null || ebook?.title) {
+          await skip(["idea_qc"], "Idea QC — existing output found");
+        }
+
+
         if (ebook.autopilot_state === "failed") {
           await db.from("ebooks").update({ autopilot_state: "running", needs_review_reason: null }).eq("id", ebook.id);
         } else {
