@@ -319,8 +319,14 @@ export function publishGate(e: {
   cover_score?: number | null;
   pdf_approved?: boolean | null;
   pdf_score?: number | null;
+  pdf_status?: string | null;
 }): { pass: boolean; reasons: string[] } {
   const r: string[] = [];
+  // Permanent global Premium PDF Auto-QC gate: PDF must be 'pdf_ready'.
+  // 'pdf_needs_human_review' / 'pdf_qc_failed' / 'pdf_auto_fixing' / 'pdf_qc_pending' all block.
+  if (e.pdf_status && e.pdf_status !== "pdf_ready" && e.pdf_status !== "ready") {
+    r.push(`pdf_status=${e.pdf_status} (must be pdf_ready)`);
+  }
   if ((e.final_quality_score ?? 0) < TH.publishMinFinalQuality) r.push(`final_quality<${TH.publishMinFinalQuality}`);
   if ((e.conversion_score ?? 0) < TH.publishMinConversion) r.push(`conversion<${TH.publishMinConversion}`);
   if ((e.compliance_safety_score ?? 0) < TH.publishMinComplianceSafety) r.push(`compliance_safety<${TH.publishMinComplianceSafety}`);
@@ -330,7 +336,7 @@ export function publishGate(e: {
   if (!e.shopify_product_id) r.push("missing shopify draft");
   if ((e.cover_score ?? 0) < 85) r.push(`cover_score<85`);
   if (!e.cover_approved) r.push("cover not approved");
-  if ((e.pdf_score ?? 0) < 85) r.push(`pdf_score<85`);
+  if ((e.pdf_score ?? 0) < 90) r.push(`pdf_score<90`);
   if (!e.pdf_approved) r.push("pdf not approved");
   return { pass: r.length === 0, reasons: r };
 }
