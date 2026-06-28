@@ -200,7 +200,7 @@ Deno.serve(async (req) => {
     if (Object.keys(bonuses).length > 0) {
       const div = pdf.addPage([PAGE_W, PAGE_H]);
       bookPageNum += 1;
-      drawChapterDivider(div, theme, fonts, 0, "Bonus Materials");
+      drawChapterDivider(div, theme, fonts, 0, "Bonus Materials", "Extra tools to help you implement what you just learned.", ["Done-for-you templates", "Quick-reference cheat sheets", "Bonus action prompts"]);
       tocEntries.push({ title: "Bonus Materials", pageNum: bookPageNum });
       let ctx = newInteriorPage("Bonus Materials");
       for (const [k, v] of Object.entries(bonuses)) {
