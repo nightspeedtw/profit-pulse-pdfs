@@ -95,6 +95,35 @@ export default function Dashboard() {
       .order("created_at", { ascending: false })
       .limit(10);
     setFailedJobs((jobs ?? []) as FailedJob[]);
+
+    // ---- Milestone 10 — production alerts ----
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const [
+      { data: setRow },
+      { count: failedPipelines },
+      { count: failedPdf },
+      { count: failedShopify },
+      { count: failedCover },
+      { count: failedQc },
+    ] = await Promise.all([
+      supabase.from("generation_settings").select("paused, cost_limit_reached, cost_limit_reason, cost_limit_reached_at").eq("id", 1).maybeSingle(),
+      supabase.from("pipeline_step_logs").select("id", { count: "exact", head: true }).eq("status", "fail").gte("started_at", dayAgo),
+      supabase.from("pipeline_step_logs").select("id", { count: "exact", head: true }).eq("status", "fail").ilike("step_name", "%pdf%").gte("started_at", dayAgo),
+      supabase.from("pipeline_step_logs").select("id", { count: "exact", head: true }).eq("status", "fail").ilike("step_name", "%shopify%").gte("started_at", dayAgo),
+      supabase.from("pipeline_step_logs").select("id", { count: "exact", head: true }).eq("status", "fail").ilike("step_name", "%cover%").gte("started_at", dayAgo),
+      supabase.from("pipeline_step_logs").select("id", { count: "exact", head: true }).eq("status", "fail").ilike("step_name", "%qc%").gte("started_at", dayAgo),
+    ]);
+    setProdAlert({
+      paused: !!setRow?.paused,
+      costLimitReached: !!setRow?.cost_limit_reached,
+      costLimitReason: setRow?.cost_limit_reason ?? null,
+      costLimitAt: setRow?.cost_limit_reached_at ?? null,
+      failedPipelines: failedPipelines ?? 0,
+      failedPdf: failedPdf ?? 0,
+      failedShopify: failedShopify ?? 0,
+      failedCover: failedCover ?? 0,
+      failedQc: failedQc ?? 0,
+    });
   };
 
   useEffect(() => {
