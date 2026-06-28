@@ -123,10 +123,10 @@ export default function CommandCenter() {
       if (error || (data as { error?: string } | null)?.error) {
         throw new Error(error?.message ?? (data as { error?: string }).error);
       }
-      toast.success("Started 1 ebook");
-      const runId = (data as { run_id?: string } | null)?.run_id;
-      if (runId) navigate(`/admin/autopilot/run/${runId}`);
+      toast.success("Started 1 ebook — watch the live status above");
       load();
+      // Note: we intentionally stay on Command Center so the status bar +
+      // LiveAutopilotCard remain visible. Use "View Run Details →" to drill in.
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
     } finally {
