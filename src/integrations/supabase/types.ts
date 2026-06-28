@@ -616,16 +616,21 @@ export type Database = {
           cover_spec: Json | null
           cover_url: string | null
           created_at: string
+          editorial_polish_score: number | null
           editorial_qc: Json
           final_approved: boolean
           final_approved_at: string | null
           final_approved_by: string | null
+          final_manuscript_qc: Json
+          final_manuscript_score: number | null
           final_quality_score: number | null
           hard_sell_strength_score: number | null
           hook: string | null
           id: string
           idea_id: string | null
           interior_visuals: Json | null
+          manuscript_fix_count: number
+          manuscript_qc_status: string | null
           memory_state: Json
           metadata: Json
           needs_review_reason: string | null
@@ -637,6 +642,7 @@ export type Database = {
           pdf_qc: Json | null
           pdf_url: string | null
           pipeline_status: Database["public"]["Enums"]["pipeline_status"]
+          practical_tool_score: number | null
           premium_score: number | null
           price: number
           product_copy: Json
@@ -645,6 +651,8 @@ export type Database = {
           product_type: string
           qc: Json
           qc_status: string | null
+          reader_value_score: number | null
+          refund_risk_score: number | null
           rejection_reason: string | null
           seo_meta: string | null
           seo_title: string | null
@@ -690,16 +698,21 @@ export type Database = {
           cover_spec?: Json | null
           cover_url?: string | null
           created_at?: string
+          editorial_polish_score?: number | null
           editorial_qc?: Json
           final_approved?: boolean
           final_approved_at?: string | null
           final_approved_by?: string | null
+          final_manuscript_qc?: Json
+          final_manuscript_score?: number | null
           final_quality_score?: number | null
           hard_sell_strength_score?: number | null
           hook?: string | null
           id?: string
           idea_id?: string | null
           interior_visuals?: Json | null
+          manuscript_fix_count?: number
+          manuscript_qc_status?: string | null
           memory_state?: Json
           metadata?: Json
           needs_review_reason?: string | null
@@ -711,6 +724,7 @@ export type Database = {
           pdf_qc?: Json | null
           pdf_url?: string | null
           pipeline_status?: Database["public"]["Enums"]["pipeline_status"]
+          practical_tool_score?: number | null
           premium_score?: number | null
           price?: number
           product_copy?: Json
@@ -719,6 +733,8 @@ export type Database = {
           product_type?: string
           qc?: Json
           qc_status?: string | null
+          reader_value_score?: number | null
+          refund_risk_score?: number | null
           rejection_reason?: string | null
           seo_meta?: string | null
           seo_title?: string | null
@@ -764,16 +780,21 @@ export type Database = {
           cover_spec?: Json | null
           cover_url?: string | null
           created_at?: string
+          editorial_polish_score?: number | null
           editorial_qc?: Json
           final_approved?: boolean
           final_approved_at?: string | null
           final_approved_by?: string | null
+          final_manuscript_qc?: Json
+          final_manuscript_score?: number | null
           final_quality_score?: number | null
           hard_sell_strength_score?: number | null
           hook?: string | null
           id?: string
           idea_id?: string | null
           interior_visuals?: Json | null
+          manuscript_fix_count?: number
+          manuscript_qc_status?: string | null
           memory_state?: Json
           metadata?: Json
           needs_review_reason?: string | null
@@ -785,6 +806,7 @@ export type Database = {
           pdf_qc?: Json | null
           pdf_url?: string | null
           pipeline_status?: Database["public"]["Enums"]["pipeline_status"]
+          practical_tool_score?: number | null
           premium_score?: number | null
           price?: number
           product_copy?: Json
@@ -793,6 +815,8 @@ export type Database = {
           product_type?: string
           qc?: Json
           qc_status?: string | null
+          reader_value_score?: number | null
+          refund_risk_score?: number | null
           rejection_reason?: string | null
           seo_meta?: string | null
           seo_title?: string | null

@@ -246,6 +246,89 @@ export default function EbookWriting() {
         </div>
       )}
 
+      {/* Final Manuscript QC */}
+      {allPassed && (
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-mono uppercase tracking-widest text-xs text-muted-foreground">Final Manuscript QC</p>
+                <p className="text-sm">
+                  Status: <strong>{ebook.manuscript_qc_status ?? "not run"}</strong>
+                  {" · "}fix attempts: {ebook.manuscript_fix_count ?? 0}
+                </p>
+              </div>
+              <Button size="sm" disabled={!!busy}
+                onClick={() => call("final-manuscript-qc", { ebook_id: ebook.id }, "Final QC")}>
+                {busy === "Final QC" ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+                Run Final QC
+              </Button>
+            </div>
+
+            {ebook.final_manuscript_qc && Object.keys(ebook.final_manuscript_qc).length > 0 && (() => {
+              const q = ebook.final_manuscript_qc as any;
+              const pass = (q.final_manuscript_score ?? 0) >= 85 && (q.compliance_safety_score ?? 0) >= 90 && q.checks?.word_count_ok;
+              return (
+                <div className="space-y-3">
+                  <div className="flex gap-2 flex-wrap">
+                    <Badge variant="outline" className={pass ? "bg-green-500/10 text-green-700 border-green-500/30" : "bg-red-500/10 text-red-700 border-red-500/30"}>
+                      {pass ? "PASS" : "NEEDS REVIEW"}
+                    </Badge>
+                    <ScoreBadge label="Final" value={q.final_manuscript_score} />
+                    <ScoreBadge label="Depth" value={q.final_content_depth_score} />
+                    <ScoreBadge label="Reader Value" value={q.reader_value_score} />
+                    <ScoreBadge label="Practical" value={q.practical_tool_score} />
+                    <ScoreBadge label="Polish" value={q.editorial_polish_score} />
+                    <ScoreBadge label="Compliance" value={q.compliance_safety_score} />
+                    <Badge variant="outline" className="font-mono text-xs">Refund Risk {q.refund_risk_score ?? 0}</Badge>
+                  </div>
+
+                  {q.checks && (
+                    <div className="grid grid-cols-2 gap-1 text-xs">
+                      {Object.entries(q.checks).map(([k, v]) => (
+                        <div key={k} className="flex items-center gap-2">
+                          {v ? <CheckCircle2 className="size-3.5 text-green-600" /> : <XCircle className="size-3.5 text-red-600" />}
+                          <span className={v ? "" : "text-red-700"}>{k.replace(/_/g, " ")}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {Array.isArray(q.blocking_issues) && q.blocking_issues.length > 0 && (
+                    <div className="border-l-2 border-red-500 pl-2 text-xs space-y-0.5">
+                      <p className="font-medium text-red-700">Blocking issues</p>
+                      {q.blocking_issues.map((i: string, idx: number) => <p key={idx}>• {i}</p>)}
+                    </div>
+                  )}
+
+                  {Array.isArray(q.issues) && q.issues.length > 0 && (
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-muted-foreground">All issues ({q.issues.length})</summary>
+                      <ul className="list-disc pl-5 mt-1 space-y-0.5">
+                        {q.issues.map((i: string, idx: number) => <li key={idx}>{i}</li>)}
+                      </ul>
+                    </details>
+                  )}
+
+                  {Array.isArray(q.fix_instructions_per_chapter) && q.fix_instructions_per_chapter.length > 0 && (
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-muted-foreground">Per-chapter fix notes ({q.fix_instructions_per_chapter.length})</summary>
+                      <ul className="list-disc pl-5 mt-1 space-y-1">
+                        {q.fix_instructions_per_chapter.map((f: any, idx: number) => (
+                          <li key={idx}><strong>Ch {f.chapter_index}:</strong> {f.instructions}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
+
+
+
       {/* Final actions */}
       <Card>
         <CardContent className="p-4 space-y-3">
