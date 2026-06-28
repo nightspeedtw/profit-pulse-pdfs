@@ -332,6 +332,11 @@ Deno.serve(async (req) => {
       let diagramOverflowCount = 0;
       let diagramTruncatedCount = 0;
       let dividerIssueCount = 0;
+      // Premium learning block tracking: count callout/checklist/table/list blocks
+      // per chapter so we can score how "text-heavy" the interior feels.
+      let totalLearningBlocks = 0;
+      let chaptersWithEnoughBlocks = 0;
+      let unknownDiagramTypes = 0;
 
       // ---- Divider Copywriter Agent (run once per build) ----
       // On strict retry we re-call the AI (fresh sample) so failures from the
@@ -379,11 +384,23 @@ Deno.serve(async (req) => {
 
         let ctx = newInteriorPage(chShort);
         const blocks = parseMarkdown(ch.content || "");
+        // Count premium learning blocks (callouts + checklists + tables + lists)
+        // for this chapter; a chapter should have at least 3 to feel premium.
+        const learning = blocks.filter((b) =>
+          b.kind === "callout" || b.kind === "checklist" || b.kind === "table" ||
+          b.kind === "ul" || b.kind === "ol",
+        ).length;
+        totalLearningBlocks += learning;
+        if (learning >= 3) chaptersWithEnoughBlocks += 1;
         for (const block of blocks) {
           ctx = renderBlock(pdf, ctx, block, theme, fonts, (t) => newInteriorPage(t), chShort);
         }
 
         for (const d of (diaMap.get(chNum) ?? [])) {
+          const dt = (d.type || "").toLowerCase();
+          if (!["process_flow","pyramid","matrix_2x2","circle_cycle","comparison_table","checklist","before_after"].includes(dt)) {
+            unknownDiagramTypes += 1;
+          }
           const page = pdf.addPage([PAGE_W, PAGE_H]);
           bookPageNum += 1;
           drawRunningHeader(page, theme, fonts, brand, chShort);
@@ -479,6 +496,21 @@ Deno.serve(async (req) => {
       (qc as Record<string, unknown>).worksheetVarietyScore = worksheetVarietyScore;
       (qc as Record<string, unknown>).worksheetLayouts = wsLayoutChoices;
 
+      // ---- Premium Learning Block + Diagram Template scoring ----
+      const chCount = Math.max(1, chapters.length);
+      const blocksPerChapter = totalLearningBlocks / chCount;
+      const enoughRatio = chaptersWithEnoughBlocks / chCount;
+      const premiumLearningBlockScore = Math.max(
+        50,
+        Math.min(100, Math.round(60 + Math.min(20, blocksPerChapter * 5) + enoughRatio * 20)),
+      );
+      const diagramTemplateScore = Math.max(40, 100 - unknownDiagramTypes * 25);
+      (qc as Record<string, unknown>).premiumLearningBlockScore = premiumLearningBlockScore;
+      (qc as Record<string, unknown>).diagramTemplateScore = diagramTemplateScore;
+      (qc as Record<string, unknown>).totalLearningBlocks = totalLearningBlocks;
+      (qc as Record<string, unknown>).unknownDiagramTypes = unknownDiagramTypes;
+
+
       const gateIssues: string[] = [];
       if (!coverTextPass) gateIssues.push("Cover missing required text (title/subtitle/brand).");
       if (qc.coverPremiumScore < 90) gateIssues.push(`cover_premium=${qc.coverPremiumScore}<90`);
@@ -489,7 +521,9 @@ Deno.serve(async (req) => {
       if (qc.worksheetQualityScore < 90) gateIssues.push(`worksheet=${qc.worksheetQualityScore}<90`);
       if (totalWs >= 4 && worksheetVarietyScore < 90) gateIssues.push(`worksheet_variety=${worksheetVarietyScore}<90`);
       if (qc.diagramQualityScore < 90) gateIssues.push(`diagram=${qc.diagramQualityScore}<90`);
+      if (diagramTemplateScore < 90) gateIssues.push(`diagram_template=${diagramTemplateScore}<90`);
       if (qc.interiorLayoutScore < 90) gateIssues.push(`interior=${qc.interiorLayoutScore}<90`);
+      if (premiumLearningBlockScore < 90) gateIssues.push(`learning_blocks=${premiumLearningBlockScore}<90`);
       if (qc.finalPdfPremiumScore < 90) gateIssues.push(`final_premium=${qc.finalPdfPremiumScore}<90`);
       if (isFinance && /guaranteed (debt|payoff|savings|income)|guaranteed results/i.test(`${e.title} ${e.subtitle ?? ""} ${e.hook ?? ""}`)) {
         gateIssues.push("compliance: guarantee language detected.");
@@ -550,6 +584,10 @@ Deno.serve(async (req) => {
         final_pdf_premium_score: chosen.qc.finalPdfPremiumScore,
         template_matches: (chosen.qc as Record<string, unknown>).templateMatches,
         duplicate_bullet_structures: (chosen.qc as Record<string, unknown>).duplicateBulletStructures,
+        premium_learning_block_score: (chosen.qc as Record<string, unknown>).premiumLearningBlockScore,
+        diagram_template_score: (chosen.qc as Record<string, unknown>).diagramTemplateScore,
+        total_learning_blocks: (chosen.qc as Record<string, unknown>).totalLearningBlocks,
+        unknown_diagram_types: (chosen.qc as Record<string, unknown>).unknownDiagramTypes,
       },
     };
 
@@ -1276,7 +1314,15 @@ function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fo
   const bottom = MARGIN + 40;
   const areaH = top - bottom;
   const nodes = (d.nodes ?? []).map((n) => safe(n)).filter(Boolean);
-  const type = (d.type || "checklist").toLowerCase();
+  // Approved diagram template whitelist. Anything outside the list is forced
+  // to "process_flow" so we never end up with stray axis labels, broken charts,
+  // or uncontrolled AI-driven layouts. Axis labels are intentionally never drawn.
+  const APPROVED = new Set([
+    "process_flow", "pyramid", "matrix_2x2", "circle_cycle",
+    "comparison_table", "checklist", "before_after",
+  ]);
+  const rawType = (d.type || "checklist").toLowerCase();
+  const type = APPROVED.has(rawType) ? rawType : "process_flow";
 
   // QC pre-pass: count how many nodes would not fit (cropped off page)
   // and how many wrap to more lines than the renderer caps at.
