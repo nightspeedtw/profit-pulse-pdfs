@@ -28,6 +28,15 @@ type Stats = {
   costToday: number;
 };
 
+type TestRun = {
+  status: "idle" | "starting" | "running" | "ready" | "failed";
+  message: string;
+  ideaId?: string;
+  ebookId?: string;
+  ebookState?: string | null;
+  startedAt?: number;
+} | null;
+
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats>({
     ideasTotal: 0, ideasToday: 0, ebooksWriting: 0, ebooksReady: 0,
@@ -35,6 +44,7 @@ export default function Dashboard() {
   });
   const [generating, setGenerating] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testRun, setTestRun] = useState<TestRun>(null);
   const [failedJobs, setFailedJobs] = useState<FailedJob[]>([]);
 
   const load = async () => {
@@ -80,6 +90,36 @@ export default function Dashboard() {
     return () => clearInterval(t);
   }, []);
 
+  // Poll active test run progress
+  useEffect(() => {
+    if (!testRun?.ideaId || testRun.status === "ready" || testRun.status === "failed") return;
+    let cancelled = false;
+    const tick = async () => {
+      const { data: eb } = await supabase
+        .from("ebooks")
+        .select("id, autopilot_state")
+        .eq("idea_id", testRun.ideaId!)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      if (eb) {
+        const state = eb.autopilot_state ?? "queued";
+        const done = state === "ready_to_publish" || state === "needs_review" || state === "published";
+        setTestRun((prev) => prev ? {
+          ...prev,
+          status: done ? "ready" : "running",
+          message: `State: ${state}`,
+          ebookId: eb.id,
+          ebookState: state,
+        } : prev);
+      }
+    };
+    tick();
+    const t = setInterval(tick, 5_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [testRun?.ideaId, testRun?.status]);
+
   const generateNow = async () => {
     setGenerating(true);
     try {
@@ -95,15 +135,19 @@ export default function Dashboard() {
   };
 
   const runSampleTest = async () => {
-    if (!confirm("Start a sample end-to-end PDF generation? This will create a test idea and run the full premium pipeline.")) return;
     setTesting(true);
+    setTestRun({ status: "starting", message: "Creating fixture idea…" });
     try {
       const { data, error } = await supabase.functions.invoke("test-sample-pdf", { body: {} });
       if (error) throw error;
+      const ideaId = data?.idea_id as string | undefined;
+      setTestRun({ status: "running", message: "Pipeline started. Polling…", ideaId, startedAt: Date.now() });
       toast.success(data?.message ?? "Test pipeline started");
       load();
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Test failed to start");
+      const msg = e instanceof Error ? e.message : "Test failed to start";
+      setTestRun({ status: "failed", message: msg });
+      toast.error(msg);
     } finally {
       setTesting(false);
     }
@@ -136,9 +180,9 @@ export default function Dashboard() {
           <h1 className="font-display text-4xl uppercase">Dashboard</h1>
         </div>
         <div className="flex gap-2">
-          <Button onClick={runSampleTest} disabled={testing} variant="outline">
-            {testing ? <Loader2 className="size-4 animate-spin mr-1" /> : <FlaskConical className="size-4 mr-1" />}
-            Test sample PDF
+          <Button onClick={runSampleTest} disabled={testing || testRun?.status === "running" || testRun?.status === "starting"}>
+            {(testing || testRun?.status === "running" || testRun?.status === "starting") ? <Loader2 className="size-4 animate-spin mr-1" /> : <FlaskConical className="size-4 mr-1" />}
+            Run Test Sample PDF
           </Button>
           <Button onClick={generateNow} disabled={generating} variant="outline">
             {generating ? <Loader2 className="size-4 animate-spin mr-1" /> : null}
@@ -149,6 +193,46 @@ export default function Dashboard() {
           </Link>
         </div>
       </div>
+
+      {testRun && (
+        <Card className="border-2 border-foreground">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-mono uppercase flex items-center gap-2">
+              <FlaskConical className="size-4" />
+              Test Sample PDF Run
+              <Badge
+                variant={testRun.status === "failed" ? "destructive" : testRun.status === "ready" ? "default" : "secondary"}
+                className="ml-2"
+              >
+                {testRun.status}
+              </Badge>
+              {(testRun.status === "running" || testRun.status === "starting") && (
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm space-y-2">
+            <p className="text-muted-foreground">{testRun.message}</p>
+            {testRun.startedAt && (
+              <p className="text-xs font-mono text-muted-foreground">
+                Elapsed: {Math.floor((Date.now() - testRun.startedAt) / 1000)}s
+              </p>
+            )}
+            <div className="flex gap-2 flex-wrap pt-1">
+              {testRun.ebookId && (
+                <Link to={`/admin/ebook/${testRun.ebookId}`}>
+                  <Button size="sm" variant="outline">Open ebook review →</Button>
+                </Link>
+              )}
+              <Link to="/admin/pipeline">
+                <Button size="sm" variant="ghost">View pipeline</Button>
+              </Link>
+              <Button size="sm" variant="ghost" onClick={() => setTestRun(null)}>Dismiss</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         {tiles.map((t) => (
