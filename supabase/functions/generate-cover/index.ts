@@ -237,8 +237,16 @@ Deno.serve(async (req) => {
     await requireAdmin(req);
     const db = admin();
     const body = await req.json().catch(() => ({}));
-    const { ebook_id, regenerate_spec = true } = body as { ebook_id?: string; regenerate_spec?: boolean };
+    const { ebook_id, mode, regenerate_spec, spec_overrides } = body as {
+      ebook_id?: string;
+      mode?: CoverMode;
+      regenerate_spec?: boolean;
+      spec_overrides?: Partial<CoverSpec>;
+    };
     if (!ebook_id) throw new Error("ebook_id required");
+    // Back-compat: legacy `regenerate_spec` flag maps to mode if not provided.
+    const resolvedMode: CoverMode = mode ?? (regenerate_spec === false ? "background" : "full");
+
     const { data: e } = await db.from("ebooks")
       .select("id,title,subtitle,target_buyer,hook,product_description,cover_prompt,cost_usd,status,qc,cover_spec,category_id")
       .eq("id", ebook_id).single();
@@ -246,11 +254,12 @@ Deno.serve(async (req) => {
 
     await db.from("ebooks").update({ status: "cover", qc: { ...(e.qc ?? {}), cover_error: null } }).eq("id", ebook_id);
     (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<void>) => void } })
-      .EdgeRuntime?.waitUntil?.(processCover(e as unknown as EbookRow, regenerate_spec));
+      .EdgeRuntime?.waitUntil?.(processCover(e as unknown as EbookRow, { mode: resolvedMode, spec_overrides }));
 
-    return new Response(JSON.stringify({ status: "cover", started: true }), {
+    return new Response(JSON.stringify({ status: "cover", started: true, mode: resolvedMode }), {
       status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
   } catch (e) {
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
