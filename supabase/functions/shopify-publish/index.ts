@@ -46,6 +46,8 @@ Deno.serve(async (req) => {
         throw new Error(`Publish gate failed: ${g.reasons.join("; ")}`);
       }
     }
+    // Gate passes — clear any stale needs_review_reason from previous attempts.
+    await db.from("ebooks").update({ needs_review_reason: null, autopilot_state: "publishing" }).eq("id", ebook_id);
 
     const res = await fetch(`https://${domain}/admin/api/${API_VERSION}/products/${e.shopify_product_id}.json`, {
       method: "PUT",
@@ -54,7 +56,12 @@ Deno.serve(async (req) => {
     });
     if (!res.ok) {
       const t = await res.text();
-      throw new Error(`Shopify ${res.status}: ${t.slice(0, 400)}`);
+      let reason = `Shopify ${res.status}: ${t.slice(0, 400)}`;
+      if (res.status === 401 || res.status === 403) {
+        reason = `Shopify auth failed (${res.status}) — SHOPIFY_ADMIN_TOKEN is invalid or expired. Update the secret and retry.`;
+      }
+      await db.from("ebooks").update({ autopilot_state: "needs_review", needs_review_reason: reason }).eq("id", ebook_id);
+      throw new Error(reason);
     }
     await db.from("ebooks").update({
       shopify_status: "published", status: "published", autopilot_state: "done",
