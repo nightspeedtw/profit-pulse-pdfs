@@ -384,11 +384,23 @@ Deno.serve(async (req) => {
 
         let ctx = newInteriorPage(chShort);
         const blocks = parseMarkdown(ch.content || "");
+        // Count premium learning blocks (callouts + checklists + tables + lists)
+        // for this chapter; a chapter should have at least 3 to feel premium.
+        const learning = blocks.filter((b) =>
+          b.kind === "callout" || b.kind === "checklist" || b.kind === "table" ||
+          b.kind === "ul" || b.kind === "ol",
+        ).length;
+        totalLearningBlocks += learning;
+        if (learning >= 3) chaptersWithEnoughBlocks += 1;
         for (const block of blocks) {
           ctx = renderBlock(pdf, ctx, block, theme, fonts, (t) => newInteriorPage(t), chShort);
         }
 
         for (const d of (diaMap.get(chNum) ?? [])) {
+          const dt = (d.type || "").toLowerCase();
+          if (!["process_flow","pyramid","matrix_2x2","circle_cycle","comparison_table","checklist","before_after"].includes(dt)) {
+            unknownDiagramTypes += 1;
+          }
           const page = pdf.addPage([PAGE_W, PAGE_H]);
           bookPageNum += 1;
           drawRunningHeader(page, theme, fonts, brand, chShort);
