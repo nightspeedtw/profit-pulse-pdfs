@@ -560,7 +560,7 @@ Deno.serve(async (req) => {
     const qc_status = gate.pass ? "outline_passed" : "outline_failed";
     const pipeline_status = gate.pass ? "outline_generation" : "rejected";
 
-    await db.from("ebooks").update({
+    const { error: updErr, data: updRow } = await db.from("ebooks").update({
       outline_json: outline as any,
       outline_qc: scores.data as any,
       outline_rewrite_count: attempts - 1,
@@ -575,7 +575,13 @@ Deno.serve(async (req) => {
       rejection_reason: gate.pass ? null : `Outline QC failed after ${attempts - 1} rewrites: ${gate.reason}`,
       cost_usd: (Number(ebook.cost_usd ?? 0) + totalCost),
       status: gate.pass ? "outline" : "needs_review",
-    }).eq("id", ebook.id);
+    }).eq("id", ebook.id).select("id, writing_status").maybeSingle();
+    if (updErr) {
+      console.error("generate-outline: ebooks update failed", updErr);
+      throw new Error(`Failed to persist outline_json: ${updErr.message}`);
+    }
+    console.log("generate-outline: saved outline", { ebook_id: ebook.id, chapters: outline.chapters.length, updRow });
+
 
     return new Response(JSON.stringify({
       ebook_id: ebook.id,
