@@ -6,7 +6,7 @@ import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, Play, Pause, Sparkles, AlertTriangle, DollarSign } from "lucide-react";
+import { Loader2, Play, Pause, Sparkles, AlertTriangle, DollarSign, FlaskConical } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge, resolveEbookBadge } from "@/components/admin/StatusBadge";
 import { AutoFixChip } from "@/components/admin/AutoFixChip";
@@ -130,6 +130,24 @@ export default function CommandCenter() {
     }
   }
 
+  async function runFullAutopilotTest() {
+    setBusy("test");
+    try {
+      const { data, error } = await supabase.functions.invoke("autopilot-pipeline", {
+        body: { mode: "full", test_mode: true },
+      });
+      if (error || (data as { error?: string } | null)?.error) {
+        throw new Error(error?.message ?? (data as { error?: string }).error);
+      }
+      toast.success("Full Autopilot Test started — running end-to-end through Shopify draft");
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Test failed to start");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const costPct = settings
     ? Math.min(100, (stats.costToday / Math.max(0.01, Number(settings.daily_budget_usd))) * 100)
     : 0;
@@ -145,7 +163,7 @@ export default function CommandCenter() {
           <p className="font-mono uppercase tracking-widest text-xs text-muted-foreground">[ Command Center ]</p>
           <h1 className="font-display text-4xl uppercase">Ebook Factory</h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button
             onClick={togglePause}
             variant={settings?.paused ? "default" : "outline"}
@@ -159,6 +177,12 @@ export default function CommandCenter() {
               ? <Loader2 className="size-4 animate-spin mr-1" />
               : <Sparkles className="size-4 mr-1" />}
             Generate 1 Ebook Now
+          </Button>
+          <Button variant="outline" onClick={runFullAutopilotTest} disabled={busy === "test" || settings?.paused}>
+            {busy === "test"
+              ? <Loader2 className="size-4 animate-spin mr-1" />
+              : <FlaskConical className="size-4 mr-1" />}
+            Run Full Autopilot Test
           </Button>
         </div>
       </div>
