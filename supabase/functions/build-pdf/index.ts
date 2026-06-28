@@ -42,6 +42,167 @@ function hexToRgb(hex?: string): RGB {
   return rgb(isNaN(r) ? 0 : r, isNaN(g) ? 0 : g, isNaN(b) ? 0 : b);
 }
 
+// ============ CHAPTER DIVIDER COPYWRITER AGENT ============
+// One AI call generates unique, editorial promise + 3 specific outcome bullets
+// for every chapter at once, with explicit anti-template rules. Falls back to
+// the deterministic pool if the gateway is unavailable.
+interface DividerCopy {
+  promise: string;
+  outcomes: string[];
+  transformation?: string;
+}
+async function generateUniqueDividerCopy(
+  ebookTitle: string,
+  subtitle: string,
+  buyer: string,
+  chapters: { title: string; content: string }[],
+): Promise<DividerCopy[] | null> {
+  if (!chapters.length) return [];
+  try {
+    const model = pickModel("balanced");
+    const list = chapters.map((c, i) => {
+      const excerpt = (c.content || "").replace(/[#*_`>\-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 900);
+      return `Chapter ${i + 1}: ${c.title}\nExcerpt: ${excerpt}`;
+    }).join("\n\n");
+    const sys = `You are a senior editorial copywriter for premium tactical workbooks.
+Write chapter divider copy that feels human-edited and intentional — never AI-templated.
+
+HARD RULES:
+- Every chapter promise must be a complete sentence, 14-28 words, ending with a period.
+- Never start two chapters with the same sentence structure or opening phrase.
+- Banned opening patterns: "This chapter gives you the exact moves behind", "shows you how to apply", "Convert ... from theory into", "Sidestep the silent traps", "Track the one metric".
+- Each promise must name a specific transformation tied to that chapter's topic.
+- Outcomes must be 3 specific, action-led learning outcomes (start with a verb), 10-22 words each, ending with a period.
+- Outcome bullets must NEVER use raw examples, brand names, dollar amounts, or numbers from the source.
+- Outcomes across chapters must NOT repeat sentence structure or use the same verb opener twice.
+- Voice: confident, editorial, buyer-relevant. American English.`;
+    const user = `Ebook: "${ebookTitle}" — ${subtitle}
+Target buyer: ${buyer}
+
+For each chapter below, write JSON with:
+  promise (string, one sentence, the unique transformation this chapter delivers)
+  outcomes (array of exactly 3 specific learning outcomes)
+  transformation (string, ≤14 words, the before→after the reader gets)
+
+${list}
+
+Return: {"chapters":[{"promise":"...","outcomes":["...","...","..."],"transformation":"..."}, ...]} with one entry per chapter, in order.`;
+    const { data } = await aiJSON<{ chapters: DividerCopy[] }>({
+      model, system: sys, user,
+      schemaHint: '{"chapters":[{"promise":"string","outcomes":["string","string","string"],"transformation":"string"}]}',
+    });
+    if (!Array.isArray(data?.chapters) || data.chapters.length !== chapters.length) return null;
+    return data.chapters.map((c) => ({
+      promise: String(c.promise || "").replace(/\s+/g, " ").trim().slice(0, 240),
+      outcomes: (c.outcomes ?? []).slice(0, 3).map((o) => String(o).replace(/\s+/g, " ").trim().slice(0, 180)),
+      transformation: c.transformation ? String(c.transformation).slice(0, 120) : undefined,
+    }));
+  } catch (e) {
+    console.error("generateUniqueDividerCopy failed:", (e as Error).message);
+    return null;
+  }
+}
+
+// Detect AI-template repetition across dividers. Returns 0-100 uniqueness score
+// + per-divider issue flags. Compares normalized 6-token signatures and verb openers.
+function scoreDividerUniqueness(copies: DividerCopy[]): {
+  uniquenessScore: number; specificityScore: number;
+  templateMatches: number; duplicateBulletStructures: number;
+} {
+  if (!copies.length) return { uniquenessScore: 100, specificityScore: 100, templateMatches: 0, duplicateBulletStructures: 0 };
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, " ").replace(/\s+/g, " ").trim();
+  const signature = (s: string) => norm(s).split(" ").slice(0, 6).join(" ");
+  const bannedPatterns = [
+    /this chapter gives you the exact moves behind/i,
+    /shows you how to apply them/i,
+    /convert .{1,40} from theory into/i,
+    /sidestep the silent traps/i,
+    /track the one metric/i,
+  ];
+  let templateMatches = 0;
+  const promiseSigs = new Map<string, number>();
+  for (const c of copies) {
+    for (const p of bannedPatterns) if (p.test(c.promise)) templateMatches++;
+    const sig = signature(c.promise);
+    promiseSigs.set(sig, (promiseSigs.get(sig) ?? 0) + 1);
+  }
+  let dupePromiseGroups = 0;
+  for (const n of promiseSigs.values()) if (n > 1) dupePromiseGroups += n - 1;
+
+  // Bullet structure repetition: collect verb opener per bullet; flag a structure
+  // collision when the same verb opens >2 bullets across chapters.
+  const verbCount = new Map<string, number>();
+  let totalBullets = 0;
+  for (const c of copies) for (const o of c.outcomes) {
+    const verb = norm(o).split(" ")[0] ?? "";
+    if (verb) { verbCount.set(verb, (verbCount.get(verb) ?? 0) + 1); totalBullets++; }
+  }
+  let duplicateBulletStructures = 0;
+  for (const n of verbCount.values()) if (n > 2) duplicateBulletStructures += n - 2;
+
+  const uniquenessScore = Math.max(0, 100 - templateMatches * 25 - dupePromiseGroups * 20);
+
+  // Specificity: each promise length 60-220 chars, contains a concrete noun pool word,
+  // and each outcome 50-180 chars starting with a verb.
+  const specificWords = /(weekly|monthly|map|table|script|fifteen|specific|exact|routine|leak|payoff|balance|negotiate|redirect|cash[- ]flow|interest|principal|deadline|checklist|playbook|rule|calculator)/i;
+  let promiseSpecificity = 0;
+  for (const c of copies) {
+    let s = 0;
+    if (c.promise.length >= 60 && c.promise.length <= 240) s += 50;
+    if (specificWords.test(c.promise)) s += 30;
+    if (/[.!?]$/.test(c.promise.trim())) s += 20;
+    promiseSpecificity += s;
+  }
+  let bulletSpecificity = 0;
+  for (const c of copies) for (const o of c.outcomes) {
+    let s = 0;
+    if (o.length >= 50 && o.length <= 200) s += 50;
+    if (/^[A-Z][a-z]+/.test(o.trim())) s += 20;
+    if (specificWords.test(o)) s += 30;
+    bulletSpecificity += s;
+  }
+  const specificityScore = Math.round(
+    (promiseSpecificity / Math.max(1, copies.length) * 0.4) +
+    (bulletSpecificity / Math.max(1, totalBullets) * 0.6),
+  );
+  return {
+    uniquenessScore,
+    specificityScore: Math.max(0, Math.min(100, specificityScore)),
+    templateMatches,
+    duplicateBulletStructures,
+  };
+}
+
+// ============ WORKSHEET LAYOUT PLANNER ============
+// Picks an approved layout type from worksheet purpose/title. Each layout
+// is rendered by a different drawer below so worksheets feel varied and
+// purpose-matched instead of repeated input boxes.
+type WorksheetLayout = "input_boxes" | "table" | "scorecard" | "checklist_grid" | "script_blocks" | "calendar" | "calculator";
+function pickWorksheetLayout(w: Worksheet, usedCounts: Map<WorksheetLayout, number>): WorksheetLayout {
+  const t = `${w.asset_name || ""} ${w.purpose || ""}`.toLowerCase();
+  const score = (layout: WorksheetLayout): number => {
+    // Strong cap: max 2 of the same layout type per ebook.
+    if ((usedCounts.get(layout) ?? 0) >= 2) return -1000;
+    return 0;
+  };
+  const candidates: [WorksheetLayout, number][] = [];
+  if (/track|log|balance|debt list|inventory|audit/.test(t)) candidates.push(["table", 90]);
+  if (/budget|category|categor|spend|expense/.test(t)) candidates.push(["table", 85]);
+  if (/script|call|negotiat|email|response|template/.test(t)) candidates.push(["script_blocks", 88]);
+  if (/calendar|weekly|routine|daily|schedule|7[- ]day|30[- ]day/.test(t)) candidates.push(["calendar", 88]);
+  if (/checklist|step|prep|onboard/.test(t)) candidates.push(["checklist_grid", 85]);
+  if (/priorit|score|rank|matrix|decision|choose|pick/.test(t)) candidates.push(["scorecard", 88]);
+  if (/calculat|payoff|interest|projection|forecast|number/.test(t)) candidates.push(["calculator", 90]);
+  if (/reflect|journal|insight|review|debrief|notes/.test(t)) candidates.push(["input_boxes", 80]);
+  // pick best non-capped
+  candidates.sort((a, b) => (b[1] + score(b[0])) - (a[1] + score(a[0])));
+  for (const [layout] of candidates) if (score(layout) >= 0) return layout;
+  // fallback rotation to keep variety
+  const rotation: WorksheetLayout[] = ["input_boxes", "table", "checklist_grid", "scorecard", "script_blocks", "calendar", "calculator"];
+  for (const l of rotation) if ((usedCounts.get(l) ?? 0) < 2) return l;
+  return "input_boxes";
+}
+
 // ============ ENTRY ============
 // Permanent Global Premium PDF Auto-QC gate:
 //   1. Build PDF using controlled components.
