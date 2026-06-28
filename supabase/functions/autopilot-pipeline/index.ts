@@ -246,30 +246,75 @@ Deno.serve(async (req) => {
           return (count ?? 0) >= maxShopifyPerDay;
         };
 
-        // ---------- STEP 4 + 5 — Outline + QC ----------
-        if (!ebook.outline_json && !(ebook.toc && Array.isArray(ebook.toc) && ebook.toc.length)) {
-          if (await overBudget() || await overAiCalls()) {
-            await needsAdmin("outline", "Budget or AI-call cap reached before outline.", "Raise per-ebook budget or unblock the job.");
+        // ---------- STEP 4 + 5 — Outline + QC (with strict dependency validation) ----------
+        const MIN_OUTLINE_CHAPTERS = 3;
+        const hasValidOutline = (e: any) => {
+          const o = e?.outline_json as any;
+          return !!(o && Array.isArray(o.chapters) && o.chapters.length >= MIN_OUTLINE_CHAPTERS);
+        };
+
+        // Dependency-repair helper: ensures a valid outline exists, regenerating up
+        // to 3 times before escalating. This recovers from the historical bug where
+        // outline_json was set without a `chapters` array (or with an empty one),
+        // which previously caused write-chapters to fail with "No outline yet".
+        async function ensureValidOutline() {
+          if (hasValidOutline(ebook)) {
+            await skip(["outline", "outline_qc"], "Outline already present");
             return;
           }
-          await track(
-            ["outline", "outline_qc"],
-            "Generating chapter outline and running outline QC…",
-            async () => {
-              await runStep("4_5_outline_qc", "generate-outline", { ebook_id: ebook.id });
-              await refreshEbook();
-            },
-          );
-          if (ebook.writing_status === "outline_rejected") {
-            await db.from("ebooks").update({ autopilot_state: "needs_review", needs_review_reason: "outline QC failed" }).eq("id", ebook.id);
-            await needsAdmin("outline_qc", "Outline QC failed after auto-fix attempts.", "Edit outline or regenerate.");
-            return;
+          let attempts = 0;
+          while (!hasValidOutline(ebook)) {
+            if (attempts >= 3) {
+              await db.from("ebooks").update({
+                autopilot_state: "needs_review",
+                needs_review_reason: "Outline could not be generated after 3 dependency-repair attempts.",
+              }).eq("id", ebook.id);
+              await needsAdmin(
+                "outline",
+                "Outline generation failed 3× during dependency repair.",
+                "Inspect generate-outline logs or regenerate manually.",
+              );
+              throw new Error("outline_dependency_repair_exhausted");
+            }
+            attempts++;
+            if (await overBudget() || await overAiCalls()) {
+              await needsAdmin("outline", "Budget or AI-call cap reached during outline repair.", "Raise per-ebook budget or unblock the job.");
+              throw new Error("outline_dependency_budget");
+            }
+            const label = attempts === 1
+              ? "Generating chapter outline and running outline QC…"
+              : `Outline missing chapters — repairing (attempt ${attempts}/3)…`;
+            try {
+              await track(["outline", "outline_qc"], label, async () => {
+                await runStep("4_5_outline_qc", "generate-outline", { ebook_id: ebook.id });
+                await refreshEbook();
+                if (!hasValidOutline(ebook)) {
+                  throw new Error(
+                    `generate-outline did not return a valid chapters array (got ${
+                      Array.isArray((ebook?.outline_json as any)?.chapters)
+                        ? (ebook.outline_json as any).chapters.length
+                        : "none"
+                    }).`,
+                  );
+                }
+              });
+            } catch (err) {
+              if (attempts >= 3) throw err;
+              // loop and retry
+            }
           }
-        } else {
-          await skip(["outline", "outline_qc"], "Outline already present");
         }
 
+        await ensureValidOutline();
+
         // ---------- STEP 6 + 7 — Write chapters ----------
+        // Hard dependency: outline must be valid before we ever invoke write-chapters.
+        if (!hasValidOutline(ebook)) {
+          // Defensive: should be impossible after ensureValidOutline, but never call
+          // write-chapters without an outline (that's the bug we're fixing).
+          await needsAdmin("chapter_writing", "Outline still missing after repair — refusing to start chapter writing.");
+          throw new Error("outline_missing_before_write_chapters");
+        }
         if ((ebook.total_word_count ?? 0) < (Number(settings.min_word_count ?? 18000) * 0.9)) {
           if (await overBudget() || await overAiCalls()) {
             await needsAdmin("chapter_writing", "Budget cap reached before chapter writing.", "Raise per-ebook budget or unblock the job.");
@@ -279,6 +324,12 @@ Deno.serve(async (req) => {
             ["chapter_writing", "chapter_qc"],
             "Writing chapters and running per-chapter QC…",
             async () => {
+              // Re-validate immediately before the call (cheap insurance against races).
+              await refreshEbook();
+              if (!hasValidOutline(ebook)) {
+                // Self-heal once more rather than crashing the run.
+                await ensureValidOutline();
+              }
               await runStep("6_7_write_qc_chapters", "write-chapters", { ebook_id: ebook.id, full: true });
               await refreshEbook();
             },
