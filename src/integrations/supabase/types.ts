@@ -742,6 +742,7 @@ export type Database = {
           blocked_at: string | null
           bonus_section_json: Json | null
           bonuses: Json
+          bundle_price_recommendation: number | null
           buyer_appeal_score: number | null
           category_id: string | null
           chapter_qc: Json
@@ -771,11 +772,14 @@ export type Database = {
           final_manuscript_score: number | null
           final_quality_score: number | null
           hard_sell_strength_score: number | null
+          high_price_test: number | null
           hook: string | null
           id: string
           idea_id: string | null
           interior_visuals: Json | null
           last_auto_fix_action: string | null
+          launch_price: number | null
+          low_price_test: number | null
           manuscript_fix_count: number
           manuscript_qc_status: string | null
           max_auto_fix_attempts: number
@@ -804,6 +808,10 @@ export type Database = {
           practical_tool_score: number | null
           premium_score: number | null
           price: number
+          price_confidence_score: number | null
+          pricing_computed_at: string | null
+          pricing_report: Json | null
+          pricing_tier: string | null
           product_copy: Json
           product_description: string | null
           product_page_qc: Json
@@ -811,6 +819,7 @@ export type Database = {
           qc: Json
           qc_status: string | null
           reader_value_score: number | null
+          recommended_price: number | null
           refund_risk_score: number | null
           rejection_reason: string | null
           required_score: number | null
@@ -823,6 +832,7 @@ export type Database = {
           shopify_last_event_at: string | null
           shopify_product_id: string | null
           shopify_status: string
+          standard_price: number | null
           status: string
           subtitle: string | null
           tags: string[]
@@ -848,6 +858,7 @@ export type Database = {
           blocked_at?: string | null
           bonus_section_json?: Json | null
           bonuses?: Json
+          bundle_price_recommendation?: number | null
           buyer_appeal_score?: number | null
           category_id?: string | null
           chapter_qc?: Json
@@ -877,11 +888,14 @@ export type Database = {
           final_manuscript_score?: number | null
           final_quality_score?: number | null
           hard_sell_strength_score?: number | null
+          high_price_test?: number | null
           hook?: string | null
           id?: string
           idea_id?: string | null
           interior_visuals?: Json | null
           last_auto_fix_action?: string | null
+          launch_price?: number | null
+          low_price_test?: number | null
           manuscript_fix_count?: number
           manuscript_qc_status?: string | null
           max_auto_fix_attempts?: number
@@ -910,6 +924,10 @@ export type Database = {
           practical_tool_score?: number | null
           premium_score?: number | null
           price?: number
+          price_confidence_score?: number | null
+          pricing_computed_at?: string | null
+          pricing_report?: Json | null
+          pricing_tier?: string | null
           product_copy?: Json
           product_description?: string | null
           product_page_qc?: Json
@@ -917,6 +935,7 @@ export type Database = {
           qc?: Json
           qc_status?: string | null
           reader_value_score?: number | null
+          recommended_price?: number | null
           refund_risk_score?: number | null
           rejection_reason?: string | null
           required_score?: number | null
@@ -929,6 +948,7 @@ export type Database = {
           shopify_last_event_at?: string | null
           shopify_product_id?: string | null
           shopify_status?: string
+          standard_price?: number | null
           status?: string
           subtitle?: string | null
           tags?: string[]
@@ -954,6 +974,7 @@ export type Database = {
           blocked_at?: string | null
           bonus_section_json?: Json | null
           bonuses?: Json
+          bundle_price_recommendation?: number | null
           buyer_appeal_score?: number | null
           category_id?: string | null
           chapter_qc?: Json
@@ -983,11 +1004,14 @@ export type Database = {
           final_manuscript_score?: number | null
           final_quality_score?: number | null
           hard_sell_strength_score?: number | null
+          high_price_test?: number | null
           hook?: string | null
           id?: string
           idea_id?: string | null
           interior_visuals?: Json | null
           last_auto_fix_action?: string | null
+          launch_price?: number | null
+          low_price_test?: number | null
           manuscript_fix_count?: number
           manuscript_qc_status?: string | null
           max_auto_fix_attempts?: number
@@ -1016,6 +1040,10 @@ export type Database = {
           practical_tool_score?: number | null
           premium_score?: number | null
           price?: number
+          price_confidence_score?: number | null
+          pricing_computed_at?: string | null
+          pricing_report?: Json | null
+          pricing_tier?: string | null
           product_copy?: Json
           product_description?: string | null
           product_page_qc?: Json
@@ -1023,6 +1051,7 @@ export type Database = {
           qc?: Json
           qc_status?: string | null
           reader_value_score?: number | null
+          recommended_price?: number | null
           refund_risk_score?: number | null
           rejection_reason?: string | null
           required_score?: number | null
@@ -1035,6 +1064,7 @@ export type Database = {
           shopify_last_event_at?: string | null
           shopify_product_id?: string | null
           shopify_status?: string
+          standard_price?: number | null
           status?: string
           subtitle?: string | null
           tags?: string[]

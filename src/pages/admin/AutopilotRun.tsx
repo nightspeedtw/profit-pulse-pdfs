@@ -8,6 +8,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { RunStepTimeline, type RunStepRow } from "@/components/admin/RunStepTimeline";
 import { RunFinalReport, type RunSummary } from "@/components/admin/RunFinalReport";
 import { AdminNeededPanel, type AdminNeededState } from "@/components/admin/AdminNeededPanel";
+import { PricingPanel, type PricingReportShape } from "@/components/admin/PricingPanel";
 import { RUN_STATUS_LABEL } from "@/lib/autopilot-steps";
 import { toast } from "sonner";
 
@@ -150,6 +151,17 @@ export default function AutopilotRun() {
           <RunStepTimeline steps={steps} />
         </CardContent>
       </Card>
+
+      {/* Pricing engine */}
+      {run.ebook_id && (
+        <PricingPanel
+          ebookId={run.ebook_id}
+          report={((ebook as any)?.pricing_report ?? null) as PricingReportShape | null}
+          livePrice={(ebook as any)?.price ?? null}
+          confidence={(ebook as any)?.price_confidence_score ?? null}
+          onRecompute={loadAll}
+        />
+      )}
 
       {/* Final report */}
       {run.status === "completed" && (

@@ -18,6 +18,7 @@ export type AutopilotStepName =
   | "pdf_layout"
   | "pdf_render"
   | "pdf_qc"
+  | "pricing"
   | "product_copy"
   | "product_qc"
   | "shopify_draft"
@@ -47,11 +48,12 @@ export const AUTOPILOT_STEPS: AutopilotStepDef[] = [
   { name: "pdf_layout",        label: "Designing PDF",               order: 14 },
   { name: "pdf_render",        label: "Rendering PDF",               order: 15 },
   { name: "pdf_qc",            label: "Running PDF QC",              order: 16 },
-  { name: "product_copy",      label: "Generating Product Copy",     order: 17 },
-  { name: "product_qc",        label: "Running Product Page QC",     order: 18 },
-  { name: "shopify_draft",     label: "Uploading Shopify Draft",     order: 19 },
-  { name: "shopify_verify",    label: "Verifying Shopify Draft",     order: 20 },
-  { name: "complete",          label: "Complete",                    order: 21 },
+  { name: "pricing",            label: "Computing Recommended Price", order: 17 },
+  { name: "product_copy",      label: "Generating Product Copy",     order: 18 },
+  { name: "product_qc",        label: "Running Product Page QC",     order: 19 },
+  { name: "shopify_draft",     label: "Uploading Shopify Draft",     order: 20 },
+  { name: "shopify_verify",    label: "Verifying Shopify Draft",     order: 21 },
+  { name: "complete",          label: "Complete",                    order: 22 },
 ];
 
 export const TOTAL_STEPS = AUTOPILOT_STEPS.length;

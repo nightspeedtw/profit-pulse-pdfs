@@ -351,6 +351,30 @@ Deno.serve(async (req) => {
           await skip(["pdf_layout", "pdf_render", "pdf_qc"], "PDF already rendered");
         }
 
+        // ---------- STEP 11b — Automatic Psychological Pricing ----------
+        if (!ebook.pricing_computed_at) {
+          await track(
+            ["pricing"],
+            "Computing recommended price (psychological pricing engine)…",
+            async () => {
+              const useLaunch = !!settings.use_launch_price;
+              await runStep("11b_pricing", "compute-pricing", { ebook_id: ebook.id, use_launch_price: useLaunch });
+              await refreshEbook();
+            },
+          );
+          const conf = Number(ebook.price_confidence_score ?? 0);
+          if (conf > 0 && conf < 85) {
+            // Don't block — just record an admin-attention note; price still applied.
+            await tracker.needsAdmin(
+              "pricing",
+              `Price confidence ${conf} < 85 — review recommended price ($${ebook.recommended_price ?? ebook.price}).`,
+              "Confirm or override the recommended price before publishing.",
+            );
+          }
+        } else {
+          await skip(["pricing"], "Pricing already computed");
+        }
+
         // ---------- STEP 12 — Shopify draft ----------
         if (shopifyDraftEnabled && !ebook.shopify_product_id) {
           if (await shopifyOverDay()) {
