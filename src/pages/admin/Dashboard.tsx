@@ -238,6 +238,7 @@ export default function CommandCenter() {
                       </Link>
                     </td>
                     <td className="p-3 w-32"><StatusBadge kind={badge} /></td>
+                    <td className="p-3"><AutoFixChip ebook={e} onChanged={load} /></td>
                     <td className="p-3 w-24 text-right font-mono text-xs">
                       {e.final_quality_score != null ? `QC ${e.final_quality_score}` : "—"}
                     </td>
