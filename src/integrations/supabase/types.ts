@@ -125,6 +125,143 @@ export type Database = {
         }
         Relationships: []
       }
+      autopilot_pipeline_runs: {
+        Row: {
+          admin_needed_reason: string | null
+          completed_at: string | null
+          current_action_message: string | null
+          current_step: string | null
+          current_step_label: string | null
+          ebook_id: string | null
+          error_message: string | null
+          failed_at: string | null
+          id: string
+          idea_id: string | null
+          mode: string | null
+          pause_requested: boolean
+          progress_percent: number
+          started_at: string
+          status: string
+          summary_json: Json
+          test_mode: boolean
+          triggered_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          admin_needed_reason?: string | null
+          completed_at?: string | null
+          current_action_message?: string | null
+          current_step?: string | null
+          current_step_label?: string | null
+          ebook_id?: string | null
+          error_message?: string | null
+          failed_at?: string | null
+          id?: string
+          idea_id?: string | null
+          mode?: string | null
+          pause_requested?: boolean
+          progress_percent?: number
+          started_at?: string
+          status?: string
+          summary_json?: Json
+          test_mode?: boolean
+          triggered_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          admin_needed_reason?: string | null
+          completed_at?: string | null
+          current_action_message?: string | null
+          current_step?: string | null
+          current_step_label?: string | null
+          ebook_id?: string | null
+          error_message?: string | null
+          failed_at?: string | null
+          id?: string
+          idea_id?: string | null
+          mode?: string | null
+          pause_requested?: boolean
+          progress_percent?: number
+          started_at?: string
+          status?: string
+          summary_json?: Json
+          test_mode?: boolean
+          triggered_by?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      autopilot_pipeline_steps: {
+        Row: {
+          auto_fix_attempts: number
+          completed_at: string | null
+          created_at: string
+          duration_ms: number | null
+          ebook_id: string | null
+          error_message: string | null
+          id: string
+          max_auto_fix_attempts: number
+          message: string | null
+          metadata_json: Json
+          required_score: number | null
+          run_id: string
+          score: number | null
+          started_at: string | null
+          status: string
+          step_label: string
+          step_name: string
+          step_order: number
+        }
+        Insert: {
+          auto_fix_attempts?: number
+          completed_at?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          ebook_id?: string | null
+          error_message?: string | null
+          id?: string
+          max_auto_fix_attempts?: number
+          message?: string | null
+          metadata_json?: Json
+          required_score?: number | null
+          run_id: string
+          score?: number | null
+          started_at?: string | null
+          status?: string
+          step_label: string
+          step_name: string
+          step_order: number
+        }
+        Update: {
+          auto_fix_attempts?: number
+          completed_at?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          ebook_id?: string | null
+          error_message?: string | null
+          id?: string
+          max_auto_fix_attempts?: number
+          message?: string | null
+          metadata_json?: Json
+          required_score?: number | null
+          run_id?: string
+          score?: number | null
+          started_at?: string | null
+          status?: string
+          step_label?: string
+          step_name?: string
+          step_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "autopilot_pipeline_steps_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "autopilot_pipeline_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       autopilot_runs: {
         Row: {
           cost_usd: number
