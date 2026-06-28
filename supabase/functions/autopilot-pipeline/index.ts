@@ -339,22 +339,59 @@ Deno.serve(async (req) => {
         }
 
         // ---------- STEP 8 — Final manuscript QC ----------
-        if (ebook.manuscript_qc_status !== "pass" && ebook.manuscript_qc_status !== "approved") {
+        if (ebook.manuscript_qc_status !== "manuscript_passed" && ebook.manuscript_qc_status !== "pass" && ebook.manuscript_qc_status !== "approved") {
           if (await overBudget()) {
             await needsAdmin("manuscript_qc", "Budget cap reached before manuscript QC.");
             return;
           }
+
+          // Pre-validation: ensure chapters exist for every outline chapter before QC.
+          // If some are missing but write-chapters already ran, the QC step itself
+          // will regenerate them via "regenerate_missing_chapter" repair action.
+          const { data: chRows } = await db.from("ebook_chapters")
+            .select("chapter_index,word_count").eq("ebook_id", ebook.id);
+          const outlineCount = Array.isArray((ebook.outline_json as any)?.chapters)
+            ? (ebook.outline_json as any).chapters.length : 0;
+          const present = (chRows ?? []).length;
+          const sumWc = (chRows ?? []).reduce((s, r: any) => s + Number(r.word_count ?? 0), 0);
+
+          if (present === 0 || sumWc === 0) {
+            // Nothing to QC — go back to write-chapters once instead of failing.
+            await track(
+              ["chapter_writing", "chapter_qc"],
+              "Manuscript empty — rebuilding chapters from outline before QC…",
+              async () => {
+                await runStep("6_7_write_qc_chapters", "write-chapters", { ebook_id: ebook.id, full: true });
+                await refreshEbook();
+              },
+            );
+          }
+
           await track(
             ["manuscript_qc"],
-            "Running final manuscript QC across the whole book…",
+            present < outlineCount
+              ? `Running final manuscript QC (will regenerate ${outlineCount - present} missing chapter${outlineCount - present === 1 ? "" : "s"})…`
+              : "Running final manuscript QC across the whole book…",
             async () => {
               await runStep("8_final_manuscript_qc", "final-manuscript-qc", { ebook_id: ebook.id });
               await refreshEbook();
             },
           );
+
           if (ebook.manuscript_qc_status === "needs_review") {
-            await db.from("ebooks").update({ autopilot_state: "needs_review", needs_review_reason: "manuscript QC needs review" }).eq("id", ebook.id);
-            await needsAdmin("manuscript_qc", "Manuscript QC failed after auto-fix attempts.", "Edit chapters or rerun manuscript QC.");
+            // Build a DETAILED admin message from the structured failed_reasons.
+            const qc = (ebook.final_manuscript_qc as any) ?? {};
+            const reasons: Array<{ message?: string; code?: string }> = Array.isArray(qc.failed_reasons) ? qc.failed_reasons : [];
+            const attemptsUsed: number = Number(qc.attempts_used ?? ebook.manuscript_fix_count ?? 0);
+            const top = reasons.slice(0, 4).map((r) => `• ${r.message ?? r.code ?? "unknown issue"}`).join("\n");
+            const detail = reasons.length
+              ? `Manuscript QC could not be repaired after ${attemptsUsed}/3 targeted attempts.\nUnresolved issues:\n${top}`
+              : `Manuscript QC failed after ${attemptsUsed}/3 repair attempts. (No structured reasons were captured — rerun manuscript QC for diagnostics.)`;
+            await db.from("ebooks").update({
+              autopilot_state: "needs_review",
+              needs_review_reason: detail,
+            }).eq("id", ebook.id);
+            await needsAdmin("manuscript_qc", detail, "Edit weak chapters or rerun manuscript QC.");
             return;
           }
         } else {
