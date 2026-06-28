@@ -241,22 +241,33 @@ Deno.serve(async (req) => {
       diagramOverflowCount,
       diagramTruncatedCount,
     });
-    // Block PDF acceptance if cover text QC failed.
+    // Hard gate: cover text + per-axis scores per product policy.
     (pdfQc as Record<string, unknown>).cover_text_qc = coverTextQc;
     (pdfQc as Record<string, unknown>).cover_text_pass = coverTextPass;
-    if (!coverTextPass) {
-      const issues = (pdfQc as { issues?: string[] }).issues ?? [];
-      issues.push("Cover missing required text (title or brand) — PDF blocked from publish.");
-      (pdfQc as Record<string, unknown>).issues = issues;
-      (pdfQc as Record<string, unknown>).blocked_for_publish = true;
+    const qcAny = pdfQc as Record<string, unknown> & {
+      issues?: string[]; coverPremiumScore: number;
+      worksheetQualityScore: number; diagramQualityScore: number;
+      finalPdfPremiumScore: number; blocked_for_publish: boolean;
+    };
+    const gateIssues: string[] = [];
+    if (!coverTextPass) gateIssues.push("Cover page 1 missing required text (title, subtitle, or brand) — PDF blocked from publish.");
+    if (qcAny.coverPremiumScore < 90) gateIssues.push(`Cover premium score ${qcAny.coverPremiumScore} < 90.`);
+    if (qcAny.worksheetQualityScore < 85) gateIssues.push(`Worksheet score ${qcAny.worksheetQualityScore} < 85.`);
+    if (qcAny.diagramQualityScore < 85) gateIssues.push(`Diagram score ${qcAny.diagramQualityScore} < 85.`);
+    if (qcAny.finalPdfPremiumScore < 90) gateIssues.push(`Final PDF premium score ${qcAny.finalPdfPremiumScore} < 90.`);
+    if (gateIssues.length) {
+      qcAny.issues = [...(qcAny.issues ?? []), ...gateIssues];
+      qcAny.blocked_for_publish = true;
     }
+    const gatePass = gateIssues.length === 0;
 
     await db.from("ebooks").update({
       pdf_url: signed?.signedUrl,
       pdf_qc: pdfQc as unknown as never,
-      pdf_status: coverTextPass ? "ready" : "needs_review",
+      pdf_status: gatePass ? "ready" : "needs_review",
       status: prevStatus === "building_pdf" ? "review" : prevStatus,
     }).eq("id", ebook_id);
+
 
     return new Response(JSON.stringify({ pdf_url: signed?.signedUrl, pages: pageCount, qc: pdfQc }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
