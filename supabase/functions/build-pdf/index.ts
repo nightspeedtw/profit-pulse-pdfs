@@ -80,23 +80,33 @@ Deno.serve(async (req) => {
     const titleText = safe(spec.title_text || e.title || "");
     const subtitleText = safe(spec.subtitle_text || e.subtitle || "");
 
-    // ============ 1) COVER (full-bleed image, no extra overlay — image already has text) ============
+    // ============ 1) COVER — text-free background + bulletproof code-rendered overlay ============
+    // We ALWAYS draw title/subtitle/brand/badge in pdf-lib StandardFonts on top of the
+    // background, regardless of whether cover_bg_url, cover_url, or no image is available.
+    // This guarantees the cover ships with real, readable, correctly-spelled text.
     const coverPage = pdf.addPage([PAGE_W, PAGE_H]);
     coverPage.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: theme.overlay });
-    const coverSrc = e.cover_url || e.cover_bg_url;
-    let coverEmbedded = false;
+    // Prefer the text-free background. Fall back to the composed cover image, then to a code-only cover.
+    const coverSrc = e.cover_bg_url || e.cover_url;
+    let coverHasBgImage = false;
     if (coverSrc) {
       try {
         const buf = new Uint8Array(await (await fetch(coverSrc)).arrayBuffer());
         const img = await pdf.embedPng(buf).catch(() => pdf.embedJpg(buf));
         coverPage.drawImage(img, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
-        coverEmbedded = true;
-      } catch { /* fallback below */ }
+        coverHasBgImage = true;
+      } catch { /* fall through to overlay-only cover */ }
     }
-    if (!coverEmbedded) {
-      // Code-rendered fallback cover so PDF still looks premium
-      drawFallbackCover(coverPage, theme, fonts, titleText, subtitleText, brand, spec.badge_text);
-    }
+    // Always overlay title/subtitle/brand/badge on top of the background (or solid overlay).
+    drawCoverOverlay(coverPage, theme, fonts, titleText, subtitleText, brand, spec.badge_text, coverHasBgImage);
+    const coverEmbedded = coverHasBgImage;
+    // Hard text QC: title + brand are mandatory for a sellable cover.
+    const coverTextQc = {
+      title_present: titleText.trim().length >= 4,
+      subtitle_present: subtitleText.trim().length >= 4,
+      brand_present: brand.trim().length >= 2,
+    };
+    const coverTextPass = coverTextQc.title_present && coverTextQc.brand_present;
 
     // ============ 2) TITLE PAGE ============
     const titlePage = pdf.addPage([PAGE_W, PAGE_H]);
