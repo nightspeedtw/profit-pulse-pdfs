@@ -34,7 +34,17 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json().catch(() => ({}));
-    let { idea_id, ebook_id, mode } = body as { idea_id?: string; ebook_id?: string; mode?: string };
+    let { idea_id, ebook_id, mode, test_mode } = body as { idea_id?: string; ebook_id?: string; mode?: string; test_mode?: boolean };
+
+    // Authenticated user (best-effort) for triggered_by attribution.
+    let triggered_by: string | null = null;
+    try {
+      const authHeader = req.headers.get("Authorization");
+      if (authHeader?.startsWith("Bearer ")) {
+        const { data } = await db.auth.getUser(authHeader.slice(7));
+        triggered_by = data?.user?.id ?? null;
+      }
+    } catch { /* ignore */ }
 
     // ---- Load settings ----
     const { data: settings } = await db.from("generation_settings").select("*").eq("id", 1).maybeSingle();
