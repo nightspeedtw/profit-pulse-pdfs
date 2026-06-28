@@ -558,7 +558,17 @@ Deno.serve(async (req) => {
           deterministic.push({ code: "unsafe_claims", message: "AI reviewer flagged unsafe claims.", repair_action: "rewrite_claims" });
         }
         if (aiScores.checks?.no_repeated_sections === false) {
-          deterministic.push({ code: "repetitive_language", message: "AI reviewer flagged repeated/templated passages.", repair_action: "rewrite_repeated_passages" });
+          // Mark every chapter so the repair loop has actionable targets, and so
+          // the broad humanization fallback can run on the final attempt.
+          for (const c of chapters) {
+            deterministic.push({
+              code: "repeated_templated_passages",
+              message: `AI reviewer flagged repeated/templated passages in Chapter ${c.chapter_index}.`,
+              repair_action: "rewrite_repeated_passages",
+              chapter_index: c.chapter_index,
+              repairable: true,
+            });
+          }
         }
         if (aiScores.checks?.no_placeholders === false) {
           deterministic.push({ code: "placeholder_text", message: "AI reviewer flagged placeholder/AI-leak text.", repair_action: "remove_and_replace_placeholders" });
