@@ -1,3 +1,6 @@
+// QC Report panel (formerly "Final approval").
+// Hands-off Autopilot: no manual approve button. Gates auto-pass via QC scores.
+// Admin only sees the AdminNeededPanel when auto-fix has exhausted attempts.
 import { useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,12 +9,11 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { ChevronDown, ChevronUp, Check, X, Loader2, ShieldCheck, Send, Lock } from "lucide-react";
+import { Check, X, Loader2, ShieldCheck, Send, Lock } from "lucide-react";
 import { toast } from "sonner";
-import { AutoFixPanel, type AutoFixState } from "./AutoFixPanel";
+import { AdminNeededPanel, type AdminNeededState } from "./AdminNeededPanel";
 
 interface PdfQc {
-  // legacy snake_case
   cover_premium_score?: number;
   thumbnail_readability_score?: number;
   interior_layout_score?: number;
@@ -19,7 +21,6 @@ interface PdfQc {
   diagram_quality_score?: number;
   product_value_score?: number;
   final_pdf_premium_score?: number;
-  // current camelCase from build-pdf
   coverPremiumScore?: number;
   thumbnailReadabilityScore?: number;
   interiorLayoutScore?: number;
@@ -33,11 +34,10 @@ interface PdfQc {
   notes?: string[];
 }
 
-interface EbookLike extends AutoFixState {
+interface EbookLike extends AdminNeededState {
   id: string;
   cover_url: string | null;
   cover_score: number | null;
-  cover_approved: boolean;
   pdf_url: string | null;
   product_description: string | null;
   shopify_product_id: string | null;
@@ -46,9 +46,7 @@ interface EbookLike extends AutoFixState {
   final_quality_score?: number | null;
   compliance_safety_score?: number | null;
   pdf_qc?: PdfQc | null;
-  auto_approved?: boolean | null;
   auto_publish?: boolean | null;
-  final_approved?: boolean | null;
   status: string;
 }
 
@@ -57,21 +55,8 @@ interface Props {
   onChanged: () => void | Promise<void>;
 }
 
-interface Gate {
-  label: string;
-  pass: boolean;
-  detail: string;
-  blocking: boolean;
-}
-
 const THRESHOLDS = {
-  cover: 90,
-  thumbnail: 90,
-  interior: 85,
-  worksheet: 85,
-  diagram: 85,
-  product: 80,
-  final: 90,
+  cover: 90, thumbnail: 90, interior: 85, worksheet: 85, diagram: 85, product: 80, final: 90,
 };
 
 function scoreColor(v: number | undefined, min: number) {
@@ -86,9 +71,7 @@ function ScoreTile({ label, value, min }: { label: string; value: number | undef
     <div className="border-2 border-foreground/15 p-3">
       <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className="mt-1 flex items-baseline justify-between gap-2">
-        <span className={`px-2 py-0.5 text-sm font-bold ${scoreColor(value, min)}`}>
-          {value ?? "—"}
-        </span>
+        <span className={`px-2 py-0.5 text-sm font-bold ${scoreColor(value, min)}`}>{value ?? "—"}</span>
         <span className="text-[10px] text-muted-foreground">min {min}</span>
       </div>
       <Progress value={Math.min(100, value ?? 0)} className="h-1 mt-2" />
@@ -98,10 +81,8 @@ function ScoreTile({ label, value, min }: { label: string; value: number | undef
 
 export function FinalApproval({ ebook, onChanged }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
 
   const qc = ebook.pdf_qc ?? {};
-  // Read scores from both camelCase (current build-pdf) and snake_case (legacy / report block).
   const r = (qc.report ?? {}) as Record<string, number | undefined>;
   const pick = (...vals: (number | undefined)[]) => vals.find((v) => typeof v === "number");
   const coverScore = pick(qc.coverPremiumScore, qc.cover_premium_score, r.cover_score, ebook.cover_score ?? undefined);
@@ -113,22 +94,22 @@ export function FinalApproval({ ebook, onChanged }: Props) {
   const productScore = pick(qc.productValueScore, qc.product_value_score, ebook.conversion_score ?? undefined);
   const pdfReady = qc.pdf_status === "pdf_ready";
 
-  // Collapsed gate set — the PDF auto-QC pipeline already enforces cover/thumbnail/
-  // interior/worksheet/diagram/final-premium internally. Only show the gates an
-  // admin still actively controls: PDF Ready, cover approval, product copy, Shopify.
-  const gates = useMemo<Gate[]>(() => ([
-    { label: "PDF passed premium auto-QC", pass: pdfReady && !qc.blocked_for_publish, detail: pdfReady ? `pdf_status=pdf_ready · score ${finalScore ?? "—"}` : `pdf_status=${qc.pdf_status ?? "—"} (must be pdf_ready)`, blocking: true },
-    { label: "Cover approved by admin", pass: !!ebook.cover_approved && !!ebook.cover_url, detail: ebook.cover_approved ? "cover text legible, premium, on-topic" : "review and approve cover", blocking: true },
-    { label: `Product page conversion ≥ ${THRESHOLDS.product}`, pass: (productScore ?? 0) >= THRESHOLDS.product, detail: `score ${productScore ?? "—"}`, blocking: true },
-    { label: "Shopify product description present", pass: !!ebook.product_description, detail: ebook.product_description ? "OK" : "missing metadata", blocking: true },
-    { label: "Shopify draft created", pass: !!ebook.shopify_product_id, detail: ebook.shopify_product_id ? `id ${ebook.shopify_product_id}` : "push to Shopify draft first", blocking: true },
-  ]), [ebook, qc, productScore, finalScore, pdfReady]);
+  const gates = useMemo(() => ([
+    { label: "PDF passed premium auto-QC", pass: pdfReady && !qc.blocked_for_publish, detail: pdfReady ? `pdf_ready · score ${finalScore ?? "—"}` : `pdf_status=${qc.pdf_status ?? "—"}` },
+    { label: `Cover ≥ ${THRESHOLDS.cover}`, pass: (coverScore ?? 0) >= THRESHOLDS.cover && !!ebook.cover_url, detail: `score ${coverScore ?? "—"}` },
+    { label: `Product page ≥ ${THRESHOLDS.product}`, pass: (productScore ?? 0) >= THRESHOLDS.product, detail: `score ${productScore ?? "—"}` },
+    { label: "Shopify description present", pass: !!ebook.product_description, detail: ebook.product_description ? "OK" : "missing" },
+    { label: "Shopify draft created", pass: !!ebook.shopify_product_id, detail: ebook.shopify_product_id ? `id ${ebook.shopify_product_id}` : "pending" },
+  ]), [ebook, qc, productScore, finalScore, pdfReady, coverScore]);
 
   const allPass = gates.every((g) => g.pass);
-  const failingBlocking = gates.filter((g) => !g.pass && g.blocking);
-  const qcBlocked = ebook.qc_status === "needs_admin_review" || ebook.qc_status === "auto_fix_failed" || ebook.qc_status === "auto_fixing";
-  const blocked = qc.blocked_for_publish === true || failingBlocking.length > 0 || qcBlocked;
-  const canPublish = allPass && !!ebook.final_approved && !blocked;
+  const failing = gates.filter((g) => !g.pass);
+  const needsAdmin =
+    ebook.qc_status === "needs_admin_review" ||
+    ebook.qc_status === "auto_fix_failed" ||
+    ebook.autopilot_state === "needs_review" ||
+    ebook.autopilot_state === "failed";
+  const canPublish = allPass && !needsAdmin && ebook.shopify_status !== "published";
 
   const update = async (patch: Partial<EbookLike>) => {
     setBusy("save");
@@ -136,23 +117,6 @@ export function FinalApproval({ ebook, onChanged }: Props) {
     setBusy(null);
     if (error) toast.error(error.message);
     else await onChanged();
-  };
-
-  const approve = async () => {
-    setBusy("approve");
-    const { data: u } = await supabase.auth.getUser();
-    const { error } = await supabase.from("ebooks").update({
-      final_approved: true,
-      final_approved_at: new Date().toISOString(),
-      final_approved_by: u.user?.id ?? null,
-    } as never).eq("id", ebook.id);
-    setBusy(null);
-    if (error) toast.error(error.message);
-    else { toast.success("Final approval recorded"); await onChanged(); }
-  };
-
-  const unapprove = async () => {
-    await update({ final_approved: false } as Partial<EbookLike>);
   };
 
   const publish = async () => {
@@ -172,53 +136,47 @@ export function FinalApproval({ ebook, onChanged }: Props) {
   };
 
   return (
-    <Card className="border-2 border-foreground">
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between gap-2 flex-wrap">
-          <span className="flex items-center gap-2">
-            <ShieldCheck className="size-5" /> Final approval
-          </span>
-          <div className="flex items-center gap-2">
-            {blocked && <Badge variant="destructive">Blocked</Badge>}
-            {allPass && !blocked && <Badge className="bg-green-600">All QC pass</Badge>}
-            {ebook.final_approved && <Badge>Approved</Badge>}
-            {ebook.shopify_status === "published" && <Badge className="bg-green-600">Live on Shopify</Badge>}
-          </div>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <AutoFixPanel ebookId={ebook.id} state={ebook} onChanged={onChanged} />
+    <div className="space-y-4">
+      {/* Top of page: Admin Needed panel ONLY when system is stuck */}
+      <AdminNeededPanel ebook={ebook} onChanged={onChanged} />
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <ScoreTile label="Cover" value={coverScore} min={THRESHOLDS.cover} />
-          <ScoreTile label="Thumbnail" value={thumbScore} min={THRESHOLDS.thumbnail} />
-          <ScoreTile label="Interior" value={interiorScore} min={THRESHOLDS.interior} />
-          <ScoreTile label="Worksheet" value={worksheetScore} min={THRESHOLDS.worksheet} />
-          <ScoreTile label="Diagram" value={diagramScore} min={THRESHOLDS.diagram} />
-          <ScoreTile label="Product Page" value={productScore} min={THRESHOLDS.product} />
-          <ScoreTile label="Final Premium" value={finalScore} min={THRESHOLDS.final} />
-          <div className="border-2 border-foreground/15 p-3 flex flex-col justify-between">
-            <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Gates passed</div>
-            <div className="text-2xl font-bold">{gates.filter((g) => g.pass).length}/{gates.length}</div>
-          </div>
-        </div>
-
-        <div className="grid sm:grid-cols-2 gap-3">
-          <label className="flex items-center justify-between gap-3 border-2 border-foreground/20 p-3">
-            <div>
-              <Label className="text-sm">Auto Approved</Label>
-              <p className="text-xs text-muted-foreground">Auto-mark final_approved when all gates pass.</p>
+      <Card className="border-2 border-foreground">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="flex items-center gap-2">
+              <ShieldCheck className="size-5" /> QC Report
+            </span>
+            <div className="flex items-center gap-2">
+              {allPass && !needsAdmin && <Badge className="bg-green-600">Auto-approved by QC</Badge>}
+              {needsAdmin && <Badge variant="destructive">Needs Admin Attention</Badge>}
+              {ebook.shopify_status === "draft" && <Badge variant="outline">Draft uploaded</Badge>}
+              {ebook.shopify_status === "published" && <Badge className="bg-green-600">Live on Shopify</Badge>}
             </div>
-            <Switch
-              checked={!!ebook.auto_approved}
-              onCheckedChange={(v) => update({ auto_approved: v } as Partial<EbookLike>)}
-              disabled={!!busy}
-            />
-          </label>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <ScoreTile label="Cover" value={coverScore} min={THRESHOLDS.cover} />
+            <ScoreTile label="Thumbnail" value={thumbScore} min={THRESHOLDS.thumbnail} />
+            <ScoreTile label="Interior" value={interiorScore} min={THRESHOLDS.interior} />
+            <ScoreTile label="Worksheet" value={worksheetScore} min={THRESHOLDS.worksheet} />
+            <ScoreTile label="Diagram" value={diagramScore} min={THRESHOLDS.diagram} />
+            <ScoreTile label="Product Page" value={productScore} min={THRESHOLDS.product} />
+            <ScoreTile label="Final Premium" value={finalScore} min={THRESHOLDS.final} />
+            <div className="border-2 border-foreground/15 p-3 flex flex-col justify-between">
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Gates passed</div>
+              <div className="text-2xl font-bold">{gates.filter((g) => g.pass).length}/{gates.length}</div>
+            </div>
+          </div>
+
+          {/* Auto-publish toggle only — no manual approve switches */}
           <label className="flex items-center justify-between gap-3 border-2 border-foreground/20 p-3">
             <div>
               <Label className="text-sm">Auto Publish</Label>
-              <p className="text-xs text-muted-foreground">Auto-push to Shopify after approval.</p>
+              <p className="text-xs text-muted-foreground">
+                When ON, the pipeline publishes to Shopify automatically once all gates pass.
+                When OFF (default), the job stops at "Ready to Publish" and an admin clicks Publish.
+              </p>
             </div>
             <Switch
               checked={!!ebook.auto_publish}
@@ -226,34 +184,19 @@ export function FinalApproval({ ebook, onChanged }: Props) {
               disabled={!!busy}
             />
           </label>
-        </div>
 
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="w-full flex items-center justify-between border-2 border-foreground/20 p-3 text-sm font-medium hover:bg-muted/40"
-        >
-          <span className="flex items-center gap-2">
-            QC checklist ({gates.filter((g) => g.pass).length}/{gates.length} pass)
-            {failingBlocking.length > 0 && (
-              <Badge variant="destructive">{failingBlocking.length} blocking</Badge>
-            )}
-          </span>
-          {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-        </button>
-        {open && (
+          {/* Gate list — read-only; no per-gate approve buttons */}
           <ul className="space-y-1 border-2 border-foreground/15 p-3">
             {gates.map((g) => (
               <li key={g.label} className="flex items-start gap-2 text-sm py-1">
-                {g.pass ? (
-                  <Check className="size-4 text-green-600 mt-0.5 shrink-0" />
-                ) : (
-                  <X className="size-4 text-destructive mt-0.5 shrink-0" />
-                )}
+                {g.pass
+                  ? <Check className="size-4 text-green-600 mt-0.5 shrink-0" />
+                  : <X className="size-4 text-destructive mt-0.5 shrink-0" />}
                 <div className="flex-1 min-w-0">
                   <div className={g.pass ? "" : "text-destructive font-medium"}>{g.label}</div>
                   <div className="text-xs text-muted-foreground">{g.detail}</div>
                 </div>
+                {g.pass && <span className="text-[10px] font-mono uppercase text-green-700">auto-passed</span>}
               </li>
             ))}
             {(qc.notes ?? []).length > 0 && (
@@ -262,37 +205,38 @@ export function FinalApproval({ ebook, onChanged }: Props) {
               </li>
             )}
           </ul>
-        )}
 
-        <div className="flex flex-wrap gap-2 pt-1">
-          {!ebook.final_approved ? (
-            <Button onClick={approve} disabled={!!busy || !allPass || blocked}>
-              {busy === "approve" && <Loader2 className="size-4 animate-spin mr-1" />}
-              <ShieldCheck className="size-4 mr-1" /> Final approve
-            </Button>
-          ) : (
-            <Button variant="outline" onClick={unapprove} disabled={!!busy}>
-              Unapprove
-            </Button>
+          {/* Single action: Publish (only when ready). No "Final approve" button. */}
+          {ebook.shopify_status !== "published" && (
+            <div className="flex flex-wrap gap-2 pt-1 items-center">
+              <Button
+                onClick={publish}
+                disabled={!!busy || !canPublish}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                {busy === "publish"
+                  ? <Loader2 className="size-4 animate-spin mr-1" />
+                  : canPublish ? <Send className="size-4 mr-1" /> : <Lock className="size-4 mr-1" />}
+                Publish to Shopify
+              </Button>
+              {!allPass && !needsAdmin && (
+                <p className="text-xs text-muted-foreground">
+                  Pipeline running — Publish will unlock automatically when all {gates.length} gates pass.
+                  {failing.length > 0 && ` (${failing.length} pending)`}
+                </p>
+              )}
+              {needsAdmin && (
+                <p className="text-xs text-destructive">
+                  Resolve the Admin Needed panel above before publishing.
+                </p>
+              )}
+              {canPublish && !ebook.auto_publish && (
+                <p className="text-xs text-muted-foreground">Ready to Publish — auto-publish is OFF.</p>
+              )}
+            </div>
           )}
-          <Button
-            onClick={publish}
-            disabled={!!busy || !canPublish || ebook.shopify_status === "published"}
-            className="bg-green-600 hover:bg-green-700 text-white"
-          >
-            {busy === "publish" ? <Loader2 className="size-4 animate-spin mr-1" /> : canPublish ? <Send className="size-4 mr-1" /> : <Lock className="size-4 mr-1" />}
-            {ebook.shopify_status === "published" ? "Already published" : "Publish to Shopify"}
-          </Button>
-          {!allPass && (
-            <p className="text-xs text-destructive self-center">
-              Publish disabled — fix {failingBlocking.length} blocking gate{failingBlocking.length === 1 ? "" : "s"} above.
-            </p>
-          )}
-          {allPass && !ebook.final_approved && (
-            <p className="text-xs text-muted-foreground self-center">All gates pass — admin must final-approve before publish.</p>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
