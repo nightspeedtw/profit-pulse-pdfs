@@ -722,19 +722,134 @@ function drawTocEntries(page: PDFPage, theme: Theme, fonts: Fonts, entries: { ti
   });
 }
 
-function drawChapterDivider(page: PDFPage, theme: Theme, fonts: Fonts, chNum: number, chTitle: string) {
-  // top band
-  page.drawRectangle({ x: 0, y: PAGE_H - 200, width: PAGE_W, height: 200, color: theme.overlay });
-  page.drawRectangle({ x: 0, y: PAGE_H - 206, width: PAGE_W, height: 6, color: theme.accent });
+function drawChapterDivider(
+  page: PDFPage, theme: Theme, fonts: Fonts,
+  chNum: number, chTitle: string,
+  promise?: string, outcomes?: string[],
+) {
+  // Full-page dark divider with premium hierarchy and no empty white space.
+  page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: theme.overlay });
+  // top + bottom accent strips
+  page.drawRectangle({ x: 0, y: PAGE_H - 6, width: PAGE_W, height: 6, color: theme.accent });
+  page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: 6, color: theme.accent });
+
+  // Eyebrow
   const tag = chNum > 0 ? `CHAPTER ${String(chNum).padStart(2, "0")}` : "SECTION";
-  page.drawText(tag, { x: MARGIN, y: PAGE_H - 90, size: 11, font: fonts.bold, color: theme.accent });
-  let size = 32;
+  page.drawText(tag, { x: MARGIN, y: PAGE_H - 110, size: 11, font: fonts.bold, color: theme.accent });
+
+  // Accent bar
+  page.drawRectangle({ x: MARGIN, y: PAGE_H - 130, width: 56, height: 4, color: theme.accent });
+
+  // Title (auto-fit)
+  let size = 34;
   let lines = wrap(chTitle, fonts.bold, size, PAGE_W - MARGIN * 2);
   while (lines.length > 3 && size > 20) { size -= 2; lines = wrap(chTitle, fonts.bold, size, PAGE_W - MARGIN * 2); }
-  let y = PAGE_H - 130;
-  for (const ln of lines) { page.drawText(safe(ln), { x: MARGIN, y, size, font: fonts.bold, color: theme.onDark }); y -= size * 1.05; }
-  // bottom accent square
-  page.drawRectangle({ x: PAGE_W - MARGIN - 40, y: MARGIN + 20, width: 40, height: 4, color: theme.accent });
+  let y = PAGE_H - 150 - size;
+  for (const ln of lines) {
+    page.drawText(safe(ln), { x: MARGIN, y, size, font: fonts.bold, color: theme.onDark });
+    y -= size * 1.08;
+  }
+
+  // Chapter promise sentence
+  y -= 18;
+  if (promise && promise.trim()) {
+    const pLines = wrap(promise, fonts.italic, 14, PAGE_W - MARGIN * 2).slice(0, 4);
+    for (const ln of pLines) {
+      page.drawText(safe(ln), { x: MARGIN, y, size: 14, font: fonts.italic, color: theme.onDark, opacity: 0.92 });
+      y -= 20;
+    }
+  }
+
+  // "What you'll get from this chapter" outcomes box
+  y -= 30;
+  const outs = (outcomes ?? []).filter(Boolean).slice(0, 3);
+  if (outs.length) {
+    const headerY = y;
+    page.drawText("WHAT YOU'LL GET FROM THIS CHAPTER", {
+      x: MARGIN, y: headerY, size: 9, font: fonts.bold, color: theme.accent,
+    });
+    page.drawRectangle({ x: MARGIN, y: headerY - 8, width: 36, height: 2, color: theme.accent });
+    y = headerY - 28;
+    for (const o of outs) {
+      const oLines = wrap(o, fonts.reg, 12, PAGE_W - MARGIN * 2 - 24).slice(0, 3);
+      // tick badge
+      page.drawCircle({ x: MARGIN + 7, y: y + 4, size: 5, color: theme.accent });
+      for (let j = 0; j < oLines.length; j++) {
+        page.drawText(safe(oLines[j]), {
+          x: MARGIN + 22, y: y - j * 16, size: 12, font: fonts.reg, color: theme.onDark, opacity: 0.95,
+        });
+      }
+      y -= oLines.length * 16 + 10;
+    }
+  }
+
+  // Bottom right tag + decorative element to remove the "empty bottom" feel
+  const footTag = "PREMIUM TACTICAL WORKBOOK";
+  const ftw = fonts.bold.widthOfTextAtSize(footTag, 9);
+  page.drawText(footTag, {
+    x: PAGE_W - MARGIN - ftw, y: MARGIN + 18, size: 9, font: fonts.bold,
+    color: theme.accent,
+  });
+  // subtle horizontal rule above footer tag
+  page.drawLine({
+    start: { x: MARGIN, y: MARGIN + 32 }, end: { x: PAGE_W - MARGIN, y: MARGIN + 32 },
+    thickness: 0.4, color: theme.accent, opacity: 0.35,
+  });
+  // big subtle chapter number in the bottom-left as a graphic element
+  if (chNum > 0) {
+    const bigN = String(chNum).padStart(2, "0");
+    page.drawText(bigN, {
+      x: MARGIN, y: MARGIN + 40, size: 80, font: fonts.bold,
+      color: theme.accent, opacity: 0.12,
+    });
+  }
+}
+
+// Pull a one-sentence promise + 3 outcome bullets out of a chapter's markdown
+// content so the divider page is never mostly blank.
+function extractChapterPromise(md: string, fallbackTitle: string): { promise: string; outcomes: string[] } {
+  const txt = (md || "").replace(/\r\n/g, "\n").trim();
+  let promise = "";
+  let outcomes: string[] = [];
+
+  // First non-heading paragraph → promise (first sentence, ≤ 180 chars)
+  const paras = txt.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  for (const p of paras) {
+    if (/^#/.test(p) || /^[-*]\s/.test(p) || /^>\s/.test(p)) continue;
+    const firstSentence = (p.split(/(?<=[.!?])\s+/)[0] || p).trim();
+    promise = stripInline(firstSentence).slice(0, 200);
+    if (promise.length >= 30) break;
+  }
+  if (!promise) {
+    promise = `A tactical walkthrough you can apply to ${fallbackTitle.toLowerCase()} immediately.`;
+  }
+
+  // First bullet list → outcomes
+  const bulletMatch = txt.match(/(?:^|\n)([-*]\s+.+(?:\n[-*]\s+.+)*)/);
+  if (bulletMatch) {
+    outcomes = bulletMatch[1]
+      .split("\n")
+      .map((l) => stripInline(l.replace(/^[-*]\s+/, "")).trim())
+      .filter((l) => l.length >= 8)
+      .slice(0, 3);
+  }
+  // Fallback: derive from first 3 sentences of body prose
+  if (outcomes.length < 3) {
+    const sentences = stripInline(txt.replace(/^#.*$/gm, "")).split(/(?<=[.!?])\s+/);
+    for (const s of sentences) {
+      const cand = s.trim();
+      if (cand.length >= 30 && cand.length <= 160 && !outcomes.includes(cand)) outcomes.push(cand);
+      if (outcomes.length >= 3) break;
+    }
+  }
+  while (outcomes.length < 3) {
+    outcomes.push([
+      "A concrete framework you can apply this week.",
+      "Common traps to avoid and exactly how to dodge them.",
+      "A short action checklist to lock the lesson in.",
+    ][outcomes.length]);
+  }
+  return { promise, outcomes: outcomes.slice(0, 3).map((o) => o.replace(/\s+/g, " ").slice(0, 160)) };
 }
 
 function drawBackCover(page: PDFPage, theme: Theme, fonts: Fonts, brand: string, title: string) {
