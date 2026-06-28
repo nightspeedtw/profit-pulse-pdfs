@@ -1065,32 +1065,54 @@ function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fo
       break;
     }
     case "matrix_2x2": {
+      // Premium quadrant grid. Axis labels are intentionally NOT drawn —
+      // they previously truncated and left stray letters (a, B, l, n) at page edges.
+      // Each quadrant is a self-contained labelled box.
+      const gap = 12;
       const size = Math.min(CONTENT_W, areaH);
       const x0 = (PAGE_W - size) / 2;
       const y0 = bottom + (areaH - size) / 2;
-      const half = size / 2;
+      const half = (size - gap) / 2;
+      // Detect debt-strike prioritization → use fixed, sellable labels
+      const isDebt = /debt|apr|balance|priorit/i.test(`${d.visual_name} ${d.purpose}`);
+      const defaults = isDebt
+        ? [
+            { label: "HIGH BALANCE / LOW APR", caption: "Steady payoff. Avoid feeding new charges." },
+            { label: "HIGH BALANCE / HIGH APR", caption: "Top priority. Attack with every surplus dollar." },
+            { label: "LOW BALANCE / LOW APR", caption: "Park. Pay minimum until others clear." },
+            { label: "LOW BALANCE / HIGH APR", caption: "Quick wins. Eliminate fast to free cash flow." },
+          ]
+        : [
+            { label: nodes[0] ?? "QUADRANT 1", caption: "" },
+            { label: nodes[1] ?? "QUADRANT 2", caption: "" },
+            { label: nodes[2] ?? "QUADRANT 3", caption: "" },
+            { label: nodes[3] ?? "QUADRANT 4", caption: "" },
+          ];
       const cells = [
-        { x: x0, y: y0 + half, fill: theme.surfaceOk },
-        { x: x0 + half, y: y0 + half, fill: theme.surface },
-        { x: x0, y: y0, fill: theme.surfaceDanger },
-        { x: x0 + half, y: y0, fill: theme.surfaceWarm },
+        { x: x0, y: y0 + half + gap, fill: theme.surface, ...defaults[0] },               // top-left
+        { x: x0 + half + gap, y: y0 + half + gap, fill: theme.surfaceDanger, ...defaults[1] }, // top-right
+        { x: x0, y: y0, fill: theme.surfaceOk, ...defaults[2] },                          // bottom-left
+        { x: x0 + half + gap, y: y0, fill: theme.surfaceWarm, ...defaults[3] },           // bottom-right
       ];
-      cells.forEach((c, i) => {
-        page.drawRectangle({ x: c.x, y: c.y, width: half, height: half, color: c.fill, borderColor: theme.hair, borderWidth: 0.6 });
-        const lines = wrap(nodes[i] ?? "", fonts.bold, 11, half - 20).slice(0, 4);
-        let ty = c.y + half - 16;
-        for (const ln of lines) { page.drawText(safe(ln), { x: c.x + 10, y: ty, size: 11, font: fonts.bold, color: theme.ink }); ty -= 14; }
-      });
-      if (d.labels?.x_axis) {
-        page.drawText(safe(d.labels.x_axis[0]), { x: x0, y: y0 - 14, size: 9, font: fonts.reg, color: theme.sub });
-        const t = safe(d.labels.x_axis[1]);
-        const tw = fonts.reg.widthOfTextAtSize(t, 9);
-        page.drawText(t, { x: x0 + size - tw, y: y0 - 14, size: 9, font: fonts.reg, color: theme.sub });
+      for (const c of cells) {
+        page.drawRectangle({ x: c.x, y: c.y, width: half, height: half, color: c.fill, borderColor: theme.hair, borderWidth: 0.8 });
+        // top accent strip per cell
+        page.drawRectangle({ x: c.x, y: c.y + half - 4, width: half, height: 4, color: theme.accent });
+        const labelLines = wrap(c.label, fonts.bold, 11, half - 20).slice(0, 2);
+        let ty = c.y + half - 22;
+        for (const ln of labelLines) {
+          page.drawText(safe(ln), { x: c.x + 12, y: ty, size: 11, font: fonts.bold, color: theme.ink });
+          ty -= 14;
+        }
+        if (c.caption) {
+          ty -= 4;
+          for (const ln of wrap(c.caption, fonts.reg, 9, half - 20).slice(0, 3)) {
+            page.drawText(safe(ln), { x: c.x + 12, y: ty, size: 9, font: fonts.reg, color: theme.sub });
+            ty -= 12;
+          }
+        }
       }
-      if (d.labels?.y_axis) {
-        page.drawText(safe(d.labels.y_axis[1]), { x: x0 - 50, y: y0 + size - 10, size: 9, font: fonts.reg, color: theme.sub });
-        page.drawText(safe(d.labels.y_axis[0]), { x: x0 - 50, y: y0 + 4, size: 9, font: fonts.reg, color: theme.sub });
-      }
+      // NOTE: axis labels (d.labels.x_axis / y_axis) are intentionally not rendered.
       break;
     }
     case "circle_cycle": {
