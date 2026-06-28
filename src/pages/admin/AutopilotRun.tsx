@@ -4,7 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, Activity } from "lucide-react";
+import { ArrowLeft, Loader2, Activity, RotateCcw } from "lucide-react";
 import { RunStepTimeline, type RunStepRow } from "@/components/admin/RunStepTimeline";
 import { RunFinalReport, type RunSummary } from "@/components/admin/RunFinalReport";
 import { AdminNeededPanel, type AdminNeededState } from "@/components/admin/AdminNeededPanel";
