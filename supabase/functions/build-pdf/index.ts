@@ -852,67 +852,78 @@ function drawChapterDivider(
 }
 
 // Generate a polished one-sentence chapter promise + 3 outcome bullets.
-// Never returns raw excerpts, truncated sentences, or example/case-study data
-// (dollar amounts, card names, app names, item values, APR figures).
+// Never returns raw excerpts, truncated sentences, definitions, or example data.
 function extractChapterPromise(md: string, fallbackTitle: string): { promise: string; outcomes: string[] } {
   const txt = (md || "").replace(/\r\n/g, "\n").trim();
-  const title = (fallbackTitle || "this chapter").trim();
-  const titleLower = title.toLowerCase().replace(/^chapter\s+\d+[:.\s-]*/i, "");
+  const rawTitle = (fallbackTitle || "this chapter").trim().replace(/[.!?]+$/, "");
+  // Strip "The " prefix and any leading "Chapter NN:" so the title slots into sentences cleanly.
+  const titleNoun = rawTitle
+    .replace(/^chapter\s+\d+[:.\s-]*/i, "")
+    .replace(/^the\s+/i, "")
+    .trim();
+  const titleLower = titleNoun.toLowerCase();
 
-  // ---- Heuristic: is this string a raw example (junk for a divider) ----
+  // ---- Heuristic: is this string junk for a divider page? ----
   const looksLikeExample = (s: string): boolean => {
     const t = s.trim();
     if (!t) return true;
-    // currency, percentages, APRs, prices like $4.99/mo, $12,000
     if (/\$\s?\d|\d+\s?%|\bAPR\b|\/\s?mo\b|\bper month\b/i.test(t)) return true;
-    // "Card A", "Card B", "Item 1", "Item 2", "Account #"
-    if (/\b(Card|Item|Account|Option|Loan|Debt)\s+[A-Z0-9]\b/.test(t)) return true;
-    // brand/app/product nouns commonly seen in case studies
+    if (/\b(Card|Item|Account|Option|Loan|Debt|Cardholder)\s+[A-Z0-9]\b/.test(t)) return true;
     if (/\b(iPad|iPhone|Netflix|Spotify|Hulu|Disney|Amazon|gym membership|weather app|streaming)\b/i.test(t)) return true;
-    // bare lists of numbers / colons of value: "Premium weather app: $4.99/mo"
     if (/:\s*\$/.test(t)) return true;
     return false;
   };
-  const isCompleteSentence = (s: string): boolean => {
-    const t = s.trim();
-    if (t.length < 25 || t.length > 200) return false;
-    if (!/[.!?]$/.test(t)) return false;
-    // mid-word truncations: trailing capital letter alone, single trailing capital
-    if (/\b[A-Z]$/.test(t.replace(/[.!?]+$/, ""))) return false;
-    return true;
+  // Reject definition-style sentences like "Stagnant Debt is a balance that..." —
+  // those are glossary entries, not learning outcomes.
+  const looksLikeDefinition = (s: string): boolean => {
+    return /^[A-Z][\w\s'\-]{2,40}\s+(is|are|means|refers to)\s+(a|an|the)\b/i.test(s.trim());
+  };
+  // Outcome bullets should start with an action verb in imperative form.
+  const startsWithVerb = (s: string): boolean => {
+    const verbs = /^(Identify|Build|Apply|Avoid|Use|Create|Spot|Map|Eliminate|Negotiate|Free|Cut|Redirect|Automate|Track|Calculate|Reduce|Stack|Lock|Plan|Discover|Master|Design|Run)\b/;
+    return verbs.test(s.trim());
   };
 
-  // ---- Promise: derived from chapter title, always complete ----
-  const promise = `In this chapter, you'll learn how to ${titleLower.replace(/[.!?]+$/, "")} so you can move closer to a clean, debt-free finish.`
+  // ---- Promise: noun-phrase-safe template ----
+  const promise = `This chapter gives you the exact moves behind ${rawTitle} and shows you how to apply them to your real numbers this week.`
     .replace(/\s+/g, " ")
-    .slice(0, 200);
+    .slice(0, 220);
 
-  // ---- Outcomes: only accept clean, sentence-shaped, non-example bullets ----
+  // ---- Outcomes: only accept action-verb, non-definition, non-example bullets ----
   const candidates: string[] = [];
   const bulletMatch = txt.match(/(?:^|\n)([-*]\s+.+(?:\n[-*]\s+.+)*)/);
   if (bulletMatch) {
     for (const raw of bulletMatch[1].split("\n")) {
       let s = stripInline(raw.replace(/^[-*]\s+/, "")).trim();
       if (!s) continue;
-      if (looksLikeExample(s)) continue;
-      // Ensure terminal punctuation
+      if (looksLikeExample(s) || looksLikeDefinition(s)) continue;
+      if (!startsWithVerb(s)) continue;
       if (!/[.!?]$/.test(s)) s = s + ".";
       if (s.length < 25 || s.length > 160) continue;
+      if (candidates.some((c) => c.toLowerCase() === s.toLowerCase())) continue;
       candidates.push(s);
       if (candidates.length >= 3) break;
     }
   }
 
-  // Fill with topic-aware fallback outcomes
-  const fallbacks = [
-    `Identify the specific moves that make ${titleLower} actually work in the real world.`,
-    `Build a repeatable system you can apply this week without extra tools or willpower.`,
-    `Avoid the common mistakes that keep most people stuck and slow down debt payoff.`,
-    `Use a clear checklist to lock the lesson in and turn it into action.`,
+  // Topic-aware fallback pool — 8 variants, rotated by title hash so chapters differ.
+  const pool = [
+    `Pinpoint where ${titleLower} actually fits in your six-month debt-exit timeline.`,
+    `Apply the ${titleLower} steps to your real balances without guesswork or busywork.`,
+    `Sidestep the silent traps that make ${titleLower} stall for most people.`,
+    `Convert ${titleLower} from theory into a repeatable weekly routine.`,
+    `Build a decision rule for ${titleLower} you can run in under fifteen minutes.`,
+    `Track the one metric that proves ${titleLower} is moving you forward each week.`,
+    `Use ${titleLower} to free up cash flow you can redirect to the highest-impact debt.`,
+    `Lock in the gains from ${titleLower} so they don't quietly reverse next month.`,
   ];
-  for (const f of fallbacks) {
-    if (candidates.length >= 3) break;
-    if (!candidates.includes(f)) candidates.push(f);
+  // Deterministic rotation from title so each chapter gets a distinct triplet.
+  let hash = 0;
+  for (let i = 0; i < rawTitle.length; i++) hash = (hash * 31 + rawTitle.charCodeAt(i)) >>> 0;
+  const start = hash % pool.length;
+  for (let i = 0; candidates.length < 3 && i < pool.length; i++) {
+    const f = pool[(start + i) % pool.length];
+    if (!candidates.some((c) => c.toLowerCase() === f.toLowerCase())) candidates.push(f);
   }
 
   return {
