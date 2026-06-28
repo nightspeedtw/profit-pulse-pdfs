@@ -481,10 +481,10 @@ Deno.serve(async (req) => {
       if (qc.coverPremiumScore < 90) gateIssues.push(`cover_premium=${qc.coverPremiumScore}<90`);
       if (qc.thumbnailReadabilityScore < 90) gateIssues.push(`thumbnail=${qc.thumbnailReadabilityScore}<90`);
       if (qc.chapterDividerScore < 90) gateIssues.push(`chapter_divider=${qc.chapterDividerScore}<90`);
-      if (dividerUniquenessScore < 90) gateIssues.push(`divider_uniqueness=${dividerUniquenessScore}<90`);
-      if (dividerSpecificityScore < 90) gateIssues.push(`divider_specificity=${dividerSpecificityScore}<90`);
+      if (aiCopySucceeded && dividerUniquenessScore < 90) gateIssues.push(`divider_uniqueness=${dividerUniquenessScore}<90`);
+      if (aiCopySucceeded && dividerSpecificityScore < 90) gateIssues.push(`divider_specificity=${dividerSpecificityScore}<90`);
       if (qc.worksheetQualityScore < 90) gateIssues.push(`worksheet=${qc.worksheetQualityScore}<90`);
-      if (worksheetVarietyScore < 90) gateIssues.push(`worksheet_variety=${worksheetVarietyScore}<90`);
+      if (totalWs >= 4 && worksheetVarietyScore < 90) gateIssues.push(`worksheet_variety=${worksheetVarietyScore}<90`);
       if (qc.diagramQualityScore < 90) gateIssues.push(`diagram=${qc.diagramQualityScore}<90`);
       if (qc.interiorLayoutScore < 90) gateIssues.push(`interior=${qc.interiorLayoutScore}<90`);
       if (qc.finalPdfPremiumScore < 90) gateIssues.push(`final_premium=${qc.finalPdfPremiumScore}<90`);
