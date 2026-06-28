@@ -325,6 +325,108 @@ function legacyBonuses(o: OutlineJson) {
   };
 }
 
+// ---------------- Deterministic fallback outline ----------------
+// Used when the AI fails to return a valid chapters array after 3 attempts.
+// Produces a generic but valid premium outline that passes validateOutlineJson.
+export function generateFallbackOutline(ebook: any, idea: any): OutlineJson {
+  const title = String(ebook?.title ?? idea?.title ?? "Untitled Premium Guide");
+  const subtitle = String(ebook?.subtitle ?? idea?.subtitle ?? "A practical step-by-step playbook");
+  const topic = String(idea?.category_name ?? idea?.niche ?? title);
+  const buyer = String(ebook?.target_buyer ?? idea?.target_buyer ?? "motivated readers");
+  const pain = String(idea?.core_pain_point ?? "they struggle to get consistent results");
+  const promise = String(idea?.transformation_promise ?? `master ${topic} with a proven system`);
+
+  const archetypes = [
+    { kind: "Diagnose", verb: "audit", focus: "current state" },
+    { kind: "Foundations", verb: "understand", focus: "core framework" },
+    { kind: "Setup", verb: "set up", focus: "tools and environment" },
+    { kind: "Execution", verb: "execute", focus: "tactical playbook" },
+    { kind: "Mistakes", verb: "avoid", focus: "common traps" },
+    { kind: "Automation", verb: "automate", focus: "repeatable routines" },
+    { kind: "Optimization", verb: "optimize", focus: "advanced tactics" },
+    { kind: "Case Study", verb: "study", focus: "real-world example" },
+    { kind: "Measurement", verb: "measure", focus: "metrics and tracking" },
+    { kind: "Mastery", verb: "sustain", focus: "long-term maintenance" },
+  ];
+
+  const chapters: OutlineChapter[] = archetypes.map((a, i) => {
+    const n = i + 1;
+    const chapter_title = `${a.kind}: ${a.verb[0].toUpperCase() + a.verb.slice(1)} your ${topic} ${a.focus}`;
+    const chapter_promise = `By the end of this chapter, you will ${a.verb} your ${topic} ${a.focus} so that ${promise}.`;
+    const learning_outcomes = [
+      `Identify the key levers in ${topic} ${a.focus}.`,
+      `Apply a step-by-step ${a.kind.toLowerCase()} method to your situation.`,
+      `Produce a concrete artifact you can reuse immediately.`,
+    ];
+    const sections: OutlineSection[] = [
+      {
+        section_title: `Why ${a.focus} matters for ${buyer}`,
+        section_goal: `Frame the problem and stakes for ${a.focus}.`,
+        key_points: [`Context for ${buyer}`, `Cost of ignoring ${a.focus}`, `What success looks like`],
+      },
+      {
+        section_title: `The ${a.kind} framework`,
+        section_goal: `Teach the reusable framework for ${a.focus}.`,
+        key_points: [`Core principles`, `When to use it`, `Common variations`],
+      },
+      {
+        section_title: `Step-by-step walkthrough`,
+        section_goal: `Show exactly how to ${a.verb} ${a.focus}.`,
+        key_points: [`Prepare inputs`, `Run the steps`, `Verify the output`],
+      },
+      {
+        section_title: `Templates, prompts, and checks`,
+        section_goal: `Hand reader copy-paste assets to act today.`,
+        key_points: [`Template`, `Prompt or script`, `Self-check questions`],
+      },
+    ];
+    const worksheet: OutlineWorksheet = {
+      title: `${a.kind} worksheet`,
+      type: "checklist",
+      purpose: `Help the reader ${a.verb} their own ${a.focus}.`,
+      fields: [
+        `Current state of ${a.focus}`,
+        `Next 3 actions for ${a.focus}`,
+        `Owner / deadline for each action`,
+      ],
+    };
+    const framework: OutlineFramework = {
+      title: `${a.kind} framework`,
+      type: "vertical_steps",
+      purpose: `Visual model of the ${a.kind.toLowerCase()} process.`,
+      items: [
+        `Step 1 — assess ${a.focus}`,
+        `Step 2 — apply the ${a.kind.toLowerCase()} method`,
+        `Step 3 — measure and iterate`,
+      ],
+    };
+    return { chapter_number: n, chapter_title, chapter_promise, learning_outcomes, sections, worksheet, framework };
+  });
+
+  const bonus_materials: OutlineBonus[] = [
+    { title: `${title} master checklist`, type: "checklist", purpose: `One-page checklist covering every chapter of ${title}.` },
+    { title: `${topic} worksheet pack`, type: "worksheet", purpose: `Printable worksheet bundle for every chapter.` },
+    { title: `${topic} templates`, type: "template", purpose: `Copy-paste templates for the most common ${topic} tasks.` },
+    { title: `7-day ${topic} action plan`, type: "checklist", purpose: `Day-by-day plan to apply the book in one week.` },
+  ];
+
+  return {
+    title,
+    subtitle,
+    target_buyer: buyer,
+    buyer_pain: pain,
+    core_promise: promise,
+    positioning: `A premium, no-fluff guide on ${topic} for ${buyer}.`,
+    chapters,
+    bonus_materials,
+    disclaimer_required: compliance([title, subtitle, topic].join(" ")),
+    disclaimer_text: compliance([title, subtitle, topic].join(" "))
+      ? "This material is for educational purposes only and does not constitute professional advice."
+      : null,
+  };
+}
+
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
