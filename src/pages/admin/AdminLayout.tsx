@@ -2,17 +2,15 @@ import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Settings, FolderOpen, Lightbulb, Kanban, DollarSign, LogOut, Sparkles, Plane } from "lucide-react";
+import { Gauge, Factory, Package, Settings as SettingsIcon, LogOut, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 
+// Simplified 4-page sidebar: Command Center / Production / Products / Settings.
 const nav = [
-  { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/admin/autopilot", label: "Autopilot", icon: Plane },
-  { to: "/admin/ideas", label: "Ideas", icon: Lightbulb },
-  { to: "/admin/pipeline", label: "Pipeline", icon: Kanban },
-  { to: "/admin/categories", label: "Categories", icon: FolderOpen },
-  { to: "/admin/costs", label: "Costs", icon: DollarSign },
-  { to: "/admin/settings", label: "Settings", icon: Settings },
+  { to: "/admin", label: "Command Center", icon: Gauge, end: true },
+  { to: "/admin/production", label: "Production", icon: Factory },
+  { to: "/admin/products", label: "Products", icon: Package },
+  { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 export default function AdminLayout() {
@@ -50,7 +48,7 @@ export default function AdminLayout() {
 
   return (
     <div className="min-h-screen flex bg-background">
-      <aside className="w-60 border-r-2 border-foreground bg-card flex flex-col">
+      <aside className="w-56 border-r-2 border-foreground bg-card flex flex-col">
         <div className="p-5 border-b-2 border-foreground">
           <p className="font-mono uppercase tracking-widest text-xs">[ Admin ]</p>
           <h2 className="font-display text-xl uppercase leading-tight mt-1 flex items-center gap-2">
