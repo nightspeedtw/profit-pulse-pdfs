@@ -78,7 +78,8 @@ Deno.serve(async (req) => {
 
     const brand = safe((spec.brand_text || "SECRET PDF").toUpperCase());
     const titleText = safe(spec.title_text || e.title || "");
-    const subtitleText = safe(spec.subtitle_text || e.subtitle || "");
+    const subtitleText = safe(spec.subtitle_text || e.subtitle || e.hook || "");
+    const badgeText = safe(spec.badge_text || "PREMIUM TACTICAL WORKBOOK");
 
     // ============ 1) COVER — text-free background + bulletproof code-rendered overlay ============
     // We ALWAYS draw title/subtitle/brand/badge in pdf-lib StandardFonts on top of the
