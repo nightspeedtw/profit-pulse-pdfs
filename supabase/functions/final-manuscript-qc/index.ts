@@ -365,6 +365,9 @@ function runDeterministicChecks(
     });
   }
 
+  // Repeated AI-template phrasing + cross-chapter opening duplication
+  reasons.push(...detectRepeatedTemplates(chapters));
+
   return reasons;
 }
 
