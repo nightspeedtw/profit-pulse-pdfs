@@ -7,7 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ChevronRight, Loader2, Sparkles, Type, Zap, FolderInput, X, Check, Eye, ChevronDown, Crown } from "lucide-react";
+import { ChevronRight, Loader2, Sparkles, Type, Zap, FolderInput, X, Check, Eye, ChevronDown, Crown, Pencil, Wand2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Link } from "react-router-dom";
 
 type Idea = {
@@ -108,6 +110,16 @@ export default function Ideas() {
   const [altOpen, setAltOpen] = useState<Idea | null>(null);
   const [altLoading, setAltLoading] = useState(false);
   const [altResult, setAltResult] = useState<AltResult | null>(null);
+  // Milestone 2 — workflow state
+  const [headerBusy, setHeaderBusy] = useState(false);
+  const [editOpen, setEditOpen] = useState<Idea | null>(null);
+  const [editDraft, setEditDraft] = useState<{
+    title: string; subtitle: string; hook: string; target_buyer: string;
+    core_pain_point: string; buyer_appeal_score: string; premium_score: string;
+    hard_sell_strength_score: string; compliance_risk_score: string; idea_score: string;
+  } | null>(null);
+  const [rejectOpen, setRejectOpen] = useState<Idea | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const load = async () => {
     const [{ data: ideas }, { data: c }] = await Promise.all([
@@ -143,10 +155,117 @@ export default function Ideas() {
       if (error) throw error;
     });
 
-  const reject = (id: string) => run(id, "Rejected.", async () => {
-    const { error } = await supabase.from("ebook_ideas").update({ status: "rejected" }).eq("id", id);
+  const reject = (id: string, reason: string) => run(id, "Rejected.", async () => {
+    const { error } = await supabase.from("ebook_ideas").update({
+      status: "rejected",
+      rejected_reason: reason || null,
+      pipeline_status: "rejected",
+    }).eq("id", id);
     if (error) throw error;
   });
+
+  // Milestone 2 — generate ONE best concept
+  const generateBestConcept = async () => {
+    setHeaderBusy(true);
+    try {
+      const { error } = await supabase.functions.invoke("idea-copywriter", {
+        body: { mode: "generate_one_best_concept" },
+      });
+      if (error) throw error;
+      toast.success("Generated one best concept.");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setHeaderBusy(false);
+    }
+  };
+
+  // Milestone 2 — generate EXACTLY TWO alternatives, save as rows
+  const generateTwoAlternativeRows = (idea: Idea) =>
+    run(idea.id, "Two alternatives saved.", async () => {
+      const { error } = await supabase.functions.invoke("idea-copywriter", {
+        body: { mode: "generate_two_alternatives", parent_idea_id: idea.id },
+      });
+      if (error) throw error;
+    });
+
+  // Milestone 2 — approve & move to outline_generation, enqueue production_queue
+  const approveAndGenerate = (idea: Idea) =>
+    run(idea.id, "Approved · queued for outline generation.", async () => {
+      const { error: uErr } = await supabase.from("ebook_ideas").update({
+        status: "approved",
+        selected: true,
+        pipeline_status: "outline_generation",
+      }).eq("id", idea.id);
+      if (uErr) throw uErr;
+      const { error: qErr } = await supabase.from("production_queue").insert({
+        idea_id: idea.id,
+        pipeline_status: "outline_generation",
+        priority: 100,
+        payload: { idea_id: idea.id },
+      });
+      if (qErr) throw qErr;
+    });
+
+  // Milestone 2 — open Edit Manually dialog
+  const openEdit = (idea: Idea) => {
+    setEditOpen(idea);
+    const s = (idea as unknown as { scores?: Record<string, number> }).scores ?? {};
+    setEditDraft({
+      title: idea.title ?? "",
+      subtitle: idea.subtitle ?? "",
+      hook: idea.hook ?? "",
+      target_buyer: idea.target_buyer ?? "",
+      core_pain_point: idea.core_pain_point ?? "",
+      buyer_appeal_score: String(s.buyer_appeal ?? ""),
+      premium_score: String(s.premium ?? ""),
+      hard_sell_strength_score: String(s.hard_sell ?? ""),
+      compliance_risk_score: String(s.compliance_risk ?? ""),
+      idea_score: String(s.idea ?? idea.total_score ?? ""),
+    });
+  };
+  const saveEdit = async () => {
+    if (!editOpen || !editDraft) return;
+    const clamp = (v: string, lo: number, hi: number) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return null;
+      return Math.max(lo, Math.min(hi, Math.round(n)));
+    };
+    const ba = clamp(editDraft.buyer_appeal_score, 0, 100);
+    const pr = clamp(editDraft.premium_score, 0, 100);
+    const hs = clamp(editDraft.hard_sell_strength_score, 0, 100);
+    const cr = clamp(editDraft.compliance_risk_score, 1, 10);
+    const ide = clamp(editDraft.idea_score, 0, 100);
+    await run(editOpen.id, "Edits saved.", async () => {
+      const { error } = await supabase.from("ebook_ideas").update({
+        title: editDraft.title.trim(),
+        subtitle: editDraft.subtitle.trim() || null,
+        hook: editDraft.hook.trim() || null,
+        target_buyer: editDraft.target_buyer.trim() || null,
+        core_pain_point: editDraft.core_pain_point.trim() || null,
+        buyer_appeal_score: ba,
+        premium_score: pr,
+        hard_sell_strength_score: hs,
+        hard_sell_score: hs,
+        compliance_risk_score: cr,
+        idea_score: ide,
+        total_score: ide ?? editOpen.total_score,
+        generation_mode: "manual",
+        scores: {
+          ...((editOpen as unknown as { scores?: Record<string, number> }).scores ?? {}),
+          buyer_appeal: ba ?? undefined,
+          premium: pr ?? undefined,
+          hard_sell: hs ?? undefined,
+          compliance_risk: cr ?? undefined,
+          idea: ide ?? undefined,
+        },
+      }).eq("id", editOpen.id);
+      if (error) throw error;
+    });
+    setEditOpen(null);
+    setEditDraft(null);
+  };
 
   const changeCategory = (id: string, category_id: string) => run(id, "Category changed.", async () => {
     const { error } = await supabase.from("ebook_ideas").update({ category_id }).eq("id", id);
