@@ -76,6 +76,11 @@ type Settings = {
   shopify_draft_upload_enabled: boolean;
   auto_rewrite_limit: number;
   category_mix: Record<string, number>;
+  max_ai_calls_per_ebook: number;
+  max_rewrite_attempts: number;
+  max_shopify_uploads_per_day: number;
+  cost_limit_reached: boolean;
+  cost_limit_reason: string | null;
 };
 
 export default function Autopilot() {
