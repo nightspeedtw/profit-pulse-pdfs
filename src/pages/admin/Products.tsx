@@ -131,7 +131,7 @@ export default function Products() {
           </Card>
         )}
         {filtered.map((p) => {
-          const ready = (p.final_quality_score ?? 0) >= 85 && p.pdf_status === "ready";
+          const ready = (p.final_quality_score ?? 0) >= 90 && (p.pdf_status === "pdf_ready" || p.pdf_status === "ready");
           const draftUrl = p.shopify_product_id ? `https://admin.shopify.com/store/${storeDomain}/products/${p.shopify_product_id}` : null;
           return (
             <Card key={p.id} className="border-2 border-foreground flex flex-col">
