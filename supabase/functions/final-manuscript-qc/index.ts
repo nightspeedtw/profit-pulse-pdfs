@@ -29,6 +29,7 @@ type RepairAction =
   | "add_framework_explanation"
   | "rewrite_duplicated_sections"
   | "rewrite_repeated_passages"
+  | "humanize_manuscript"
   | "rewrite_claims"
   | "remove_and_replace_placeholders"
   | "add_practical_examples"
@@ -38,11 +39,21 @@ type RepairAction =
   | "add_common_mistake"
   | "rewrite_chapter";
 
+interface FailedSection {
+  chapter_number: number;
+  section_title?: string;
+  problem_text_excerpt: string;
+  reason: string;
+  suggested_action: "rewrite_section";
+}
+
 interface FailedReason {
   code: string;
   message: string;
   repair_action: RepairAction;
   chapter_index?: number;
+  repairable?: boolean;
+  failed_sections?: FailedSection[];
 }
 
 interface StructuredQC {
