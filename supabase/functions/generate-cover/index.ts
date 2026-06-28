@@ -51,11 +51,19 @@ Return JSON only:
   "works_as_thumbnail": true|false,
   "no_misleading_claim": true|false,
   "no_clutter": true|false,
+  "no_overlap": true|false,
+  "strong_contrast": true|false,
+  "no_ai_text_errors": true|false,
+  "mobile_thumbnail_readable": true|false,
   "conversion_score": 0-100,
   "issues": ["..."],
   "improvements": ["..."]
 }
-Score harshly. >= 85 required to pass.`;
+Score harshly. >= 85 required to pass.
+no_ai_text_errors: the BACKGROUND must contain ZERO letters/words/numbers. If the background prompt or strategy implies text in the image, mark false.
+no_overlap: title, subtitle, badge, brand must not visually overlap given the layout_direction and panel placement.
+strong_contrast: overlay color vs primary_text color must have strong luminance contrast.`;
+
 
 async function generateBackgroundPNG(prompt: string): Promise<{ bytes: Uint8Array; cost: number }> {
   const key = Deno.env.get("LOVABLE_API_KEY");
