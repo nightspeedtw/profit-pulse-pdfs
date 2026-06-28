@@ -51,7 +51,7 @@ export default function AutopilotRun() {
         supabase.from("ebooks").select("*").eq("id", r.ebook_id).maybeSingle(),
         supabase.from("cost_log").select("cost_usd").eq("ebook_id", r.ebook_id),
       ]);
-      setEbook((e as AdminNeededState | null) ?? null);
+      setEbook(((e as unknown) as AdminNeededState | null) ?? null);
       setTotalCost((costs ?? []).reduce((acc, row) => acc + Number(row.cost_usd ?? 0), 0));
     }
   }
