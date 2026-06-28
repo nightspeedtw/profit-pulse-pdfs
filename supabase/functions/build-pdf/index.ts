@@ -333,9 +333,13 @@ Deno.serve(async (req) => {
       // ---- Divider Copywriter Agent (run once per build) ----
       // On strict retry we re-call the AI (fresh sample) so failures from the
       // first attempt regenerate with new wording rather than reuse the same copy.
-      const aiCopies = await generateUniqueDividerCopy(
-        titleText, subtitleText, String(e.target_buyer ?? ""), chapters,
-      );
+      if (cachedAiCopies === undefined) {
+        cachedAiCopies = await generateUniqueDividerCopy(
+          titleText, subtitleText, String(e.target_buyer ?? ""), chapters,
+        );
+      }
+      const aiCopies = cachedAiCopies;
+      const aiCopySucceeded = !!aiCopies;
       const dividerCopies: DividerCopy[] = chapters.map((ch, i) => {
         const c = aiCopies?.[i];
         if (c && /[.!?]$/.test(c.promise) && c.outcomes.length >= 3) return c;
