@@ -382,20 +382,25 @@ export type Database = {
         Row: {
           admin_feedback: string | null
           auto_rejected_reason: string | null
+          buyer_appeal_score: number | null
           buyer_identity: string | null
           category_id: string | null
           clarity_score: number | null
           commercial_intent_score: number | null
+          compliance_notes: string | null
           compliance_risk_score: number | null
           core_pain_point: string | null
           cost_of_doing_nothing: string | null
           cost_usd: number
           created_at: string
           deeper_emotional_fear: string | null
+          generation_mode: string
           hard_sell_opening: string | null
           hard_sell_score: number | null
+          hard_sell_strength_score: number | null
           hook: string | null
           id: string
+          idea_score: number | null
           improvement_round: number
           market_intelligence_id: string | null
           metadata: Json
@@ -409,16 +414,20 @@ export type Database = {
           outline_premium_score: number | null
           outline_rewrite_count: number
           outline_structure_score: number | null
+          parent_idea_id: string | null
           perceived_value_boosters: Json
           pipeline_status: Database["public"]["Enums"]["pipeline_status"]
           premium_score: number | null
+          raw_ai: Json
           raw_hook: string | null
           raw_subtitle: string | null
           raw_target_buyer: string | null
           raw_title: string | null
           recommended_action: string | null
+          rejected_reason: string | null
           research_payload: Json
           scores: Json
+          selected: boolean
           shopify_meta: Json | null
           status: string
           subtitle: string | null
@@ -434,20 +443,25 @@ export type Database = {
         Insert: {
           admin_feedback?: string | null
           auto_rejected_reason?: string | null
+          buyer_appeal_score?: number | null
           buyer_identity?: string | null
           category_id?: string | null
           clarity_score?: number | null
           commercial_intent_score?: number | null
+          compliance_notes?: string | null
           compliance_risk_score?: number | null
           core_pain_point?: string | null
           cost_of_doing_nothing?: string | null
           cost_usd?: number
           created_at?: string
           deeper_emotional_fear?: string | null
+          generation_mode?: string
           hard_sell_opening?: string | null
           hard_sell_score?: number | null
+          hard_sell_strength_score?: number | null
           hook?: string | null
           id?: string
+          idea_score?: number | null
           improvement_round?: number
           market_intelligence_id?: string | null
           metadata?: Json
@@ -461,16 +475,20 @@ export type Database = {
           outline_premium_score?: number | null
           outline_rewrite_count?: number
           outline_structure_score?: number | null
+          parent_idea_id?: string | null
           perceived_value_boosters?: Json
           pipeline_status?: Database["public"]["Enums"]["pipeline_status"]
           premium_score?: number | null
+          raw_ai?: Json
           raw_hook?: string | null
           raw_subtitle?: string | null
           raw_target_buyer?: string | null
           raw_title?: string | null
           recommended_action?: string | null
+          rejected_reason?: string | null
           research_payload?: Json
           scores?: Json
+          selected?: boolean
           shopify_meta?: Json | null
           status?: string
           subtitle?: string | null
@@ -486,20 +504,25 @@ export type Database = {
         Update: {
           admin_feedback?: string | null
           auto_rejected_reason?: string | null
+          buyer_appeal_score?: number | null
           buyer_identity?: string | null
           category_id?: string | null
           clarity_score?: number | null
           commercial_intent_score?: number | null
+          compliance_notes?: string | null
           compliance_risk_score?: number | null
           core_pain_point?: string | null
           cost_of_doing_nothing?: string | null
           cost_usd?: number
           created_at?: string
           deeper_emotional_fear?: string | null
+          generation_mode?: string
           hard_sell_opening?: string | null
           hard_sell_score?: number | null
+          hard_sell_strength_score?: number | null
           hook?: string | null
           id?: string
+          idea_score?: number | null
           improvement_round?: number
           market_intelligence_id?: string | null
           metadata?: Json
@@ -513,16 +536,20 @@ export type Database = {
           outline_premium_score?: number | null
           outline_rewrite_count?: number
           outline_structure_score?: number | null
+          parent_idea_id?: string | null
           perceived_value_boosters?: Json
           pipeline_status?: Database["public"]["Enums"]["pipeline_status"]
           premium_score?: number | null
+          raw_ai?: Json
           raw_hook?: string | null
           raw_subtitle?: string | null
           raw_target_buyer?: string | null
           raw_title?: string | null
           recommended_action?: string | null
+          rejected_reason?: string | null
           research_payload?: Json
           scores?: Json
+          selected?: boolean
           shopify_meta?: Json | null
           status?: string
           subtitle?: string | null
@@ -548,6 +575,13 @@ export type Database = {
             columns: ["market_intelligence_id"]
             isOneToOne: false
             referencedRelation: "market_intelligence"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ebook_ideas_parent_idea_id_fkey"
+            columns: ["parent_idea_id"]
+            isOneToOne: false
+            referencedRelation: "ebook_ideas"
             referencedColumns: ["id"]
           },
         ]

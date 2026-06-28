@@ -7,7 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ChevronRight, Loader2, Sparkles, Type, Zap, FolderInput, X, Check, Eye, ChevronDown, Crown } from "lucide-react";
+import { ChevronRight, Loader2, Sparkles, Type, Zap, FolderInput, X, Check, Eye, ChevronDown, Crown, Pencil, Wand2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Link } from "react-router-dom";
 
 type Idea = {
@@ -108,6 +110,16 @@ export default function Ideas() {
   const [altOpen, setAltOpen] = useState<Idea | null>(null);
   const [altLoading, setAltLoading] = useState(false);
   const [altResult, setAltResult] = useState<AltResult | null>(null);
+  // Milestone 2 — workflow state
+  const [headerBusy, setHeaderBusy] = useState(false);
+  const [editOpen, setEditOpen] = useState<Idea | null>(null);
+  const [editDraft, setEditDraft] = useState<{
+    title: string; subtitle: string; hook: string; target_buyer: string;
+    core_pain_point: string; buyer_appeal_score: string; premium_score: string;
+    hard_sell_strength_score: string; compliance_risk_score: string; idea_score: string;
+  } | null>(null);
+  const [rejectOpen, setRejectOpen] = useState<Idea | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const load = async () => {
     const [{ data: ideas }, { data: c }] = await Promise.all([
@@ -143,10 +155,117 @@ export default function Ideas() {
       if (error) throw error;
     });
 
-  const reject = (id: string) => run(id, "Rejected.", async () => {
-    const { error } = await supabase.from("ebook_ideas").update({ status: "rejected" }).eq("id", id);
+  const reject = (id: string, reason: string) => run(id, "Rejected.", async () => {
+    const { error } = await supabase.from("ebook_ideas").update({
+      status: "rejected",
+      rejected_reason: reason || null,
+      pipeline_status: "rejected",
+    }).eq("id", id);
     if (error) throw error;
   });
+
+  // Milestone 2 — generate ONE best concept
+  const generateBestConcept = async () => {
+    setHeaderBusy(true);
+    try {
+      const { error } = await supabase.functions.invoke("idea-copywriter", {
+        body: { mode: "generate_one_best_concept" },
+      });
+      if (error) throw error;
+      toast.success("Generated one best concept.");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setHeaderBusy(false);
+    }
+  };
+
+  // Milestone 2 — generate EXACTLY TWO alternatives, save as rows
+  const generateTwoAlternativeRows = (idea: Idea) =>
+    run(idea.id, "Two alternatives saved.", async () => {
+      const { error } = await supabase.functions.invoke("idea-copywriter", {
+        body: { mode: "generate_two_alternatives", parent_idea_id: idea.id },
+      });
+      if (error) throw error;
+    });
+
+  // Milestone 2 — approve & move to outline_generation, enqueue production_queue
+  const approveAndGenerate = (idea: Idea) =>
+    run(idea.id, "Approved · queued for outline generation.", async () => {
+      const { error: uErr } = await supabase.from("ebook_ideas").update({
+        status: "approved",
+        selected: true,
+        pipeline_status: "outline_generation",
+      }).eq("id", idea.id);
+      if (uErr) throw uErr;
+      const { error: qErr } = await supabase.from("production_queue").insert({
+        idea_id: idea.id,
+        pipeline_status: "outline_generation",
+        priority: 100,
+        payload: { idea_id: idea.id },
+      });
+      if (qErr) throw qErr;
+    });
+
+  // Milestone 2 — open Edit Manually dialog
+  const openEdit = (idea: Idea) => {
+    setEditOpen(idea);
+    const s = (idea as unknown as { scores?: Record<string, number> }).scores ?? {};
+    setEditDraft({
+      title: idea.title ?? "",
+      subtitle: idea.subtitle ?? "",
+      hook: idea.hook ?? "",
+      target_buyer: idea.target_buyer ?? "",
+      core_pain_point: idea.core_pain_point ?? "",
+      buyer_appeal_score: String(s.buyer_appeal ?? ""),
+      premium_score: String(s.premium ?? ""),
+      hard_sell_strength_score: String(s.hard_sell ?? ""),
+      compliance_risk_score: String(s.compliance_risk ?? ""),
+      idea_score: String(s.idea ?? idea.total_score ?? ""),
+    });
+  };
+  const saveEdit = async () => {
+    if (!editOpen || !editDraft) return;
+    const clamp = (v: string, lo: number, hi: number) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return null;
+      return Math.max(lo, Math.min(hi, Math.round(n)));
+    };
+    const ba = clamp(editDraft.buyer_appeal_score, 0, 100);
+    const pr = clamp(editDraft.premium_score, 0, 100);
+    const hs = clamp(editDraft.hard_sell_strength_score, 0, 100);
+    const cr = clamp(editDraft.compliance_risk_score, 1, 10);
+    const ide = clamp(editDraft.idea_score, 0, 100);
+    await run(editOpen.id, "Edits saved.", async () => {
+      const { error } = await supabase.from("ebook_ideas").update({
+        title: editDraft.title.trim(),
+        subtitle: editDraft.subtitle.trim() || null,
+        hook: editDraft.hook.trim() || null,
+        target_buyer: editDraft.target_buyer.trim() || null,
+        core_pain_point: editDraft.core_pain_point.trim() || null,
+        buyer_appeal_score: ba,
+        premium_score: pr,
+        hard_sell_strength_score: hs,
+        hard_sell_score: hs,
+        compliance_risk_score: cr,
+        idea_score: ide,
+        total_score: ide ?? editOpen.total_score,
+        generation_mode: "manual",
+        scores: {
+          ...((editOpen as unknown as { scores?: Record<string, number> }).scores ?? {}),
+          buyer_appeal: ba ?? undefined,
+          premium: pr ?? undefined,
+          hard_sell: hs ?? undefined,
+          compliance_risk: cr ?? undefined,
+          idea: ide ?? undefined,
+        },
+      }).eq("id", editOpen.id);
+      if (error) throw error;
+    });
+    setEditOpen(null);
+    setEditDraft(null);
+  };
 
   const changeCategory = (id: string, category_id: string) => run(id, "Category changed.", async () => {
     const { error } = await supabase.from("ebook_ideas").update({ category_id }).eq("id", id);
@@ -254,13 +373,19 @@ export default function Ideas() {
 
   return (
     <div className="space-y-4 max-w-5xl">
-      <div>
-        <p className="font-mono uppercase tracking-widest text-xs">[ Ideas ]</p>
-        <h1 className="font-display text-4xl uppercase">Hard-Sell Ideas</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Every idea is written first-pass by the <strong>Premium Title &amp; Hard-Sell Copywriter</strong>. Auto-generation only fires when Appeal, Premium, and Hard-Sell all hit <strong>80+</strong>.
-          Use <strong>Rewrite</strong> or <strong>Generate 2 Alternatives</strong> when a concept needs lift.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <p className="font-mono uppercase tracking-widest text-xs">[ Ideas ]</p>
+          <h1 className="font-display text-4xl uppercase">Hard-Sell Ideas</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Every idea is written first-pass by the <strong>Premium Title &amp; Hard-Sell Copywriter</strong>. Auto-generation only fires when Appeal, Premium, and Hard-Sell all hit <strong>80+</strong>.
+            Use <strong>Generate 2 Alternatives</strong> (creates two new rows) or <strong>Edit Manually</strong> when a concept needs lift.
+          </p>
+        </div>
+        <Button onClick={generateBestConcept} disabled={headerBusy} size="lg">
+          {headerBusy ? <Loader2 className="size-4 animate-spin mr-1" /> : <Wand2 className="size-4 mr-1" />}
+          Generate Best Concept
+        </Button>
       </div>
       {items.length === 0 && (
         <Card className="border-2 border-dashed border-foreground/30">
@@ -413,28 +538,31 @@ export default function Ideas() {
                     {canPromote && (
                       <>
                         {isApproved ? (
-                          <Button size="sm" onClick={() => promote(i.id)} disabled={isBusy}>
+                          <Button size="sm" onClick={() => approveAndGenerate(i)} disabled={isBusy}>
                             {isBusy ? <Loader2 className="size-4 animate-spin mr-1" /> : <ChevronRight className="size-4 mr-1" />}
                             Approve & Generate
                           </Button>
                         ) : (
-                          <Button size="sm" variant="outline" onClick={() => promote(i.id)} disabled={isBusy}
+                          <Button size="sm" variant="outline" onClick={() => approveAndGenerate(i)} disabled={isBusy}
                             title="Below threshold — approve manually?">
                             <Check className="size-4 mr-1" /> Approve Anyway
                           </Button>
                         )}
                         {!isApproved && (
-                          <Button size="sm" variant="default" onClick={() => runAlternatives(i)} disabled={isBusy}>
+                          <Button size="sm" variant="default" onClick={() => generateTwoAlternativeRows(i)} disabled={isBusy}>
                             <Sparkles className="size-4 mr-1" /> Generate 2 Alternatives
                           </Button>
                         )}
+                        <Button size="sm" variant="outline" onClick={() => openEdit(i)} disabled={isBusy}>
+                          <Pencil className="size-4 mr-1" /> Edit Manually
+                        </Button>
                         <Button size="sm" variant="secondary" onClick={() => { setImproveOpen(i); setFeedback(i.admin_feedback ?? ""); }} disabled={isBusy}>
                           <Sparkles className="size-4 mr-1" /> Rewrite
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => runPremium(i)} disabled={isBusy}>
                           <Crown className="size-4 mr-1" /> Premium Positioning
                         </Button>
-                        <Button size="sm" variant="destructive" onClick={() => reject(i.id)} disabled={isBusy}>
+                        <Button size="sm" variant="destructive" onClick={() => { setRejectOpen(i); setRejectReason(""); }} disabled={isBusy}>
                           <X className="size-4 mr-1" /> Reject
                         </Button>
                         <details className="text-xs">
@@ -730,6 +858,67 @@ export default function Ideas() {
               </div>
             );
           })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Milestone 2 — Edit Manually dialog */}
+      <Dialog open={!!editOpen} onOpenChange={(o) => { if (!o) { setEditOpen(null); setEditDraft(null); } }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Edit Manually</DialogTitle></DialogHeader>
+          {editDraft && (
+            <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-2">
+              <div className="grid gap-1"><Label>Title</Label>
+                <Input value={editDraft.title} onChange={(e) => setEditDraft({ ...editDraft, title: e.target.value })} /></div>
+              <div className="grid gap-1"><Label>Subtitle</Label>
+                <Input value={editDraft.subtitle} onChange={(e) => setEditDraft({ ...editDraft, subtitle: e.target.value })} /></div>
+              <div className="grid gap-1"><Label>Hook</Label>
+                <Textarea rows={2} value={editDraft.hook} onChange={(e) => setEditDraft({ ...editDraft, hook: e.target.value })} /></div>
+              <div className="grid gap-1"><Label>Target buyer</Label>
+                <Input value={editDraft.target_buyer} onChange={(e) => setEditDraft({ ...editDraft, target_buyer: e.target.value })} /></div>
+              <div className="grid gap-1"><Label>Core pain point</Label>
+                <Textarea rows={2} value={editDraft.core_pain_point} onChange={(e) => setEditDraft({ ...editDraft, core_pain_point: e.target.value })} /></div>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <div className="grid gap-1"><Label className="text-[10px]">Buyer Appeal (0-100)</Label>
+                  <Input type="number" min={0} max={100} value={editDraft.buyer_appeal_score}
+                    onChange={(e) => setEditDraft({ ...editDraft, buyer_appeal_score: e.target.value })} /></div>
+                <div className="grid gap-1"><Label className="text-[10px]">Premium (0-100)</Label>
+                  <Input type="number" min={0} max={100} value={editDraft.premium_score}
+                    onChange={(e) => setEditDraft({ ...editDraft, premium_score: e.target.value })} /></div>
+                <div className="grid gap-1"><Label className="text-[10px]">Hard-Sell (0-100)</Label>
+                  <Input type="number" min={0} max={100} value={editDraft.hard_sell_strength_score}
+                    onChange={(e) => setEditDraft({ ...editDraft, hard_sell_strength_score: e.target.value })} /></div>
+                <div className="grid gap-1"><Label className="text-[10px]">Risk (1-10)</Label>
+                  <Input type="number" min={1} max={10} value={editDraft.compliance_risk_score}
+                    onChange={(e) => setEditDraft({ ...editDraft, compliance_risk_score: e.target.value })} /></div>
+                <div className="grid gap-1"><Label className="text-[10px]">Idea (0-100)</Label>
+                  <Input type="number" min={0} max={100} value={editDraft.idea_score}
+                    onChange={(e) => setEditDraft({ ...editDraft, idea_score: e.target.value })} /></div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setEditOpen(null); setEditDraft(null); }}>Cancel</Button>
+            <Button onClick={saveEdit}><Check className="size-4 mr-1" /> Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Milestone 2 — Reject with Reason dialog */}
+      <Dialog open={!!rejectOpen} onOpenChange={(o) => { if (!o) { setRejectOpen(null); setRejectReason(""); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Reject Idea</DialogTitle></DialogHeader>
+          <div className="grid gap-2">
+            <Label>Rejection reason (optional but recommended)</Label>
+            <Textarea rows={3} value={rejectReason} onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="e.g. compliance risk too high, buyer pull too weak, overlaps existing title…" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejectOpen(null); setRejectReason(""); }}>Cancel</Button>
+            <Button variant="destructive"
+              onClick={async () => { const id = rejectOpen?.id; if (!id) return; const r = rejectReason.trim(); setRejectOpen(null); await reject(id, r); setRejectReason(""); }}>
+              <X className="size-4 mr-1" /> Reject
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
