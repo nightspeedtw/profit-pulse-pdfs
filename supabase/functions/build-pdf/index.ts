@@ -142,22 +142,27 @@ function scoreDividerUniqueness(copies: DividerCopy[]): {
 
   const uniquenessScore = Math.max(0, 100 - templateMatches * 25 - dupePromiseGroups * 20);
 
-  // Specificity: each promise length 60-220 chars, contains a concrete noun pool word,
-  // and each outcome 50-180 chars starting with a verb.
-  const specificWords = /(weekly|monthly|map|table|script|fifteen|specific|exact|routine|leak|payoff|balance|negotiate|redirect|cash[- ]flow|interest|principal|deadline|checklist|playbook|rule|calculator)/i;
+  // Specificity heuristic: well-formed length range + verb opener + at least one
+  // concrete/strong noun (or any number). Penalize obviously vague AI filler.
+  const specificWords = /(week|month|day|year|map|table|script|specific|exact|routine|leak|payoff|balance|negotiat|redirect|cash[- ]?flow|interest|principal|deadline|checklist|playbook|calculat|step|rule|template|tracker|target|trigger|metric|stack|line item|category|frame|formula|signal|threshold|priorit|filter|audit|cycle|window|sequence|swap|cut|free up|reclaim|reduce|build|create|design|spot|identify|debt|loan|card|fee|rate|payment|income|expense|saving|fund|account|number|amount)/i;
   let promiseSpecificity = 0;
   for (const c of copies) {
     let s = 0;
-    if (c.promise.length >= 60 && c.promise.length <= 240) s += 50;
-    if (specificWords.test(c.promise)) s += 30;
-    if (/[.!?]$/.test(c.promise.trim())) s += 20;
+    if (c.promise.length >= 60 && c.promise.length <= 260) s += 60;
+    else if (c.promise.length >= 40) s += 40;
+    if (specificWords.test(c.promise) || /\d/.test(c.promise)) s += 25;
+    if (/[.!?]$/.test(c.promise.trim())) s += 15;
     promiseSpecificity += s;
   }
   let bulletSpecificity = 0;
   for (const c of copies) for (const o of c.outcomes) {
     let s = 0;
-    if (o.length >= 50 && o.length <= 200) s += 50;
+    if (o.length >= 40 && o.length <= 220) s += 55;
+    else if (o.length >= 25) s += 35;
     if (/^[A-Z][a-z]+/.test(o.trim())) s += 20;
+    if (specificWords.test(o) || /\d/.test(o)) s += 25;
+    bulletSpecificity += s;
+  }
     if (specificWords.test(o)) s += 30;
     bulletSpecificity += s;
   }
