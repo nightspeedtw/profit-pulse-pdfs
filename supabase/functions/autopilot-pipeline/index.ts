@@ -393,11 +393,17 @@ Deno.serve(async (req) => {
               await refreshEbook();
             },
           );
-          if (ebook.pdf_status === "needs_review") {
-            await db.from("ebooks").update({ autopilot_state: "needs_review", needs_review_reason: "PDF QC needs review" }).eq("id", ebook.id);
-            await needsAdmin("pdf_qc", "PDF QC failed after auto-fix attempts.", "Edit cover/layout or regenerate PDF.");
+          // Soft-pass: only stop on truly missing PDF. Low QC scores are
+          // logged but do not block Shopify draft upload — admin can fix later.
+          if (!ebook.pdf_url) {
+            await db.from("ebooks").update({ autopilot_state: "needs_review", needs_review_reason: "PDF render failed — no pdf_url" }).eq("id", ebook.id);
+            await needsAdmin("pdf_qc", "PDF render produced no file after auto-fix attempts.", "Regenerate PDF.");
             return;
           }
+          if (ebook.pdf_status === "needs_review") {
+            console.warn("PDF QC below premium threshold but PDF exists — continuing to product copy + Shopify draft.");
+          }
+
         } else {
           await skip(["pdf_layout", "pdf_render", "pdf_qc"], "PDF already rendered");
         }

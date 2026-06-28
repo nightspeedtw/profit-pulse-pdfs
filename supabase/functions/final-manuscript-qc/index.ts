@@ -242,7 +242,8 @@ Deno.serve(async (req) => {
       content_depth_score: qc?.final_content_depth_score ?? null,
       manuscript_fix_count: fixes,
       manuscript_qc_status: finalStatus,
-      qc_status: finalStatus,
+      qc_status: pass ? "qc_passed" : "needs_admin_review",
+
       total_word_count: totalWords,
       word_count: totalWords,
       writing_status: writingStatus,
