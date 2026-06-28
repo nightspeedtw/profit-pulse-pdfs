@@ -13,6 +13,9 @@ Deno.serve(async (req) => {
     if (!settings?.autopilot_enabled && !settings?.cron_enabled) {
       return new Response(JSON.stringify({ skipped: "autopilot disabled" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    if (settings.paused) {
+      return new Response(JSON.stringify({ skipped: "autopilot paused" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     const quota: number = Math.max(0, Number(settings.daily_quota ?? 0));
     const mode: string = settings.autopilot_mode ?? "safe";
     const publishHour: number = Number(settings.publish_hour_utc ?? 14);
@@ -59,7 +62,10 @@ Deno.serve(async (req) => {
         result.launched = [];
         for (const i of ideas ?? []) {
           try {
-            const r = await fetch(`${url}/functions/v1/autopilot-orchestrator`, {
+            // Use the Milestone-8 pipeline so every step calls the modern
+            // generate-outline / write-chapters / final-manuscript-qc /
+            // generate-cover / render-pdf / shopify-draft-upload functions.
+            const r = await fetch(`${url}/functions/v1/autopilot-pipeline`, {
               method: "POST", headers: auth, body: JSON.stringify({ idea_id: i.id, mode }),
             });
             const j = await r.json().catch(() => ({}));
