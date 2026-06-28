@@ -24,6 +24,7 @@ import EbookWriting from "./pages/admin/EbookWriting.tsx";
 import EbookCover from "./pages/admin/EbookCover.tsx";
 import EbookPDF from "./pages/admin/EbookPDF.tsx";
 import EbookShopify from "./pages/admin/EbookShopify.tsx";
+import AutopilotRun from "./pages/admin/AutopilotRun.tsx";
 
 const queryClient = new QueryClient();
 
@@ -55,6 +56,7 @@ const App = () => (
             <Route path="ebook/:id/cover" element={<EbookCover />} />
             <Route path="ebook/:id/pdf" element={<EbookPDF />} />
             <Route path="ebook/:id/shopify" element={<EbookShopify />} />
+            <Route path="autopilot/run/:runId" element={<AutopilotRun />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

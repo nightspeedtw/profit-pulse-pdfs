@@ -2,7 +2,7 @@
 // Strict UX: ONE autopilot toggle, ONE "Generate 1 Ebook Now" button,
 // a status strip, six KPI tiles, recent jobs list. Nothing else.
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Loader2, Play, Pause, Sparkles, AlertTriangle, DollarSign, FlaskConical
 import { toast } from "sonner";
 import { StatusBadge, resolveEbookBadge } from "@/components/admin/StatusBadge";
 import { AutoFixChip } from "@/components/admin/AutoFixChip";
+import { LiveAutopilotCard } from "@/components/admin/LiveAutopilotCard";
 
 type Ebook = {
   id: string; title: string;
