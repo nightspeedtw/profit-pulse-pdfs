@@ -361,6 +361,50 @@ export default function Autopilot() {
             </p>
           </div>
         </CardContent>
+        {/* Milestone 10 — production limits */}
+        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end pt-0 border-t-2 border-foreground/10">
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Max AI calls / ebook</Label>
+            <Input type="number" min={10} max={500}
+              value={settings?.max_ai_calls_per_ebook ?? 60}
+              onChange={(e) => setSettings(s => s ? { ...s, max_ai_calls_per_ebook: Number(e.target.value) } : s)}
+              onBlur={(e) => saveSettings({ max_ai_calls_per_ebook: Number(e.target.value) })}
+              disabled={!settings}
+            />
+            <p className="text-[10px] text-muted-foreground">Hard cap per ebook (incl. retries).</p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Max rewrite attempts</Label>
+            <Input type="number" min={0} max={5}
+              value={settings?.max_rewrite_attempts ?? 2}
+              onChange={(e) => setSettings(s => s ? { ...s, max_rewrite_attempts: Number(e.target.value) } : s)}
+              onBlur={(e) => saveSettings({ max_rewrite_attempts: Number(e.target.value) })}
+              disabled={!settings}
+            />
+            <p className="text-[10px] text-muted-foreground">QC auto-rewrite cap.</p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Max Shopify uploads / day</Label>
+            <Input type="number" min={0} max={200}
+              value={settings?.max_shopify_uploads_per_day ?? 20}
+              onChange={(e) => setSettings(s => s ? { ...s, max_shopify_uploads_per_day: Number(e.target.value) } : s)}
+              onBlur={(e) => saveSettings({ max_shopify_uploads_per_day: Number(e.target.value) })}
+              disabled={!settings}
+            />
+            <p className="text-[10px] text-muted-foreground">Daily upload cap.</p>
+          </div>
+          {settings?.cost_limit_reached && (
+            <div className="md:col-span-3 border-2 border-red-700 bg-red-50 p-3 flex items-start gap-2">
+              <div className="flex-1 text-sm">
+                <p className="font-bold text-red-800">Cost limit reached — autopilot paused</p>
+                <p className="text-xs text-muted-foreground">{settings?.cost_limit_reason ?? "Daily budget exceeded."}</p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => saveSettings({ cost_limit_reached: false, cost_limit_reason: null, paused: false } as any)}>
+                Clear & resume
+              </Button>
+            </div>
+          )}
+        </CardContent>
         <CardContent className="pt-0 flex flex-wrap items-center gap-3">
           <Button onClick={runCronNow} disabled={busy === "cron" || settings?.paused}
             className="bg-green-700 hover:bg-green-800 text-white">
