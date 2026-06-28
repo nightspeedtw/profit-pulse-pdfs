@@ -45,6 +45,7 @@ const App = () => (
             <Route path="/product/:handle" element={<Product />} />
             <Route path="/bundles" element={<Bundles />} />
             <Route path="/about" element={<About />} />
+            <Route path="/download" element={<Download />} />
           </Route>
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminLayout />}>
