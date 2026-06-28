@@ -282,7 +282,10 @@ export default function EbookCover() {
                     }}>Unapprove</Button>
                 )}
               </div>
-              <Link to={`/admin/ebook/${ebook.id}/writing`} className="text-sm underline text-muted-foreground block pt-2">← Back to writing dashboard</Link>
+              <div className="text-sm pt-2 space-x-4">
+                <Link to={`/admin/ebook/${ebook.id}/writing`} className="underline text-muted-foreground">← Writing</Link>
+                <Link to={`/admin/ebook/${ebook.id}/pdf`} className="underline text-muted-foreground">PDF Layout →</Link>
+              </div>
             </CardContent>
           </Card>
         </div>
