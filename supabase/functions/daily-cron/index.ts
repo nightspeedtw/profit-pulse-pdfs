@@ -82,9 +82,10 @@ Deno.serve(async (req) => {
     }
 
     // --- B) SCHEDULED PUBLISH ---
-    // Only fire at the chosen UTC hour (idempotent per-hour because we only flip drafts)
+    // Auto-publish ONLY when generation_settings.auto_publish=true AND mode=full.
+    // Defaults: auto_publish OFF → Shopify items stay as drafts for admin review.
     const currentHour = new Date().getUTCHours();
-    if (mode === "full" || mode === "safe") {
+    if (settings.auto_publish && mode === "full") {
       if (currentHour === publishHour) {
         const { data: ready } = await db.from("ebooks")
           .select("id,title")
@@ -105,6 +106,8 @@ Deno.serve(async (req) => {
       } else {
         result.publish_window = `current ${currentHour}:00 UTC, scheduled ${publishHour}:00 UTC`;
       }
+    } else {
+      result.publish_skipped = "auto_publish OFF or not Full mode (drafts stay in Shopify for admin review)";
     }
 
     return new Response(JSON.stringify(result), {
