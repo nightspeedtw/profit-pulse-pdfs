@@ -29,6 +29,7 @@ type RepairAction =
   | "add_framework_explanation"
   | "rewrite_duplicated_sections"
   | "rewrite_repeated_passages"
+  | "humanize_manuscript"
   | "rewrite_claims"
   | "remove_and_replace_placeholders"
   | "add_practical_examples"
@@ -38,11 +39,21 @@ type RepairAction =
   | "add_common_mistake"
   | "rewrite_chapter";
 
+interface FailedSection {
+  chapter_number: number;
+  section_title?: string;
+  problem_text_excerpt: string;
+  reason: string;
+  suggested_action: "rewrite_section";
+}
+
 interface FailedReason {
   code: string;
   message: string;
   repair_action: RepairAction;
   chapter_index?: number;
+  repairable?: boolean;
+  failed_sections?: FailedSection[];
 }
 
 interface StructuredQC {
@@ -125,6 +136,83 @@ function detectDuplicates(chapters: ChapterRow[]): number[] {
     else seen.set(key, c.chapter_index);
   }
   return [...dupes];
+}
+
+// Repeated AI-template phrasing detector
+const REPEATED_TEMPLATE_PATTERNS: { re: RegExp; label: string }[] = [
+  { re: /this chapter gives you/i, label: '"this chapter gives you…"' },
+  { re: /apply this to your real numbers/i, label: '"apply this to your real numbers…"' },
+  { re: /sidestep the silent traps/i, label: '"sidestep the silent traps…"' },
+  { re: /in this chapter,?\s+(?:you|we)['’]?ll/i, label: '"in this chapter, you\'ll…"' },
+  { re: /by the end of this chapter,?\s+you/i, label: '"by the end of this chapter, you…"' },
+  { re: /without further ado/i, label: '"without further ado"' },
+  { re: /let'?s dive (?:in|into)/i, label: '"let\'s dive in/into"' },
+  { re: /at the end of the day/i, label: '"at the end of the day"' },
+  { re: /in today'?s (?:fast[- ]paced|modern) world/i, label: '"in today\'s fast-paced world"' },
+  { re: /it'?s (?:important|crucial) to note/i, label: '"it\'s important to note"' },
+  { re: /key takeaways?:?\s*\n.*\n.*\n.*apply/i, label: 'templated takeaway block' },
+];
+
+function detectRepeatedTemplates(chapters: ChapterRow[]): FailedReason[] {
+  const out: FailedReason[] = [];
+  // Per-chapter scan for template phrases
+  for (const c of chapters) {
+    const content = c.content ?? "";
+    const hits: { label: string; excerpt: string }[] = [];
+    for (const { re, label } of REPEATED_TEMPLATE_PATTERNS) {
+      const m = content.match(re);
+      if (m && m.index != null) {
+        const start = Math.max(0, m.index - 60);
+        const end = Math.min(content.length, m.index + m[0].length + 80);
+        hits.push({ label, excerpt: content.slice(start, end).replace(/\s+/g, " ").trim() });
+      }
+    }
+    if (hits.length) {
+      out.push({
+        code: "repeated_templated_passages",
+        message: `Chapter ${c.chapter_index} contains repeated AI-template phrasing: ${hits.map((h) => h.label).join(", ")}.`,
+        repair_action: "rewrite_repeated_passages",
+        chapter_index: c.chapter_index,
+        repairable: true,
+        failed_sections: hits.map((h) => ({
+          chapter_number: c.chapter_index,
+          section_title: c.title,
+          problem_text_excerpt: h.excerpt,
+          reason: `Repeated AI-template phrase ${h.label}`,
+          suggested_action: "rewrite_section",
+        })),
+      });
+    }
+  }
+  // Cross-chapter identical opening sentences
+  const openings = new Map<string, number[]>();
+  for (const c of chapters) {
+    const first = (c.content ?? "").trim().split(/(?<=[.!?])\s+/)[0]?.toLowerCase().replace(/\s+/g, " ").slice(0, 90) ?? "";
+    if (first.length < 25) continue;
+    const arr = openings.get(first) ?? [];
+    arr.push(c.chapter_index);
+    openings.set(first, arr);
+  }
+  for (const [opening, idxs] of openings) {
+    if (idxs.length >= 2) {
+      for (const idx of idxs) {
+        out.push({
+          code: "repeated_chapter_opening",
+          message: `Chapter ${idx} opens with the same sentence pattern as Chapter${idxs.length > 2 ? "s" : ""} ${idxs.filter((i) => i !== idx).join(", ")}.`,
+          repair_action: "rewrite_repeated_passages",
+          chapter_index: idx,
+          repairable: true,
+          failed_sections: [{
+            chapter_number: idx,
+            problem_text_excerpt: opening,
+            reason: "Identical opening sentence pattern across chapters",
+            suggested_action: "rewrite_section",
+          }],
+        });
+      }
+    }
+  }
+  return out;
 }
 
 function runDeterministicChecks(
@@ -277,6 +365,9 @@ function runDeterministicChecks(
     });
   }
 
+  // Repeated AI-template phrasing + cross-chapter opening duplication
+  reasons.push(...detectRepeatedTemplates(chapters));
+
   return reasons;
 }
 
@@ -324,7 +415,9 @@ function instructionsForReason(r: FailedReason, wordsTarget: number): string {
     case "rewrite_duplicated_sections":
       return `This chapter duplicates another chapter. Rewrite it with a completely different persona/example, different sub-angles, and a different worked scenario.`;
     case "rewrite_repeated_passages":
-      return `Rewrite the repeated/templated paragraphs in your own words with concrete specifics.`;
+      return `Rewrite this section so it keeps the same meaning but removes repeated AI-template phrasing. Make it specific, concrete, premium, and human-written. Vary sentence rhythm. Do not use the same sentence pattern as other chapters. Do not start sentences with "this chapter gives you", "apply this to your real numbers", "sidestep the silent traps", "in this chapter, you'll", "by the end of this chapter", "let's dive in", or other AI-template openers. Add chapter-specific concrete examples. Do not add unsafe claims.`;
+    case "humanize_manuscript":
+      return `Humanization pass: rewrite the chapter so it reads like a human premium editor wrote it. Vary the opening sentence pattern, vary transitions, vary the chapter summary/outcome bullets. Remove any repeated AI-template phrases such as "this chapter gives you…", "apply this to your real numbers…", "sidestep the silent traps…", "in this chapter, you'll…", "by the end of this chapter…", "let's dive in", "at the end of the day", "in today's fast-paced world". Preserve all facts, numbers, worksheets, frameworks, structure, length, and compliance safety.`;
     case "rewrite_claims":
       return `Remove any guarantee-style or unsafe claims ("guaranteed", "100% results", "risk-free", "get rich"). Rewrite as educational, probabilistic language.`;
     case "remove_and_replace_placeholders":
@@ -465,7 +558,17 @@ Deno.serve(async (req) => {
           deterministic.push({ code: "unsafe_claims", message: "AI reviewer flagged unsafe claims.", repair_action: "rewrite_claims" });
         }
         if (aiScores.checks?.no_repeated_sections === false) {
-          deterministic.push({ code: "repetitive_language", message: "AI reviewer flagged repeated/templated passages.", repair_action: "rewrite_repeated_passages" });
+          // Mark every chapter so the repair loop has actionable targets, and so
+          // the broad humanization fallback can run on the final attempt.
+          for (const c of chapters) {
+            deterministic.push({
+              code: "repeated_templated_passages",
+              message: `AI reviewer flagged repeated/templated passages in Chapter ${c.chapter_index}.`,
+              repair_action: "rewrite_repeated_passages",
+              chapter_index: c.chapter_index,
+              repairable: true,
+            });
+          }
         }
         if (aiScores.checks?.no_placeholders === false) {
           deterministic.push({ code: "placeholder_text", message: "AI reviewer flagged placeholder/AI-leak text.", repair_action: "remove_and_replace_placeholders" });
@@ -575,8 +678,38 @@ Deno.serve(async (req) => {
         seenChapters.add(ch.chapter_index);
       }
 
+      // Broad humanization fallback. Triggers when:
+      //   (a) repeated/templated passages remain and no per-chapter target was actionable, or
+      //   (b) we're on the final attempt and humanization-eligible reasons exist.
+      const humanizationNeeded = deterministic.some((r) =>
+        r.repair_action === "rewrite_repeated_passages" ||
+        r.code === "repeated_templated_passages" ||
+        r.code === "repetitive_language" ||
+        r.code === "repeated_chapter_opening"
+      );
+      const finalAttempt = attemptsUsed >= MAX_REPAIR_ATTEMPTS;
+      const nothingHappened = seenChapters.size === 0 && !pickedExpandAll.done;
+
+      if (humanizationNeeded && (nothingHappened || finalAttempt)) {
+        // Rewrite EVERY chapter with the humanization instruction to vary openings,
+        // transitions, and summaries across the whole manuscript.
+        const inst = instructionsForReason({ code: "humanize_manuscript", message: "", repair_action: "humanize_manuscript" }, 0);
+        for (const ch of chapters) {
+          if (seenChapters.has(ch.chapter_index)) continue;
+          const target = Math.max(ch.word_count ?? 0, MIN_CHAPTER_WORDS);
+          const x = await rewriteChapter(fixModel, ebook, ch, inst, target);
+          totalCost += x.usage.cost_usd;
+          await logCost(db, { ebook_id: ebook.id, step: `manuscript_humanize_ch${ch.chapter_index}:r${attemptsUsed}`, model: x.model, ...x.usage });
+          await db.from("ebook_chapters").update({ content: x.data, word_count: wc(x.data) })
+            .eq("ebook_id", ebook.id).eq("chapter_index", ch.chapter_index);
+          repairLog.push({ attempt: attemptsUsed, action: "humanize_manuscript", chapter_index: ch.chapter_index });
+          seenChapters.add(ch.chapter_index);
+        }
+        continue; // re-score next iteration
+      }
+
       if (seenChapters.size === 0 && !pickedExpandAll.done) {
-        // Nothing actionable was repaired — break to avoid infinite loop.
+        // Truly nothing actionable — exit.
         break;
       }
     }
