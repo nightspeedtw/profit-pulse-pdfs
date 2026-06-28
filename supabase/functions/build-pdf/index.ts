@@ -159,11 +159,12 @@ Deno.serve(async (req) => {
       const ch = chapters[i];
       const chNum = i + 1;
       const chShort = safe(ch.title);
+      const { promise, outcomes } = extractChapterPromise(ch.content || "", chShort);
 
       // -- Chapter divider page --
       const divider = pdf.addPage([PAGE_W, PAGE_H]);
       bookPageNum += 1;
-      drawChapterDivider(divider, theme, fonts, chNum, chShort);
+      drawChapterDivider(divider, theme, fonts, chNum, chShort, promise, outcomes);
       chapterStartIndex.push(bookPageNum);
       tocEntries.push({ title: ch.title, pageNum: bookPageNum });
 
