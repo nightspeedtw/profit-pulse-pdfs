@@ -51,6 +51,7 @@ const App = () => (
             <Route path="autopilot" element={<Autopilot />} />
             <Route path="ebook/:id" element={<EbookReview />} />
             <Route path="ebook/:id/writing" element={<EbookWriting />} />
+            <Route path="ebook/:id/cover" element={<EbookCover />} />
             <Route path="categories" element={<AdminCategories />} />
             <Route path="costs" element={<Costs />} />
             <Route path="settings" element={<SettingsPage />} />
