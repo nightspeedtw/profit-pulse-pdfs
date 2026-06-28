@@ -180,9 +180,9 @@ export default function Dashboard() {
           <h1 className="font-display text-4xl uppercase">Dashboard</h1>
         </div>
         <div className="flex gap-2">
-          <Button onClick={runSampleTest} disabled={testing} variant="outline">
-            {testing ? <Loader2 className="size-4 animate-spin mr-1" /> : <FlaskConical className="size-4 mr-1" />}
-            Test sample PDF
+          <Button onClick={runSampleTest} disabled={testing || testRun?.status === "running" || testRun?.status === "starting"}>
+            {(testing || testRun?.status === "running" || testRun?.status === "starting") ? <Loader2 className="size-4 animate-spin mr-1" /> : <FlaskConical className="size-4 mr-1" />}
+            Run Test Sample PDF
           </Button>
           <Button onClick={generateNow} disabled={generating} variant="outline">
             {generating ? <Loader2 className="size-4 animate-spin mr-1" /> : null}
