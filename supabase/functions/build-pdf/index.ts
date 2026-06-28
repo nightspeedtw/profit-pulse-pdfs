@@ -528,11 +528,17 @@ Deno.serve(async (req) => {
         cover_score: chosen.qc.coverPremiumScore,
         thumbnail_score: chosen.qc.thumbnailReadabilityScore,
         divider_score: chosen.qc.chapterDividerScore,
+        divider_uniqueness_score: (chosen.qc as Record<string, unknown>).dividerUniquenessScore,
+        divider_specificity_score: (chosen.qc as Record<string, unknown>).dividerSpecificityScore,
         worksheet_score: chosen.qc.worksheetQualityScore,
+        worksheet_variety_score: (chosen.qc as Record<string, unknown>).worksheetVarietyScore,
+        worksheet_layouts: (chosen.qc as Record<string, unknown>).worksheetLayouts,
         diagram_score: chosen.qc.diagramQualityScore,
         interior_score: chosen.qc.interiorLayoutScore,
         compliance_score: 100,
         final_pdf_premium_score: chosen.qc.finalPdfPremiumScore,
+        template_matches: (chosen.qc as Record<string, unknown>).templateMatches,
+        duplicate_bullet_structures: (chosen.qc as Record<string, unknown>).duplicateBulletStructures,
       },
     };
 
