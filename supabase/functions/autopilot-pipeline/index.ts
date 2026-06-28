@@ -224,14 +224,7 @@ Deno.serve(async (req) => {
           await runStep("9_cover", "generate-cover", { ebook_id: ebook.id, mode: "full" });
           await refreshEbook();
         }
-        if (mode === "safe" && !ebook.cover_approved) {
-          await db.from("ebooks").update({
-            autopilot_state: "awaiting_cover_approval",
-            needs_review_reason: "Cover awaiting admin approval (Safe Autopilot)",
-          }).eq("id", ebook.id);
-          await logRun(db, { ebook_id: ebook.id, step: "safe_gate_cover", status: "skip", error: "awaiting cover approval" });
-          return;
-        }
+        // Cover approval is automatic when cover QC passes — no admin gate in hands-off Autopilot.
 
         // STEP 10 + 11 — Render PDF (auto QC inside)
         if (!ebook.pdf_url || ebook.pdf_status === "needs_review" || ebook.pdf_status === "failed") {
@@ -243,14 +236,7 @@ Deno.serve(async (req) => {
             return;
           }
         }
-        if (mode === "safe" && !ebook.pdf_approved) {
-          await db.from("ebooks").update({
-            autopilot_state: "awaiting_pdf_approval",
-            needs_review_reason: "PDF awaiting admin approval (Safe Autopilot)",
-          }).eq("id", ebook.id);
-          await logRun(db, { ebook_id: ebook.id, step: "safe_gate_pdf", status: "skip", error: "awaiting PDF approval" });
-          return;
-        }
+        // PDF approval is automatic when pdf_status === "pdf_ready" — no admin gate in hands-off Autopilot.
 
         // STEP 12 — Shopify draft upload
         if (shopifyDraftEnabled && !ebook.shopify_product_id) {

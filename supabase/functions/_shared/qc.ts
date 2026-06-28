@@ -339,9 +339,8 @@ export function publishGate(e: {
   if (!e.product_description) r.push("missing description");
   if (!e.shopify_product_id) r.push("missing shopify draft");
   if ((e.cover_score ?? 0) < 85) r.push(`cover_score<85`);
-  if (!e.cover_approved) r.push("cover not approved");
   if ((e.pdf_score ?? 0) < 90) r.push(`pdf_score<90`);
-  if (!e.pdf_approved) r.push("pdf not approved");
+  // Admin approval gates removed — hands-off Autopilot uses QC scores + qc_status only.
   return { pass: r.length === 0, reasons: r };
 }
 
