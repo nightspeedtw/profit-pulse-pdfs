@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Play, Pause, Sparkles, AlertTriangle, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge, resolveEbookBadge } from "@/components/admin/StatusBadge";
+import { AutoFixChip } from "@/components/admin/AutoFixChip";
 
 type Ebook = {
   id: string; title: string;
