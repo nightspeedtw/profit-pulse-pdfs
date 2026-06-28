@@ -557,8 +557,9 @@ Deno.serve(async (req) => {
     await logRun(db, { ebook_id: ebook.id, step: "outline_qc", status: gate.pass ? "ok" : "rewrite", score: scores.data.structure_score, rewrite_count: attempts - 1, cost_usd: totalCost, payload: scores.data as any });
 
     const writing_status = gate.pass ? "outline_ready" : "needs_review";
-    const qc_status = gate.pass ? "outline_passed" : "outline_failed";
+    const qc_status = gate.pass ? "qc_passed" : "needs_admin_review";
     const pipeline_status = gate.pass ? "outline_generation" : "rejected";
+
 
     const { error: updErr, data: updRow } = await db.from("ebooks").update({
       outline_json: outline as any,
