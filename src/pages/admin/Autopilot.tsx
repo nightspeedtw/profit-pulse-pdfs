@@ -271,14 +271,101 @@ export default function Autopilot() {
             </div>
           </div>
         </CardContent>
+        {/* Milestone 8 — extended autopilot controls */}
+        <CardContent className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end pt-0">
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Pause</Label>
+            <div className="flex items-center gap-2 h-9">
+              <Switch
+                checked={settings?.paused ?? false}
+                onCheckedChange={(v) => saveSettings({ paused: v })}
+                disabled={savingSettings || !settings}
+              />
+              <span className="text-sm">{settings?.paused ? "Paused" : "Running"}</span>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Auto-publish</Label>
+            <div className="flex items-center gap-2 h-9">
+              <Switch
+                checked={settings?.auto_publish ?? false}
+                onCheckedChange={(v) => saveSettings({ auto_publish: v })}
+                disabled={savingSettings || !settings}
+              />
+              <span className="text-sm">{settings?.auto_publish ? "ON (Full only)" : "OFF (default)"}</span>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Shopify draft upload</Label>
+            <div className="flex items-center gap-2 h-9">
+              <Switch
+                checked={settings?.shopify_draft_upload_enabled ?? true}
+                onCheckedChange={(v) => saveSettings({ shopify_draft_upload_enabled: v })}
+                disabled={savingSettings || !settings}
+              />
+              <span className="text-sm">{settings?.shopify_draft_upload_enabled !== false ? "ON" : "OFF"}</span>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Auto-rewrite limit</Label>
+            <Input
+              type="number" min={0} max={5}
+              value={settings?.auto_rewrite_limit ?? 2}
+              onChange={(e) => setSettings(s => s ? { ...s, auto_rewrite_limit: Number(e.target.value) } : s)}
+              onBlur={(e) => saveSettings({ auto_rewrite_limit: Number(e.target.value) })}
+              disabled={!settings}
+            />
+            <p className="text-[10px] text-muted-foreground">Max QC rewrites per stage.</p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs font-mono uppercase">Per-ebook budget</Label>
+            <div className="flex items-center gap-1">
+              <span className="text-sm font-mono">$</span>
+              <Input
+                type="number" min={0} step={0.25}
+                value={settings?.per_ebook_budget_usd ?? 2}
+                onChange={(e) => setSettings(s => s ? { ...s, per_ebook_budget_usd: Number(e.target.value) } : s)}
+                onBlur={(e) => saveSettings({ per_ebook_budget_usd: Number(e.target.value) })}
+                disabled={!settings}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground">Pipeline halts if exceeded.</p>
+          </div>
+          <div className="md:col-span-5 space-y-1">
+            <Label className="text-xs font-mono uppercase">Category mix (JSON: slug → weight)</Label>
+            <Input
+              placeholder='e.g. {"finance":3,"productivity":2,"health":1}'
+              value={settings ? JSON.stringify(settings.category_mix ?? {}) : ""}
+              onChange={(e) => {
+                try {
+                  const parsed = e.target.value.trim() ? JSON.parse(e.target.value) : {};
+                  setSettings(s => s ? { ...s, category_mix: parsed } : s);
+                } catch { /* ignore until valid */ }
+              }}
+              onBlur={(e) => {
+                try {
+                  const parsed = e.target.value.trim() ? JSON.parse(e.target.value) : {};
+                  saveSettings({ category_mix: parsed });
+                } catch { toast.error("Invalid JSON for category mix"); }
+              }}
+              disabled={!settings}
+              className="font-mono text-xs"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Optional weights passed to idea generation. Leave empty to use default category sampling.
+            </p>
+          </div>
+        </CardContent>
         <CardContent className="pt-0 flex flex-wrap items-center gap-3">
-          <Button onClick={runCronNow} disabled={busy === "cron"} className="bg-green-700 hover:bg-green-800 text-white">
+          <Button onClick={runCronNow} disabled={busy === "cron" || settings?.paused}
+            className="bg-green-700 hover:bg-green-800 text-white">
             {busy === "cron" ? <Loader2 className="size-4 mr-1 animate-spin" /> : <Play className="size-4 mr-1" />}
-            Start Autopilot Now
+            {settings?.paused ? "Paused" : "Start Autopilot Now"}
           </Button>
           <p className="text-xs text-muted-foreground">
-            Generates ideas (if pool low) → launches up to <strong>{settings?.daily_quota ?? 0}</strong> ebooks → publishes ready drafts at <strong>{settings?.publish_hour_utc ?? 14}:00 UTC</strong>.
-            When <strong>Autopilot</strong> is enabled, this runs automatically every hour.
+            12-step pipeline (topic → outline → chapters → QC → cover → PDF → Shopify draft).
+            Up to <strong>{settings?.daily_quota ?? 0}</strong> ebooks/day, publishing at
+            <strong> {settings?.publish_hour_utc ?? 14}:00 UTC</strong>{settings?.auto_publish ? " when auto-publish is ON" : " — drafts only by default"}.
           </p>
         </CardContent>
       </Card>
