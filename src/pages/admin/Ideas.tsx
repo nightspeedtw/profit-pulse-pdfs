@@ -860,6 +860,67 @@ export default function Ideas() {
           })()}
         </DialogContent>
       </Dialog>
+
+      {/* Milestone 2 — Edit Manually dialog */}
+      <Dialog open={!!editOpen} onOpenChange={(o) => { if (!o) { setEditOpen(null); setEditDraft(null); } }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Edit Manually</DialogTitle></DialogHeader>
+          {editDraft && (
+            <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-2">
+              <div className="grid gap-1"><Label>Title</Label>
+                <Input value={editDraft.title} onChange={(e) => setEditDraft({ ...editDraft, title: e.target.value })} /></div>
+              <div className="grid gap-1"><Label>Subtitle</Label>
+                <Input value={editDraft.subtitle} onChange={(e) => setEditDraft({ ...editDraft, subtitle: e.target.value })} /></div>
+              <div className="grid gap-1"><Label>Hook</Label>
+                <Textarea rows={2} value={editDraft.hook} onChange={(e) => setEditDraft({ ...editDraft, hook: e.target.value })} /></div>
+              <div className="grid gap-1"><Label>Target buyer</Label>
+                <Input value={editDraft.target_buyer} onChange={(e) => setEditDraft({ ...editDraft, target_buyer: e.target.value })} /></div>
+              <div className="grid gap-1"><Label>Core pain point</Label>
+                <Textarea rows={2} value={editDraft.core_pain_point} onChange={(e) => setEditDraft({ ...editDraft, core_pain_point: e.target.value })} /></div>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <div className="grid gap-1"><Label className="text-[10px]">Buyer Appeal (0-100)</Label>
+                  <Input type="number" min={0} max={100} value={editDraft.buyer_appeal_score}
+                    onChange={(e) => setEditDraft({ ...editDraft, buyer_appeal_score: e.target.value })} /></div>
+                <div className="grid gap-1"><Label className="text-[10px]">Premium (0-100)</Label>
+                  <Input type="number" min={0} max={100} value={editDraft.premium_score}
+                    onChange={(e) => setEditDraft({ ...editDraft, premium_score: e.target.value })} /></div>
+                <div className="grid gap-1"><Label className="text-[10px]">Hard-Sell (0-100)</Label>
+                  <Input type="number" min={0} max={100} value={editDraft.hard_sell_strength_score}
+                    onChange={(e) => setEditDraft({ ...editDraft, hard_sell_strength_score: e.target.value })} /></div>
+                <div className="grid gap-1"><Label className="text-[10px]">Risk (1-10)</Label>
+                  <Input type="number" min={1} max={10} value={editDraft.compliance_risk_score}
+                    onChange={(e) => setEditDraft({ ...editDraft, compliance_risk_score: e.target.value })} /></div>
+                <div className="grid gap-1"><Label className="text-[10px]">Idea (0-100)</Label>
+                  <Input type="number" min={0} max={100} value={editDraft.idea_score}
+                    onChange={(e) => setEditDraft({ ...editDraft, idea_score: e.target.value })} /></div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setEditOpen(null); setEditDraft(null); }}>Cancel</Button>
+            <Button onClick={saveEdit}><Check className="size-4 mr-1" /> Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Milestone 2 — Reject with Reason dialog */}
+      <Dialog open={!!rejectOpen} onOpenChange={(o) => { if (!o) { setRejectOpen(null); setRejectReason(""); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Reject Idea</DialogTitle></DialogHeader>
+          <div className="grid gap-2">
+            <Label>Rejection reason (optional but recommended)</Label>
+            <Textarea rows={3} value={rejectReason} onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="e.g. compliance risk too high, buyer pull too weak, overlaps existing title…" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejectOpen(null); setRejectReason(""); }}>Cancel</Button>
+            <Button variant="destructive"
+              onClick={async () => { const id = rejectOpen?.id; if (!id) return; const r = rejectReason.trim(); setRejectOpen(null); await reject(id, r); setRejectReason(""); }}>
+              <X className="size-4 mr-1" /> Reject
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
