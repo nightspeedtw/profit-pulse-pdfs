@@ -9,7 +9,7 @@
 // - back cover + compliance disclaimer for finance topics
 // - lightweight QC scoring written back to ebooks.pdf_qc
 import { PDFDocument, PDFFont, PDFPage, RGB, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
-import { corsHeaders, admin, requireAdmin } from "../_shared/ai.ts";
+import { corsHeaders, admin, requireAdmin, aiJSON, pickModel } from "../_shared/ai.ts";
 
 const PAGE_W = 612;  // Letter
 const PAGE_H = 792;
@@ -40,6 +40,170 @@ function hexToRgb(hex?: string): RGB {
   const g = parseInt(n.slice(2, 4), 16) / 255;
   const b = parseInt(n.slice(4, 6), 16) / 255;
   return rgb(isNaN(r) ? 0 : r, isNaN(g) ? 0 : g, isNaN(b) ? 0 : b);
+}
+
+// ============ CHAPTER DIVIDER COPYWRITER AGENT ============
+// One AI call generates unique, editorial promise + 3 specific outcome bullets
+// for every chapter at once, with explicit anti-template rules. Falls back to
+// the deterministic pool if the gateway is unavailable.
+interface DividerCopy {
+  promise: string;
+  outcomes: string[];
+  transformation?: string;
+}
+async function generateUniqueDividerCopy(
+  ebookTitle: string,
+  subtitle: string,
+  buyer: string,
+  chapters: { title: string; content: string }[],
+): Promise<DividerCopy[] | null> {
+  if (!chapters.length) return [];
+  try {
+    const model = pickModel("balanced");
+    const list = chapters.map((c, i) => {
+      const excerpt = (c.content || "").replace(/[#*_`>\-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 900);
+      return `Chapter ${i + 1}: ${c.title}\nExcerpt: ${excerpt}`;
+    }).join("\n\n");
+    const sys = `You are a senior editorial copywriter for premium tactical workbooks.
+Write chapter divider copy that feels human-edited and intentional — never AI-templated.
+
+HARD RULES:
+- Every chapter promise must be a complete sentence, 14-28 words, ending with a period.
+- Never start two chapters with the same sentence structure or opening phrase.
+- Banned opening patterns: "This chapter gives you the exact moves behind", "shows you how to apply", "Convert ... from theory into", "Sidestep the silent traps", "Track the one metric".
+- Each promise must name a specific transformation tied to that chapter's topic.
+- Outcomes must be 3 specific, action-led learning outcomes (start with a verb), 10-22 words each, ending with a period.
+- Outcome bullets must NEVER use raw examples, brand names, dollar amounts, or numbers from the source.
+- Outcomes across chapters must NOT repeat sentence structure or use the same verb opener twice.
+- Voice: confident, editorial, buyer-relevant. American English.`;
+    const user = `Ebook: "${ebookTitle}" — ${subtitle}
+Target buyer: ${buyer}
+
+For each chapter below, write JSON with:
+  promise (string, one sentence, the unique transformation this chapter delivers)
+  outcomes (array of exactly 3 specific learning outcomes)
+  transformation (string, ≤14 words, the before→after the reader gets)
+
+${list}
+
+Return: {"chapters":[{"promise":"...","outcomes":["...","...","..."],"transformation":"..."}, ...]} with one entry per chapter, in order.`;
+    const { data } = await aiJSON<{ chapters: DividerCopy[] }>({
+      model, system: sys, user,
+      schemaHint: '{"chapters":[{"promise":"string","outcomes":["string","string","string"],"transformation":"string"}]}',
+    });
+    if (!Array.isArray(data?.chapters) || data.chapters.length !== chapters.length) return null;
+    return data.chapters.map((c) => ({
+      promise: String(c.promise || "").replace(/\s+/g, " ").trim().slice(0, 240),
+      outcomes: (c.outcomes ?? []).slice(0, 3).map((o) => String(o).replace(/\s+/g, " ").trim().slice(0, 180)),
+      transformation: c.transformation ? String(c.transformation).slice(0, 120) : undefined,
+    }));
+  } catch (e) {
+    console.error("generateUniqueDividerCopy failed:", (e as Error).message);
+    return null;
+  }
+}
+
+// Detect AI-template repetition across dividers. Returns 0-100 uniqueness score
+// + per-divider issue flags. Compares normalized 6-token signatures and verb openers.
+function scoreDividerUniqueness(copies: DividerCopy[]): {
+  uniquenessScore: number; specificityScore: number;
+  templateMatches: number; duplicateBulletStructures: number;
+} {
+  if (!copies.length) return { uniquenessScore: 100, specificityScore: 100, templateMatches: 0, duplicateBulletStructures: 0 };
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, " ").replace(/\s+/g, " ").trim();
+  const signature = (s: string) => norm(s).split(" ").slice(0, 6).join(" ");
+  const bannedPatterns = [
+    /this chapter gives you the exact moves behind/i,
+    /shows you how to apply them/i,
+    /convert .{1,40} from theory into/i,
+    /sidestep the silent traps/i,
+    /track the one metric/i,
+  ];
+  let templateMatches = 0;
+  const promiseSigs = new Map<string, number>();
+  for (const c of copies) {
+    for (const p of bannedPatterns) if (p.test(c.promise)) templateMatches++;
+    const sig = signature(c.promise);
+    promiseSigs.set(sig, (promiseSigs.get(sig) ?? 0) + 1);
+  }
+  let dupePromiseGroups = 0;
+  for (const n of promiseSigs.values()) if (n > 1) dupePromiseGroups += n - 1;
+
+  // Bullet structure repetition: collect verb opener per bullet; flag a structure
+  // collision when the same verb opens >2 bullets across chapters.
+  const verbCount = new Map<string, number>();
+  let totalBullets = 0;
+  for (const c of copies) for (const o of c.outcomes) {
+    const verb = norm(o).split(" ")[0] ?? "";
+    if (verb) { verbCount.set(verb, (verbCount.get(verb) ?? 0) + 1); totalBullets++; }
+  }
+  let duplicateBulletStructures = 0;
+  for (const n of verbCount.values()) if (n > 2) duplicateBulletStructures += n - 2;
+
+  const uniquenessScore = Math.max(0, 100 - templateMatches * 25 - dupePromiseGroups * 20);
+
+  // Specificity heuristic: well-formed length range + verb opener + at least one
+  // concrete/strong noun (or any number). Penalize obviously vague AI filler.
+  const specificWords = /(week|month|day|year|map|table|script|specific|exact|routine|leak|payoff|balance|negotiat|redirect|cash[- ]?flow|interest|principal|deadline|checklist|playbook|calculat|step|rule|template|tracker|target|trigger|metric|stack|line item|category|frame|formula|signal|threshold|priorit|filter|audit|cycle|window|sequence|swap|cut|free up|reclaim|reduce|build|create|design|spot|identify|debt|loan|card|fee|rate|payment|income|expense|saving|fund|account|number|amount)/i;
+  let promiseSpecificity = 0;
+  for (const c of copies) {
+    let s = 0;
+    if (c.promise.length >= 60 && c.promise.length <= 260) s += 60;
+    else if (c.promise.length >= 40) s += 40;
+    if (specificWords.test(c.promise) || /\d/.test(c.promise)) s += 25;
+    if (/[.!?]$/.test(c.promise.trim())) s += 15;
+    promiseSpecificity += s;
+  }
+  let bulletSpecificity = 0;
+  for (const c of copies) for (const o of c.outcomes) {
+    let s = 0;
+    if (o.length >= 40 && o.length <= 220) s += 55;
+    else if (o.length >= 25) s += 35;
+    if (/^[A-Z][a-z]+/.test(o.trim())) s += 20;
+    if (specificWords.test(o) || /\d/.test(o)) s += 25;
+    bulletSpecificity += s;
+  }
+
+  const specificityScore = Math.round(
+    (promiseSpecificity / Math.max(1, copies.length) * 0.4) +
+    (bulletSpecificity / Math.max(1, totalBullets) * 0.6),
+  );
+  return {
+    uniquenessScore,
+    specificityScore: Math.max(0, Math.min(100, specificityScore)),
+    templateMatches,
+    duplicateBulletStructures,
+  };
+}
+
+// ============ WORKSHEET LAYOUT PLANNER ============
+// Picks an approved layout type from worksheet purpose/title. Each layout
+// is rendered by a different drawer below so worksheets feel varied and
+// purpose-matched instead of repeated input boxes.
+type WorksheetLayout = "input_boxes" | "table" | "scorecard" | "checklist_grid" | "script_blocks" | "calendar" | "calculator";
+function pickWorksheetLayout(w: Worksheet, usedCounts: Map<WorksheetLayout, number>): WorksheetLayout {
+  const t = `${w.asset_name || ""} ${w.purpose || ""}`.toLowerCase();
+  const score = (layout: WorksheetLayout): number => {
+    // Strong cap: max 2 of the same layout type per ebook.
+    if ((usedCounts.get(layout) ?? 0) >= 2) return -1000;
+    return 0;
+  };
+  const candidates: [WorksheetLayout, number][] = [];
+  if (/track|log|balance|debt list|inventory|audit/.test(t)) candidates.push(["table", 90]);
+  if (/budget|category|categor|spend|expense/.test(t)) candidates.push(["table", 85]);
+  if (/script|call|negotiat|email|response|template/.test(t)) candidates.push(["script_blocks", 88]);
+  if (/calendar|weekly|routine|daily|schedule|7[- ]day|30[- ]day/.test(t)) candidates.push(["calendar", 88]);
+  if (/checklist|step|prep|onboard/.test(t)) candidates.push(["checklist_grid", 85]);
+  if (/priorit|score|rank|matrix|decision|choose|pick/.test(t)) candidates.push(["scorecard", 88]);
+  if (/calculat|payoff|interest|projection|forecast|number/.test(t)) candidates.push(["calculator", 90]);
+  if (/reflect|journal|insight|review|debrief|notes/.test(t)) candidates.push(["input_boxes", 80]);
+  // pick best non-capped
+  candidates.sort((a, b) => (b[1] + score(b[0])) - (a[1] + score(a[0])));
+  for (const [layout] of candidates) if (score(layout) >= 0) return layout;
+  // fallback rotation to keep variety
+  const rotation: WorksheetLayout[] = ["input_boxes", "table", "checklist_grid", "scorecard", "script_blocks", "calendar", "calculator"];
+  for (const l of rotation) if ((usedCounts.get(l) ?? 0) < 2) return l;
+  return "input_boxes";
 }
 
 // ============ ENTRY ============
@@ -79,6 +243,10 @@ Deno.serve(async (req) => {
       gateIssues: string[];
       gatePass: boolean;
     };
+
+    // Cache AI divider copy across retry attempts so we don't re-bill / re-burn
+    // wall time on each pass and so strict retries don't lose good copy.
+    let cachedAiCopies: DividerCopy[] | null | undefined;
 
     // ---- Single build attempt with optional strict auto-fix mode ----
     const attemptBuild = async (strict: boolean): Promise<Attempt> => {
@@ -165,6 +333,23 @@ Deno.serve(async (req) => {
       let diagramTruncatedCount = 0;
       let dividerIssueCount = 0;
 
+      // ---- Divider Copywriter Agent (run once per build) ----
+      // On strict retry we re-call the AI (fresh sample) so failures from the
+      // first attempt regenerate with new wording rather than reuse the same copy.
+      if (cachedAiCopies === undefined) {
+        cachedAiCopies = await generateUniqueDividerCopy(
+          titleText, subtitleText, String(e.target_buyer ?? ""), chapters,
+        );
+      }
+      const aiCopies = cachedAiCopies;
+      const aiCopySucceeded = !!aiCopies;
+      const dividerCopies: DividerCopy[] = chapters.map((ch, i) => {
+        const c = aiCopies?.[i];
+        if (c && /[.!?]$/.test(c.promise) && c.outcomes.length >= 3) return c;
+        const fb = extractChapterPromise(ch.content || "", safe(ch.title), strict);
+        return { promise: fb.promise, outcomes: fb.outcomes };
+      });
+
       type Ctx = { page: PDFPage; y: number; pageNum: number; chTitle: string };
       const newInteriorPage = (chTitle: string, withHeader = true): Ctx => {
         const page = pdf.addPage([PAGE_W, PAGE_H]);
@@ -174,12 +359,15 @@ Deno.serve(async (req) => {
         return { page, y: PAGE_H - MARGIN - 50, pageNum: bookPageNum, chTitle };
       };
 
+      // ---- Worksheet layout planner state (across all chapters) ----
+      const wsLayoutUsed = new Map<WorksheetLayout, number>();
+      const wsLayoutChoices: WorksheetLayout[] = [];
+
       for (let i = 0; i < chapters.length; i++) {
         const ch = chapters[i];
         const chNum = i + 1;
         const chShort = safe(ch.title);
-        // strict mode skips raw bullet extraction entirely — pool-only outcomes.
-        const { promise, outcomes } = extractChapterPromise(ch.content || "", chShort, strict);
+        const { promise, outcomes } = dividerCopies[i];
         const promiseOk = /[.!?]$/.test(promise.trim()) && promise.trim().length >= 30;
         const outcomesOk = outcomes.length >= 3 && outcomes.every((o) => /[.!?]$/.test(o.trim()) && o.trim().length >= 25);
         if (!promiseOk || !outcomesOk) dividerIssueCount += 1;
@@ -200,7 +388,6 @@ Deno.serve(async (req) => {
           bookPageNum += 1;
           drawRunningHeader(page, theme, fonts, brand, chShort);
           drawRunningFooter(page, theme, fonts, bookPageNum);
-          // In strict mode, hard-truncate node text to prevent any overflow/truncation.
           const safeDiagram: FrameworkDiagram = strict
             ? { ...d, nodes: (d.nodes ?? []).map((n) => safe(n).slice(0, 80)) }
             : d;
@@ -213,9 +400,14 @@ Deno.serve(async (req) => {
           bookPageNum += 1;
           drawRunningHeader(page, theme, fonts, brand, chShort);
           drawRunningFooter(page, theme, fonts, bookPageNum);
-          drawWorksheetPremium(page, w, theme, fonts);
+          const layout = pickWorksheetLayout(w, wsLayoutUsed);
+          wsLayoutUsed.set(layout, (wsLayoutUsed.get(layout) ?? 0) + 1);
+          wsLayoutChoices.push(layout);
+          drawWorksheetByLayout(page, w, layout, theme, fonts);
         }
       }
+
+
 
       // ---- Bonuses ----
       const bonuses = (e.bonuses ?? {}) as Record<string, string>;
@@ -265,18 +457,44 @@ Deno.serve(async (req) => {
       (qc as Record<string, unknown>).cover_text_qc = coverTextQc;
       qc.cover_text_pass = coverTextPass;
 
+      // ---- Anti-template + specificity scoring on divider copy ----
+      const dq = scoreDividerUniqueness(dividerCopies);
+      const dividerUniquenessScore = dq.uniquenessScore;
+      const dividerSpecificityScore = dq.specificityScore;
+      (qc as Record<string, unknown>).dividerUniquenessScore = dividerUniquenessScore;
+      (qc as Record<string, unknown>).dividerSpecificityScore = dividerSpecificityScore;
+      (qc as Record<string, unknown>).templateMatches = dq.templateMatches;
+      (qc as Record<string, unknown>).duplicateBulletStructures = dq.duplicateBulletStructures;
+
+      // ---- Worksheet variety scoring ----
+      const totalWs = wsLayoutChoices.length;
+      const distinctWs = new Set(wsLayoutChoices).size;
+      const maxSameLayout = Math.max(0, ...Array.from(wsLayoutUsed.values()));
+      const worksheetVarietyScore = totalWs === 0
+        ? 100
+        : Math.max(
+            40,
+            Math.min(100, Math.round((distinctWs / Math.min(totalWs, 5)) * 100) - Math.max(0, maxSameLayout - 2) * 15),
+          );
+      (qc as Record<string, unknown>).worksheetVarietyScore = worksheetVarietyScore;
+      (qc as Record<string, unknown>).worksheetLayouts = wsLayoutChoices;
+
       const gateIssues: string[] = [];
       if (!coverTextPass) gateIssues.push("Cover missing required text (title/subtitle/brand).");
       if (qc.coverPremiumScore < 90) gateIssues.push(`cover_premium=${qc.coverPremiumScore}<90`);
       if (qc.thumbnailReadabilityScore < 90) gateIssues.push(`thumbnail=${qc.thumbnailReadabilityScore}<90`);
       if (qc.chapterDividerScore < 90) gateIssues.push(`chapter_divider=${qc.chapterDividerScore}<90`);
+      if (aiCopySucceeded && dividerUniquenessScore < 90) gateIssues.push(`divider_uniqueness=${dividerUniquenessScore}<90`);
+      if (aiCopySucceeded && dividerSpecificityScore < 90) gateIssues.push(`divider_specificity=${dividerSpecificityScore}<90`);
       if (qc.worksheetQualityScore < 90) gateIssues.push(`worksheet=${qc.worksheetQualityScore}<90`);
+      if (totalWs >= 4 && worksheetVarietyScore < 90) gateIssues.push(`worksheet_variety=${worksheetVarietyScore}<90`);
       if (qc.diagramQualityScore < 90) gateIssues.push(`diagram=${qc.diagramQualityScore}<90`);
       if (qc.interiorLayoutScore < 90) gateIssues.push(`interior=${qc.interiorLayoutScore}<90`);
       if (qc.finalPdfPremiumScore < 90) gateIssues.push(`final_premium=${qc.finalPdfPremiumScore}<90`);
       if (isFinance && /guaranteed (debt|payoff|savings|income)|guaranteed results/i.test(`${e.title} ${e.subtitle ?? ""} ${e.hook ?? ""}`)) {
         gateIssues.push("compliance: guarantee language detected.");
       }
+
 
       return {
         bytes, pageCount, qc, coverEmbedded: coverHasBgImage,
@@ -321,11 +539,17 @@ Deno.serve(async (req) => {
         cover_score: chosen.qc.coverPremiumScore,
         thumbnail_score: chosen.qc.thumbnailReadabilityScore,
         divider_score: chosen.qc.chapterDividerScore,
+        divider_uniqueness_score: (chosen.qc as Record<string, unknown>).dividerUniquenessScore,
+        divider_specificity_score: (chosen.qc as Record<string, unknown>).dividerSpecificityScore,
         worksheet_score: chosen.qc.worksheetQualityScore,
+        worksheet_variety_score: (chosen.qc as Record<string, unknown>).worksheetVarietyScore,
+        worksheet_layouts: (chosen.qc as Record<string, unknown>).worksheetLayouts,
         diagram_score: chosen.qc.diagramQualityScore,
         interior_score: chosen.qc.interiorLayoutScore,
         compliance_score: 100,
         final_pdf_premium_score: chosen.qc.finalPdfPremiumScore,
+        template_matches: (chosen.qc as Record<string, unknown>).templateMatches,
+        duplicate_bullet_structures: (chosen.qc as Record<string, unknown>).duplicateBulletStructures,
       },
     };
 
@@ -1508,3 +1732,196 @@ function computePdfQc(x: {
     blocked_for_publish: !(passes.cover && passes.thumbnail && passes.interior && passes.worksheet && passes.diagram && passes.final),
   };
 }
+
+// ============ WORKSHEET LAYOUT RENDERERS ============
+// Dispatcher: route to the layout-appropriate renderer; "input_boxes" is the
+// existing premium boxed worksheet. New layouts give the ebook variety.
+function drawWorksheetByLayout(page: PDFPage, w: Worksheet, layout: WorksheetLayout, theme: Theme, fonts: Fonts) {
+  switch (layout) {
+    case "table": return drawWorksheetTable(page, w, theme, fonts);
+    case "scorecard": return drawWorksheetScorecard(page, w, theme, fonts);
+    case "checklist_grid": return drawWorksheetChecklist(page, w, theme, fonts);
+    case "script_blocks": return drawWorksheetScript(page, w, theme, fonts);
+    case "calendar": return drawWorksheetCalendar(page, w, theme, fonts);
+    case "calculator": return drawWorksheetCalculator(page, w, theme, fonts);
+    case "input_boxes":
+    default: return drawWorksheetPremium(page, w, theme, fonts);
+  }
+}
+
+function drawWorksheetHeader(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts, kind: string): number {
+  drawSectionTitle(page, theme, fonts, kind);
+  page.drawText(safe(w.asset_name || "").slice(0, 80), {
+    x: MARGIN, y: PAGE_H - 160, size: 14, font: fonts.bold, color: theme.ink,
+  });
+  let y = PAGE_H - 180;
+  const purposeText = (w.purpose && w.purpose.trim()) ? w.purpose
+    : "Use this layout to lock in what you just learned. Fill it in this week.";
+  const lines = wrap(purposeText, fonts.italic, 10, CONTENT_W - 24).slice(0, 3);
+  const h = lines.length * 14 + 16;
+  page.drawRectangle({ x: MARGIN, y: y - h, width: CONTENT_W, height: h, color: theme.surfaceWarm });
+  page.drawRectangle({ x: MARGIN, y: y - h, width: 5, height: h, color: theme.accent });
+  let ly = y - 12;
+  for (const ln of lines) {
+    page.drawText(safe(ln), { x: MARGIN + 14, y: ly, size: 10, font: fonts.italic, color: theme.ink });
+    ly -= 14;
+  }
+  return y - h - 18;
+}
+
+function drawWorksheetTable(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
+  let y = drawWorksheetHeader(page, w, theme, fonts, "Tracker");
+  const rawCols = (w.fields_or_sections ?? []).slice(0, 5);
+  const cols = rawCols.length >= 2 ? rawCols : ["Item", "Amount", "Priority", "Action", "Date"];
+  const colW = CONTENT_W / cols.length;
+  const headerH = 26;
+  // Header
+  page.drawRectangle({ x: MARGIN, y: y - headerH, width: CONTENT_W, height: headerH, color: theme.overlay });
+  for (let i = 0; i < cols.length; i++) {
+    page.drawText(safe(cols[i]).slice(0, 22).toUpperCase(), {
+      x: MARGIN + i * colW + 8, y: y - headerH / 2 - 4,
+      size: 9, font: fonts.bold, color: theme.onDark,
+    });
+  }
+  y -= headerH;
+  const bottom = MARGIN + 40;
+  const rowH = 28;
+  const rows = Math.floor((y - bottom) / rowH);
+  for (let r = 0; r < rows; r++) {
+    const ry = y - (r + 1) * rowH;
+    const bg = r % 2 === 0 ? rgb(1, 1, 1) : theme.surface;
+    page.drawRectangle({ x: MARGIN, y: ry, width: CONTENT_W, height: rowH, color: bg, borderColor: theme.hair, borderWidth: 0.5 });
+    for (let i = 1; i < cols.length; i++) {
+      page.drawLine({ start: { x: MARGIN + i * colW, y: ry }, end: { x: MARGIN + i * colW, y: ry + rowH }, thickness: 0.4, color: theme.hair });
+    }
+  }
+}
+
+function drawWorksheetScorecard(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
+  let y = drawWorksheetHeader(page, w, theme, fonts, "Scorecard");
+  const items = (w.fields_or_sections ?? []).slice(0, 8);
+  if (!items.length) items.push("Option A", "Option B", "Option C", "Option D");
+  page.drawText("RATE EACH 1-10 — CIRCLE YOUR SCORE", {
+    x: MARGIN, y, size: 8, font: fonts.bold, color: theme.sub,
+  });
+  y -= 16;
+  const rowH = 38;
+  const scaleStart = PAGE_W - MARGIN - 250;
+  for (let i = 0; i < items.length; i++) {
+    if (y - rowH < MARGIN + 40) break;
+    page.drawRectangle({ x: MARGIN, y: y - rowH, width: CONTENT_W, height: rowH, color: i % 2 ? theme.surface : rgb(1, 1, 1), borderColor: theme.hair, borderWidth: 0.5 });
+    page.drawRectangle({ x: MARGIN, y: y - rowH, width: 4, height: rowH, color: theme.accent });
+    page.drawText(safe(items[i]).slice(0, 60), { x: MARGIN + 12, y: y - rowH / 2 - 4, size: 11, font: fonts.bold, color: theme.ink });
+    // 1-10 circles
+    for (let n = 1; n <= 10; n++) {
+      const cx = scaleStart + (n - 1) * 24;
+      const cy = y - rowH / 2;
+      page.drawCircle({ x: cx, y: cy, size: 9, borderColor: theme.ink, borderWidth: 0.6, color: rgb(1, 1, 1) });
+      const tw = fonts.reg.widthOfTextAtSize(String(n), 8);
+      page.drawText(String(n), { x: cx - tw / 2, y: cy - 3, size: 8, font: fonts.reg, color: theme.ink });
+    }
+    y -= rowH + 6;
+  }
+}
+
+function drawWorksheetChecklist(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
+  let y = drawWorksheetHeader(page, w, theme, fonts, "Checklist");
+  const items = (w.fields_or_sections ?? []).slice(0, 14);
+  if (!items.length) items.push("Set the date", "Gather your numbers", "Run the calculation", "Send the message", "Confirm follow-up");
+  const rowH = 30;
+  for (let i = 0; i < items.length; i++) {
+    if (y - rowH < MARGIN + 40) break;
+    // Checkbox
+    page.drawRectangle({ x: MARGIN + 4, y: y - 20, width: 16, height: 16, color: rgb(1, 1, 1), borderColor: theme.ink, borderWidth: 0.8 });
+    // Step number
+    const num = String(i + 1).padStart(2, "0");
+    page.drawText(num, { x: MARGIN + 30, y: y - 18, size: 11, font: fonts.bold, color: theme.accent });
+    // Label
+    const lines = wrap(safe(items[i]), fonts.reg, 11, CONTENT_W - 80).slice(0, 1);
+    page.drawText(lines[0] ?? "", { x: MARGIN + 56, y: y - 18, size: 11, font: fonts.reg, color: theme.ink });
+    page.drawLine({ start: { x: MARGIN, y: y - rowH }, end: { x: PAGE_W - MARGIN, y: y - rowH }, thickness: 0.3, color: theme.hair });
+    y -= rowH;
+  }
+}
+
+function drawWorksheetScript(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
+  let y = drawWorksheetHeader(page, w, theme, fonts, "Script Template");
+  const sections = (w.fields_or_sections ?? []).slice(0, 4);
+  if (!sections.length) sections.push("Opening", "Reason / leverage", "Your specific ask", "Confirmation + next step");
+  const bottom = MARGIN + 40;
+  const totalH = y - bottom;
+  const sectH = Math.floor(totalH / sections.length) - 10;
+  for (let i = 0; i < sections.length; i++) {
+    const top = y;
+    // Speaker tab
+    page.drawRectangle({ x: MARGIN, y: top - 22, width: 100, height: 22, color: theme.overlay });
+    page.drawText(`YOU — ${safe(sections[i]).slice(0, 14).toUpperCase()}`, { x: MARGIN + 8, y: top - 16, size: 8, font: fonts.bold, color: theme.onDark });
+    // Body box
+    const bodyTop = top - 22;
+    const bodyH = sectH - 22;
+    page.drawRectangle({ x: MARGIN, y: bodyTop - bodyH, width: CONTENT_W, height: bodyH, color: theme.surface, borderColor: theme.hair, borderWidth: 0.5 });
+    // ruled lines
+    let ry = bodyTop - 18;
+    while (ry > bodyTop - bodyH + 6) {
+      page.drawLine({ start: { x: MARGIN + 10, y: ry }, end: { x: PAGE_W - MARGIN - 10, y: ry }, thickness: 0.3, color: theme.hair });
+      ry -= 18;
+    }
+    y = bodyTop - bodyH - 10;
+  }
+}
+
+function drawWorksheetCalendar(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
+  let y = drawWorksheetHeader(page, w, theme, fonts, "Weekly Plan");
+  const days = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+  const colW = CONTENT_W / 7;
+  const headerH = 22;
+  page.drawRectangle({ x: MARGIN, y: y - headerH, width: CONTENT_W, height: headerH, color: theme.overlay });
+  for (let i = 0; i < 7; i++) {
+    const tw = fonts.bold.widthOfTextAtSize(days[i], 9);
+    page.drawText(days[i], { x: MARGIN + i * colW + colW / 2 - tw / 2, y: y - headerH / 2 - 3, size: 9, font: fonts.bold, color: theme.onDark });
+  }
+  y -= headerH;
+  const bottom = MARGIN + 40;
+  const cellH = y - bottom;
+  for (let i = 0; i < 7; i++) {
+    page.drawRectangle({ x: MARGIN + i * colW, y: bottom, width: colW, height: cellH, color: rgb(1, 1, 1), borderColor: theme.hair, borderWidth: 0.5 });
+    // ruled lines inside each day
+    let ry = y - 18;
+    while (ry > bottom + 8) {
+      page.drawLine({ start: { x: MARGIN + i * colW + 4, y: ry }, end: { x: MARGIN + (i + 1) * colW - 4, y: ry }, thickness: 0.25, color: theme.hair });
+      ry -= 18;
+    }
+  }
+  // Foci row at bottom
+  const sections = (w.fields_or_sections ?? []).slice(0, 7);
+  for (let i = 0; i < Math.min(7, sections.length); i++) {
+    page.drawText(safe(sections[i]).slice(0, 12), { x: MARGIN + i * colW + 4, y: y - 14, size: 8, font: fonts.italic, color: theme.sub });
+  }
+}
+
+function drawWorksheetCalculator(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
+  let y = drawWorksheetHeader(page, w, theme, fonts, "Calculator");
+  const inputs = (w.fields_or_sections ?? []).slice(0, 6);
+  if (!inputs.length) inputs.push("Starting balance", "Interest rate (APR)", "Monthly payment", "Extra payment", "Months elapsed", "Projected payoff");
+  const rowH = 36;
+  for (let i = 0; i < inputs.length; i++) {
+    if (y - rowH < MARGIN + 60) break;
+    page.drawRectangle({ x: MARGIN, y: y - rowH, width: CONTENT_W, height: rowH, color: i % 2 ? theme.surface : rgb(1, 1, 1), borderColor: theme.hair, borderWidth: 0.5 });
+    page.drawText(safe(inputs[i]).slice(0, 50), { x: MARGIN + 12, y: y - rowH / 2 - 3, size: 11, font: fonts.bold, color: theme.ink });
+    // input field on right
+    const fieldW = 180;
+    const fx = PAGE_W - MARGIN - fieldW - 8;
+    page.drawRectangle({ x: fx, y: y - rowH + 6, width: fieldW, height: rowH - 12, color: rgb(1, 1, 1), borderColor: theme.ink, borderWidth: 0.8 });
+    page.drawText("=", { x: fx - 16, y: y - rowH / 2 - 3, size: 14, font: fonts.bold, color: theme.accent });
+    y -= rowH + 4;
+  }
+  // Result strip
+  if (y > MARGIN + 50) {
+    page.drawRectangle({ x: MARGIN, y: MARGIN + 30, width: CONTENT_W, height: 40, color: theme.overlay });
+    page.drawText("RESULT / DECISION", { x: MARGIN + 12, y: MARGIN + 52, size: 9, font: fonts.bold, color: theme.accent });
+    page.drawText("________________________________________________________", {
+      x: MARGIN + 12, y: MARGIN + 36, size: 11, font: fonts.reg, color: theme.onDark,
+    });
+  }
+}
+
