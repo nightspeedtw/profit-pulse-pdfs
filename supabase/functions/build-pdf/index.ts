@@ -496,6 +496,21 @@ Deno.serve(async (req) => {
       (qc as Record<string, unknown>).worksheetVarietyScore = worksheetVarietyScore;
       (qc as Record<string, unknown>).worksheetLayouts = wsLayoutChoices;
 
+      // ---- Premium Learning Block + Diagram Template scoring ----
+      const chCount = Math.max(1, chapters.length);
+      const blocksPerChapter = totalLearningBlocks / chCount;
+      const enoughRatio = chaptersWithEnoughBlocks / chCount;
+      const premiumLearningBlockScore = Math.max(
+        50,
+        Math.min(100, Math.round(60 + Math.min(20, blocksPerChapter * 5) + enoughRatio * 20)),
+      );
+      const diagramTemplateScore = Math.max(40, 100 - unknownDiagramTypes * 25);
+      (qc as Record<string, unknown>).premiumLearningBlockScore = premiumLearningBlockScore;
+      (qc as Record<string, unknown>).diagramTemplateScore = diagramTemplateScore;
+      (qc as Record<string, unknown>).totalLearningBlocks = totalLearningBlocks;
+      (qc as Record<string, unknown>).unknownDiagramTypes = unknownDiagramTypes;
+
+
       const gateIssues: string[] = [];
       if (!coverTextPass) gateIssues.push("Cover missing required text (title/subtitle/brand).");
       if (qc.coverPremiumScore < 90) gateIssues.push(`cover_premium=${qc.coverPremiumScore}<90`);
