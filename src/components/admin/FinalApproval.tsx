@@ -187,12 +187,12 @@ export function FinalApproval({ ebook, onChanged }: Props) {
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <ScoreTile label="Cover" value={coverScore} min={THRESHOLDS.cover} />
-          <ScoreTile label="Thumbnail" value={qc.thumbnail_readability_score} min={THRESHOLDS.thumbnail} />
-          <ScoreTile label="Interior" value={qc.interior_layout_score} min={THRESHOLDS.interior} />
-          <ScoreTile label="Worksheet" value={qc.worksheet_quality_score} min={THRESHOLDS.worksheet} />
-          <ScoreTile label="Diagram" value={qc.diagram_quality_score} min={THRESHOLDS.diagram} />
+          <ScoreTile label="Thumbnail" value={thumbScore} min={THRESHOLDS.thumbnail} />
+          <ScoreTile label="Interior" value={interiorScore} min={THRESHOLDS.interior} />
+          <ScoreTile label="Worksheet" value={worksheetScore} min={THRESHOLDS.worksheet} />
+          <ScoreTile label="Diagram" value={diagramScore} min={THRESHOLDS.diagram} />
           <ScoreTile label="Product Page" value={productScore} min={THRESHOLDS.product} />
-          <ScoreTile label="Final Premium" value={qc.final_pdf_premium_score} min={THRESHOLDS.final} />
+          <ScoreTile label="Final Premium" value={finalScore} min={THRESHOLDS.final} />
           <div className="border-2 border-foreground/15 p-3 flex flex-col justify-between">
             <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Gates passed</div>
             <div className="text-2xl font-bold">{gates.filter((g) => g.pass).length}/{gates.length}</div>
