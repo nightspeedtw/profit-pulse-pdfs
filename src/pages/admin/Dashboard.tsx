@@ -193,6 +193,9 @@ export default function CommandCenter() {
         </div>
       </div>
 
+      {/* Live Autopilot run — only renders when a run is active */}
+      <LiveAutopilotCard />
+
       {/* Autopilot status strip */}
       <Card className="border-2 border-foreground">
         <CardContent className="p-5 space-y-4">
