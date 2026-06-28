@@ -43,7 +43,12 @@ Deno.serve(async (req) => {
     if (e.cover_url) {
       const r = await fetch(e.cover_url);
       const buf = new Uint8Array(await r.arrayBuffer());
-      const b64 = btoa(String.fromCharCode(...buf));
+      let binary = "";
+      const CHUNK = 0x8000;
+      for (let i = 0; i < buf.length; i += CHUNK) {
+        binary += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + CHUNK)));
+      }
+      const b64 = btoa(binary);
       imagesPayload = [{ attachment: b64, filename: "cover.png", alt: e.title }];
     }
 
