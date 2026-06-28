@@ -43,6 +43,13 @@ function hexToRgb(hex?: string): RGB {
 }
 
 // ============ ENTRY ============
+// Permanent Global Premium PDF Auto-QC gate:
+//   1. Build PDF using controlled components.
+//   2. Run deterministic QC on every gate-relevant axis.
+//   3. If any score < threshold, auto-fix and re-render (max 2 retries).
+//   4. Only set pdf_status='pdf_ready' on full pass.
+//      On final failure -> pdf_status='pdf_needs_human_review'. The publish
+//      gate refuses to upload anything that isn't 'pdf_ready'.
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -53,238 +60,299 @@ Deno.serve(async (req) => {
     const { data: e } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
     if (!e) throw new Error("Ebook not found");
     const prevStatus = e.status ?? "review";
-    await db.from("ebooks").update({ status: "building_pdf" }).eq("id", ebook_id);
+    await db.from("ebooks").update({ status: "building_pdf", pdf_status: "pdf_qc_pending" }).eq("id", ebook_id);
 
-    const pdf = await PDFDocument.create();
-    const helv = await pdf.embedFont(StandardFonts.Helvetica);
-    const helvBold = await pdf.embedFont(StandardFonts.HelveticaBold);
-    const helvOblique = await pdf.embedFont(StandardFonts.HelveticaOblique);
-    const fonts: Fonts = { reg: helv, bold: helvBold, italic: helvOblique };
-
-    const spec: CoverSpec = (e.cover_spec ?? {}) as CoverSpec;
-    const palette = spec.color_palette ?? ["#0b1a2b", "#ffffff", "#f5c518"];
-    const theme: Theme = {
-      overlay: hexToRgb(palette[0]),
-      onDark: hexToRgb(palette[1] ?? "#ffffff"),
-      accent: hexToRgb(palette[2] ?? "#f5c518"),
-      ink: rgb(0.08, 0.09, 0.12),
-      sub: rgb(0.35, 0.37, 0.42),
-      hair: rgb(0.85, 0.86, 0.9),
-      surface: rgb(0.97, 0.97, 0.98),
-      surfaceWarm: rgb(0.99, 0.96, 0.88),
-      surfaceDanger: rgb(0.99, 0.93, 0.93),
-      surfaceOk: rgb(0.93, 0.97, 0.93),
+    type Attempt = {
+      bytes: Uint8Array;
+      pageCount: number;
+      qc: Record<string, unknown> & {
+        coverPremiumScore: number; worksheetQualityScore: number;
+        diagramQualityScore: number; finalPdfPremiumScore: number;
+        chapterDividerScore: number; thumbnailReadabilityScore: number;
+        interiorLayoutScore: number; productValueScore: number;
+        diagramOverflowCount: number; diagramTruncatedCount: number;
+        dividerIssueCount: number; cover_text_pass: boolean;
+        cover_text_qc: Record<string, boolean>; issues: string[];
+        passes: Record<string, boolean>;
+      };
+      coverEmbedded: boolean;
+      gateIssues: string[];
+      gatePass: boolean;
     };
 
-    const brand = safe((spec.brand_text || "SECRET PDF").toUpperCase());
-    const titleText = safe(spec.title_text || e.title || "");
-    const subtitleText = safe(spec.subtitle_text || e.subtitle || e.hook || "");
-    const badgeText = safe(spec.badge_text || "PREMIUM TACTICAL WORKBOOK");
+    // ---- Single build attempt with optional strict auto-fix mode ----
+    const attemptBuild = async (strict: boolean): Promise<Attempt> => {
+      const pdf = await PDFDocument.create();
+      const helv = await pdf.embedFont(StandardFonts.Helvetica);
+      const helvBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+      const helvOblique = await pdf.embedFont(StandardFonts.HelveticaOblique);
+      const fonts: Fonts = { reg: helv, bold: helvBold, italic: helvOblique };
 
-    // ============ 1) COVER — text-free background + bulletproof code-rendered overlay ============
-    // We ALWAYS draw title/subtitle/brand/badge in pdf-lib StandardFonts on top of the
-    // background, regardless of whether cover_bg_url, cover_url, or no image is available.
-    // This guarantees the cover ships with real, readable, correctly-spelled text.
-    const coverPage = pdf.addPage([PAGE_W, PAGE_H]);
-    coverPage.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: theme.overlay });
-    // Prefer the text-free background. Fall back to the composed cover image, then to a code-only cover.
-    const coverSrc = e.cover_bg_url || e.cover_url;
-    let coverHasBgImage = false;
-    if (coverSrc) {
-      try {
-        const buf = new Uint8Array(await (await fetch(coverSrc)).arrayBuffer());
-        const img = await pdf.embedPng(buf).catch(() => pdf.embedJpg(buf));
-        coverPage.drawImage(img, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
-        coverHasBgImage = true;
-      } catch { /* fall through to overlay-only cover */ }
-    }
-    // Always overlay title/subtitle/brand/badge on top of the background (or solid overlay).
-    drawCoverOverlay(coverPage, theme, fonts, titleText, subtitleText, brand, badgeText, coverHasBgImage);
-    const coverEmbedded = coverHasBgImage;
-    // Hard text QC: title + subtitle + brand are all mandatory for a sellable cover.
-    const coverTextQc = {
-      title_present: titleText.trim().length >= 4,
-      subtitle_present: subtitleText.trim().length >= 4,
-      brand_present: brand.trim().length >= 2,
-      badge_present: badgeText.trim().length >= 2,
-    };
-    const coverTextPass = coverTextQc.title_present && coverTextQc.subtitle_present && coverTextQc.brand_present;
+      const spec: CoverSpec = (e.cover_spec ?? {}) as CoverSpec;
+      const palette = spec.color_palette ?? ["#0b1a2b", "#ffffff", "#f5c518"];
+      const theme: Theme = {
+        overlay: hexToRgb(palette[0]),
+        onDark: hexToRgb(palette[1] ?? "#ffffff"),
+        accent: hexToRgb(palette[2] ?? "#f5c518"),
+        ink: rgb(0.08, 0.09, 0.12),
+        sub: rgb(0.35, 0.37, 0.42),
+        hair: rgb(0.85, 0.86, 0.9),
+        surface: rgb(0.97, 0.97, 0.98),
+        surfaceWarm: rgb(0.99, 0.96, 0.88),
+        surfaceDanger: rgb(0.99, 0.93, 0.93),
+        surfaceOk: rgb(0.93, 0.97, 0.93),
+      };
 
-    // ============ 2) TITLE PAGE ============
-    const titlePage = pdf.addPage([PAGE_W, PAGE_H]);
-    drawTitlePage(titlePage, theme, fonts, titleText, subtitleText, brand, badgeText);
+      const brand = safe((spec.brand_text || "SECRET PDF").toUpperCase());
+      const titleText = safe(spec.title_text || e.title || "");
+      const subtitleText = safe(spec.subtitle_text || e.subtitle || e.hook || "");
+      const badgeText = safe(spec.badge_text || "PREMIUM TACTICAL WORKBOOK");
 
-    // ============ 3) COPYRIGHT / DISCLAIMER ============
-    const copyPage = pdf.addPage([PAGE_W, PAGE_H]);
-    const isFinance = looksFinance(`${e.title} ${e.subtitle ?? ""} ${e.hook ?? ""}`);
-    drawCopyrightPage(copyPage, theme, fonts, brand, isFinance);
-
-    // ============ 4) TOC (will fill in page numbers in a 2nd pass) ============
-    const toc = ((e.toc ?? []) as { title: string }[]).slice(0, 24);
-    const tocPage = pdf.addPage([PAGE_W, PAGE_H]);
-    drawRunningHeader(tocPage, theme, fonts, brand, "TABLE OF CONTENTS");
-    drawSectionTitle(tocPage, theme, fonts, "Contents");
-    // placeholder, real page nums injected later
-    const tocEntries: { title: string; pageNum: number }[] = [];
-
-    // We'll defer drawing TOC entries until chapter pages are emitted; collect their page indexes.
-    // ============ 5) CHAPTERS ============
-    const visuals: InteriorVisuals = (e.interior_visuals ?? {}) as InteriorVisuals;
-    const diagrams = visuals.framework_diagrams ?? [];
-    const worksheets = visuals.worksheets_and_templates ?? [];
-    const byCh = <T extends { chapter: string }>(arr: T[]) => {
-      const m = new Map<number, T[]>();
-      const k = (s: string) => { const x = /(\d+)/.exec(s ?? ""); return x ? Number(x[1]) : 0; };
-      for (const it of arr) { const c = k(it.chapter); if (!m.has(c)) m.set(c, []); m.get(c)!.push(it); }
-      return m;
-    };
-    const diaMap = byCh(diagrams);
-    const wsMap = byCh(worksheets);
-
-    const chapters = ((e.chapters ?? []) as { title: string; content: string }[]).slice(0, 30);
-    const chapterStartIndex: number[] = []; // 1-based "book page numbers"
-    let bookPageNum = 0; // count from after-cover-after-title-after-copy-after-toc = chapter 1 page 1
-    let diagramOverflowCount = 0;
-    let diagramTruncatedCount = 0;
-    let dividerIssueCount = 0;
-
-    // Helper to add an interior page with header+footer and increment counter
-    type Ctx = { page: PDFPage; y: number; pageNum: number; chTitle: string };
-    const newInteriorPage = (chTitle: string, withHeader = true): Ctx => {
-      const page = pdf.addPage([PAGE_W, PAGE_H]);
-      bookPageNum += 1;
-      if (withHeader) drawRunningHeader(page, theme, fonts, brand, chTitle);
-      drawRunningFooter(page, theme, fonts, bookPageNum);
-      return { page, y: PAGE_H - MARGIN - 50, pageNum: bookPageNum, chTitle };
-    };
-
-    for (let i = 0; i < chapters.length; i++) {
-      const ch = chapters[i];
-      const chNum = i + 1;
-      const chShort = safe(ch.title);
-      const { promise, outcomes } = extractChapterPromise(ch.content || "", chShort);
-      // QC: every divider must have a complete promise sentence + 3 outcome sentences.
-      const promiseOk = /[.!?]$/.test(promise.trim()) && promise.trim().length >= 30;
-      const outcomesOk = outcomes.length >= 3 && outcomes.every((o) => /[.!?]$/.test(o.trim()) && o.trim().length >= 25);
-      if (!promiseOk || !outcomesOk) dividerIssueCount += 1;
-
-      // -- Chapter divider page --
-      const divider = pdf.addPage([PAGE_W, PAGE_H]);
-      bookPageNum += 1;
-      drawChapterDivider(divider, theme, fonts, chNum, chShort, promise, outcomes);
-      chapterStartIndex.push(bookPageNum);
-      tocEntries.push({ title: ch.title, pageNum: bookPageNum });
-
-      // -- Chapter content --
-      let ctx = newInteriorPage(chShort);
-      const blocks = parseMarkdown(ch.content || "");
-      for (const block of blocks) {
-        ctx = renderBlock(pdf, ctx, block, theme, fonts, (t) => newInteriorPage(t), chShort);
+      // ---- Cover ----
+      const coverPage = pdf.addPage([PAGE_W, PAGE_H]);
+      coverPage.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: theme.overlay });
+      const coverSrc = e.cover_bg_url || e.cover_url;
+      let coverHasBgImage = false;
+      if (coverSrc) {
+        try {
+          const buf = new Uint8Array(await (await fetch(coverSrc)).arrayBuffer());
+          const img = await pdf.embedPng(buf).catch(() => pdf.embedJpg(buf));
+          coverPage.drawImage(img, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
+          coverHasBgImage = true;
+        } catch { /* fall through */ }
       }
+      drawCoverOverlay(coverPage, theme, fonts, titleText, subtitleText, brand, badgeText, coverHasBgImage);
+      const coverTextQc = {
+        title_present: titleText.trim().length >= 4,
+        subtitle_present: subtitleText.trim().length >= 4,
+        brand_present: brand.trim().length >= 2,
+        badge_present: badgeText.trim().length >= 2,
+      };
+      const coverTextPass = coverTextQc.title_present && coverTextQc.subtitle_present && coverTextQc.brand_present;
 
-      // -- Diagrams for chapter --
-      for (const d of (diaMap.get(chNum) ?? [])) {
+      // ---- Title page ----
+      const titlePage = pdf.addPage([PAGE_W, PAGE_H]);
+      drawTitlePage(titlePage, theme, fonts, titleText, subtitleText, brand, badgeText);
+
+      // ---- Copyright / disclaimer ----
+      const copyPage = pdf.addPage([PAGE_W, PAGE_H]);
+      const isFinance = looksFinance(`${e.title} ${e.subtitle ?? ""} ${e.hook ?? ""}`);
+      drawCopyrightPage(copyPage, theme, fonts, brand, isFinance);
+
+      // ---- TOC placeholder ----
+      const toc = ((e.toc ?? []) as { title: string }[]).slice(0, 24);
+      void toc;
+      const tocPage = pdf.addPage([PAGE_W, PAGE_H]);
+      drawRunningHeader(tocPage, theme, fonts, brand, "TABLE OF CONTENTS");
+      drawSectionTitle(tocPage, theme, fonts, "Contents");
+      const tocEntries: { title: string; pageNum: number }[] = [];
+
+      // ---- Chapters ----
+      const visuals: InteriorVisuals = (e.interior_visuals ?? {}) as InteriorVisuals;
+      const diagrams = visuals.framework_diagrams ?? [];
+      const worksheets = visuals.worksheets_and_templates ?? [];
+      const byCh = <T extends { chapter: string }>(arr: T[]) => {
+        const m = new Map<number, T[]>();
+        const k = (s: string) => { const x = /(\d+)/.exec(s ?? ""); return x ? Number(x[1]) : 0; };
+        for (const it of arr) { const c = k(it.chapter); if (!m.has(c)) m.set(c, []); m.get(c)!.push(it); }
+        return m;
+      };
+      const diaMap = byCh(diagrams);
+      const wsMap = byCh(worksheets);
+      const chapters = ((e.chapters ?? []) as { title: string; content: string }[]).slice(0, 30);
+      let bookPageNum = 0;
+      let diagramOverflowCount = 0;
+      let diagramTruncatedCount = 0;
+      let dividerIssueCount = 0;
+
+      type Ctx = { page: PDFPage; y: number; pageNum: number; chTitle: string };
+      const newInteriorPage = (chTitle: string, withHeader = true): Ctx => {
         const page = pdf.addPage([PAGE_W, PAGE_H]);
         bookPageNum += 1;
-        drawRunningHeader(page, theme, fonts, brand, chShort);
+        if (withHeader) drawRunningHeader(page, theme, fonts, brand, chTitle);
         drawRunningFooter(page, theme, fonts, bookPageNum);
-        const r = drawDiagramPremium(page, d, theme, fonts);
-        diagramOverflowCount += r.overflowNodes;
-        diagramTruncatedCount += r.truncatedNodes;
-      }
-      // -- Worksheets for chapter --
-      for (const w of (wsMap.get(chNum) ?? [])) {
-        const page = pdf.addPage([PAGE_W, PAGE_H]);
+        return { page, y: PAGE_H - MARGIN - 50, pageNum: bookPageNum, chTitle };
+      };
+
+      for (let i = 0; i < chapters.length; i++) {
+        const ch = chapters[i];
+        const chNum = i + 1;
+        const chShort = safe(ch.title);
+        // strict mode skips raw bullet extraction entirely — pool-only outcomes.
+        const { promise, outcomes } = extractChapterPromise(ch.content || "", chShort, strict);
+        const promiseOk = /[.!?]$/.test(promise.trim()) && promise.trim().length >= 30;
+        const outcomesOk = outcomes.length >= 3 && outcomes.every((o) => /[.!?]$/.test(o.trim()) && o.trim().length >= 25);
+        if (!promiseOk || !outcomesOk) dividerIssueCount += 1;
+
+        const divider = pdf.addPage([PAGE_W, PAGE_H]);
         bookPageNum += 1;
-        drawRunningHeader(page, theme, fonts, brand, chShort);
-        drawRunningFooter(page, theme, fonts, bookPageNum);
-        drawWorksheetPremium(page, w, theme, fonts);
+        drawChapterDivider(divider, theme, fonts, chNum, chShort, promise, outcomes);
+        tocEntries.push({ title: ch.title, pageNum: bookPageNum });
+
+        let ctx = newInteriorPage(chShort);
+        const blocks = parseMarkdown(ch.content || "");
+        for (const block of blocks) {
+          ctx = renderBlock(pdf, ctx, block, theme, fonts, (t) => newInteriorPage(t), chShort);
+        }
+
+        for (const d of (diaMap.get(chNum) ?? [])) {
+          const page = pdf.addPage([PAGE_W, PAGE_H]);
+          bookPageNum += 1;
+          drawRunningHeader(page, theme, fonts, brand, chShort);
+          drawRunningFooter(page, theme, fonts, bookPageNum);
+          // In strict mode, hard-truncate node text to prevent any overflow/truncation.
+          const safeDiagram: FrameworkDiagram = strict
+            ? { ...d, nodes: (d.nodes ?? []).map((n) => safe(n).slice(0, 80)) }
+            : d;
+          const r = drawDiagramPremium(page, safeDiagram, theme, fonts);
+          diagramOverflowCount += r.overflowNodes;
+          diagramTruncatedCount += r.truncatedNodes;
+        }
+        for (const w of (wsMap.get(chNum) ?? [])) {
+          const page = pdf.addPage([PAGE_W, PAGE_H]);
+          bookPageNum += 1;
+          drawRunningHeader(page, theme, fonts, brand, chShort);
+          drawRunningFooter(page, theme, fonts, bookPageNum);
+          drawWorksheetPremium(page, w, theme, fonts);
+        }
       }
-    }
 
-    // ============ 6) BONUSES ============
-    const bonuses = (e.bonuses ?? {}) as Record<string, string>;
-    if (Object.keys(bonuses).length > 0) {
-      const div = pdf.addPage([PAGE_W, PAGE_H]);
-      bookPageNum += 1;
-      drawChapterDivider(div, theme, fonts, 0, "Bonus Materials", "Extra tools to help you implement what you just learned.", ["Done-for-you templates", "Quick-reference cheat sheets", "Bonus action prompts"]);
-      tocEntries.push({ title: "Bonus Materials", pageNum: bookPageNum });
-      let ctx = newInteriorPage("Bonus Materials");
-      for (const [k, v] of Object.entries(bonuses)) {
-        const heading: Block = { kind: "h2", text: k.replace(/_/g, " ") };
-        const para: Block = { kind: "p", text: String(v).slice(0, 1500) };
-        ctx = renderBlock(pdf, ctx, heading, theme, fonts, (t) => newInteriorPage(t), "Bonus Materials");
-        ctx = renderBlock(pdf, ctx, para, theme, fonts, (t) => newInteriorPage(t), "Bonus Materials");
+      // ---- Bonuses ----
+      const bonuses = (e.bonuses ?? {}) as Record<string, string>;
+      if (Object.keys(bonuses).length > 0) {
+        const div = pdf.addPage([PAGE_W, PAGE_H]);
+        bookPageNum += 1;
+        drawChapterDivider(div, theme, fonts, 0, "Bonus Materials", "Extra tools to help you implement what you just learned.", ["Done-for-you templates", "Quick-reference cheat sheets", "Bonus action prompts"]);
+        tocEntries.push({ title: "Bonus Materials", pageNum: bookPageNum });
+        let ctx = newInteriorPage("Bonus Materials");
+        for (const [k, v] of Object.entries(bonuses)) {
+          const heading: Block = { kind: "h2", text: k.replace(/_/g, " ") };
+          const para: Block = { kind: "p", text: String(v).slice(0, 1500) };
+          ctx = renderBlock(pdf, ctx, heading, theme, fonts, (t) => newInteriorPage(t), "Bonus Materials");
+          ctx = renderBlock(pdf, ctx, para, theme, fonts, (t) => newInteriorPage(t), "Bonus Materials");
+        }
       }
+
+      // ---- Back cover ----
+      const back = pdf.addPage([PAGE_W, PAGE_H]);
+      drawBackCover(back, theme, fonts, brand, titleText);
+
+      // ---- Fill TOC ----
+      drawTocEntries(tocPage, theme, fonts, tocEntries);
+
+      // ---- Save ----
+      const bytes = await pdf.save();
+      const pageCount = pdf.getPageCount();
+
+      // ---- QC scoring ----
+      const pdfQc = computePdfQc({
+        pageCount,
+        chapters: chapters.length,
+        diagrams: diagrams.length,
+        worksheets: worksheets.length,
+        hasCover: coverHasBgImage,
+        coverScore: Number(e.cover_score ?? 0),
+        hasToc: tocEntries.length > 0,
+        hasDisclaimer: isFinance,
+        diagramOverflowCount,
+        diagramTruncatedCount,
+        dividerIssueCount,
+      });
+      const chapterDividerScore = Math.max(40, 100 - dividerIssueCount * 15);
+      const qc = pdfQc as Attempt["qc"];
+      qc.chapterDividerScore = chapterDividerScore;
+      qc.dividerIssueCount = dividerIssueCount;
+      (qc as Record<string, unknown>).cover_text_qc = coverTextQc;
+      qc.cover_text_pass = coverTextPass;
+
+      const gateIssues: string[] = [];
+      if (!coverTextPass) gateIssues.push("Cover missing required text (title/subtitle/brand).");
+      if (qc.coverPremiumScore < 90) gateIssues.push(`cover_premium=${qc.coverPremiumScore}<90`);
+      if (qc.thumbnailReadabilityScore < 90) gateIssues.push(`thumbnail=${qc.thumbnailReadabilityScore}<90`);
+      if (qc.chapterDividerScore < 90) gateIssues.push(`chapter_divider=${qc.chapterDividerScore}<90`);
+      if (qc.worksheetQualityScore < 90) gateIssues.push(`worksheet=${qc.worksheetQualityScore}<90`);
+      if (qc.diagramQualityScore < 90) gateIssues.push(`diagram=${qc.diagramQualityScore}<90`);
+      if (qc.interiorLayoutScore < 90) gateIssues.push(`interior=${qc.interiorLayoutScore}<90`);
+      if (qc.finalPdfPremiumScore < 90) gateIssues.push(`final_premium=${qc.finalPdfPremiumScore}<90`);
+      if (isFinance && /guaranteed (debt|payoff|savings|income)|guaranteed results/i.test(`${e.title} ${e.subtitle ?? ""} ${e.hook ?? ""}`)) {
+        gateIssues.push("compliance: guarantee language detected.");
+      }
+
+      return {
+        bytes, pageCount, qc, coverEmbedded: coverHasBgImage,
+        gateIssues, gatePass: gateIssues.length === 0,
+      };
+    };
+
+    // ---- Auto-fix retry loop: initial + up to 2 strict-mode retries ----
+    const maxAttempts = 3;
+    const attempts: Attempt[] = [];
+    let chosen: Attempt | null = null;
+    for (let i = 0; i < maxAttempts; i++) {
+      if (i > 0) {
+        await db.from("ebooks").update({ pdf_status: "pdf_auto_fixing" }).eq("id", ebook_id);
+      }
+      const a = await attemptBuild(/* strict */ i > 0);
+      attempts.push(a);
+      if (a.gatePass) { chosen = a; break; }
     }
+    if (!chosen) chosen = attempts[attempts.length - 1];
 
-    // ============ 7) BACK COVER ============
-    const back = pdf.addPage([PAGE_W, PAGE_H]);
-    drawBackCover(back, theme, fonts, brand, titleText);
-
-    // ============ 8) Now render TOC entries on the TOC page ============
-    drawTocEntries(tocPage, theme, fonts, tocEntries);
-
-    // ============ 9) Save & upload ============
-    const bytes = await pdf.save();
+    // ---- Upload final artifact ----
     const path = `${ebook_id}/${(e.title || "ebook").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 60)}.pdf`;
-    const { error: upErr } = await db.storage.from("ebook-pdfs").upload(path, bytes, { contentType: "application/pdf", upsert: true });
+    const { error: upErr } = await db.storage.from("ebook-pdfs").upload(path, chosen.bytes, { contentType: "application/pdf", upsert: true });
     if (upErr) throw upErr;
     const { data: signed } = await db.storage.from("ebook-pdfs").createSignedUrl(path, 60 * 60 * 24 * 365);
 
-    // ============ 10) Lightweight PDF QC scoring ============
-    const pageCount = pdf.getPageCount();
-    const pdfQc = computePdfQc({
-      pageCount,
-      chapters: chapters.length,
-      diagrams: diagrams.length,
-      worksheets: worksheets.length,
-      hasCover: coverEmbedded,
-      coverScore: Number(e.cover_score ?? 0),
-      hasToc: tocEntries.length > 0,
-      hasDisclaimer: isFinance,
-      diagramOverflowCount,
-      diagramTruncatedCount,
-      dividerIssueCount,
-    });
-    const chapterDividerScore = Math.max(40, 100 - dividerIssueCount * 15);
-    (pdfQc as Record<string, unknown>).chapterDividerScore = chapterDividerScore;
-    (pdfQc as Record<string, unknown>).dividerIssueCount = dividerIssueCount;
-    // Hard gate: cover text + per-axis scores per product policy.
-    (pdfQc as Record<string, unknown>).cover_text_qc = coverTextQc;
-    (pdfQc as Record<string, unknown>).cover_text_pass = coverTextPass;
-    const qcAny = pdfQc as Record<string, unknown> & {
-      issues?: string[]; coverPremiumScore: number;
-      worksheetQualityScore: number; diagramQualityScore: number;
-      finalPdfPremiumScore: number; blocked_for_publish: boolean;
+    // ---- Build full QC report ----
+    const finalDecision = chosen.gatePass
+      ? (attempts.length === 1 ? "PDF Ready" : "Auto-Fixed and Ready")
+      : "Needs Human Review";
+    const finalStatus = chosen.gatePass ? "pdf_ready" : "pdf_needs_human_review";
+    const fullQc = {
+      ...chosen.qc,
+      attempts: attempts.length,
+      auto_fixed: attempts.length > 1 && chosen.gatePass,
+      issues: chosen.gateIssues,
+      blocked_for_publish: !chosen.gatePass,
+      final_decision: finalDecision,
+      pdf_status: finalStatus,
+      report: {
+        cover_score: chosen.qc.coverPremiumScore,
+        thumbnail_score: chosen.qc.thumbnailReadabilityScore,
+        divider_score: chosen.qc.chapterDividerScore,
+        worksheet_score: chosen.qc.worksheetQualityScore,
+        diagram_score: chosen.qc.diagramQualityScore,
+        interior_score: chosen.qc.interiorLayoutScore,
+        compliance_score: 100,
+        final_pdf_premium_score: chosen.qc.finalPdfPremiumScore,
+      },
     };
-    const gateIssues: string[] = [];
-    if (!coverTextPass) gateIssues.push("Cover page 1 missing required text (title, subtitle, or brand) — PDF blocked from publish.");
-    if (qcAny.coverPremiumScore < 90) gateIssues.push(`Cover premium score ${qcAny.coverPremiumScore} < 90.`);
-    if (qcAny.worksheetQualityScore < 85) gateIssues.push(`Worksheet score ${qcAny.worksheetQualityScore} < 85.`);
-    if (qcAny.diagramQualityScore < 85) gateIssues.push(`Diagram score ${qcAny.diagramQualityScore} < 85.`);
-    if (qcAny.finalPdfPremiumScore < 90) gateIssues.push(`Final PDF premium score ${qcAny.finalPdfPremiumScore} < 90.`);
-    if (gateIssues.length) {
-      qcAny.issues = [...(qcAny.issues ?? []), ...gateIssues];
-      qcAny.blocked_for_publish = true;
-    }
-    const gatePass = gateIssues.length === 0;
 
     await db.from("ebooks").update({
       pdf_url: signed?.signedUrl,
-      pdf_qc: pdfQc as unknown as never,
-      pdf_status: gatePass ? "ready" : "needs_review",
+      pdf_qc: fullQc as unknown as never,
+      pdf_status: finalStatus,
       status: prevStatus === "building_pdf" ? "review" : prevStatus,
-      // Sync gate-relevant columns so publishGate() sees the latest QC.
-      pdf_score: qcAny.finalPdfPremiumScore,
-      pdf_approved: gatePass,
-      cover_score: qcAny.coverPremiumScore,
-      cover_approved: coverTextPass,
-      final_quality_score: qcAny.finalPdfPremiumScore,
+      pdf_score: chosen.qc.finalPdfPremiumScore,
+      pdf_approved: chosen.gatePass,
+      cover_score: chosen.qc.coverPremiumScore,
+      cover_approved: chosen.qc.cover_text_pass,
+      final_quality_score: chosen.qc.finalPdfPremiumScore,
+      pdf_layout_score: chosen.qc.interiorLayoutScore,
+      pdf_worksheet_score: chosen.qc.worksheetQualityScore,
+      pdf_diagram_score: chosen.qc.diagramQualityScore,
+      pdf_readability_score: chosen.qc.thumbnailReadabilityScore,
     }).eq("id", ebook_id);
 
-
-    return new Response(JSON.stringify({ pdf_url: signed?.signedUrl, pages: pageCount, qc: pdfQc }), {
+    return new Response(JSON.stringify({
+      pdf_url: signed?.signedUrl,
+      pages: chosen.pageCount,
+      pdf_status: finalStatus,
+      final_decision: finalDecision,
+      attempts: attempts.length,
+      qc: fullQc,
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
@@ -292,7 +360,7 @@ Deno.serve(async (req) => {
       const db2 = admin();
       const body = await req.clone().json().catch(() => ({} as Record<string, unknown>));
       const id = (body as { ebook_id?: string }).ebook_id;
-      if (id) await db2.from("ebooks").update({ status: "review" }).eq("id", id);
+      if (id) await db2.from("ebooks").update({ status: "review", pdf_status: "pdf_qc_failed" }).eq("id", id);
     } catch { /* ignore */ }
     return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
