@@ -104,7 +104,7 @@ export function AdminNeededPanel({ ebook, onChanged }: Props) {
               <Badge variant={badgeVariant}>{badgeLabel}</Badge>
               <Badge variant="outline" className="font-mono">{gate}</Badge>
             </div>
-            <p className="mt-2 text-sm">{reason}</p>
+            <p className="mt-2 text-sm whitespace-pre-line">{reason}</p>
           </div>
         </div>
 
