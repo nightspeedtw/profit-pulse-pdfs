@@ -78,7 +78,8 @@ Deno.serve(async (req) => {
 
     const brand = safe((spec.brand_text || "SECRET PDF").toUpperCase());
     const titleText = safe(spec.title_text || e.title || "");
-    const subtitleText = safe(spec.subtitle_text || e.subtitle || "");
+    const subtitleText = safe(spec.subtitle_text || e.subtitle || e.hook || "");
+    const badgeText = safe(spec.badge_text || "PREMIUM TACTICAL WORKBOOK");
 
     // ============ 1) COVER — text-free background + bulletproof code-rendered overlay ============
     // We ALWAYS draw title/subtitle/brand/badge in pdf-lib StandardFonts on top of the
@@ -98,19 +99,20 @@ Deno.serve(async (req) => {
       } catch { /* fall through to overlay-only cover */ }
     }
     // Always overlay title/subtitle/brand/badge on top of the background (or solid overlay).
-    drawCoverOverlay(coverPage, theme, fonts, titleText, subtitleText, brand, spec.badge_text, coverHasBgImage);
+    drawCoverOverlay(coverPage, theme, fonts, titleText, subtitleText, brand, badgeText, coverHasBgImage);
     const coverEmbedded = coverHasBgImage;
-    // Hard text QC: title + brand are mandatory for a sellable cover.
+    // Hard text QC: title + subtitle + brand are all mandatory for a sellable cover.
     const coverTextQc = {
       title_present: titleText.trim().length >= 4,
       subtitle_present: subtitleText.trim().length >= 4,
       brand_present: brand.trim().length >= 2,
+      badge_present: badgeText.trim().length >= 2,
     };
-    const coverTextPass = coverTextQc.title_present && coverTextQc.brand_present;
+    const coverTextPass = coverTextQc.title_present && coverTextQc.subtitle_present && coverTextQc.brand_present;
 
     // ============ 2) TITLE PAGE ============
     const titlePage = pdf.addPage([PAGE_W, PAGE_H]);
-    drawTitlePage(titlePage, theme, fonts, titleText, subtitleText, brand, spec.badge_text);
+    drawTitlePage(titlePage, theme, fonts, titleText, subtitleText, brand, badgeText);
 
     // ============ 3) COPYRIGHT / DISCLAIMER ============
     const copyPage = pdf.addPage([PAGE_W, PAGE_H]);
@@ -159,11 +161,12 @@ Deno.serve(async (req) => {
       const ch = chapters[i];
       const chNum = i + 1;
       const chShort = safe(ch.title);
+      const { promise, outcomes } = extractChapterPromise(ch.content || "", chShort);
 
       // -- Chapter divider page --
       const divider = pdf.addPage([PAGE_W, PAGE_H]);
       bookPageNum += 1;
-      drawChapterDivider(divider, theme, fonts, chNum, chShort);
+      drawChapterDivider(divider, theme, fonts, chNum, chShort, promise, outcomes);
       chapterStartIndex.push(bookPageNum);
       tocEntries.push({ title: ch.title, pageNum: bookPageNum });
 
@@ -199,7 +202,7 @@ Deno.serve(async (req) => {
     if (Object.keys(bonuses).length > 0) {
       const div = pdf.addPage([PAGE_W, PAGE_H]);
       bookPageNum += 1;
-      drawChapterDivider(div, theme, fonts, 0, "Bonus Materials");
+      drawChapterDivider(div, theme, fonts, 0, "Bonus Materials", "Extra tools to help you implement what you just learned.", ["Done-for-you templates", "Quick-reference cheat sheets", "Bonus action prompts"]);
       tocEntries.push({ title: "Bonus Materials", pageNum: bookPageNum });
       let ctx = newInteriorPage("Bonus Materials");
       for (const [k, v] of Object.entries(bonuses)) {
@@ -238,22 +241,33 @@ Deno.serve(async (req) => {
       diagramOverflowCount,
       diagramTruncatedCount,
     });
-    // Block PDF acceptance if cover text QC failed.
+    // Hard gate: cover text + per-axis scores per product policy.
     (pdfQc as Record<string, unknown>).cover_text_qc = coverTextQc;
     (pdfQc as Record<string, unknown>).cover_text_pass = coverTextPass;
-    if (!coverTextPass) {
-      const issues = (pdfQc as { issues?: string[] }).issues ?? [];
-      issues.push("Cover missing required text (title or brand) — PDF blocked from publish.");
-      (pdfQc as Record<string, unknown>).issues = issues;
-      (pdfQc as Record<string, unknown>).blocked_for_publish = true;
+    const qcAny = pdfQc as Record<string, unknown> & {
+      issues?: string[]; coverPremiumScore: number;
+      worksheetQualityScore: number; diagramQualityScore: number;
+      finalPdfPremiumScore: number; blocked_for_publish: boolean;
+    };
+    const gateIssues: string[] = [];
+    if (!coverTextPass) gateIssues.push("Cover page 1 missing required text (title, subtitle, or brand) — PDF blocked from publish.");
+    if (qcAny.coverPremiumScore < 90) gateIssues.push(`Cover premium score ${qcAny.coverPremiumScore} < 90.`);
+    if (qcAny.worksheetQualityScore < 85) gateIssues.push(`Worksheet score ${qcAny.worksheetQualityScore} < 85.`);
+    if (qcAny.diagramQualityScore < 85) gateIssues.push(`Diagram score ${qcAny.diagramQualityScore} < 85.`);
+    if (qcAny.finalPdfPremiumScore < 90) gateIssues.push(`Final PDF premium score ${qcAny.finalPdfPremiumScore} < 90.`);
+    if (gateIssues.length) {
+      qcAny.issues = [...(qcAny.issues ?? []), ...gateIssues];
+      qcAny.blocked_for_publish = true;
     }
+    const gatePass = gateIssues.length === 0;
 
     await db.from("ebooks").update({
       pdf_url: signed?.signedUrl,
       pdf_qc: pdfQc as unknown as never,
-      pdf_status: coverTextPass ? "ready" : "needs_review",
+      pdf_status: gatePass ? "ready" : "needs_review",
       status: prevStatus === "building_pdf" ? "review" : prevStatus,
     }).eq("id", ebook_id);
+
 
     return new Response(JSON.stringify({ pdf_url: signed?.signedUrl, pages: pageCount, qc: pdfQc }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -719,19 +733,134 @@ function drawTocEntries(page: PDFPage, theme: Theme, fonts: Fonts, entries: { ti
   });
 }
 
-function drawChapterDivider(page: PDFPage, theme: Theme, fonts: Fonts, chNum: number, chTitle: string) {
-  // top band
-  page.drawRectangle({ x: 0, y: PAGE_H - 200, width: PAGE_W, height: 200, color: theme.overlay });
-  page.drawRectangle({ x: 0, y: PAGE_H - 206, width: PAGE_W, height: 6, color: theme.accent });
+function drawChapterDivider(
+  page: PDFPage, theme: Theme, fonts: Fonts,
+  chNum: number, chTitle: string,
+  promise?: string, outcomes?: string[],
+) {
+  // Full-page dark divider with premium hierarchy and no empty white space.
+  page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: theme.overlay });
+  // top + bottom accent strips
+  page.drawRectangle({ x: 0, y: PAGE_H - 6, width: PAGE_W, height: 6, color: theme.accent });
+  page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: 6, color: theme.accent });
+
+  // Eyebrow
   const tag = chNum > 0 ? `CHAPTER ${String(chNum).padStart(2, "0")}` : "SECTION";
-  page.drawText(tag, { x: MARGIN, y: PAGE_H - 90, size: 11, font: fonts.bold, color: theme.accent });
-  let size = 32;
+  page.drawText(tag, { x: MARGIN, y: PAGE_H - 110, size: 11, font: fonts.bold, color: theme.accent });
+
+  // Accent bar
+  page.drawRectangle({ x: MARGIN, y: PAGE_H - 130, width: 56, height: 4, color: theme.accent });
+
+  // Title (auto-fit)
+  let size = 34;
   let lines = wrap(chTitle, fonts.bold, size, PAGE_W - MARGIN * 2);
   while (lines.length > 3 && size > 20) { size -= 2; lines = wrap(chTitle, fonts.bold, size, PAGE_W - MARGIN * 2); }
-  let y = PAGE_H - 130;
-  for (const ln of lines) { page.drawText(safe(ln), { x: MARGIN, y, size, font: fonts.bold, color: theme.onDark }); y -= size * 1.05; }
-  // bottom accent square
-  page.drawRectangle({ x: PAGE_W - MARGIN - 40, y: MARGIN + 20, width: 40, height: 4, color: theme.accent });
+  let y = PAGE_H - 150 - size;
+  for (const ln of lines) {
+    page.drawText(safe(ln), { x: MARGIN, y, size, font: fonts.bold, color: theme.onDark });
+    y -= size * 1.08;
+  }
+
+  // Chapter promise sentence
+  y -= 18;
+  if (promise && promise.trim()) {
+    const pLines = wrap(promise, fonts.italic, 14, PAGE_W - MARGIN * 2).slice(0, 4);
+    for (const ln of pLines) {
+      page.drawText(safe(ln), { x: MARGIN, y, size: 14, font: fonts.italic, color: theme.onDark, opacity: 0.92 });
+      y -= 20;
+    }
+  }
+
+  // "What you'll get from this chapter" outcomes box
+  y -= 30;
+  const outs = (outcomes ?? []).filter(Boolean).slice(0, 3);
+  if (outs.length) {
+    const headerY = y;
+    page.drawText("WHAT YOU'LL GET FROM THIS CHAPTER", {
+      x: MARGIN, y: headerY, size: 9, font: fonts.bold, color: theme.accent,
+    });
+    page.drawRectangle({ x: MARGIN, y: headerY - 8, width: 36, height: 2, color: theme.accent });
+    y = headerY - 28;
+    for (const o of outs) {
+      const oLines = wrap(o, fonts.reg, 12, PAGE_W - MARGIN * 2 - 24).slice(0, 3);
+      // tick badge
+      page.drawCircle({ x: MARGIN + 7, y: y + 4, size: 5, color: theme.accent });
+      for (let j = 0; j < oLines.length; j++) {
+        page.drawText(safe(oLines[j]), {
+          x: MARGIN + 22, y: y - j * 16, size: 12, font: fonts.reg, color: theme.onDark, opacity: 0.95,
+        });
+      }
+      y -= oLines.length * 16 + 10;
+    }
+  }
+
+  // Bottom right tag + decorative element to remove the "empty bottom" feel
+  const footTag = "PREMIUM TACTICAL WORKBOOK";
+  const ftw = fonts.bold.widthOfTextAtSize(footTag, 9);
+  page.drawText(footTag, {
+    x: PAGE_W - MARGIN - ftw, y: MARGIN + 18, size: 9, font: fonts.bold,
+    color: theme.accent,
+  });
+  // subtle horizontal rule above footer tag
+  page.drawLine({
+    start: { x: MARGIN, y: MARGIN + 32 }, end: { x: PAGE_W - MARGIN, y: MARGIN + 32 },
+    thickness: 0.4, color: theme.accent, opacity: 0.35,
+  });
+  // big subtle chapter number in the bottom-left as a graphic element
+  if (chNum > 0) {
+    const bigN = String(chNum).padStart(2, "0");
+    page.drawText(bigN, {
+      x: MARGIN, y: MARGIN + 40, size: 80, font: fonts.bold,
+      color: theme.accent, opacity: 0.12,
+    });
+  }
+}
+
+// Pull a one-sentence promise + 3 outcome bullets out of a chapter's markdown
+// content so the divider page is never mostly blank.
+function extractChapterPromise(md: string, fallbackTitle: string): { promise: string; outcomes: string[] } {
+  const txt = (md || "").replace(/\r\n/g, "\n").trim();
+  let promise = "";
+  let outcomes: string[] = [];
+
+  // First non-heading paragraph → promise (first sentence, ≤ 180 chars)
+  const paras = txt.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  for (const p of paras) {
+    if (/^#/.test(p) || /^[-*]\s/.test(p) || /^>\s/.test(p)) continue;
+    const firstSentence = (p.split(/(?<=[.!?])\s+/)[0] || p).trim();
+    promise = stripInline(firstSentence).slice(0, 200);
+    if (promise.length >= 30) break;
+  }
+  if (!promise) {
+    promise = `A tactical walkthrough you can apply to ${fallbackTitle.toLowerCase()} immediately.`;
+  }
+
+  // First bullet list → outcomes
+  const bulletMatch = txt.match(/(?:^|\n)([-*]\s+.+(?:\n[-*]\s+.+)*)/);
+  if (bulletMatch) {
+    outcomes = bulletMatch[1]
+      .split("\n")
+      .map((l) => stripInline(l.replace(/^[-*]\s+/, "")).trim())
+      .filter((l) => l.length >= 8)
+      .slice(0, 3);
+  }
+  // Fallback: derive from first 3 sentences of body prose
+  if (outcomes.length < 3) {
+    const sentences = stripInline(txt.replace(/^#.*$/gm, "")).split(/(?<=[.!?])\s+/);
+    for (const s of sentences) {
+      const cand = s.trim();
+      if (cand.length >= 30 && cand.length <= 160 && !outcomes.includes(cand)) outcomes.push(cand);
+      if (outcomes.length >= 3) break;
+    }
+  }
+  while (outcomes.length < 3) {
+    outcomes.push([
+      "A concrete framework you can apply this week.",
+      "Common traps to avoid and exactly how to dodge them.",
+      "A short action checklist to lock the lesson in.",
+    ][outcomes.length]);
+  }
+  return { promise, outcomes: outcomes.slice(0, 3).map((o) => o.replace(/\s+/g, " ").slice(0, 160)) };
 }
 
 function drawBackCover(page: PDFPage, theme: Theme, fonts: Fonts, brand: string, title: string) {
@@ -1029,48 +1158,91 @@ function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fo
 // ============ WORKSHEET (printable, premium) ============
 function drawWorksheetPremium(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
   drawSectionTitle(page, theme, fonts, "Worksheet");
-  page.drawText(safe(w.asset_name || "").slice(0, 80), { x: MARGIN, y: PAGE_H - 160, size: 14, font: fonts.bold, color: theme.ink });
-  // Purpose card
+  page.drawText(safe(w.asset_name || "").slice(0, 80), {
+    x: MARGIN, y: PAGE_H - 160, size: 14, font: fonts.bold, color: theme.ink,
+  });
   let y = PAGE_H - 180;
-  if (w.purpose) {
-    const lines = wrap(w.purpose, fonts.italic, 10, CONTENT_W - 24).slice(0, 3);
+
+  // Purpose / instruction card (always show something so the page never feels bare)
+  const purposeText = (w.purpose && w.purpose.trim())
+    ? w.purpose
+    : "Complete this worksheet to lock in what you just learned. Fill each box with your own answer — print it out or type into the PDF.";
+  {
+    const lines = wrap(purposeText, fonts.italic, 10, CONTENT_W - 24).slice(0, 3);
     const h = lines.length * 14 + 16;
     page.drawRectangle({ x: MARGIN, y: y - h, width: CONTENT_W, height: h, color: theme.surfaceWarm });
     page.drawRectangle({ x: MARGIN, y: y - h, width: 5, height: h, color: theme.accent });
     let ly = y - 12;
-    for (const ln of lines) { page.drawText(safe(ln), { x: MARGIN + 14, y: ly, size: 10, font: fonts.italic, color: theme.ink }); ly -= 14; }
+    for (const ln of lines) {
+      page.drawText(safe(ln), { x: MARGIN + 14, y: ly, size: 10, font: fonts.italic, color: theme.ink });
+      ly -= 14;
+    }
     y -= h + 18;
   }
 
-  // Instructions hint
-  page.drawText("FILL IN THE FIELDS BELOW · PRINT OR USE DIGITALLY", { x: MARGIN, y, size: 8, font: fonts.bold, color: theme.sub });
-  y -= 14;
+  // Instructions strip
+  page.drawText("INSTRUCTIONS: WRITE INSIDE EACH BOX BELOW", {
+    x: MARGIN, y, size: 8, font: fonts.bold, color: theme.sub,
+  });
+  y -= 16;
 
-  const fields = (w.fields_or_sections ?? []).slice(0, 10);
-  const bottomLimit = MARGIN + 30;
-  const sectionGap = 8;
-  // Distribute remaining space among fields
-  const totalH = Math.max(40, y - bottomLimit);
-  const perH = Math.max(80, Math.floor((totalH - sectionGap * fields.length) / Math.max(fields.length, 1)));
-  const lineGap = 22;
+  const fields = (w.fields_or_sections ?? []).slice(0, 6);
+  if (!fields.length) {
+    fields.push("Today's commitment", "One blocker I'll remove", "My next 24-hour action");
+  }
+
+  const bottomLimit = MARGIN + 36;
+  const fieldGap = 12;
+  const totalAvail = Math.max(60, y - bottomLimit - fieldGap * (fields.length - 1));
+  const perH = Math.max(70, Math.floor(totalAvail / fields.length));
+  const headerH = 24;
 
   for (let i = 0; i < fields.length; i++) {
     if (y - perH < bottomLimit) break;
+    const boxTop = y;
+    const boxBottom = boxTop - perH;
     const label = safe(fields[i]).slice(0, 80);
-    // numbered badge
-    page.drawRectangle({ x: MARGIN, y: y - 18, width: 22, height: 18, color: theme.overlay });
+
+    // Header band (dark) with number + label
+    page.drawRectangle({
+      x: MARGIN, y: boxTop - headerH, width: CONTENT_W, height: headerH,
+      color: theme.overlay,
+    });
+    // number chip
+    page.drawRectangle({
+      x: MARGIN + 6, y: boxTop - headerH + 4, width: 20, height: headerH - 8,
+      color: theme.accent,
+    });
     const num = String(i + 1);
     const nw = fonts.bold.widthOfTextAtSize(num, 11);
-    page.drawText(num, { x: MARGIN + 11 - nw / 2, y: y - 14, size: 11, font: fonts.bold, color: theme.accent });
-    page.drawText(label, { x: MARGIN + 30, y: y - 14, size: 11, font: fonts.bold, color: theme.ink });
-    y -= 28;
-    // writing lines, fill the rest of allocated space
-    const lineCount = Math.max(2, Math.floor((perH - 30) / lineGap));
-    for (let j = 0; j < lineCount; j++) {
-      page.drawLine({ start: { x: MARGIN, y }, end: { x: PAGE_W - MARGIN, y }, thickness: 0.4, color: theme.hair });
-      y -= lineGap;
+    page.drawText(num, {
+      x: MARGIN + 6 + 10 - nw / 2, y: boxTop - headerH / 2 - 4,
+      size: 11, font: fonts.bold, color: rgb(0.05, 0.05, 0.05),
+    });
+    page.drawText(label, {
+      x: MARGIN + 36, y: boxTop - headerH / 2 - 4,
+      size: 11, font: fonts.bold, color: theme.onDark,
+    });
+
+    // Fillable box — bordered, with subtle ruled lines inside
+    const fillTop = boxTop - headerH;
+    const fillH = perH - headerH;
+    page.drawRectangle({
+      x: MARGIN, y: boxBottom, width: CONTENT_W, height: fillH,
+      color: rgb(1, 1, 1), borderColor: theme.ink, borderWidth: 0.8,
+    });
+    // subtle internal ruled lines so it reads as a writing area
+    const ruleGap = 22;
+    let ry = fillTop - ruleGap;
+    while (ry > boxBottom + 8) {
+      page.drawLine({
+        start: { x: MARGIN + 10, y: ry }, end: { x: PAGE_W - MARGIN - 10, y: ry },
+        thickness: 0.3, color: theme.hair,
+      });
+      ry -= ruleGap;
     }
-    y -= sectionGap;
+
+    y = boxBottom - fieldGap;
   }
 }
 
