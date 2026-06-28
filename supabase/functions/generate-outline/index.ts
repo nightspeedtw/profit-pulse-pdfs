@@ -526,7 +526,7 @@ Deno.serve(async (req) => {
       if (!fbValidation.ok) {
         await db.from("ebooks").update({
           writing_status: "needs_review",
-          qc_status: "outline_failed",
+          qc_status: "needs_admin_review",
           pipeline_status: "rejected",
           rejection_reason: `Admin needed because generate_outline did not return a valid chapters array after ${attempts} attempts AND the fallback outline failed validation (${fbValidation.reason}).`,
           cost_usd: (Number(ebook.cost_usd ?? 0) + totalCost),
