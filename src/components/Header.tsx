@@ -8,6 +8,7 @@ const NAV = [
   { label: "Categories", to: "/categories" },
   { label: "Bundles", to: "/bundles" },
   { label: "About", to: "/about" },
+  { label: "Downloads", to: "/download" },
 ];
 
 export const Header = () => {
