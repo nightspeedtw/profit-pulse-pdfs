@@ -394,7 +394,7 @@ export default function Dashboard() {
   );
 }
 
-function AlertTile({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: number; tone: "red" | "orange" }) {
+function AlertTile({ icon, label, value, tone }: { icon: ReactNode; label: string; value: number; tone: "red" | "orange" }) {
   const toneCls = tone === "red"
     ? (value > 0 ? "border-red-700 bg-red-50 text-red-800" : "border-foreground/20 text-muted-foreground")
     : (value > 0 ? "border-orange-700 bg-orange-50 text-orange-800" : "border-foreground/20 text-muted-foreground");
