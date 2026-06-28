@@ -283,7 +283,7 @@ Deno.serve(async (req) => {
             }
             const label = attempts === 1
               ? "Generating chapter outline and running outline QC…"
-              : `Outline missing chapters — repairing (attempt ${attempts}/3)…`;
+              : `Generating outline — repairing invalid outline JSON, attempt ${attempts}/3`;
             try {
               await track(["outline", "outline_qc"], label, async () => {
                 await runStep("4_5_outline_qc", "generate-outline", { ebook_id: ebook.id });
