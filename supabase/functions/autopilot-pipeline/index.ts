@@ -247,7 +247,7 @@ Deno.serve(async (req) => {
         };
 
         // ---------- STEP 4 + 5 — Outline + QC (with strict dependency validation) ----------
-        const MIN_OUTLINE_CHAPTERS = 3;
+        const MIN_OUTLINE_CHAPTERS = 8;
         const hasValidOutline = (e: any) => {
           const o = e?.outline_json as any;
           return !!(o && Array.isArray(o.chapters) && o.chapters.length >= MIN_OUTLINE_CHAPTERS);
