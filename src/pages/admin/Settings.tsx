@@ -1,121 +1,175 @@
+// Settings — essentials shown by default, advanced sections collapsed.
+// Absorbs the former Autopilot, Categories and Costs pages.
 import { useEffect, useState } from "react";
+import { Link as RouterLink } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown, Trash2, ExternalLink, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 type Settings = {
   id: number;
+  // Essentials
   daily_quota: number;
-  mode: "low_cost" | "premium" | "hybrid";
-  enabled_category_ids: string[];
-  min_score_threshold: number;
-  min_word_count: number;
-  max_refund_risk: number;
-  daily_budget_usd: number;
+  autopilot_mode: string;
   auto_publish: boolean;
+  daily_budget_usd: number;
+  min_word_count: number;
+  min_score_threshold: number;
+  enabled_category_ids: string[];
+  // Advanced
+  mode: string;
+  per_ebook_budget_usd: number;
+  publish_hour_utc: number;
+  max_ai_calls_per_ebook: number;
+  max_rewrite_attempts: number;
+  max_shopify_uploads_per_day: number;
+  auto_rewrite_limit: number;
+  shopify_draft_upload_enabled: boolean;
   cron_enabled: boolean;
+  autopilot_enabled: boolean;
+  paused: boolean;
 };
 
-type Category = { id: string; name: string; enabled: boolean };
+type Category = {
+  id: string; name: string; slug: string; description: string | null;
+  default_price: number; cover_style_prompt: string | null; enabled: boolean;
+};
+
+type CostRow = {
+  id: string; step: string; model: string;
+  input_tokens: number; output_tokens: number; cost_usd: number;
+  created_at: string;
+};
 
 export default function SettingsPage() {
   const [s, setS] = useState<Settings | null>(null);
   const [cats, setCats] = useState<Category[]>([]);
-  const [saving, setSaving] = useState(false);
+  const [costs, setCosts] = useState<CostRow[]>([]);
+  const [advanced, setAdvanced] = useState(false);
+  const [savingCats, setSavingCats] = useState(false);
+  const [draft, setDraft] = useState({ name: "", slug: "", default_price: 24.99 });
 
   useEffect(() => {
     (async () => {
       const [{ data: setRow }, { data: catRows }] = await Promise.all([
-        supabase.from("generation_settings").select("*").eq("id", 1).single(),
-        supabase.from("categories").select("id,name,enabled").order("name"),
+        supabase.from("generation_settings").select("*").eq("id", 1).maybeSingle(),
+        supabase.from("categories").select("*").order("name"),
       ]);
       if (setRow) setS(setRow as Settings);
       if (catRows) setCats(catRows as Category[]);
     })();
   }, []);
 
-  const save = async () => {
+  async function loadCosts() {
+    const { data } = await supabase.from("cost_log")
+      .select("id,step,model,input_tokens,output_tokens,cost_usd,created_at")
+      .order("created_at", { ascending: false }).limit(100);
+    setCosts((data ?? []) as CostRow[]);
+  }
+
+  async function patchSettings(patch: Partial<Settings>) {
     if (!s) return;
-    setSaving(true);
-    const { error } = await supabase.from("generation_settings").update({
-      daily_quota: s.daily_quota,
-      mode: s.mode,
-      enabled_category_ids: s.enabled_category_ids,
-      min_score_threshold: s.min_score_threshold,
-      min_word_count: s.min_word_count,
-      max_refund_risk: s.max_refund_risk,
-      daily_budget_usd: s.daily_budget_usd,
-      auto_publish: s.auto_publish,
-      cron_enabled: s.cron_enabled,
-    }).eq("id", 1);
-    setSaving(false);
+    const next = { ...s, ...patch };
+    setS(next);
+    const { error } = await supabase.from("generation_settings").update(patch).eq("id", 1);
     if (error) toast.error(error.message);
-    else toast.success("Settings saved");
-  };
+  }
+
+  function toggleCategoryEnabled(id: string, on: boolean) {
+    if (!s) return;
+    const next = on
+      ? Array.from(new Set([...s.enabled_category_ids, id]))
+      : s.enabled_category_ids.filter((c) => c !== id);
+    patchSettings({ enabled_category_ids: next });
+  }
+
+  async function addCategory() {
+    if (!draft.name || !draft.slug) return toast.error("Name and slug required");
+    setSavingCats(true);
+    const { error } = await supabase.from("categories").insert(draft);
+    setSavingCats(false);
+    if (error) return toast.error(error.message);
+    setDraft({ name: "", slug: "", default_price: 24.99 });
+    const { data } = await supabase.from("categories").select("*").order("name");
+    setCats((data ?? []) as Category[]);
+    toast.success("Category added");
+  }
+
+  async function updateCategory(c: Category, patch: Partial<Category>) {
+    const { error } = await supabase.from("categories").update(patch).eq("id", c.id);
+    if (error) return toast.error(error.message);
+    setCats((prev) => prev.map((x) => (x.id === c.id ? { ...x, ...patch } : x)));
+  }
+
+  async function deleteCategory(id: string) {
+    if (!confirm("Delete category?")) return;
+    const { error } = await supabase.from("categories").delete().eq("id", id);
+    if (error) return toast.error(error.message);
+    setCats((prev) => prev.filter((c) => c.id !== id));
+  }
 
   if (!s) return <div>Loading…</div>;
 
-  const toggleCat = (id: string, on: boolean) => {
-    setS({
-      ...s,
-      enabled_category_ids: on
-        ? [...new Set([...s.enabled_category_ids, id])]
-        : s.enabled_category_ids.filter((c) => c !== id),
-    });
-  };
-
   return (
     <div className="space-y-6 max-w-3xl">
-      <div>
-        <p className="font-mono uppercase tracking-widest text-xs">[ Settings ]</p>
-        <h1 className="font-display text-4xl uppercase">Generation settings</h1>
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <p className="font-mono uppercase tracking-widest text-xs">[ Settings ]</p>
+          <h1 className="font-display text-4xl uppercase">Factory settings</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs">Advanced mode</Label>
+          <Switch checked={advanced} onCheckedChange={setAdvanced} />
+        </div>
       </div>
 
+      {/* ===== Essentials ===== */}
       <Card className="border-2 border-foreground">
-        <CardHeader><CardTitle>Daily generation</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>Daily quota</Label>
-              <Select value={String(s.daily_quota)} onValueChange={(v) => setS({ ...s, daily_quota: Number(v) })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {[1, 5, 10, 20, 50].map((n) => <SelectItem key={n} value={String(n)}>{n} ebooks/day</SelectItem>)}
-                  <SelectItem value="0">Custom (manual only)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Mode</Label>
-              <Select value={s.mode} onValueChange={(v) => setS({ ...s, mode: v as Settings["mode"] })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="low_cost">Low cost (Flash Lite)</SelectItem>
-                  <SelectItem value="hybrid">Hybrid (recommended)</SelectItem>
-                  <SelectItem value="premium">Premium (Pro models)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+        <CardHeader><CardTitle>Production</CardTitle></CardHeader>
+        <CardContent className="grid grid-cols-2 gap-4">
+          <div>
+            <Label>Daily ebook quota</Label>
+            <Input
+              type="number" min={0} max={100}
+              value={s.daily_quota}
+              onChange={(e) => setS({ ...s, daily_quota: Number(e.target.value) })}
+              onBlur={(e) => patchSettings({ daily_quota: Number(e.target.value) })}
+            />
           </div>
-          <div className="flex items-center justify-between border-t pt-4">
-            <div>
-              <Label>Enable daily cron</Label>
-              <p className="text-xs text-muted-foreground">Runs the pipeline automatically each day.</p>
-            </div>
-            <Switch checked={s.cron_enabled} onCheckedChange={(v) => setS({ ...s, cron_enabled: v })} />
+          <div>
+            <Label>Autopilot mode</Label>
+            <Select value={s.autopilot_mode} onValueChange={(v) => patchSettings({ autopilot_mode: v })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="safe">Safe (draft only)</SelectItem>
+                <SelectItem value="full">Full (auto-publish)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <div className="flex items-center justify-between">
+          <div>
+            <Label>Daily budget (USD)</Label>
+            <Input
+              type="number" step="0.01"
+              value={s.daily_budget_usd}
+              onChange={(e) => setS({ ...s, daily_budget_usd: Number(e.target.value) })}
+              onBlur={(e) => patchSettings({ daily_budget_usd: Number(e.target.value) })}
+            />
+          </div>
+          <div className="flex items-center justify-between border-2 border-foreground/10 px-3 rounded">
             <div>
-              <Label>Auto-publish approved</Label>
-              <p className="text-xs text-muted-foreground">If off, products stay as Shopify drafts.</p>
+              <Label>Auto-publish</Label>
+              <p className="text-xs text-muted-foreground">Only active in Full mode.</p>
             </div>
-            <Switch checked={s.auto_publish} onCheckedChange={(v) => setS({ ...s, auto_publish: v })} />
+            <Switch checked={s.auto_publish} onCheckedChange={(v) => patchSettings({ auto_publish: v })} />
           </div>
         </CardContent>
       </Card>
@@ -124,42 +178,234 @@ export default function SettingsPage() {
         <CardHeader><CardTitle>Quality gates</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-2 gap-4">
           <div>
-            <Label>Min total idea score (0–60)</Label>
-            <Input type="number" value={s.min_score_threshold ?? ""} onChange={(e) => setS({ ...s, min_score_threshold: e.target.value === "" ? 0 : Number(e.target.value) })} />
+            <Label>Minimum word count</Label>
+            <Input
+              type="number"
+              value={s.min_word_count ?? 0}
+              onChange={(e) => setS({ ...s, min_word_count: Number(e.target.value) })}
+              onBlur={(e) => patchSettings({ min_word_count: Number(e.target.value) })}
+            />
+            <p className="text-xs text-muted-foreground mt-1">Recommended: 18,000.</p>
           </div>
           <div>
-            <Label>Min word count</Label>
-            <Input type="number" value={s.min_word_count ?? ""} onChange={(e) => setS({ ...s, min_word_count: e.target.value === "" ? 0 : Number(e.target.value) })} />
-            <p className="text-xs text-muted-foreground mt-1">Recommended: 18,000 (70–90 page PDF, 10 chapters × 1,500–1,800 words)</p>
-          </div>
-          <div>
-            <Label>Max refund risk (0–10)</Label>
-            <Input type="number" value={s.max_refund_risk ?? ""} onChange={(e) => setS({ ...s, max_refund_risk: e.target.value === "" ? 0 : Number(e.target.value) })} />
-          </div>
-          <div>
-            <Label>Daily budget (USD)</Label>
-            <Input type="number" step="0.01" value={s.daily_budget_usd ?? ""} onChange={(e) => setS({ ...s, daily_budget_usd: e.target.value === "" ? 0 : Number(e.target.value) })} />
+            <Label>Minimum QC score</Label>
+            <Input
+              type="number" min={0} max={100}
+              value={s.min_score_threshold ?? 0}
+              onChange={(e) => setS({ ...s, min_score_threshold: Number(e.target.value) })}
+              onBlur={(e) => patchSettings({ min_score_threshold: Number(e.target.value) })}
+            />
           </div>
         </CardContent>
       </Card>
 
       <Card className="border-2 border-foreground">
-        <CardHeader><CardTitle>Categories for daily generation</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Categories enabled for autopilot</CardTitle></CardHeader>
         <CardContent className="space-y-2">
+          {cats.length === 0 && <p className="text-sm text-muted-foreground">No categories yet — add one under "Category management" below.</p>}
           {cats.map((c) => (
             <label key={c.id} className="flex items-center gap-2 cursor-pointer">
               <Checkbox
                 checked={s.enabled_category_ids.includes(c.id)}
-                onCheckedChange={(v) => toggleCat(c.id, !!v)}
+                onCheckedChange={(v) => toggleCategoryEnabled(c.id, !!v)}
               />
               <span>{c.name}</span>
+              <span className="text-xs text-muted-foreground font-mono">${c.default_price}</span>
+              {!c.enabled && <span className="text-xs text-muted-foreground">(disabled globally)</span>}
             </label>
           ))}
-          {cats.length === 0 && <p className="text-sm text-muted-foreground">No categories yet — create some on the Categories page.</p>}
         </CardContent>
       </Card>
 
-      <Button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save settings"}</Button>
+      {/* ===== Advanced sections (collapsibles) ===== */}
+      {advanced && (
+        <>
+          <AdvancedSection title="Advanced QC thresholds">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Auto-rewrite limit (per stage)</Label>
+                <Input
+                  type="number" min={0} max={5}
+                  value={s.auto_rewrite_limit ?? 2}
+                  onChange={(e) => setS({ ...s, auto_rewrite_limit: Number(e.target.value) })}
+                  onBlur={(e) => patchSettings({ auto_rewrite_limit: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <Label>Max rewrite attempts</Label>
+                <Input
+                  type="number" min={0} max={5}
+                  value={s.max_rewrite_attempts ?? 2}
+                  onChange={(e) => setS({ ...s, max_rewrite_attempts: Number(e.target.value) })}
+                  onBlur={(e) => patchSettings({ max_rewrite_attempts: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <Label>Max AI calls per ebook</Label>
+                <Input
+                  type="number" min={10} max={500}
+                  value={s.max_ai_calls_per_ebook ?? 60}
+                  onChange={(e) => setS({ ...s, max_ai_calls_per_ebook: Number(e.target.value) })}
+                  onBlur={(e) => patchSettings({ max_ai_calls_per_ebook: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <Label>Per-ebook budget (USD)</Label>
+                <Input
+                  type="number" step="0.25"
+                  value={s.per_ebook_budget_usd ?? 2}
+                  onChange={(e) => setS({ ...s, per_ebook_budget_usd: Number(e.target.value) })}
+                  onBlur={(e) => patchSettings({ per_ebook_budget_usd: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+          </AdvancedSection>
+
+          <AdvancedSection title="Category management">
+            <div className="space-y-3">
+              <div className="grid grid-cols-12 gap-2 items-end border-b border-foreground/10 pb-3">
+                <div className="col-span-4">
+                  <Label className="text-xs">Name</Label>
+                  <Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+                </div>
+                <div className="col-span-4">
+                  <Label className="text-xs">Slug</Label>
+                  <Input value={draft.slug} onChange={(e) => setDraft({ ...draft, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") })} />
+                </div>
+                <div className="col-span-2">
+                  <Label className="text-xs">Price</Label>
+                  <Input type="number" step="0.01" value={draft.default_price} onChange={(e) => setDraft({ ...draft, default_price: Number(e.target.value) })} />
+                </div>
+                <Button className="col-span-2" onClick={addCategory} disabled={savingCats}>
+                  <Plus className="size-3 mr-1" /> Add
+                </Button>
+              </div>
+              {cats.map((c) => (
+                <div key={c.id} className="grid grid-cols-12 gap-2 items-center">
+                  <Input className="col-span-4" defaultValue={c.name} onBlur={(e) => e.target.value !== c.name && updateCategory(c, { name: e.target.value })} />
+                  <Input className="col-span-3 font-mono text-xs" defaultValue={c.slug} disabled />
+                  <Input className="col-span-2" type="number" step="0.01" defaultValue={c.default_price}
+                    onBlur={(e) => Number(e.target.value) !== c.default_price && updateCategory(c, { default_price: Number(e.target.value) })} />
+                  <div className="col-span-2 flex items-center gap-2 text-xs">
+                    <Switch checked={c.enabled} onCheckedChange={(v) => updateCategory(c, { enabled: v })} />
+                    <span>{c.enabled ? "On" : "Off"}</span>
+                  </div>
+                  <Button variant="ghost" size="icon" className="col-span-1" onClick={() => deleteCategory(c.id)}>
+                    <Trash2 className="size-3" />
+                  </Button>
+                  <Textarea
+                    className="col-span-12 text-xs"
+                    defaultValue={c.cover_style_prompt ?? ""}
+                    placeholder="Cover style prompt"
+                    onBlur={(e) => e.target.value !== (c.cover_style_prompt ?? "") && updateCategory(c, { cover_style_prompt: e.target.value })}
+                  />
+                </div>
+              ))}
+            </div>
+          </AdvancedSection>
+
+          <AdvancedSection title="Shopify & scheduling">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center justify-between border-2 border-foreground/10 px-3 rounded">
+                <Label>Shopify draft upload</Label>
+                <Switch checked={s.shopify_draft_upload_enabled !== false} onCheckedChange={(v) => patchSettings({ shopify_draft_upload_enabled: v })} />
+              </div>
+              <div>
+                <Label>Max Shopify uploads / day</Label>
+                <Input
+                  type="number" min={0} max={200}
+                  value={s.max_shopify_uploads_per_day ?? 20}
+                  onChange={(e) => setS({ ...s, max_shopify_uploads_per_day: Number(e.target.value) })}
+                  onBlur={(e) => patchSettings({ max_shopify_uploads_per_day: Number(e.target.value) })}
+                />
+              </div>
+              <div className="flex items-center justify-between border-2 border-foreground/10 px-3 rounded">
+                <Label>Daily cron enabled</Label>
+                <Switch checked={s.cron_enabled} onCheckedChange={(v) => patchSettings({ cron_enabled: v })} />
+              </div>
+              <div>
+                <Label>Publish hour (UTC)</Label>
+                <Input
+                  type="number" min={0} max={23}
+                  value={s.publish_hour_utc ?? 14}
+                  onChange={(e) => setS({ ...s, publish_hour_utc: Number(e.target.value) })}
+                  onBlur={(e) => patchSettings({ publish_hour_utc: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+          </AdvancedSection>
+
+          <AdvancedSection title="API & model settings">
+            <div>
+              <Label>Generation tier</Label>
+              <Select value={s.mode} onValueChange={(v) => patchSettings({ mode: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low_cost">Low cost (Flash Lite)</SelectItem>
+                  <SelectItem value="hybrid">Hybrid (recommended)</SelectItem>
+                  <SelectItem value="premium">Premium (Pro models)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-2">
+                AI key, prompts and model routing are configured server-side. Edit prompts in the codebase.
+              </p>
+            </div>
+          </AdvancedSection>
+
+          <AdvancedSection title="Debug — AI cost log" onOpen={loadCosts}>
+            {costs.length === 0
+              ? <p className="text-xs text-muted-foreground">No cost records loaded yet — opening this section fetches the last 100.</p>
+              : (
+                <div className="text-xs font-mono overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="border-b border-foreground/20">
+                      <tr className="text-left">
+                        <th className="p-1">Time</th><th className="p-1">Step</th><th className="p-1">Model</th>
+                        <th className="p-1 text-right">In/Out</th><th className="p-1 text-right">USD</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {costs.map((r) => (
+                        <tr key={r.id} className="border-b border-foreground/5">
+                          <td className="p-1 whitespace-nowrap">{new Date(r.created_at).toLocaleString()}</td>
+                          <td className="p-1">{r.step}</td>
+                          <td className="p-1 truncate max-w-[160px]">{r.model}</td>
+                          <td className="p-1 text-right">{r.input_tokens}/{r.output_tokens}</td>
+                          <td className="p-1 text-right">${Number(r.cost_usd).toFixed(6)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+          </AdvancedSection>
+        </>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        Need to inspect or edit a single job? Open <RouterLink to="/admin/production" className="underline">Production</RouterLink> and click View on the row.
+        Job-level rewrite, premium positioning, generate-alternatives, raw idea JSON and other power tools live on the job detail page.
+        <ExternalLink className="inline size-3 ml-1" />
+      </p>
     </div>
+  );
+}
+
+function AdvancedSection({ title, children, onOpen }: { title: string; children: React.ReactNode; onOpen?: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible open={open} onOpenChange={(v) => { setOpen(v); if (v) onOpen?.(); }}>
+      <Card className="border-2 border-foreground">
+        <CollapsibleTrigger asChild>
+          <CardHeader className="cursor-pointer flex flex-row items-center justify-between pb-3 hover:bg-muted/40">
+            <CardTitle className="text-sm font-mono uppercase">{title}</CardTitle>
+            <ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} />
+          </CardHeader>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <CardContent>{children}</CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
   );
 }
