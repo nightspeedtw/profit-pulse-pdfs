@@ -146,6 +146,7 @@ Deno.serve(async (req) => {
     let bookPageNum = 0; // count from after-cover-after-title-after-copy-after-toc = chapter 1 page 1
     let diagramOverflowCount = 0;
     let diagramTruncatedCount = 0;
+    let dividerIssueCount = 0;
 
     // Helper to add an interior page with header+footer and increment counter
     type Ctx = { page: PDFPage; y: number; pageNum: number; chTitle: string };
@@ -162,6 +163,10 @@ Deno.serve(async (req) => {
       const chNum = i + 1;
       const chShort = safe(ch.title);
       const { promise, outcomes } = extractChapterPromise(ch.content || "", chShort);
+      // QC: every divider must have a complete promise sentence + 3 outcome sentences.
+      const promiseOk = /[.!?]$/.test(promise.trim()) && promise.trim().length >= 30;
+      const outcomesOk = outcomes.length >= 3 && outcomes.every((o) => /[.!?]$/.test(o.trim()) && o.trim().length >= 25);
+      if (!promiseOk || !outcomesOk) dividerIssueCount += 1;
 
       // -- Chapter divider page --
       const divider = pdf.addPage([PAGE_W, PAGE_H]);
