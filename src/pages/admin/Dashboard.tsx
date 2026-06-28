@@ -95,15 +95,19 @@ export default function Dashboard() {
   };
 
   const runSampleTest = async () => {
-    if (!confirm("Start a sample end-to-end PDF generation? This will create a test idea and run the full premium pipeline.")) return;
     setTesting(true);
+    setTestRun({ status: "starting", message: "Creating fixture idea…" });
     try {
       const { data, error } = await supabase.functions.invoke("test-sample-pdf", { body: {} });
       if (error) throw error;
+      const ideaId = data?.idea_id as string | undefined;
+      setTestRun({ status: "running", message: "Pipeline started. Polling…", ideaId, startedAt: Date.now() });
       toast.success(data?.message ?? "Test pipeline started");
       load();
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Test failed to start");
+      const msg = e instanceof Error ? e.message : "Test failed to start";
+      setTestRun({ status: "failed", message: msg });
+      toast.error(msg);
     } finally {
       setTesting(false);
     }
