@@ -651,19 +651,22 @@ function drawCoverOverlay(
     });
   }
 
-  // Accent bar above title
-  page.drawRectangle({ x: MARGIN, y: y - 6, width: 56, height: 5, color: theme.accent });
+  // Accent bar above title (thicker for stronger visual anchor)
+  page.drawRectangle({ x: MARGIN, y: y - 6, width: 72, height: 6, color: theme.accent });
   y -= 22;
 
-  // Title lines (top-to-bottom)
+  // Title lines (top-to-bottom) — full opacity, larger weight for dominance
   for (const ln of titleLines) {
     y -= titleLineH;
     page.drawText(safe(ln), { x: MARGIN, y: y + titleLineH - titleSize * 0.85, size: titleSize, font: fonts.bold, color: theme.onDark });
   }
 
+  // Gold underline beneath the title block for sales-impact contrast
+  page.drawRectangle({ x: MARGIN, y: y - 10, width: PAGE_W - MARGIN * 2, height: 1.2, color: theme.accent, opacity: 0.6 });
+
   // Subtitle
   if (subLines.length) {
-    y -= 18;
+    y -= 22;
     for (const ln of subLines) {
       y -= subLineH;
       page.drawText(safe(ln), { x: MARGIN, y: y + subLineH - subSize * 0.85, size: subSize, font: fonts.reg, color: theme.onDark, opacity: 0.95 });
