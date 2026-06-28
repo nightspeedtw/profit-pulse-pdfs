@@ -1276,7 +1276,15 @@ function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fo
   const bottom = MARGIN + 40;
   const areaH = top - bottom;
   const nodes = (d.nodes ?? []).map((n) => safe(n)).filter(Boolean);
-  const type = (d.type || "checklist").toLowerCase();
+  // Approved diagram template whitelist. Anything outside the list is forced
+  // to "process_flow" so we never end up with stray axis labels, broken charts,
+  // or uncontrolled AI-driven layouts. Axis labels are intentionally never drawn.
+  const APPROVED = new Set([
+    "process_flow", "pyramid", "matrix_2x2", "circle_cycle",
+    "comparison_table", "checklist", "before_after",
+  ]);
+  const rawType = (d.type || "checklist").toLowerCase();
+  const type = APPROVED.has(rawType) ? rawType : "process_flow";
 
   // QC pre-pass: count how many nodes would not fit (cropped off page)
   // and how many wrap to more lines than the renderer caps at.
