@@ -393,3 +393,19 @@ export default function Dashboard() {
     </div>
   );
 }
+
+function AlertTile({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: number; tone: "red" | "orange" }) {
+  const toneCls = tone === "red"
+    ? (value > 0 ? "border-red-700 bg-red-50 text-red-800" : "border-foreground/20 text-muted-foreground")
+    : (value > 0 ? "border-orange-700 bg-orange-50 text-orange-800" : "border-foreground/20 text-muted-foreground");
+  return (
+    <div className={`border-2 p-2 flex items-center gap-2 ${toneCls}`}>
+      {icon}
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] font-mono uppercase leading-tight">{label}</p>
+        <p className="font-display text-xl leading-none">{value}</p>
+      </div>
+    </div>
+  );
+}
+
