@@ -143,10 +143,9 @@ export default function CommandCenter() {
       if (error || (data as { error?: string } | null)?.error) {
         throw new Error(error?.message ?? (data as { error?: string }).error);
       }
-      toast.success("Full Autopilot Test started — opening live run…");
-      const runId = (data as { run_id?: string } | null)?.run_id;
-      if (runId) navigate(`/admin/autopilot/run/${runId}`);
+      toast.success("Full Autopilot Test started — watch the live status above");
       load();
+      // Stay on Command Center so the status bar + LiveAutopilotCard stay visible.
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Test failed to start");
     } finally {
