@@ -238,10 +238,20 @@ Deno.serve(async (req) => {
       diagramOverflowCount,
       diagramTruncatedCount,
     });
+    // Block PDF acceptance if cover text QC failed.
+    (pdfQc as Record<string, unknown>).cover_text_qc = coverTextQc;
+    (pdfQc as Record<string, unknown>).cover_text_pass = coverTextPass;
+    if (!coverTextPass) {
+      const issues = (pdfQc as { issues?: string[] }).issues ?? [];
+      issues.push("Cover missing required text (title or brand) — PDF blocked from publish.");
+      (pdfQc as Record<string, unknown>).issues = issues;
+      (pdfQc as Record<string, unknown>).blocked_for_publish = true;
+    }
 
     await db.from("ebooks").update({
       pdf_url: signed?.signedUrl,
       pdf_qc: pdfQc as unknown as never,
+      pdf_status: coverTextPass ? "ready" : "needs_review",
       status: prevStatus === "building_pdf" ? "review" : prevStatus,
     }).eq("id", ebook_id);
 
