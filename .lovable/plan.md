@@ -1,106 +1,80 @@
-# Global Auto-Fix QC System
+# True Hands-Off Autopilot Refactor
 
-A single, reusable auto-fix loop wired into every QC gate. Targeted fixes only, hard cap at 3 attempts per gate, then stop and flag for admin. No silent failures, no auto-publish after manual override.
+## Principle
+Admin only intervenes when auto-fix fails 3× or a real config/error blocker exists. **No approval buttons in the normal flow.**
 
-## 1. Database (one migration)
+---
 
-Add columns to `ebooks` for gate-level tracking:
+## 1. Pipeline (`autopilot-pipeline` edge function)
+Refactor to a linear, non-blocking chain. Each gate uses `runWithAutoFix({ max: 3 })`:
 
-- `qc_status` text — `qc_pending | qc_passed | auto_fixing | auto_fix_failed | needs_admin_review | ready_to_continue`
-- `failed_gate` text — e.g. `cover`, `thumbnail`, `chapter`, `diagram`, `shopify_upload`
-- `failed_component` text — sub-id (chapter index, diagram slug, etc.)
-- `failed_score` numeric, `required_score` numeric
-- `auto_fix_attempt_count` int default 0
+```
+idea → idea_qc → outline → outline_qc → chapters → chapter_qc
+  → manuscript_qc → cover → cover_qc → thumbnail → thumbnail_qc
+  → pdf → pdf_qc → product_copy → product_qc → shopify_draft_upload
+  → mark "Ready to Publish"
+```
+
+Rules per gate:
+- pass → continue immediately, no admin touch
+- fail → targeted fix (component only), rerun QC
+- 3× fail → set `qc_status='needs_admin_review'`, stop, record exact reason
+
+Remove every `await waitForAdminApproval(...)` / `requires_admin_approval` flag in the pipeline path. Drop columns/usages: `idea_approved_by_admin`, `cover_approved_by_admin`, `pdf_approved_by_admin`, `final_approved_by_admin`. Replace reads with `qc_status` checks.
+
+`shopify-publish` gate stays — but publish only triggers when `auto_publish=true` AND all gates pass. Draft upload is unconditional after QC pass.
+
+---
+
+## 2. Settings (`generation_settings`)
+Add/ensure:
 - `max_auto_fix_attempts` int default 3
-- `last_auto_fix_action` text
-- `auto_fix_history` jsonb default `[]`
-- `admin_review_reason` text
-- `next_recommended_action` text
-- `blocked_at` timestamptz, `resolved_at` timestamptz
+- `shopify_draft_upload` bool default true
+- `auto_publish` bool default false
+- `safe_mode` bool default true (draft only)
+- `advanced_mode` bool default false
 
-History entry shape:
-```json
-{ "attempt": 1, "gate": "thumbnail", "component": null,
-  "reason": "score 82 < 90", "action": "rerender_thumbnail",
-  "before": 82, "after": 91, "result": "pass", "at": "ISO" }
-```
+---
 
-## 2. Shared auto-fix engine
+## 3. Status model
+User-facing statuses only:
+`Queued | Running | Auto-Fixing | Draft Uploaded | Ready to Publish | Published | Needs Admin Attention | Failed | Rejected`
 
-New file `supabase/functions/_shared/autofix.ts`:
+Map internal `*_qc` states → "Running" or "Auto-Fixing" in the UI layer (computed, no schema change).
 
-```text
-runWithAutoFix({ ebookId, gate, component, run, fix, max=3 })
-  → loops: run() → if pass, record + return
-                → else fix() → record attempt → loop
-  → after max fails: set qc_status='needs_admin_review',
-    failed_gate/score, blocked_at, recommended_action
-```
+---
 
-Every gate is wrapped through this single helper so retry/cap/history logic exists in one place.
+## 4. UI
 
-## 3. Gate registry
+**Command Center** (`Dashboard.tsx`): Autopilot ON/OFF, daily quota, running, drafts uploaded today, needs admin, daily AI cost, `Start/Pause Autopilot`, `Generate 1 Ebook Now`, `Run Full Autopilot Test`. Remove all approve buttons.
 
-`supabase/functions/_shared/qc-gates.ts` exports one entry per gate with a `check` and a targeted `fix`:
+**Production** (new `Production.tsx` or repurpose existing list): rows with simple status + actions `View | Resume | Fix | Reject` only.
 
-```text
-idea            → rewrite title/subtitle/hook
-outline         → strengthen structure, add missing sections
-chapter[i]      → rewrite one chapter
-final_manuscript→ fix only failed sections
-cover           → adjust overlay/contrast, regenerate bg if needed
-thumbnail       → rerender from final cover, bigger title, stronger gradient
-chapter_divider → rewrite promise + outcome bullets only
-worksheet[i]    → switch layout type, add fields
-diagram[i]      → rebuild with approved component
-pdf_layout      → add premium blocks, fix spacing/page breaks
-product_page    → rewrite title/desc/FAQ/CTA/SEO
-shopify_upload  → retry upload, verify assets
-final_approval  → recurse into the specific failed sub-gate
-```
+**Job Detail** (`FinalApproval.tsx` → rename `JobDetail.tsx`):
+- Healthy job → progress + QC report (read-only, "Auto-approved by QC" labels)
+- `needs_admin_review` → **AdminNeededPanel at top**: failed gate, score vs required, attempts used, last error, what was tried, recommended action, buttons `Retry Auto-Fix Once | Edit Component | Regenerate Component | Reject`
 
-Fix functions reuse existing generators (`generate-cover`, `write-chapters`, `build-pdf`, `generate-product-page`, `push-to-shopify`, etc.) — no full-ebook regen unless the failed component demands it.
+Delete/hide components: `ApproveIdeaButton`, `ApproveCoverButton`, `ApprovePDFButton`, `FinalApproveButton`, `ApproveAndGenerate`, `LaunchSAFE`.
 
-## 4. Pipeline wiring
+**Settings** page: expose the 5 autopilot toggles above. Hide debug/approval controls behind `advanced_mode`.
 
-`autopilot-pipeline` and each step function call gates through `runWithAutoFix` instead of failing fast. On `needs_admin_review` the pipeline:
+---
 
-- stops further steps
-- never sets `pdf_status='pdf_ready'`, never calls `push-to-shopify`, never flips `status='completed'`
-- records the failure in `pipeline_step_logs`
+## 5. Run Full Autopilot Test
+New button → invokes `autopilot-pipeline` with `test_mode=true` on one seeded idea. Returns structured report: started/completed, per-step status, auto-fix attempts, QC scores, Shopify draft URL, blocker (if any).
 
-## 5. Final Approval UI
-
-`src/components/admin/FinalApproval.tsx` + new `AutoFixPanel`:
-
-- Status banner: `Auto-fixing failed QC gate… attempt N/3` / `Auto-fixed and passed` / `Needs Admin Review`
-- On `needs_admin_review`: show failed gate, score vs required, all attempt rows (action / before → after / reason), and buttons:
-  - Retry Auto-Fix Once
-  - Edit Manually
-  - Regenerate Component
-  - Reject
-  - Mark Approved Manually (audit-logged; suppresses any auto-publish)
-
-## 6. Safety rules enforced in code
-
-- `publishGate` in `_shared/qc.ts` already blocks publish unless `pdf_status='pdf_ready'`; extend it to also require `qc_status IN ('qc_passed','ready_to_continue')` and reject when `manual_override=true` unless admin explicitly clicked Publish.
-- Hard cost cap: each gate's fix is targeted; the engine refuses to call fix if `auto_fix_attempt_count >= max`.
-
-## 7. Backfill / current ebook
-
-After the migration, set existing rows to `qc_status='ready_to_continue'` where `pdf_status='pdf_ready'` so the current "Six-Month Debt Exit Strategy" doesn't get re-flagged.
+---
 
 ## Technical notes
+- Reuse existing `_shared/autofix.ts` and `_shared/qc-gates.ts` registry (already 3-attempt capped, targeted fixes).
+- No DB schema break: keep approval columns nullable, just stop reading them. Add `is_advanced_mode`, `auto_publish` to `generation_settings` if missing.
+- `publishGate` (`_shared/qc.ts`) stops requiring `admin_approved=true`; requires `qc_status IN ('qc_passed','ready_to_continue')` only.
+- Files touched: `supabase/functions/autopilot-pipeline/index.ts`, `_shared/qc.ts`, `shopify-publish/index.ts`, `src/pages/admin/Dashboard.tsx`, `src/pages/admin/Production.tsx` (new), `src/components/admin/FinalApproval.tsx` → `JobDetail.tsx`, `src/components/admin/AdminNeededPanel.tsx` (new), `src/pages/admin/Settings.tsx`, plus deletion of approve-button components.
 
-- One migration, one shared engine, one gate registry — no per-function reinvention.
-- Existing functions stay intact; we only wrap their callers.
-- History is append-only JSONB; no separate table needed (low row volume per ebook).
-- Frontend changes confined to `FinalApproval.tsx` + a new `AutoFixPanel.tsx`.
+---
 
-## Out of scope (ask if you want these)
+## Out of scope
+- No changes to PDF generation logic, QC scoring formulas, or Shopify product schema.
+- No auto-publish behavior change (stays OFF by default).
 
-- Separate `qc_attempts` table (JSONB is enough for now).
-- Per-gate cost metering beyond attempt count.
-- Background worker / cron — fixes run inline in the existing edge functions.
-
-Approve and I'll implement in this order: migration → shared engine + registry → wire into build-pdf/push-to-shopify/autopilot → FinalApproval UI → backfill.
+Approve to proceed?
