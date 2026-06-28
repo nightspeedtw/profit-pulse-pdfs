@@ -532,7 +532,7 @@ export default function Ideas() {
                     {canPromote && (
                       <>
                         {isApproved ? (
-                          <Button size="sm" onClick={() => promote(i.id)} disabled={isBusy}>
+                          <Button size="sm" onClick={() => approveAndGenerate(i)} disabled={isBusy}>
                             {isBusy ? <Loader2 className="size-4 animate-spin mr-1" /> : <ChevronRight className="size-4 mr-1" />}
                             Approve & Generate
                           </Button>
