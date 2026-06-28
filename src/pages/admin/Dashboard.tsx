@@ -289,6 +289,46 @@ export default function Dashboard() {
         ))}
       </div>
 
+      {/* Milestone 10 — Production alerts */}
+      {prodAlert && (prodAlert.paused || prodAlert.costLimitReached || prodAlert.failedPipelines > 0) && (
+        <Card className="border-2 border-orange-700 bg-orange-50/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldAlert className="size-5 text-orange-700" /> Production alerts (last 24h)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {prodAlert.costLimitReached && (
+              <div className="flex items-start gap-2 border-l-4 border-red-700 pl-3 py-1">
+                <DollarSign className="size-4 text-red-700 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-bold text-red-800">Cost limit reached — autopilot paused</p>
+                  <p className="text-xs text-muted-foreground">{prodAlert.costLimitReason ?? "Daily budget exceeded."}</p>
+                  {prodAlert.costLimitAt && <p className="text-[10px] font-mono text-muted-foreground">Tripped at {new Date(prodAlert.costLimitAt).toLocaleString()}</p>}
+                </div>
+                <Link to="/admin/autopilot"><Button size="sm" variant="outline">Resolve</Button></Link>
+              </div>
+            )}
+            {prodAlert.paused && !prodAlert.costLimitReached && (
+              <div className="flex items-center gap-2 border-l-4 border-yellow-700 pl-3 py-1">
+                <PauseCircle className="size-4 text-yellow-700" />
+                <p className="flex-1"><strong>Autopilot is paused.</strong> No new ebooks will be generated.</p>
+                <Link to="/admin/autopilot"><Button size="sm" variant="outline">Open</Button></Link>
+              </div>
+            )}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              <AlertTile icon={<AlertTriangle className="size-4" />} label="Pipeline fails" value={prodAlert.failedPipelines} tone="orange" />
+              <AlertTile icon={<FileX className="size-4" />} label="PDF render errors" value={prodAlert.failedPdf} tone="red" />
+              <AlertTile icon={<ImageOff className="size-4" />} label="Cover errors" value={prodAlert.failedCover} tone="red" />
+              <AlertTile icon={<ShoppingBag className="size-4" />} label="Shopify errors" value={prodAlert.failedShopify} tone="red" />
+              <AlertTile icon={<ShieldAlert className="size-4" />} label="QC failures" value={prodAlert.failedQc} tone="orange" />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+
+
       <Card className="border-2 border-foreground">
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
