@@ -584,6 +584,7 @@ Deno.serve(async (req) => {
       scores: scores.data,
       rewrites: attempts - 1,
       chapter_count: validation.chapter_count,
+      used_fallback: usedFallback,
       outline,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
