@@ -21,13 +21,14 @@ export interface RunStepRow {
 
 function statusVisual(status: string) {
   switch (status) {
-    case "running":     return { Icon: Loader2, color: "text-sky-700", bg: "bg-sky-50", border: "border-sky-700", spin: true };
-    case "passed":      return { Icon: Check, color: "text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-700" };
-    case "auto_fixing": return { Icon: Wrench, color: "text-orange-700", bg: "bg-orange-50", border: "border-orange-700" };
-    case "failed":      return { Icon: X, color: "text-red-700", bg: "bg-red-50", border: "border-red-700" };
-    case "needs_admin": return { Icon: AlertTriangle, color: "text-red-700", bg: "bg-red-50", border: "border-red-700" };
-    case "skipped":     return { Icon: MinusCircle, color: "text-muted-foreground", bg: "bg-muted/30", border: "border-foreground/15" };
-    default:            return { Icon: Circle, color: "text-muted-foreground", bg: "", border: "border-foreground/15" };
+    case "running":          return { Icon: Loader2, color: "text-sky-700", bg: "bg-sky-50", border: "border-sky-700", spin: true };
+    case "passed":           return { Icon: Check, color: "text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-700" };
+    case "passed_existing":  return { Icon: Check, color: "text-emerald-700", bg: "bg-emerald-50/60", border: "border-emerald-700/60" };
+    case "auto_fixing":      return { Icon: Wrench, color: "text-orange-700", bg: "bg-orange-50", border: "border-orange-700" };
+    case "failed":           return { Icon: X, color: "text-red-700", bg: "bg-red-50", border: "border-red-700" };
+    case "needs_admin":      return { Icon: AlertTriangle, color: "text-red-700", bg: "bg-red-50", border: "border-red-700" };
+    case "skipped":          return { Icon: MinusCircle, color: "text-muted-foreground", bg: "bg-muted/30", border: "border-foreground/15" };
+    default:                 return { Icon: Circle, color: "text-muted-foreground", bg: "", border: "border-foreground/15" };
   }
 }
 
