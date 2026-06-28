@@ -33,7 +33,7 @@ interface PdfQc {
   notes?: string[];
 }
 
-interface EbookLike {
+interface EbookLike extends AutoFixState {
   id: string;
   cover_url: string | null;
   cover_score: number | null;
