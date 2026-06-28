@@ -11,6 +11,7 @@ import Category from "./pages/Category.tsx";
 import Product from "./pages/Product.tsx";
 import Bundles from "./pages/Bundles.tsx";
 import About from "./pages/About.tsx";
+import Download from "./pages/Download.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import AdminLogin from "./pages/admin/Login.tsx";
 import AdminLayout from "./pages/admin/AdminLayout.tsx";
