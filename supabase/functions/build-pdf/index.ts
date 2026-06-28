@@ -1147,48 +1147,91 @@ function drawDiagramPremium(page: PDFPage, d: FrameworkDiagram, theme: Theme, fo
 // ============ WORKSHEET (printable, premium) ============
 function drawWorksheetPremium(page: PDFPage, w: Worksheet, theme: Theme, fonts: Fonts) {
   drawSectionTitle(page, theme, fonts, "Worksheet");
-  page.drawText(safe(w.asset_name || "").slice(0, 80), { x: MARGIN, y: PAGE_H - 160, size: 14, font: fonts.bold, color: theme.ink });
-  // Purpose card
+  page.drawText(safe(w.asset_name || "").slice(0, 80), {
+    x: MARGIN, y: PAGE_H - 160, size: 14, font: fonts.bold, color: theme.ink,
+  });
   let y = PAGE_H - 180;
-  if (w.purpose) {
-    const lines = wrap(w.purpose, fonts.italic, 10, CONTENT_W - 24).slice(0, 3);
+
+  // Purpose / instruction card (always show something so the page never feels bare)
+  const purposeText = (w.purpose && w.purpose.trim())
+    ? w.purpose
+    : "Complete this worksheet to lock in what you just learned. Fill each box with your own answer — print it out or type into the PDF.";
+  {
+    const lines = wrap(purposeText, fonts.italic, 10, CONTENT_W - 24).slice(0, 3);
     const h = lines.length * 14 + 16;
     page.drawRectangle({ x: MARGIN, y: y - h, width: CONTENT_W, height: h, color: theme.surfaceWarm });
     page.drawRectangle({ x: MARGIN, y: y - h, width: 5, height: h, color: theme.accent });
     let ly = y - 12;
-    for (const ln of lines) { page.drawText(safe(ln), { x: MARGIN + 14, y: ly, size: 10, font: fonts.italic, color: theme.ink }); ly -= 14; }
+    for (const ln of lines) {
+      page.drawText(safe(ln), { x: MARGIN + 14, y: ly, size: 10, font: fonts.italic, color: theme.ink });
+      ly -= 14;
+    }
     y -= h + 18;
   }
 
-  // Instructions hint
-  page.drawText("FILL IN THE FIELDS BELOW · PRINT OR USE DIGITALLY", { x: MARGIN, y, size: 8, font: fonts.bold, color: theme.sub });
-  y -= 14;
+  // Instructions strip
+  page.drawText("INSTRUCTIONS: WRITE INSIDE EACH BOX BELOW", {
+    x: MARGIN, y, size: 8, font: fonts.bold, color: theme.sub,
+  });
+  y -= 16;
 
-  const fields = (w.fields_or_sections ?? []).slice(0, 10);
-  const bottomLimit = MARGIN + 30;
-  const sectionGap = 8;
-  // Distribute remaining space among fields
-  const totalH = Math.max(40, y - bottomLimit);
-  const perH = Math.max(80, Math.floor((totalH - sectionGap * fields.length) / Math.max(fields.length, 1)));
-  const lineGap = 22;
+  const fields = (w.fields_or_sections ?? []).slice(0, 6);
+  if (!fields.length) {
+    fields.push("Today's commitment", "One blocker I'll remove", "My next 24-hour action");
+  }
+
+  const bottomLimit = MARGIN + 36;
+  const fieldGap = 12;
+  const totalAvail = Math.max(60, y - bottomLimit - fieldGap * (fields.length - 1));
+  const perH = Math.max(70, Math.floor(totalAvail / fields.length));
+  const headerH = 24;
 
   for (let i = 0; i < fields.length; i++) {
     if (y - perH < bottomLimit) break;
+    const boxTop = y;
+    const boxBottom = boxTop - perH;
     const label = safe(fields[i]).slice(0, 80);
-    // numbered badge
-    page.drawRectangle({ x: MARGIN, y: y - 18, width: 22, height: 18, color: theme.overlay });
+
+    // Header band (dark) with number + label
+    page.drawRectangle({
+      x: MARGIN, y: boxTop - headerH, width: CONTENT_W, height: headerH,
+      color: theme.overlay,
+    });
+    // number chip
+    page.drawRectangle({
+      x: MARGIN + 6, y: boxTop - headerH + 4, width: 20, height: headerH - 8,
+      color: theme.accent,
+    });
     const num = String(i + 1);
     const nw = fonts.bold.widthOfTextAtSize(num, 11);
-    page.drawText(num, { x: MARGIN + 11 - nw / 2, y: y - 14, size: 11, font: fonts.bold, color: theme.accent });
-    page.drawText(label, { x: MARGIN + 30, y: y - 14, size: 11, font: fonts.bold, color: theme.ink });
-    y -= 28;
-    // writing lines, fill the rest of allocated space
-    const lineCount = Math.max(2, Math.floor((perH - 30) / lineGap));
-    for (let j = 0; j < lineCount; j++) {
-      page.drawLine({ start: { x: MARGIN, y }, end: { x: PAGE_W - MARGIN, y }, thickness: 0.4, color: theme.hair });
-      y -= lineGap;
+    page.drawText(num, {
+      x: MARGIN + 6 + 10 - nw / 2, y: boxTop - headerH / 2 - 4,
+      size: 11, font: fonts.bold, color: rgb(0.05, 0.05, 0.05),
+    });
+    page.drawText(label, {
+      x: MARGIN + 36, y: boxTop - headerH / 2 - 4,
+      size: 11, font: fonts.bold, color: theme.onDark,
+    });
+
+    // Fillable box — bordered, with subtle ruled lines inside
+    const fillTop = boxTop - headerH;
+    const fillH = perH - headerH;
+    page.drawRectangle({
+      x: MARGIN, y: boxBottom, width: CONTENT_W, height: fillH,
+      color: rgb(1, 1, 1), borderColor: theme.ink, borderWidth: 0.8,
+    });
+    // subtle internal ruled lines so it reads as a writing area
+    const ruleGap = 22;
+    let ry = fillTop - ruleGap;
+    while (ry > boxBottom + 8) {
+      page.drawLine({
+        start: { x: MARGIN + 10, y: ry }, end: { x: PAGE_W - MARGIN - 10, y: ry },
+        thickness: 0.3, color: theme.hair,
+      });
+      ry -= ruleGap;
     }
-    y -= sectionGap;
+
+    y = boxBottom - fieldGap;
   }
 }
 
