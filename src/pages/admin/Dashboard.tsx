@@ -9,9 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import {
   Loader2, Plane, Play, Pause, AlertTriangle, DollarSign, FileX, ImageOff,
-  ShieldAlert, ShoppingBag, RefreshCw, FileText, ExternalLink, Sparkles, ClipboardCheck,
+  ShieldAlert, ShoppingBag, RefreshCw, FileText, ExternalLink, Sparkles, ClipboardCheck, Download,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { downloadAdminPdf } from "@/lib/pdf";
 import { BADGE_OPTIONS, EbookBadgeKind, StatusBadge, resolveEbookBadge } from "@/components/admin/StatusBadge";
 
 type Ebook = {
