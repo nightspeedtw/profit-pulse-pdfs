@@ -97,8 +97,8 @@ export default function Dashboard() {
     const tick = async () => {
       const { data: eb } = await supabase
         .from("ebooks")
-        .select("id, autopilot_state, autopilot_error")
-        .eq("source_idea_id", testRun.ideaId!)
+        .select("id, autopilot_state")
+        .eq("idea_id", testRun.ideaId!)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -108,8 +108,8 @@ export default function Dashboard() {
         const done = state === "ready_to_publish" || state === "needs_review" || state === "published";
         setTestRun((prev) => prev ? {
           ...prev,
-          status: done ? "ready" : (eb.autopilot_error ? "failed" : "running"),
-          message: eb.autopilot_error ?? `State: ${state}`,
+          status: done ? "ready" : "running",
+          message: `State: ${state}`,
           ebookId: eb.id,
           ebookState: state,
         } : prev);
