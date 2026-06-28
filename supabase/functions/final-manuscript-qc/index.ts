@@ -138,6 +138,83 @@ function detectDuplicates(chapters: ChapterRow[]): number[] {
   return [...dupes];
 }
 
+// Repeated AI-template phrasing detector
+const REPEATED_TEMPLATE_PATTERNS: { re: RegExp; label: string }[] = [
+  { re: /this chapter gives you/i, label: '"this chapter gives you…"' },
+  { re: /apply this to your real numbers/i, label: '"apply this to your real numbers…"' },
+  { re: /sidestep the silent traps/i, label: '"sidestep the silent traps…"' },
+  { re: /in this chapter,?\s+(?:you|we)['’]?ll/i, label: '"in this chapter, you\'ll…"' },
+  { re: /by the end of this chapter,?\s+you/i, label: '"by the end of this chapter, you…"' },
+  { re: /without further ado/i, label: '"without further ado"' },
+  { re: /let'?s dive (?:in|into)/i, label: '"let\'s dive in/into"' },
+  { re: /at the end of the day/i, label: '"at the end of the day"' },
+  { re: /in today'?s (?:fast[- ]paced|modern) world/i, label: '"in today\'s fast-paced world"' },
+  { re: /it'?s (?:important|crucial) to note/i, label: '"it\'s important to note"' },
+  { re: /key takeaways?:?\s*\n.*\n.*\n.*apply/i, label: 'templated takeaway block' },
+];
+
+function detectRepeatedTemplates(chapters: ChapterRow[]): FailedReason[] {
+  const out: FailedReason[] = [];
+  // Per-chapter scan for template phrases
+  for (const c of chapters) {
+    const content = c.content ?? "";
+    const hits: { label: string; excerpt: string }[] = [];
+    for (const { re, label } of REPEATED_TEMPLATE_PATTERNS) {
+      const m = content.match(re);
+      if (m && m.index != null) {
+        const start = Math.max(0, m.index - 60);
+        const end = Math.min(content.length, m.index + m[0].length + 80);
+        hits.push({ label, excerpt: content.slice(start, end).replace(/\s+/g, " ").trim() });
+      }
+    }
+    if (hits.length) {
+      out.push({
+        code: "repeated_templated_passages",
+        message: `Chapter ${c.chapter_index} contains repeated AI-template phrasing: ${hits.map((h) => h.label).join(", ")}.`,
+        repair_action: "rewrite_repeated_passages",
+        chapter_index: c.chapter_index,
+        repairable: true,
+        failed_sections: hits.map((h) => ({
+          chapter_number: c.chapter_index,
+          section_title: c.title,
+          problem_text_excerpt: h.excerpt,
+          reason: `Repeated AI-template phrase ${h.label}`,
+          suggested_action: "rewrite_section",
+        })),
+      });
+    }
+  }
+  // Cross-chapter identical opening sentences
+  const openings = new Map<string, number[]>();
+  for (const c of chapters) {
+    const first = (c.content ?? "").trim().split(/(?<=[.!?])\s+/)[0]?.toLowerCase().replace(/\s+/g, " ").slice(0, 90) ?? "";
+    if (first.length < 25) continue;
+    const arr = openings.get(first) ?? [];
+    arr.push(c.chapter_index);
+    openings.set(first, arr);
+  }
+  for (const [opening, idxs] of openings) {
+    if (idxs.length >= 2) {
+      for (const idx of idxs) {
+        out.push({
+          code: "repeated_chapter_opening",
+          message: `Chapter ${idx} opens with the same sentence pattern as Chapter${idxs.length > 2 ? "s" : ""} ${idxs.filter((i) => i !== idx).join(", ")}.`,
+          repair_action: "rewrite_repeated_passages",
+          chapter_index: idx,
+          repairable: true,
+          failed_sections: [{
+            chapter_number: idx,
+            problem_text_excerpt: opening,
+            reason: "Identical opening sentence pattern across chapters",
+            suggested_action: "rewrite_section",
+          }],
+        });
+      }
+    }
+  }
+  return out;
+}
+
 function runDeterministicChecks(
   outline: any,
   chapters: ChapterRow[],
