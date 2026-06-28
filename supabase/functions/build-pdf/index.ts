@@ -521,7 +521,9 @@ Deno.serve(async (req) => {
       if (qc.worksheetQualityScore < 90) gateIssues.push(`worksheet=${qc.worksheetQualityScore}<90`);
       if (totalWs >= 4 && worksheetVarietyScore < 90) gateIssues.push(`worksheet_variety=${worksheetVarietyScore}<90`);
       if (qc.diagramQualityScore < 90) gateIssues.push(`diagram=${qc.diagramQualityScore}<90`);
+      if (diagramTemplateScore < 90) gateIssues.push(`diagram_template=${diagramTemplateScore}<90`);
       if (qc.interiorLayoutScore < 90) gateIssues.push(`interior=${qc.interiorLayoutScore}<90`);
+      if (premiumLearningBlockScore < 90) gateIssues.push(`learning_blocks=${premiumLearningBlockScore}<90`);
       if (qc.finalPdfPremiumScore < 90) gateIssues.push(`final_premium=${qc.finalPdfPremiumScore}<90`);
       if (isFinance && /guaranteed (debt|payoff|savings|income)|guaranteed results/i.test(`${e.title} ${e.subtitle ?? ""} ${e.hook ?? ""}`)) {
         gateIssues.push("compliance: guarantee language detected.");
