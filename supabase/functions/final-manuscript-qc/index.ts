@@ -703,6 +703,7 @@ Deno.serve(async (req) => {
       for (const r of sorted) {
         if (r.repair_action === "regenerate_missing_chapter" && r.chapter_index) {
           const target = wordsTarget;
+          await emit("repair_chapter", `Regenerating missing Chapter ${r.chapter_index} (attempt ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS})…`, { attempt: attemptsUsed, chapter_index: r.chapter_index });
           const w = await writeMissingChapter(fixModel, ebook, r.chapter_index, target);
           totalCost += w.usage.cost_usd;
           await logCost(db, { ebook_id: ebook.id, step: `manuscript_fix_new_ch${r.chapter_index}:r${attemptsUsed}`, model: w.model, ...w.usage });
@@ -723,10 +724,12 @@ Deno.serve(async (req) => {
           const expandTarget = Math.ceil(wordsTarget * 1.3);
           for (const ch of shortList) {
             if (seenChapters.has(ch.chapter_index)) continue;
+            await emit("repair_chapter", `Expanding short Chapter ${ch.chapter_index} to ≥${expandTarget} words (attempt ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS})…`, { attempt: attemptsUsed, chapter_index: ch.chapter_index });
             const inst = instructionsForReason({ ...r, chapter_index: ch.chapter_index }, expandTarget);
             const x = await rewriteChapter(fixModel, ebook, ch, inst, expandTarget);
             totalCost += x.usage.cost_usd;
             await logCost(db, { ebook_id: ebook.id, step: `manuscript_expand_ch${ch.chapter_index}:r${attemptsUsed}`, model: x.model, ...x.usage });
+
             await db.from("ebook_chapters").update({ content: x.data, word_count: wc(x.data) })
               .eq("ebook_id", ebook.id).eq("chapter_index", ch.chapter_index);
             repairLog.push({ attempt: attemptsUsed, action: r.repair_action, chapter_index: ch.chapter_index });
