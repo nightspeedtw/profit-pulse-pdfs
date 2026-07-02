@@ -1,4 +1,5 @@
 // Vertical timeline of all Autopilot pipeline steps for one run.
+import { useEffect, useState } from "react";
 import { Check, Loader2, AlertTriangle, Circle, MinusCircle, Wrench, X } from "lucide-react";
 import { STEP_STATUS_LABEL } from "@/lib/autopilot-steps";
 
