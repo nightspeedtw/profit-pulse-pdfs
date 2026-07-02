@@ -25,6 +25,9 @@ import {
 import { lintChapters } from "../_shared/compliance.ts";
 import { planIllustrations, type IllustrationPlan } from "../_shared/illustration-planner.ts";
 import { logRun } from "../_shared/qc.ts";
+import {
+  LOCK_PDF, tryAcquireLock, releaseLock, browserlessBackoffAt,
+} from "../_shared/recovery.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -36,12 +39,31 @@ Deno.serve(async (req) => {
     const ebookId: string | undefined = body.ebook_id;
     if (!ebookId) return json({ error: "ebook_id required" }, 400);
 
+    // --------------------------------------------------------------------
+    // PDF render lock (browserless_concurrency=1). If another ebook already
+    // holds the render lock we DO NOT queue Browserless — we return a
+    // structured "busy" signal so the pipeline can wait its turn.
+    // --------------------------------------------------------------------
+    const lock = await tryAcquireLock(db, LOCK_PDF, ebookId, { ttlSec: 20 * 60 });
+    if (!lock.acquired) {
+      return json({
+        error: "pdf_render_lock_busy",
+        blocker_reason: "waiting_for_browserless_slot",
+        detail: `Another ebook is currently rendering (holder ${String(lock.holder ?? "").slice(0, 8)}). Waiting for the PDF render slot.`,
+        holder: lock.holder,
+        retry_at: browserlessBackoffAt(1),
+      }, 423);
+    }
+
     const { data: ebook, error: eErr } = await db.from("ebooks").select("*").eq("id", ebookId).maybeSingle();
-    if (eErr || !ebook) return json({ error: "ebook not found" }, 404);
+    if (eErr || !ebook) {
+      await releaseLock(db, LOCK_PDF, ebookId);
+      return json({ error: "ebook not found" }, 404);
+    }
 
     const { data: chapterRows, error: cErr } = await db.from("ebook_chapters")
       .select("*").eq("ebook_id", ebookId).order("chapter_index", { ascending: true });
-    if (cErr) throw cErr;
+    if (cErr) { await releaseLock(db, LOCK_PDF, ebookId); throw cErr; }
     // Fallback for legacy ebooks whose chapters live in the ebooks.chapters
     // jsonb column instead of the ebook_chapters rows table.
     let chapters = chapterRows ?? [];
@@ -185,9 +207,42 @@ Deno.serve(async (req) => {
 
     if (!pdfResp.ok) {
       const detail = await pdfResp.text().catch(() => "");
+      // ---- Browserless 429 → structured rate-limit signal, NOT a QC/PDF failure ----
+      if (pdfResp.status === 429) {
+        const nextAttempt = Number(ebook.browserless_retry_count ?? 0) + 1;
+        const retryAt = browserlessBackoffAt(nextAttempt);
+        await db.from("ebooks").update({
+          browserless_retry_count: nextAttempt,
+          autopilot_state: nextAttempt > 3 ? "needs_admin_attention" : "waiting_for_browserless_slot",
+          blocker_class: nextAttempt > 3 ? "non_recoverable_config_error" : "recoverable_temporary_api_error",
+          blocker_reason: nextAttempt > 3 ? "browserless_rate_limit_exhausted" : "browserless_rate_limited",
+          needs_review_reason: nextAttempt > 3 ? "Browserless render rate limit continued after 3 retries." : null,
+          next_retry_at: retryAt,
+        }).eq("id", ebookId);
+        await logRun(db, {
+          ebook_id: ebookId, step: "render-pdf",
+          status: nextAttempt > 3 ? "fail" : "pending",
+          error: `browserless 429 (attempt ${nextAttempt}) — retry at ${retryAt}`,
+        });
+        await releaseLock(db, LOCK_PDF, ebookId);
+        return json({
+          error: "browserless_rate_limited",
+          blocker_reason: nextAttempt > 3 ? "browserless_rate_limit_exhausted" : "browserless_rate_limited",
+          attempt: nextAttempt,
+          retry_at: retryAt,
+          detail: nextAttempt > 3
+            ? "Browserless render rate limit continued after 3 retries."
+            : "PDF Render Rate Limited — will retry automatically.",
+        }, 429);
+      }
       await db.from("ebooks").update({ pdf_status: "failed" }).eq("id", ebookId);
       await logRun(db, { ebook_id: ebookId, step: "render-pdf", status: "fail", error: `browserless ${pdfResp.status}: ${detail.slice(0, 400)}` });
+      await releaseLock(db, LOCK_PDF, ebookId);
       return json({ error: `Browserless render failed: ${pdfResp.status}`, detail: detail.slice(0, 400) }, 502);
+    }
+    // Successful render — reset the browserless retry counter.
+    if ((ebook.browserless_retry_count ?? 0) > 0) {
+      await db.from("ebooks").update({ browserless_retry_count: 0 }).eq("id", ebookId);
     }
     const pdfBytes = new Uint8Array(await pdfResp.arrayBuffer());
     const pageCount = estimatePageCount(pdfBytes);
@@ -320,12 +375,18 @@ Deno.serve(async (req) => {
       payload: { page_count: pageCount, version, passed },
     });
 
+    await releaseLock(db, LOCK_PDF, ebookId);
     return json({
       ok: true, passed, pdf_url: signedPdf?.signedUrl, html_url: signedHtml?.signedUrl,
       page_count: pageCount, qc,
     });
   } catch (e) {
     console.error("render-pdf failed:", e);
+    // Best-effort: release the PDF render lock so the next queued ebook can proceed.
+    try {
+      const bodyRetry = await req.clone().json().catch(() => ({}));
+      if (bodyRetry?.ebook_id) await releaseLock(db, LOCK_PDF, bodyRetry.ebook_id);
+    } catch { /* ignore */ }
     return json({ error: (e as Error).message ?? String(e) }, 500);
   }
 });

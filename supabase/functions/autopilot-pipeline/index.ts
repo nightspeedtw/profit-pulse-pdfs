@@ -24,6 +24,10 @@ import {
   withRetry,
 } from "../_shared/retry.ts";
 import { RunTracker } from "../_shared/run-tracker.ts";
+import {
+  LOCK_HEAVY, tryAcquireLock, releaseLock, getLockHolder,
+  enqueueShopifyUpload, nextUtcMidnight, browserlessBackoffAt,
+} from "../_shared/recovery.ts";
 
 interface InvokeResult { ok: boolean; status: number; body: any; }
 
@@ -225,10 +229,44 @@ Deno.serve(async (req) => {
         }
 
 
-        if (ebook.autopilot_state === "failed") {
-          await db.from("ebooks").update({ autopilot_state: "running", needs_review_reason: null }).eq("id", ebook.id);
+        // ============================================================
+        // SEQUENTIAL SAFE MODE — heavy_production lock.
+        //
+        // Only one ebook may occupy heavy production (chapters →
+        // manuscript QC → cover → PDF → Shopify) at a time. Other
+        // ebooks wait in `queued_for_production` and are auto-resumed
+        // by the recovery worker when the lock frees. Idea generation
+        // above this line runs freely (allowed parallel step).
+        // ============================================================
+        const sequentialSafeMode = settings.sequential_safe_mode !== false;
+        if (sequentialSafeMode) {
+          const heavyLock = await tryAcquireLock(db, LOCK_HEAVY, ebook.id, { ttlSec: 90 * 60, runId: run_id });
+          if (!heavyLock.acquired) {
+            const holder = await getLockHolder(db, LOCK_HEAVY);
+            await db.from("ebooks").update({
+              autopilot_state: "queued_for_production",
+              blocker_class: "recoverable_dependency_error",
+              blocker_reason: "waiting_for_production_slot",
+              needs_review_reason: null,
+              next_retry_at: browserlessBackoffAt(1),
+            }).eq("id", ebook.id);
+            await tracker.heartbeat("outline", {
+              message: "Queued — waiting for production slot",
+              subtask: `Another ebook (${String(holder.holder ?? "").slice(0, 8)}) is currently in heavy production. Auto-resumes when slot frees.`,
+            });
+            await logRun(db, { ebook_id: ebook.id, step: "queue_wait", status: "skip", error: "heavy_production_lock_busy" });
+            await db.from("autopilot_pipeline_runs").update({
+              status: "queued",
+              current_action_message: "Queued — waiting for production slot",
+            }).eq("id", run_id);
+            return;
+          }
+        }
+
+        if (ebook.autopilot_state === "failed" || ebook.autopilot_state === "queued_for_production") {
+          await db.from("ebooks").update({ autopilot_state: "production_running", needs_review_reason: null, blocker_class: null, blocker_reason: null }).eq("id", ebook.id);
         } else {
-          await db.from("ebooks").update({ autopilot_mode: mode, autopilot_state: "running" }).eq("id", ebook.id);
+          await db.from("ebooks").update({ autopilot_mode: mode, autopilot_state: "production_running" }).eq("id", ebook.id);
         }
 
         // ---- ebook-scoped guards ----
@@ -504,36 +542,85 @@ Deno.serve(async (req) => {
           await skip(["cover", "cover_qc", "thumbnail", "thumbnail_qc"], "Cover already present");
         }
 
-        // ---------- STEP 10 + 11 — PDF ----------
+        // ---------- STEP 10 + 11 — PDF (with Browserless rate-limit awareness) ----------
+        //
+        // We call render-pdf directly (bypassing withRetry) so we can inspect
+        // structured HTTP 423 (pdf_render lock busy) and 429 (browserless
+        // rate limited) responses. Both are treated as "wait states", NOT
+        // failures: the ebook stays flagged waiting_for_browserless_slot,
+        // keeps its heavy_production lock, and the recovery worker resumes
+        // it after next_retry_at.
+        async function tryRenderPdf(force: boolean): Promise<"passed" | "retry_now" | "wait_browserless" | "no_file"> {
+          const r = await invokeFn("render-pdf", { ebook_id: ebook.id, ...(force ? { force: true } : {}) });
+          if (r.status === 423 || r.status === 429) {
+            // Structured rate-limit / lock-busy signal — stop and wait.
+            const detail = r.body?.detail ?? r.body?.error ?? "Waiting for Browserless render slot.";
+            const retryAt = r.body?.retry_at ?? browserlessBackoffAt(1);
+            const exhausted = r.body?.blocker_reason === "browserless_rate_limit_exhausted";
+            await db.from("ebooks").update({
+              autopilot_state: exhausted ? "needs_admin_attention" : "waiting_for_browserless_slot",
+              blocker_class: exhausted ? "non_recoverable_config_error" : "recoverable_temporary_api_error",
+              blocker_reason: exhausted ? "browserless_rate_limit_exhausted" : "browserless_rate_limited",
+              needs_review_reason: exhausted ? "Browserless render rate limit continued after 3 retries." : null,
+              next_retry_at: retryAt,
+            }).eq("id", ebook.id);
+            await tracker.heartbeat("pdf_render", {
+              message: exhausted ? "Needs Admin Attention" : "Waiting for Browserless Slot",
+              subtask: exhausted
+                ? "Browserless render rate limit continued after 3 retries."
+                : `PDF Render Rate Limited — retry at ${new Date(retryAt).toLocaleTimeString()}`,
+            });
+            await db.from("autopilot_pipeline_runs").update({
+              status: exhausted ? "needs_admin" : "waiting",
+              current_action_message: exhausted
+                ? "Browserless render rate limit continued after 3 retries."
+                : "Waiting for Browserless slot — will resume automatically.",
+            }).eq("id", run_id);
+            await logRun(db, {
+              ebook_id: ebook.id, step: "render-pdf",
+              status: "skip",
+              error: `browserless ${exhausted ? "exhausted" : "rate_limited"}: ${detail}`,
+            });
+            return "wait_browserless";
+          }
+          if (!r.ok) {
+            throw new Error(`render-pdf HTTP ${r.status}: ${JSON.stringify(r.body).slice(0, 300)}`);
+          }
+          await refreshEbook();
+          if (!ebook.pdf_url) return "no_file";
+          return ebook.pdf_status === "needs_review" ? "retry_now" : "passed";
+        }
+
         if (!ebook.pdf_url || ebook.pdf_status === "needs_review" || ebook.pdf_status === "failed") {
           if (await overBudget()) {
             await needsAdmin("pdf_render", "Budget cap reached before PDF render.");
             return;
           }
+          let renderOutcome: "passed" | "retry_now" | "wait_browserless" | "no_file" = "no_file";
           await track(
             ["pdf_layout", "pdf_render", "pdf_qc"],
             "Rendering premium PDF…",
             async () => {
               await tracker.heartbeat("pdf_render", { message: "Rendering premium PDF…", subtask: "Building worksheet pages" });
-              await runStep("10_11_render_pdf_qc", "render-pdf", { ebook_id: ebook.id });
+              renderOutcome = await tryRenderPdf(false);
+              if (renderOutcome === "wait_browserless") return;
               await tracker.heartbeat("pdf_qc", { message: "Running PDF QC…", subtask: "Verifying layout and asset integrity" });
-              await refreshEbook();
-              // Auto-retry: if the premium gate failed (needs_review) but a
-              // pdf_url exists, re-render up to 2 more times. The compliance
-              // linter, header-shortening, and illustration planner all run
-              // fresh each render, so risky/overflow headers get progressively
-              // repaired without admin intervention.
-              for (let attempt = 1; attempt <= 2 && ebook.pdf_status === "needs_review"; attempt++) {
+              // Auto-fix retries for QC (not rate-limit) issues.
+              for (let attempt = 1; attempt <= 2 && renderOutcome === "retry_now"; attempt++) {
                 await tracker.heartbeat("pdf_qc", {
                   message: `Auto-fixing PDF (attempt ${attempt}/2)…`,
                   subtask: "Repairing worksheet overflow / visuals / compliance",
                 });
-                await runStep(`10_11_render_pdf_qc_retry_${attempt}`, "render-pdf", { ebook_id: ebook.id, force: true });
-                await refreshEbook();
+                renderOutcome = await tryRenderPdf(true);
+                if (renderOutcome === "wait_browserless") return;
               }
             },
             "Building worksheet pages",
           );
+          // Waiting for Browserless — keep heavy_production lock, exit; the
+          // recovery worker will re-invoke this pipeline after next_retry_at.
+          if (renderOutcome === "wait_browserless") return;
+
           // Soft-pass: only stop on truly missing PDF. Low QC scores are
           // logged but do not block Shopify draft upload — admin can fix later.
           if (!ebook.pdf_url) {
@@ -576,7 +663,6 @@ Deno.serve(async (req) => {
         // ---------- STEP 12 — Shopify draft ----------
         if (shopifyDraftEnabled && !ebook.shopify_product_id) {
           if (await shopifyOverDay()) {
-            const { enqueueShopifyUpload, nextUtcMidnight } = await import("../_shared/recovery.ts");
             const nextRetry = nextUtcMidnight();
             await db.from("ebooks").update({
               autopilot_state: "waiting_for_shopify_quota",
@@ -671,6 +757,24 @@ Deno.serve(async (req) => {
             current_action_message: `Pipeline failed: ${msg.slice(0, 200)}`,
           }).eq("id", run_id);
         } catch { /* ignore */ }
+      } finally {
+        // -------- Release heavy_production lock (Sequential Safe Mode) --------
+        // Per spec, release the lock when the ebook is truly done, blocked on
+        // Shopify quota, needs admin, failed non-recoverably, or paused.
+        // Keep it held only for `waiting_for_browserless_slot` so no other
+        // ebook (or PDF render) can start until this one resumes.
+        try {
+          if (ebook?.id) {
+            const { data: fresh } = await db.from("ebooks").select("autopilot_state").eq("id", ebook.id).maybeSingle();
+            const state = fresh?.autopilot_state ?? "";
+            const HOLD_STATES = new Set(["waiting_for_browserless_slot"]);
+            if (!HOLD_STATES.has(state)) {
+              await releaseLock(db, LOCK_HEAVY, ebook.id);
+            }
+          }
+        } catch (err) {
+          console.warn("[autopilot] failed to release heavy_production lock:", (err as Error).message);
+        }
       }
     })();
 

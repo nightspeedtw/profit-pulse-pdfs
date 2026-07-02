@@ -12,7 +12,7 @@
 // Response: summary of how many jobs were resumed / requeued.
 
 import { admin, corsHeaders } from "../_shared/ai.ts";
-import { nextUtcMidnight } from "../_shared/recovery.ts";
+import { nextUtcMidnight, LOCK_HEAVY, getLockHolder } from "../_shared/recovery.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -130,6 +130,47 @@ Deno.serve(async (req) => {
     );
   }
 
+  // 4) Waiting for Browserless slot — resume when next_retry_at has passed.
+  //    These ebooks still hold the heavy_production lock (per Sequential Safe
+  //    Mode spec) so re-invoking the pipeline for them is safe and will only
+  //    kick off one PDF render at a time.
+  const { data: browserlessWaiters } = await db
+    .from("ebooks")
+    .select("id, next_retry_at")
+    .eq("autopilot_state", "waiting_for_browserless_slot")
+    .lte("next_retry_at", now)
+    .limit(5);
+  const browserlessResumed: string[] = [];
+  for (const b of browserlessWaiters ?? []) {
+    browserlessResumed.push(b.id);
+    if (dry) continue;
+    invokePipeline(b.id).catch((e) =>
+      console.warn("[recovery] browserless-wait resume failed", b.id, e?.message ?? e)
+    );
+  }
+
+  // 5) queued_for_production — dispatch ONE at a time when heavy_production
+  //    lock is free (Sequential Safe Mode: heavy_production_concurrency = 1).
+  const heavyHolder = await getLockHolder(db, LOCK_HEAVY);
+  const heavyFree = !heavyHolder.holder ||
+    (heavyHolder.expires_at ? heavyHolder.expires_at < now : true);
+  const queuedDispatched: string[] = [];
+  if (heavyFree) {
+    const { data: nextQueued } = await db
+      .from("ebooks")
+      .select("id, created_at")
+      .eq("autopilot_state", "queued_for_production")
+      .order("created_at", { ascending: true })
+      .limit(1);
+    for (const q of nextQueued ?? []) {
+      queuedDispatched.push(q.id);
+      if (dry) continue;
+      invokePipeline(q.id).catch((e) =>
+        console.warn("[recovery] queued dispatch failed", q.id, e?.message ?? e)
+      );
+    }
+  }
+
   return new Response(JSON.stringify({
     ok: true,
     dry_run: dry,
@@ -138,5 +179,12 @@ Deno.serve(async (req) => {
     shopify_still_waiting: stillWaiting,
     orphan_ebooks_enqueued: (orphans ?? []).length,
     stalled_runs_resumed: stalledResumed,
+    browserless_waiters_resumed: browserlessResumed,
+    heavy_production_lock: {
+      holder: heavyHolder.holder,
+      expires_at: heavyHolder.expires_at,
+      free: heavyFree,
+    },
+    queued_for_production_dispatched: queuedDispatched,
   }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 });
