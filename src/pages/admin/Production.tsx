@@ -164,13 +164,20 @@ export default function Production() {
     running: ebooks.filter((e) => {
       const b = resolveJobBadge(e); return b === "writing" || b === "queued";
     }).length,
+    auto_fixing: ebooks.filter((e) => {
+      const b = resolveJobBadge(e); return b === "auto_fixing" || b === "repairing_dependency";
+    }).length,
+    waiting_quota: ebooks.filter((e) => {
+      const b = resolveJobBadge(e);
+      return b === "waiting_for_shopify_quota" || b === "waiting_for_ai_budget" || b === "waiting_for_worker_slot" || b === "draft_upload_queued";
+    }).length,
     needs_attention: ebooks.filter((e) => {
-      const b = resolveJobBadge(e); return b === "needs_review" || b === "qc_failed";
+      const b = resolveJobBadge(e); return b === "needs_review" || b === "qc_failed" || b === "needs_admin_attention";
     }).length,
     draft_uploaded: ebooks.filter((e) => resolveJobBadge(e) === "draft_uploaded").length,
     published: ebooks.filter((e) => resolveJobBadge(e) === "published").length,
     failed: ebooks.filter((e) => {
-      const b = resolveJobBadge(e); return b === "failed" || b === "rejected";
+      const b = resolveJobBadge(e); return b === "failed" || b === "failed_non_recoverable" || b === "rejected";
     }).length,
   };
 
