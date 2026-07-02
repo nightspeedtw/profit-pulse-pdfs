@@ -395,22 +395,23 @@ Deno.serve(async (req) => {
             }
             await track(
               ["chapter_writing", "chapter_qc"],
-              `Writing ${incompleteBefore.length} chapter${incompleteBefore.length === 1 ? "" : "s"} with per-chapter QC…`,
+              `Writing chapters…`,
               async () => {
                 await writeChaptersSequentially(
                   incompleteBefore,
-                  (cur, total, idx) => `Writing chapter ${cur}/${total} (outline #${idx})…`,
+                  (cur, total, idx) => `Writing chapter ${cur} of ${total} (outline #${idx})`,
                 );
                 // Repair loop: up to 3 passes targeting only still-missing chapters.
                 for (let attempt = 1; attempt <= 3; attempt++) {
                   const stillMissing = await findIncompleteChapters();
                   if (stillMissing.length === 0) return;
-                  await tracker.updateStep("chapter_writing", {
-                    message: `Repairing ${stillMissing.length} missing chapter${stillMissing.length === 1 ? "" : "s"} (pass ${attempt}/3)…`,
+                  await tracker.heartbeat("chapter_writing", {
+                    message: "Repairing missing dependency…",
+                    subtask: `Generating missing chapter 1 of ${stillMissing.length} — pass ${attempt}/3`,
                   });
                   await writeChaptersSequentially(
                     stillMissing,
-                    (cur, total, idx) => `Generating missing chapter ${cur}/${total} (outline #${idx}) — pass ${attempt}/3`,
+                    (cur, total, idx) => `Generating missing chapter ${cur} of ${total} (outline #${idx}) — pass ${attempt}/3`,
                   );
                 }
                 const finalMissing = await findIncompleteChapters();
@@ -418,6 +419,7 @@ Deno.serve(async (req) => {
                   throw new Error(`chapter_writing incomplete: missing chapters [${finalMissing.join(", ")}] after 3 repair passes`);
                 }
               },
+              `Writing chapter 1 of ${incompleteBefore.length}`,
             );
           }
         }
