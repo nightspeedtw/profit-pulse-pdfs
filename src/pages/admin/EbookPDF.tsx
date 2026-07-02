@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { Loader2, RefreshCw, FileText, CheckCircle2, XCircle, ExternalLink, Sparkles } from "lucide-react";
+import { Loader2, RefreshCw, FileText, CheckCircle2, XCircle, ExternalLink, Sparkles, Download } from "lucide-react";
 import { WorksheetOverflowReview } from "@/components/admin/WorksheetOverflowReview";
+import { downloadAdminPdf } from "@/lib/pdf";
 
 type Ebook = any;
 
