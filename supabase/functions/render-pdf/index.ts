@@ -136,6 +136,7 @@ Deno.serve(async (req) => {
 
     // ---- Assemble PDF data ----
     const outline = (ebook.outline_json ?? {}) as any;
+    const category: EbookCategory = classifyEbook(ebook.title ?? "", ebook.subtitle ?? "");
     const data: PdfData = {
       title: ebook.title,
       subtitle: ebook.subtitle,
@@ -148,17 +149,19 @@ Deno.serve(async (req) => {
       chapters: chapters.map((c: any, i: number) => {
         const meta = (c.metadata ?? {}) as any;
         const chIdx = c.chapter_index ?? (i + 1);
+        // Sanitize placeholder titles like "Chapter 2" / "Chapter 2. Chapter 2".
+        const safeTitle = sanitizeChapterTitle(c.title, chIdx, c.brief ?? meta.brief);
         const rawWs = meta.worksheet ?? c.worksheet ?? extractWorksheet(c.content ?? "", c.title ?? "");
-        const wsKind: WorksheetKind = (rawWs?.kind as WorksheetKind | undefined) ?? pickWorksheetKind(c.title ?? "", chIdx);
-        // Guarantee every chapter has a usable worksheet — falls back to a
-        // typed template if the manuscript didn't emit one. This makes the
-        // premium PDF's worksheet section reliable instead of optional.
+        let wsKind: WorksheetKind = (rawWs?.kind as WorksheetKind | undefined) ?? pickWorksheetKind(safeTitle, chIdx, category);
+        // Enforce category → allowed worksheet kinds. Block e.g. debt_tracker
+        // in a productivity/energy book.
+        if (!isKindAllowed(category, wsKind)) wsKind = "prompts";
         const worksheet = rawWs
           ? { ...rawWs, kind: wsKind }
-          : defaultWorksheetFor(wsKind, c.title ?? `Chapter ${i + 1}`);
+          : defaultWorksheetFor(wsKind, safeTitle, category);
         return {
           index: chIdx,
-          title: c.title ?? `Chapter ${i + 1}`,
+          title: safeTitle,
           brief: c.brief ?? meta.brief ?? null,
           content: complianceContentByIndex.get(chIdx) ?? c.content ?? "",
           callouts: meta.callouts ?? c.callouts ?? extractCallouts(c.content ?? ""),
