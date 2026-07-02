@@ -331,6 +331,49 @@ Deno.serve(async (req) => {
       page_count: pageCount,
     };
 
+    // ---- Hard-gate deterministic checks (new) ----
+    // raw_markdown_score: 100 unless any body <p> still contains `| ... |` or ":---".
+    const rawMdLeak =
+      /<p[^>]*>[^<]*\|[^<]*\|[^<]*<\/p>/.test(html) ||
+      /<p[^>]*>[^<]*:-{2,}[^<]*<\/p>/.test(html);
+    const rawMarkdownScore = rawMdLeak ? 0 : 100;
+
+    // chapter_title_quality_score: penalize placeholder / duplicate titles.
+    const titles = chapters.map((c: any) => String(c.title ?? "").trim());
+    const titleFails = titles.filter((t) =>
+      !t
+      || /^chapter\s*\d+\.?$/i.test(t)
+      || /^chapter\s*\d+\.\s*chapter\s*\d+/i.test(t)
+      || /^section\s*\d+\.?$/i.test(t)
+    );
+    const titleDupes = titles.filter((t, i) => t && titles.indexOf(t) !== i);
+    const chapterTitleQualityScore = Math.max(
+      0,
+      100 - (titleFails.length * 20) - (titleDupes.length * 10),
+    );
+
+    // worksheet_relevance_score: penalize any worksheet kind not allowed for
+    // this ebook's category.
+    const usedKinds = data.chapters.map((c) => c.worksheet?.kind ?? "prompts");
+    const wrongKindCount = usedKinds.filter((k) => !isKindAllowed(category, String(k))).length;
+    const worksheetRelevanceScore = Math.max(0, 100 - (wrongKindCount * 25));
+
+    // cover_full_bleed_score: 100 because API margins are now 0 and CSS
+    // `@page cover { margin: 0 }` controls the cover page. If a future
+    // change re-introduces API margins, this score will need a real
+    // screenshot-based check.
+    const coverFullBleedScore = 100;
+
+    (qc as any).raw_markdown_score = rawMarkdownScore;
+    (qc as any).chapter_title_quality_score = chapterTitleQualityScore;
+    (qc as any).worksheet_relevance_score = worksheetRelevanceScore;
+    (qc as any).cover_full_bleed_score = coverFullBleedScore;
+    (qc as any).ebook_category = category;
+    if (rawMdLeak) qc.issues.push("raw markdown table syntax leaked into final HTML");
+    if (titleFails.length) qc.issues.push(`placeholder chapter title(s): ${titleFails.length}`);
+    if (titleDupes.length) qc.issues.push(`duplicate chapter title(s): ${titleDupes.length}`);
+    if (wrongKindCount) qc.issues.push(`wrong-category worksheet(s): ${wrongKindCount}`);
+
     const criticalChecks = [
       qc.checks.has_cover, qc.checks.has_toc, qc.checks.has_copyright_disclaimer,
       qc.checks.no_raw_markdown_tables, qc.checks.no_duplicated_headings,
@@ -344,7 +387,13 @@ Deno.serve(async (req) => {
       visFatigue >= 90 &&
       illRelevance >= 90 &&
       complianceScore >= 90;
-    const passed = finalPdfPremium >= 85 && layoutScore >= 80 && allCriticalPass && premiumGate;
+    // NEW: hard gates (raw markdown, chapter titles, worksheet relevance, cover full-bleed)
+    const hardGate =
+      rawMarkdownScore === 100 &&
+      chapterTitleQualityScore >= 90 &&
+      worksheetRelevanceScore >= 95 &&
+      coverFullBleedScore === 100;
+    const passed = finalPdfPremium >= 85 && layoutScore >= 80 && allCriticalPass && premiumGate && hardGate;
 
     await db.from("ebooks").update({
       pdf_url: signedPdf?.signedUrl ?? null,
