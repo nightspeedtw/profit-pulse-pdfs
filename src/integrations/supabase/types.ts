@@ -783,8 +783,10 @@ export type Database = {
           cover_spec: Json | null
           cover_url: string | null
           created_at: string
+          current_action_message: string | null
           current_qc_score: number | null
           current_step: string | null
+          current_step_label: string | null
           current_subtask: string | null
           editorial_polish_score: number | null
           editorial_qc: Json
@@ -849,6 +851,7 @@ export type Database = {
           product_page_qc: Json
           product_type: string
           progress_pct: number | null
+          progress_percent: number | null
           qc: Json
           qc_status: string | null
           queue_position: number | null
@@ -927,8 +930,10 @@ export type Database = {
           cover_spec?: Json | null
           cover_url?: string | null
           created_at?: string
+          current_action_message?: string | null
           current_qc_score?: number | null
           current_step?: string | null
+          current_step_label?: string | null
           current_subtask?: string | null
           editorial_polish_score?: number | null
           editorial_qc?: Json
@@ -993,6 +998,7 @@ export type Database = {
           product_page_qc?: Json
           product_type?: string
           progress_pct?: number | null
+          progress_percent?: number | null
           qc?: Json
           qc_status?: string | null
           queue_position?: number | null
@@ -1071,8 +1077,10 @@ export type Database = {
           cover_spec?: Json | null
           cover_url?: string | null
           created_at?: string
+          current_action_message?: string | null
           current_qc_score?: number | null
           current_step?: string | null
+          current_step_label?: string | null
           current_subtask?: string | null
           editorial_polish_score?: number | null
           editorial_qc?: Json
@@ -1137,6 +1145,7 @@ export type Database = {
           product_page_qc?: Json
           product_type?: string
           progress_pct?: number | null
+          progress_percent?: number | null
           qc?: Json
           qc_status?: string | null
           queue_position?: number | null
