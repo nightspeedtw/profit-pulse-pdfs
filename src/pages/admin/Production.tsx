@@ -21,6 +21,8 @@ type Ebook = {
   final_quality_score: number | null;
   needs_review_reason: string | null;
   updated_at: string;
+  worksheet_table_overflow_score: number | null;
+  worksheet_previews_json: any;
 };
 
 type FilterKey = "all" | "running" | "needs_attention" | "draft_uploaded" | "published" | "failed";
@@ -43,7 +45,7 @@ export default function Production() {
 
   async function load() {
     const { data } = await supabase.from("ebooks")
-      .select("id,title,autopilot_state,autopilot_mode,shopify_status,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at")
+      .select("id,title,autopilot_state,autopilot_mode,shopify_status,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json")
       .order("updated_at", { ascending: false }).limit(200);
     setEbooks((data ?? []) as Ebook[]);
   }
