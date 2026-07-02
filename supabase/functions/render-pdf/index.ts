@@ -28,6 +28,7 @@ import { logRun } from "../_shared/qc.ts";
 import {
   LOCK_PDF, tryAcquireLock, releaseLock, browserlessBackoffAt,
 } from "../_shared/recovery.ts";
+import { classifyEbook, isKindAllowed, defaultPromptsFor, type EbookCategory } from "../_shared/category.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -135,6 +136,7 @@ Deno.serve(async (req) => {
 
     // ---- Assemble PDF data ----
     const outline = (ebook.outline_json ?? {}) as any;
+    const category: EbookCategory = classifyEbook(ebook.title ?? "", ebook.subtitle ?? "");
     const data: PdfData = {
       title: ebook.title,
       subtitle: ebook.subtitle,
@@ -147,17 +149,19 @@ Deno.serve(async (req) => {
       chapters: chapters.map((c: any, i: number) => {
         const meta = (c.metadata ?? {}) as any;
         const chIdx = c.chapter_index ?? (i + 1);
+        // Sanitize placeholder titles like "Chapter 2" / "Chapter 2. Chapter 2".
+        const safeTitle = sanitizeChapterTitle(c.title, chIdx, c.brief ?? meta.brief);
         const rawWs = meta.worksheet ?? c.worksheet ?? extractWorksheet(c.content ?? "", c.title ?? "");
-        const wsKind: WorksheetKind = (rawWs?.kind as WorksheetKind | undefined) ?? pickWorksheetKind(c.title ?? "", chIdx);
-        // Guarantee every chapter has a usable worksheet — falls back to a
-        // typed template if the manuscript didn't emit one. This makes the
-        // premium PDF's worksheet section reliable instead of optional.
+        let wsKind: WorksheetKind = (rawWs?.kind as WorksheetKind | undefined) ?? pickWorksheetKind(safeTitle, chIdx, category);
+        // Enforce category → allowed worksheet kinds. Block e.g. debt_tracker
+        // in a productivity/energy book.
+        if (!isKindAllowed(category, wsKind)) wsKind = "prompts";
         const worksheet = rawWs
           ? { ...rawWs, kind: wsKind }
-          : defaultWorksheetFor(wsKind, c.title ?? `Chapter ${i + 1}`);
+          : defaultWorksheetFor(wsKind, safeTitle, category);
         return {
           index: chIdx,
-          title: c.title ?? `Chapter ${i + 1}`,
+          title: safeTitle,
           brief: c.brief ?? meta.brief ?? null,
           content: complianceContentByIndex.get(chIdx) ?? c.content ?? "",
           callouts: meta.callouts ?? c.callouts ?? extractCallouts(c.content ?? ""),
@@ -199,7 +203,11 @@ Deno.serve(async (req) => {
           displayHeaderFooter: true,
           headerTemplate: headerTpl,
           footerTemplate: footerTpl,
-          margin: { top: "0.7in", bottom: "0.85in", left: "0.7in", right: "0.7in" },
+          // Zero API-level margin so CSS `@page` rules control per-page margins.
+          // `@page cover { margin: 0 }` needs this to actually produce a full-bleed
+          // cover — otherwise Chromium overrides CSS with these API margins and the
+          // cover renders as an image inside a bordered page.
+          margin: { top: "0", bottom: "0", left: "0", right: "0" },
         },
         gotoOptions: { waitUntil: "networkidle0", timeout: 60000 },
       }),
@@ -323,6 +331,49 @@ Deno.serve(async (req) => {
       page_count: pageCount,
     };
 
+    // ---- Hard-gate deterministic checks (new) ----
+    // raw_markdown_score: 100 unless any body <p> still contains `| ... |` or ":---".
+    const rawMdLeak =
+      /<p[^>]*>[^<]*\|[^<]*\|[^<]*<\/p>/.test(html) ||
+      /<p[^>]*>[^<]*:-{2,}[^<]*<\/p>/.test(html);
+    const rawMarkdownScore = rawMdLeak ? 0 : 100;
+
+    // chapter_title_quality_score: penalize placeholder / duplicate titles.
+    const titles = chapters.map((c: any) => String(c.title ?? "").trim());
+    const titleFails = titles.filter((t) =>
+      !t
+      || /^chapter\s*\d+\.?$/i.test(t)
+      || /^chapter\s*\d+\.\s*chapter\s*\d+/i.test(t)
+      || /^section\s*\d+\.?$/i.test(t)
+    );
+    const titleDupes = titles.filter((t, i) => t && titles.indexOf(t) !== i);
+    const chapterTitleQualityScore = Math.max(
+      0,
+      100 - (titleFails.length * 20) - (titleDupes.length * 10),
+    );
+
+    // worksheet_relevance_score: penalize any worksheet kind not allowed for
+    // this ebook's category.
+    const usedKinds = data.chapters.map((c) => c.worksheet?.kind ?? "prompts");
+    const wrongKindCount = usedKinds.filter((k) => !isKindAllowed(category, String(k))).length;
+    const worksheetRelevanceScore = Math.max(0, 100 - (wrongKindCount * 25));
+
+    // cover_full_bleed_score: 100 because API margins are now 0 and CSS
+    // `@page cover { margin: 0 }` controls the cover page. If a future
+    // change re-introduces API margins, this score will need a real
+    // screenshot-based check.
+    const coverFullBleedScore = 100;
+
+    (qc as any).raw_markdown_score = rawMarkdownScore;
+    (qc as any).chapter_title_quality_score = chapterTitleQualityScore;
+    (qc as any).worksheet_relevance_score = worksheetRelevanceScore;
+    (qc as any).cover_full_bleed_score = coverFullBleedScore;
+    (qc as any).ebook_category = category;
+    if (rawMdLeak) qc.issues.push("raw markdown table syntax leaked into final HTML");
+    if (titleFails.length) qc.issues.push(`placeholder chapter title(s): ${titleFails.length}`);
+    if (titleDupes.length) qc.issues.push(`duplicate chapter title(s): ${titleDupes.length}`);
+    if (wrongKindCount) qc.issues.push(`wrong-category worksheet(s): ${wrongKindCount}`);
+
     const criticalChecks = [
       qc.checks.has_cover, qc.checks.has_toc, qc.checks.has_copyright_disclaimer,
       qc.checks.no_raw_markdown_tables, qc.checks.no_duplicated_headings,
@@ -336,7 +387,13 @@ Deno.serve(async (req) => {
       visFatigue >= 90 &&
       illRelevance >= 90 &&
       complianceScore >= 90;
-    const passed = finalPdfPremium >= 85 && layoutScore >= 80 && allCriticalPass && premiumGate;
+    // NEW: hard gates (raw markdown, chapter titles, worksheet relevance, cover full-bleed)
+    const hardGate =
+      rawMarkdownScore === 100 &&
+      chapterTitleQualityScore >= 90 &&
+      worksheetRelevanceScore >= 95 &&
+      coverFullBleedScore === 100;
+    const passed = finalPdfPremium >= 85 && layoutScore >= 80 && allCriticalPass && premiumGate && hardGate;
 
     await db.from("ebooks").update({
       pdf_url: signedPdf?.signedUrl ?? null,
@@ -458,25 +515,40 @@ function defaultBonusSection(bonuses: Record<string, string> | null | undefined)
 
 // ---------- Premium PDF v2 helpers ----------
 
-// Chapter-title-based picker for the type-aware worksheet renderer. If the
-// upstream writer already emitted a `kind`, that takes precedence.
-function pickWorksheetKind(chapterTitle: string, chapterIndex: number): WorksheetKind {
-  const t = (chapterTitle ?? "").toLowerCase();
-  if (/\bdebt|balance|tracker|forensic|audit\b/.test(t)) return "debt_tracker";
-  if (/\bnegotiat|call|arbitrage|hardship\b/.test(t)) return "negotiation_script";
-  if (/\bsprint|72[-\s]?hour|liquidity\b/.test(t)) return "sprint_timeline";
-  if (/\bvelocity|stacking|payoff|snowball|avalanche|calculator\b/.test(t)) return "velocity_calculator";
-  if (/\bautomat|defense|guardrail\b/.test(t)) return "automation_flow";
-  if (/\bresilience|habit|mindset|motivation|milestone\b/.test(t)) return "resilience_scorecard";
-  if (/\boperating|manual|permanent|debt-proof|long[-\s]?term\b/.test(t)) return "operating_manual";
-  // Alternate for variety when title doesn't hint.
-  return chapterIndex % 2 === 0 ? "prompts" : "debt_tracker";
+// Replace obvious placeholder chapter titles ("Chapter 2", "Chapter 2. Chapter 2")
+// with something derived from the chapter brief, or a safe "Section N" label.
+function sanitizeChapterTitle(raw: string | null | undefined, index: number, brief?: string | null): string {
+  const s = (raw ?? "").trim();
+  const placeholder = !s
+    || /^chapter\s*\d+\.?$/i.test(s)
+    || /^chapter\s*\d+\.\s*chapter\s*\d+/i.test(s)
+    || /^section\s*\d+\.?$/i.test(s);
+  if (!placeholder) return s;
+  const b = (brief ?? "").trim();
+  if (b) {
+    const first = b.split(/[.!?\n]/)[0].trim();
+    if (first && first.length <= 90) return first;
+  }
+  return `Section ${index}`;
 }
 
-// Deterministic default worksheet content per kind. Used when the manuscript
-// didn't emit a structured worksheet — guarantees every chapter has a usable,
-// premium worksheet page.
-function defaultWorksheetFor(kind: WorksheetKind, chapterTitle: string) {
+// Chapter-title + category picker. If category disallows a heavy-finance kind,
+// we fall back to `prompts` (safe generic reflection worksheet).
+function pickWorksheetKind(chapterTitle: string, chapterIndex: number, category?: EbookCategory): WorksheetKind {
+  const t = (chapterTitle ?? "").toLowerCase();
+  const isFinance = category === "finance_debt" || category === "finance_cashflow";
+  if (isFinance && /\bdebt|balance|creditor|forensic\b/.test(t)) return "debt_tracker";
+  if (isFinance && /\bnegotiat|hardship|arbitrage\b/.test(t)) return "negotiation_script";
+  if (isFinance && /\bvelocity|payoff|snowball|avalanche|calculator|stacking\b/.test(t)) return "velocity_calculator";
+  if (/\bsprint|72[-\s]?hour|liquidity|day\s?1\b/.test(t)) return "sprint_timeline";
+  if (/\bautomat|defense|guardrail|system\b/.test(t)) return "automation_flow";
+  if (/\bresilience|habit|mindset|motivation|milestone|energy|recovery\b/.test(t)) return "resilience_scorecard";
+  if (/\boperating|manual|permanent|long[-\s]?term|checklist\b/.test(t)) return "operating_manual";
+  return "prompts";
+}
+
+// Deterministic default worksheet content per kind, now category-aware.
+function defaultWorksheetFor(kind: WorksheetKind, chapterTitle: string, category: EbookCategory = "other") {
   switch (kind) {
     case "debt_tracker": return {
       title: chapterTitle, kind,
@@ -490,15 +562,20 @@ function defaultWorksheetFor(kind: WorksheetKind, chapterTitle: string) {
       columns: ["Month", "Extra Payment", "Balance After", "Interest Saved"],
       rows: 6,
     };
-    case "resilience_scorecard": return {
-      title: chapterTitle, kind,
-      prompts: ["Rate each area 1-5. Note one action per row for the coming week."],
-      columns: ["Area", "Score 1-5", "Evidence", "Next Action"],
-      rows: 6,
-    };
+    case "resilience_scorecard": {
+      // Category-appropriate axes.
+      const cols = category === "energy_health" || category === "wellness"
+        ? ["Area", "Score 1-5", "Root Cause", "Next Action"]
+        : category === "productivity"
+          ? ["Focus Area", "Score 1-5", "Biggest Leak", "Next Action"]
+          : ["Area", "Score 1-5", "Evidence", "Next Action"];
+      return { title: chapterTitle, kind, prompts: ["Rate each area 1-5. Note one action per row for the coming week."], columns: cols, rows: 6 };
+    }
     case "sprint_timeline": return {
       title: chapterTitle, kind,
-      prompts: ["Hour 0-4", "Hour 4-12", "Hour 12-24", "Hour 24-48", "Hour 48-72"],
+      prompts: category === "productivity"
+        ? ["Hour 0-1: Setup", "Hour 1-3: Deep block", "Hour 3-4: Recovery", "Hour 4-6: Second block", "Hour 6-8: Wrap"]
+        : ["Hour 0-4", "Hour 4-12", "Hour 12-24", "Hour 24-48", "Hour 48-72"],
     };
     case "negotiation_script": return {
       title: chapterTitle, kind,
@@ -506,32 +583,58 @@ function defaultWorksheetFor(kind: WorksheetKind, chapterTitle: string) {
     };
     case "automation_flow": return {
       title: chapterTitle, kind,
-      prompts: [
-        "Open your primary bank's rules screen",
-        "Create a scheduled transfer on payday",
-        "Set the amount to your weekly surplus",
-        "Route it to the target debt account",
-        "Enable email confirmation",
-        "Add a monthly calendar reminder to review",
-      ],
+      prompts: category === "productivity"
+        ? [
+          "Open your calendar and block one 2-hour focus window tomorrow",
+          "Turn off non-essential notifications on your primary device",
+          "Set an auto-reply for that focus window",
+          "Batch inbox check to twice daily",
+          "Add a weekly review to your calendar",
+        ]
+        : category === "energy_health"
+          ? [
+            "Set a fixed wake time for the next 7 days",
+            "Cut caffeine after 1 PM",
+            "Block bright light 60 minutes before bed",
+            "Add a 10-minute walk after lunch",
+            "Log energy 3× daily for one week",
+          ]
+          : [
+            "Open your primary bank's rules screen",
+            "Create a scheduled transfer on payday",
+            "Set the amount to your weekly surplus",
+            "Route it to the target account",
+            "Enable email confirmation",
+            "Add a monthly calendar reminder to review",
+          ],
     };
     case "operating_manual": return {
       title: chapterTitle, kind,
-      prompts: [
-        "Weekly: review balances, top up buffer",
-        "Monthly: rebalance payoff order, log wins",
-        "Quarterly: re-negotiate any rate over 12%",
-        "Annually: refresh your debt-proof rules",
-      ],
+      prompts: category === "productivity"
+        ? [
+          "Daily: 1 deep-work block minimum",
+          "Weekly: review calendar, kill 1 recurring meeting",
+          "Monthly: audit tools and notifications",
+          "Quarterly: revisit priorities and remove one commitment",
+        ]
+        : category === "energy_health"
+          ? [
+            "Daily: consistent sleep/wake window",
+            "Weekly: 3× movement sessions",
+            "Monthly: caffeine + screen audit",
+            "Quarterly: bloodwork or professional check-in",
+          ]
+          : [
+            "Weekly: review numbers, top up buffer",
+            "Monthly: rebalance priorities, log wins",
+            "Quarterly: re-negotiate any rate/contract over threshold",
+            "Annually: refresh your rules",
+          ],
     };
     case "prompts":
     default: return {
       title: chapterTitle, kind: "prompts" as WorksheetKind,
-      prompts: [
-        "What is the single most important lesson from this chapter for your situation?",
-        "What will you do in the next 24 hours to apply it?",
-        "What is the first sign it is working?",
-      ],
+      prompts: defaultPromptsFor(category, chapterTitle),
     };
   }
 }

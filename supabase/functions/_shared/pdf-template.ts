@@ -65,6 +65,18 @@ function renderMd(md: string): string {
   while (i < lines.length) {
     const ln = lines[i];
     if (!ln.trim()) { i++; continue; }
+    // markdown table: header row `| a | b |` followed by `| :--- | :--- |`
+    if (/^\s*\|.+\|\s*$/.test(ln) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(lines[i + 1])) {
+      const parseRow = (row: string) => row.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      const headers = parseRow(ln);
+      i += 2; // skip header + separator
+      const bodyRows: string[][] = [];
+      while (i < lines.length && /^\s*\|.+\|\s*$/.test(lines[i])) { bodyRows.push(parseRow(lines[i])); i++; }
+      const thead = `<thead><tr>${headers.map((h) => `<th>${inline(h)}</th>`).join("")}</tr></thead>`;
+      const tbody = `<tbody>${bodyRows.map((r) => `<tr>${headers.map((_, idx) => `<td>${inline(r[idx] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody>`;
+      out.push(`<table class="md-table">${thead}${tbody}</table>`);
+      continue;
+    }
     // headings
     const h = ln.match(/^(#{1,4})\s+(.*)$/);
     if (h) { const lvl = h[1].length + 1; out.push(`<h${lvl}>${inline(h[2])}</h${lvl}>`); i++; continue; }
@@ -98,7 +110,7 @@ function renderMd(md: string): string {
     // paragraph (gather until blank)
     const buf: string[] = [ln];
     i++;
-    while (i < lines.length && lines[i].trim() && !/^(#{1,4}\s|[-*]\s|\d+\.\s|>\s?)/.test(lines[i])) {
+    while (i < lines.length && lines[i].trim() && !/^(#{1,4}\s|[-*]\s|\d+\.\s|>\s?|\s*\|.+\|\s*$)/.test(lines[i])) {
       buf.push(lines[i]); i++;
     }
     out.push(`<p>${inline(buf.join(" "))}</p>`);
@@ -386,16 +398,18 @@ export function buildPdfHtml(data: PdfData): string {
     padding-bottom: 6pt; border-bottom: 0.5pt solid var(--rule); margin-bottom: 18pt;
   }
 
-  /* ---------- Cover ---------- */
+  /* ---------- Cover (hard full-bleed) ---------- */
   .cover { page: cover; height: 9in; width: 6in; position: relative; overflow: hidden;
-    background: var(--bg-divider); color: #fff; }
-  .cover__img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 1; }
+    background: var(--bg-divider); color: #fff; margin: 0; padding: 0;
+    page-break-after: always; break-after: page; }
+  .cover__img { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    object-fit: cover; object-position: center; display: block; }
   .cover__fallback { position: absolute; inset: 0;
     background: radial-gradient(120% 70% at 50% 0%, #1f2937 0%, #0b0f17 100%); }
   .cover__veil { position: absolute; inset: 0;
     background: linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.6) 70%, rgba(0,0,0,0.85) 100%); }
-  .cover__inner { position: absolute; inset: 0; padding: 0.6in;
-    display: flex; flex-direction: column; justify-content: space-between; }
+  .cover__inner { position: absolute; inset: 0; padding: 0.55in 0.6in;
+    display: flex; flex-direction: column; justify-content: space-between; z-index: 2; }
   .cover__brand { font-family: "Inter", sans-serif; font-size: 9pt; letter-spacing: 0.34em;
     text-transform: uppercase; color: #f4ead8; }
   .cover__title { font-family: "Inter", sans-serif; font-weight: 800; font-size: 34pt;
@@ -405,6 +419,17 @@ export function buildPdfHtml(data: PdfData): string {
   .cover__badge { display: inline-block; padding: 4pt 9pt; border: 1pt solid #f4ead8;
     font-family: "Inter", sans-serif; font-size: 8pt; letter-spacing: 0.25em;
     text-transform: uppercase; align-self: flex-start; }
+
+  /* ---------- Markdown tables (from raw | col | col |) ---------- */
+  .md-table { width: 100%; border-collapse: collapse; margin: 12pt 0 16pt;
+    font-family: "Inter", sans-serif; font-size: 9.5pt; page-break-inside: avoid; break-inside: avoid;
+    table-layout: fixed; }
+  .md-table thead th { background: var(--bg-callout); color: var(--ink);
+    text-align: left; padding: 6pt 8pt; border-bottom: 1pt solid var(--accent);
+    font-weight: 700; word-wrap: break-word; overflow-wrap: anywhere; }
+  .md-table tbody td { padding: 6pt 8pt; border-bottom: 0.5pt solid var(--rule);
+    vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; hyphens: auto; }
+  .md-table tbody tr:nth-child(even) td { background: #faf7ef; }
 
   /* ---------- Title page ---------- */
   .title-page { padding: 1.2in 0.9in; }
