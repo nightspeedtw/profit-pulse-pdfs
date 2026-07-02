@@ -87,7 +87,7 @@ export class RunTracker {
   private async patchRun(patch: Record<string, unknown>) {
     await this.db
       .from("autopilot_pipeline_runs")
-      .update({ ...patch, updated_at: new Date().toISOString() })
+      .update({ ...patch, updated_at: new Date().toISOString(), last_heartbeat_at: new Date().toISOString() })
       .eq("id", this.runId);
   }
 
@@ -117,7 +117,7 @@ export class RunTracker {
       .eq("run_id", this.runId);
   }
 
-  async startStep(step_name: string, message?: string) {
+  async startStep(step_name: string, message?: string, subtask?: string) {
     this.startTs.set(step_name, Date.now());
     const label = this.label(step_name);
     await this.patchStep(step_name, {
@@ -125,17 +125,49 @@ export class RunTracker {
       message: message ?? `Running ${label}…`,
       started_at: new Date().toISOString(),
       error_message: null,
+      metadata_json: subtask ? { current_subtask: subtask } : {},
     });
     await this.patchRun({
       status: "running",
       current_step: step_name,
       current_step_label: label,
       current_action_message: message ?? `Running ${label}…`,
+      current_subtask: subtask ?? null,
     });
+  }
+
+  /**
+   * Live progress heartbeat inside a step — updates current_action_message,
+   * current_subtask, and last_heartbeat_at so the overview never goes stale.
+   * Call after every subtask (chapter written, page rendered, asset uploaded).
+   */
+  async heartbeat(step_name: string, patch: {
+    message?: string;
+    subtask?: string;
+    subtask_index?: number;
+    subtask_total?: number;
+    progress_percent?: number;   // step-local sub-progress (0-100)
+  }) {
+    const stepMeta: Record<string, unknown> = {};
+    if (patch.subtask !== undefined) stepMeta.current_subtask = patch.subtask;
+    if (patch.subtask_index !== undefined) stepMeta.subtask_index = patch.subtask_index;
+    if (patch.subtask_total !== undefined) stepMeta.subtask_total = patch.subtask_total;
+    if (patch.progress_percent !== undefined) stepMeta.step_progress_percent = patch.progress_percent;
+
+    const stepPatch: Record<string, unknown> = {};
+    if (patch.message !== undefined) stepPatch.message = patch.message;
+    if (Object.keys(stepMeta).length) stepPatch.metadata_json = stepMeta;
+    if (Object.keys(stepPatch).length) await this.patchStep(step_name, stepPatch);
+
+    const runPatch: Record<string, unknown> = {};
+    if (patch.message !== undefined) runPatch.current_action_message = patch.message;
+    if (patch.subtask !== undefined) runPatch.current_subtask = patch.subtask;
+    await this.patchRun(runPatch);
   }
 
   async updateStep(step_name: string, patch: {
     message?: string;
+    subtask?: string;
     score?: number | null;
     required_score?: number | null;
     auto_fix_attempts?: number;
@@ -146,28 +178,34 @@ export class RunTracker {
     if (patch.score !== undefined) updates.score = patch.score;
     if (patch.required_score !== undefined) updates.required_score = patch.required_score;
     if (patch.auto_fix_attempts !== undefined) updates.auto_fix_attempts = patch.auto_fix_attempts;
-    if (patch.metadata) updates.metadata_json = patch.metadata;
+    const meta = { ...(patch.metadata ?? {}) };
+    if (patch.subtask !== undefined) (meta as Record<string, unknown>).current_subtask = patch.subtask;
+    if (Object.keys(meta).length) updates.metadata_json = meta;
     if (Object.keys(updates).length) await this.patchStep(step_name, updates);
-    if (patch.message) {
-      await this.patchRun({ current_action_message: patch.message });
-    }
+    const runPatch: Record<string, unknown> = {};
+    if (patch.message !== undefined) runPatch.current_action_message = patch.message;
+    if (patch.subtask !== undefined) runPatch.current_subtask = patch.subtask;
+    if (Object.keys(runPatch).length) await this.patchRun(runPatch);
   }
 
   async markAutoFixing(step_name: string, attempt: number, max: number, reason?: string, action?: string) {
     const label = this.label(step_name);
-    const msg = `Auto-fixing ${label} — attempt ${attempt}/${max}${reason ? `. Reason: ${reason}` : ""}${action ? `. Action: ${action}` : ""}`;
+    const msg = `Auto-fixing failed QC gate…`;
+    const subtask = `Repairing ${label.replace(/^Running\s+/, "").toLowerCase()} — attempt ${attempt}/${max}${reason ? ` (${reason.slice(0, 100)})` : ""}${action ? ` · ${action}` : ""}`;
     await this.patchStep(step_name, {
       status: "auto_fixing",
       auto_fix_attempts: attempt,
       max_auto_fix_attempts: max,
       message: msg,
       error_message: reason ?? null,
+      metadata_json: { current_subtask: subtask, auto_fix_attempt: attempt, auto_fix_max: max },
     });
     await this.patchRun({
       status: "auto_fixing",
       current_step: step_name,
       current_step_label: label,
       current_action_message: msg,
+      current_subtask: subtask,
     });
   }
 

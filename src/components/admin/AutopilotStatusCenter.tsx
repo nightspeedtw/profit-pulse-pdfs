@@ -16,9 +16,11 @@ type RunRow = {
   current_step: string | null;
   current_step_label: string | null;
   current_action_message: string | null;
+  current_subtask: string | null;
   progress_percent: number;
   started_at: string;
   updated_at: string;
+  last_heartbeat_at: string | null;
   completed_at: string | null;
   admin_needed_reason: string | null;
   error_message: string | null;
@@ -125,7 +127,7 @@ export function AutopilotStatusCenter() {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data: r } = await supabase
       .from("autopilot_pipeline_runs")
-      .select("id,ebook_id,status,current_step,current_step_label,current_action_message,progress_percent,started_at,updated_at,completed_at,admin_needed_reason,error_message,pause_requested,mode,test_mode")
+      .select("id,ebook_id,status,current_step,current_step_label,current_action_message,current_subtask,progress_percent,started_at,updated_at,last_heartbeat_at,completed_at,admin_needed_reason,error_message,pause_requested,mode,test_mode")
       .or(`started_at.gte.${since},status.in.(starting,running,auto_fixing,needs_admin)`)
       .order("started_at", { ascending: false })
       .limit(50);
@@ -340,13 +342,15 @@ function RunCard({
   const title = ebook?.title || (run.ebook_id ? "Untitled" : "New Run");
   const label = run.current_step_label ?? stepLabel(run.current_step);
   const meta = (step?.metadata_json ?? {}) as Record<string, unknown>;
-  const subtask = typeof meta.current_subtask === "string"
-    ? meta.current_subtask
-    : typeof meta.subtask === "string" ? meta.subtask : null;
+  const subtask = run.current_subtask
+    ?? (typeof meta.current_subtask === "string"
+      ? meta.current_subtask
+      : typeof meta.subtask === "string" ? meta.subtask : null);
   const attempts = step?.auto_fix_attempts ?? 0;
   const maxAttempts = step?.max_auto_fix_attempts ?? 3;
   const active = ACTIVE.includes(run.status);
-  const updatedSec = Math.floor((now - new Date(run.updated_at).getTime()) / 1000);
+  const heartbeatIso = run.last_heartbeat_at ?? run.updated_at;
+  const updatedSec = Math.floor((now - new Date(heartbeatIso).getTime()) / 1000);
   const stalled = active && updatedSec > 300;
   const slow = active && !stalled && updatedSec > 90;
 
@@ -401,7 +405,7 @@ function RunCard({
             <Clock className="size-3" />
             {elapsedLabel(run.started_at, run.completed_at, now)} elapsed
           </span>
-          <span>Updated {agoLabel(run.updated_at, now)}</span>
+          <span>Updated {agoLabel(heartbeatIso, now)}</span>
         </div>
 
         {stalled && (
@@ -458,8 +462,12 @@ function RunTable({ rows, now }: { rows: RunRowData[]; now: number }) {
             const title = ebook?.title || (run.ebook_id ? "Untitled" : "New Run");
             const attempts = step?.auto_fix_attempts ?? 0;
             const maxAttempts = step?.max_auto_fix_attempts ?? 3;
-            const updatedSec = Math.floor((now - new Date(run.updated_at).getTime()) / 1000);
+            const heartbeatIso = run.last_heartbeat_at ?? run.updated_at;
+            const updatedSec = Math.floor((now - new Date(heartbeatIso).getTime()) / 1000);
             const stalled = ACTIVE.includes(run.status) && updatedSec > 300;
+            const subtask = run.current_subtask
+              ?? (typeof (step?.metadata_json as Record<string, unknown> | null)?.current_subtask === "string"
+                ? String((step!.metadata_json as Record<string, unknown>).current_subtask) : null);
             return (
               <tr key={run.id} className={`border-t border-foreground/10 hover:bg-muted/30 ${stalled ? "bg-red-50/40" : ""}`}>
                 <td className="p-2 max-w-[220px]">
@@ -481,12 +489,13 @@ function RunTable({ rows, now }: { rows: RunRowData[]; now: number }) {
                 <td className="p-2">
                   <span className="text-muted-foreground">{stepIdx}/{TOTAL_STEPS}</span> <span className="font-medium">{label}</span>
                 </td>
-                <td className="p-2 max-w-[260px]">
+                <td className="p-2 max-w-[280px]">
                   <p className="line-clamp-1">{run.current_action_message ?? "—"}</p>
+                  {subtask && <p className="text-[10px] text-muted-foreground line-clamp-1">↳ {subtask}</p>}
                 </td>
                 <td className="p-2">{attempts > 0 ? <span className="text-orange-800">{attempts}/{maxAttempts}</span> : "—"}</td>
                 <td className="p-2 font-mono">{ebook?.shopify_status ?? (ebook?.shopify_product_id ? "draft" : "—")}</td>
-                <td className="p-2 font-mono text-muted-foreground">{agoLabel(run.updated_at, now)}</td>
+                <td className="p-2 font-mono text-muted-foreground">{agoLabel(heartbeatIso, now)}</td>
                 <td className="p-2 text-right">
                   <Link to={`/admin/autopilot/run/${run.id}`}>
                     <Button size="sm" variant="outline" className="h-6 text-[11px]">View →</Button>

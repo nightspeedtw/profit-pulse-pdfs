@@ -132,11 +132,13 @@ export type Database = {
           current_action_message: string | null
           current_step: string | null
           current_step_label: string | null
+          current_subtask: string | null
           ebook_id: string | null
           error_message: string | null
           failed_at: string | null
           id: string
           idea_id: string | null
+          last_heartbeat_at: string | null
           mode: string | null
           pause_requested: boolean
           progress_percent: number
@@ -153,11 +155,13 @@ export type Database = {
           current_action_message?: string | null
           current_step?: string | null
           current_step_label?: string | null
+          current_subtask?: string | null
           ebook_id?: string | null
           error_message?: string | null
           failed_at?: string | null
           id?: string
           idea_id?: string | null
+          last_heartbeat_at?: string | null
           mode?: string | null
           pause_requested?: boolean
           progress_percent?: number
@@ -174,11 +178,13 @@ export type Database = {
           current_action_message?: string | null
           current_step?: string | null
           current_step_label?: string | null
+          current_subtask?: string | null
           ebook_id?: string | null
           error_message?: string | null
           failed_at?: string | null
           id?: string
           idea_id?: string | null
+          last_heartbeat_at?: string | null
           mode?: string | null
           pause_requested?: boolean
           progress_percent?: number

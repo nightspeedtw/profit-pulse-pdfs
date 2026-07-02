@@ -107,12 +107,12 @@ Deno.serve(async (req) => {
       }
 
       // Track one or more pipeline steps as a single underlying action.
-      async function track(stepNames: string[], message: string, fn: () => Promise<void>) {
+      async function track(stepNames: string[], message: string, fn: () => Promise<void>, subtask?: string) {
         if (await tracker.isPauseRequested()) {
           await tracker.markPaused();
           throw new Error("paused_by_admin");
         }
-        for (const n of stepNames) await tracker.startStep(n, message);
+        for (const n of stepNames) await tracker.startStep(n, message, subtask);
         try {
           await fn();
           for (const n of stepNames) await tracker.passStep(n);
@@ -371,7 +371,13 @@ Deno.serve(async (req) => {
               await tracker.markPaused();
               throw new Error("paused_by_admin");
             }
-            await tracker.updateStep("chapter_writing", { message: label(cur, indices.length, idx) });
+            await tracker.heartbeat("chapter_writing", {
+              message: "Writing chapters…",
+              subtask: label(cur, indices.length, idx),
+              subtask_index: cur,
+              subtask_total: indices.length,
+              progress_percent: Math.round((cur / Math.max(1, indices.length)) * 100),
+            });
             await runStep(`6_write_chapter_${idx}`, "write-chapters", { ebook_id: ebook.id, chapter_index: idx });
           }
           await refreshEbook();
@@ -389,22 +395,23 @@ Deno.serve(async (req) => {
             }
             await track(
               ["chapter_writing", "chapter_qc"],
-              `Writing ${incompleteBefore.length} chapter${incompleteBefore.length === 1 ? "" : "s"} with per-chapter QC…`,
+              `Writing chapters…`,
               async () => {
                 await writeChaptersSequentially(
                   incompleteBefore,
-                  (cur, total, idx) => `Writing chapter ${cur}/${total} (outline #${idx})…`,
+                  (cur, total, idx) => `Writing chapter ${cur} of ${total} (outline #${idx})`,
                 );
                 // Repair loop: up to 3 passes targeting only still-missing chapters.
                 for (let attempt = 1; attempt <= 3; attempt++) {
                   const stillMissing = await findIncompleteChapters();
                   if (stillMissing.length === 0) return;
-                  await tracker.updateStep("chapter_writing", {
-                    message: `Repairing ${stillMissing.length} missing chapter${stillMissing.length === 1 ? "" : "s"} (pass ${attempt}/3)…`,
+                  await tracker.heartbeat("chapter_writing", {
+                    message: "Repairing missing dependency…",
+                    subtask: `Generating missing chapter 1 of ${stillMissing.length} — pass ${attempt}/3`,
                   });
                   await writeChaptersSequentially(
                     stillMissing,
-                    (cur, total, idx) => `Generating missing chapter ${cur}/${total} (outline #${idx}) — pass ${attempt}/3`,
+                    (cur, total, idx) => `Generating missing chapter ${cur} of ${total} (outline #${idx}) — pass ${attempt}/3`,
                   );
                 }
                 const finalMissing = await findIncompleteChapters();
@@ -412,6 +419,7 @@ Deno.serve(async (req) => {
                   throw new Error(`chapter_writing incomplete: missing chapters [${finalMissing.join(", ")}] after 3 repair passes`);
                 }
               },
+              `Writing chapter 1 of ${incompleteBefore.length}`,
             );
           }
         }
@@ -447,11 +455,12 @@ Deno.serve(async (req) => {
 
           await track(
             ["manuscript_qc"],
-            "Running final manuscript QC across the whole book…",
+            "Running manuscript QC…",
             async () => {
               await runStep("8_final_manuscript_qc", "final-manuscript-qc", { ebook_id: ebook.id, run_id });
               await refreshEbook();
             },
+            "Checking structure, depth, and repeated passages across chapters",
           );
 
           if (ebook.manuscript_qc_status === "needs_review") {
@@ -482,11 +491,14 @@ Deno.serve(async (req) => {
           }
           await track(
             ["cover", "cover_qc", "thumbnail", "thumbnail_qc"],
-            "Generating premium cover and thumbnail with text overlay…",
+            "Generating premium cover…",
             async () => {
+              await tracker.heartbeat("cover", { message: "Generating premium cover…", subtask: "Creating no-text background image" });
               await runStep("9_cover", "generate-cover", { ebook_id: ebook.id, mode: "full" });
+              await tracker.heartbeat("thumbnail_qc", { message: "Running thumbnail QC…", subtask: "Checking mobile readability" });
               await refreshEbook();
             },
+            "Creating no-text background image",
           );
         } else {
           await skip(["cover", "cover_qc", "thumbnail", "thumbnail_qc"], "Cover already present");
@@ -500,11 +512,14 @@ Deno.serve(async (req) => {
           }
           await track(
             ["pdf_layout", "pdf_render", "pdf_qc"],
-            "Designing and rendering premium PDF, then running PDF QC…",
+            "Rendering premium PDF…",
             async () => {
+              await tracker.heartbeat("pdf_render", { message: "Rendering premium PDF…", subtask: "Building worksheet pages" });
               await runStep("10_11_render_pdf_qc", "render-pdf", { ebook_id: ebook.id });
+              await tracker.heartbeat("pdf_qc", { message: "Running PDF QC…", subtask: "Verifying layout and asset integrity" });
               await refreshEbook();
             },
+            "Building worksheet pages",
           );
           // Soft-pass: only stop on truly missing PDF. Low QC scores are
           // logged but do not block Shopify draft upload — admin can fix later.
@@ -558,11 +573,15 @@ Deno.serve(async (req) => {
           }
           await track(
             ["product_copy", "product_qc", "shopify_draft", "shopify_verify"],
-            "Writing product copy, running product page QC, and uploading Shopify draft…",
+            "Uploading Shopify draft…",
             async () => {
+              await tracker.heartbeat("product_copy", { message: "Generating Shopify product copy…", subtask: "Writing title, bullets, and description" });
+              await tracker.heartbeat("shopify_draft", { message: "Uploading Shopify draft…", subtask: "Creating product and attaching digital PDF" });
               await runStep("12_shopify_draft", "shopify-draft-upload", { ebook_id: ebook.id });
+              await tracker.heartbeat("shopify_verify", { message: "Verifying Shopify draft…", subtask: "Checking product assets and pricing" });
               await refreshEbook();
             },
+            "Creating product and attaching digital PDF",
           );
         } else {
           await skip(["product_copy", "product_qc", "shopify_draft", "shopify_verify"], "Shopify draft already uploaded");
