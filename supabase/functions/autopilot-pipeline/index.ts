@@ -696,7 +696,17 @@ Deno.serve(async (req) => {
         }
 
         // ---------- STEP 12 — Shopify draft ----------
-        if (shopifyDraftEnabled && !ebook.shopify_product_id) {
+        // Phase 1: Autopilot stops BEFORE Shopify upload. The book is marked
+        // ready_to_publish at 100% and the admin pushes it manually via the
+        // "Push to Shopify" button on the ebook Shopify page. Set
+        // settings.autopilot_upload_to_shopify=true to re-enable auto-upload.
+        const autopilotShopifyEnabled = settings.autopilot_upload_to_shopify === true;
+        if (!autopilotShopifyEnabled) {
+          await skip(
+            ["product_copy", "product_qc", "shopify_draft", "shopify_verify"],
+            "Autopilot stops before Shopify — push manually from the ebook page.",
+          );
+        } else if (shopifyDraftEnabled && !ebook.shopify_product_id) {
           if (await shopifyOverDay()) {
             const nextRetry = nextUtcMidnight();
             await db.from("ebooks").update({
