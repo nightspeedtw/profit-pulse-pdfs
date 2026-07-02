@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
         const { data, error } = await supabase
           .from("ebooks")
           .select(
-            "id,title,autopilot_state,autopilot_mode,shopify_status,shopify_product_id,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json",
+            "id,title,autopilot_state,autopilot_mode,shopify_status,shopify_product_id,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json,blocker_class,blocker_reason,next_retry_at,pdf_url,cover_url",
           )
           .in("id", ebookIds);
         if (error) throw error;
