@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { StatusBadge, resolveEbookBadge } from "@/components/admin/StatusBadge";
 import { AutoFixChip } from "@/components/admin/AutoFixChip";
 import { AutopilotStatusCenter } from "@/components/admin/AutopilotStatusCenter";
+import { LiveProductionQueue } from "@/components/admin/LiveProductionQueue";
 
 type Ebook = {
   id: string; title: string;
@@ -272,6 +273,11 @@ export default function CommandCenter() {
 
       {/* Live Autopilot run — only renders when a run is active */}
       <AutopilotStatusCenter />
+
+      {/* Live Production Queue — always-on visibility across every ebook */}
+      <LiveProductionQueue />
+
+
 
 
       {/* Autopilot status strip */}

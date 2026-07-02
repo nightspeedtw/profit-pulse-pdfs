@@ -1,120 +1,84 @@
+# Production Queue Visibility & Self-Debugging Autopilot
 
-# Premium PDF Upgrade — Plan
+Delivers a single source of truth for what every ebook is doing, why, and — when a structural bug is detected — an auto-generated Lovable fix instruction the admin can copy in one click.
 
-Two deliverables, one code path:
+## 1. Canonical status model (backend)
 
-1. **Permanent pipeline upgrade** so every future ebook renders with safe worksheet tables, smart inside illustrations, low visual fatigue, and compliant finance wording.
-2. **One-off re-render** of *The Six-Month Debt Exit Strategy* using the upgraded pipeline (no manuscript rewrite — only layout, worksheets, visuals, and wording touch-ups).
+Migration adds a `canonical_status` enum and columns used by every surface:
 
-Phase 1 stability is preserved: no SEO/blog/keyword work. The pipeline order (idea → outline → chapters → manuscript QC → cover → PDF → Shopify draft) does not change; we only strengthen the PDF-layout, illustration, and compliance stages.
+- `ebooks.canonical_status` (enum, indexed)
+- `ebooks.queue_position` (int, null unless queued)
+- `ebooks.queued_at`, `ebooks.estimated_start_after_run_id`
+- `ebooks.waiting_reason` (text)
+- `ebooks.current_step`, `ebooks.current_subtask`, `ebooks.progress_pct`, `ebooks.last_heartbeat_at`, `ebooks.current_qc_score`, `ebooks.autofix_attempt`, `ebooks.autofix_max`
+- `ebooks.structured_error jsonb` (schema in §4)
+- New table `system_fix_instructions` — one row per detected structural bug, holds the auto-generated Lovable fix prompt.
 
----
+Allowed statuses (single vocabulary used everywhere):
+`idea_generated`, `queued_for_production`, `production_running`, `generating_outline`, `writing_chapters`, `building_manuscript`, `running_qc`, `auto_fixing`, `generating_cover`, `generating_thumbnail`, `rendering_pdf`, `waiting_for_browserless_slot`, `waiting_for_shopify_quota`, `waiting_for_ai_budget`, `waiting_for_worker_slot`, `uploading_shopify_draft`, `verifying_shopify_draft`, `draft_uploaded`, `completed`, `needs_admin_attention`, `needs_code_fix`, `failed_non_recoverable`.
 
-## Part A — Pipeline upgrade (permanent)
+Vague statuses (`failed`, `pending`, `processing`, `review needed`) are banned in code and mapped forward in a one-shot backfill.
 
-### 1. Worksheet layout hardening (`_shared/pdf-template.ts`)
-- Auto-shrink & wrap logic for worksheet table headers:
-  - Multi-line header cells (max 2 lines), auto-hyphenate long tokens.
-  - Font-size step-down: 11pt → 9.5pt → 8.5pt if any cell overflows.
-  - Column-width solver: allocate width proportional to `max(header, sample cell)` length; long-label columns get ≥1.3× base width.
-  - If total width > page width at 8.5pt, split table across 2 pages (repeat header on page 2) or switch that single sheet to landscape.
-- Header dictionary of safe short forms (`CURRENT EXACT BALANCE` → `Exact\nBalance`, `MINIMUM MONTHLY PAYMENT` → `Min.\nPayment`, etc.) applied automatically.
-- Per-worksheet layout picker by type: `debt_tracker`, `negotiation_script`, `sprint_timeline`, `velocity_calculator`, `automation_flow`, `resilience_scorecard`, `operating_manual`. Each has its own template (table / call-log / timeline / calculator / flowchart / scorecard / checklist).
+## 2. Sequential Safe Mode enforcement
 
-### 2. Inside-illustration planner (new `_shared/illustration-planner.ts`)
-For each chapter, produce `inside_illustration_plan_json`:
+Heavy statuses (outline → shopify verify) may only be held by the current lock holder of `heavy_production`. `autopilot-pipeline` calls `try_acquire_lock('heavy_production', ebook_id)` before entering any heavy step; on failure it sets `queued_for_production`, assigns `queue_position` (dense rank over `queued_at`), and writes `waiting_reason = "Waiting for current ebook to finish"`. `autopilot-recovery-worker` picks the lowest `queue_position` when the lock releases and dispatches it.
+
+## 3. Structured error classifier
+
+New `supabase/functions/_shared/error-classifier.ts` converts every thrown error into:
+
 ```
-{
-  chapter_index, topic, buyer_pain, framework, worksheet_type,
-  text_density_score,
-  recommendation: "none" | "conceptual" | "infographic" | "timeline"
-                | "process_map" | "before_after" | "decision_tree"
-                | "cashflow_map" | "calculator_visual" | "system_diagram",
-  placement_hint, caption
-}
+{ error_type, severity, recoverable, affected_step, user_friendly_message,
+  technical_message, detected_root_cause, auto_recovery_action, next_retry_at,
+  needs_code_fix, lovable_fix_instruction, affected_files, test_to_confirm }
 ```
-Rules baked in:
-- Max 1–2 illustrations per chapter.
-- Only when chapter has 3+ consecutive text-heavy pages.
-- Must be topic-specific (rejected if caption ≈ generic).
-- AI image prompt is **generated with "no text, no words, no letters"**; all labels are rendered as HTML/SVG overlay in the PDF template.
-- Rejects stock-photo people, fake charts, misleading claim visuals via prompt guardrails + a post-gen vision QC.
 
-### 3. Inside-illustration renderer (`_shared/pdf-template.ts` + `generate-interior-visuals`)
-- New illustration slot rendered as a bordered image + SVG overlay (title, arrows, mini legend).
-- Extends existing `generate-interior-visuals` edge function: adds `mode: "inside_illustrations"` that consumes the plan and stores images in `ebook-assets` bucket keyed by chapter.
+Error types: `qc_repairable`, `dependency_repairable`, `temporary_api_error`, `quota_wait`, `config_error`, `data_binding_bug`, `state_machine_bug`, `concurrency_bug`, `renderer_bug`, `shopify_bug`, `pdf_quality_bug`, `status_visibility_bug`, `non_recoverable`.
 
-### 4. New QC gates (`_shared/pdf-qc.ts` + `render-pdf`)
-Adds four scores to the PDF QC report:
-- `worksheet_table_overflow_score` (must be 100)
-- `worksheet_readability_score` (≥90)
-- `visual_fatigue_score` (≥90) — computed by walking rendered pages: fails if >3 consecutive text-only pages.
-- `inside_illustration_relevance_score` (≥90) — vision-check illustration vs chapter title + topic keywords.
-- `compliance_safety_score` (≥90) — see part 5.
+Classifier owns known signatures (Browserless 429, Shopify 402/quota, missing outline JSON, chapter count < 8, worksheet overflow, empty Production query while runs exist, heartbeat stale > 5min, duplicate lock holders). Auto-recoverable types run the recovery action; structural bugs write to `system_fix_instructions` and set `canonical_status = needs_code_fix`. Admin is asked ONLY for the whitelisted cases (invalid Shopify token, missing API key, compliance block, 3 failed auto-fix attempts, non-recoverable runtime).
 
-Auto-fix chain on failure:
-1. `worksheet_*` fail → re-layout worksheet (shrink font → split → landscape) and re-render only that page range.
-2. `visual_fatigue` fail → planner adds one more illustration/callout in the offending stretch and re-renders.
-3. `illustration_relevance` fail → regenerate the specific image with tightened prompt.
-4. Up to 3 attempts per failed gate, matching existing auto-fix pattern.
+## 4. Autopilot Doctor
 
-### 5. Compliance linter (new `_shared/compliance.ts`)
-Regex + LLM pass over final manuscript & product copy:
-- Flag: `guaranteed`, `will save`, `will eliminate`, `must result`, `success rate over N%`, `accelerate … by at least N%`, `risk-free`.
-- Rewrite to safer educational language (`may help`, `is designed to help`, `results depend on…`).
-- Emits `compliance_safety_score` and rewrites in place, keeps disclaimer page.
-- Runs as a QC pass after manuscript QC and again on product copy before Shopify upload.
+`supabase/functions/autopilot-doctor/index.ts`:
 
-### 6. Schema
-Migration adds to `ebooks`:
-- `inside_illustration_plan_json jsonb`
-- `visual_fatigue_score int`
-- `inside_illustration_relevance_score int`
-- `text_density_score int`
-- `worksheet_table_overflow_score int`
-- `worksheet_readability_score int`
-- `compliance_safety_score int` (if not already present)
+- Checks: stale heartbeats, duplicate `production_running`, lock/held-status mismatch, runs without steps, steps without runs, `failed` ebooks that are actually quota waits, jobs missing from Production query, chapter/outline dependency violations, Browserless concurrency > 1, Shopify quota mis-classified as QC failure.
+- Emits a health score (0–100), auto-fixes what it can (release stale lock, re-classify statuses, requeue), writes remaining issues to `system_fix_instructions`.
+- Scheduled every 5 min via `pg_cron`, also runs on every step failure, and callable from Advanced Mode.
 
-### 7. Live status
-Each new stage emits `current_action_message` + `current_subtask` via the existing `RunTracker.heartbeat` so the Overview shows "Rendering premium PDF… ↳ Fitting worksheet 3 of 7", "Generating inside illustration 2 of 9 (cash-flow map)", "Running compliance linter…".
+## 5. Frontend — Live Production Queue
 
----
+New `src/components/admin/LiveProductionQueue.tsx` mounted on Command Center and Production page, with five sections driven by `canonical_status`:
 
-## Part B — One-off: Six-Month Debt Exit Strategy
+- **A. Currently Working On** — the lock holder, with title, run id, step X/23, current subtask, progress %, elapsed, last heartbeat, QC score, autofix attempt, Preview/Detail buttons.
+- **B. Queued Next** — ordered by `queue_position`, shows waiting reason and "starts after {current title}".
+- **C. Waiting / Paused Automatically** — Browserless / Shopify / AI budget / worker waits with `next_retry_at` countdown and auto-resume badge.
+- **D. Auto-Fixing** — status `auto_fixing`, shows `autofix_attempt / autofix_max` and the specific repair action.
+- **E. Needs Code Fix / System Repair** — reads `system_fix_instructions`, one card per bug with title, detected problem, root cause, affected files, required fix, acceptance test, and **Copy Lovable Fix Prompt** button.
 
-1. Locate the ebook record for this title in `ebooks`; if not present, ingest the uploaded PDF only as reference (do not touch the manuscript).
-2. Re-run **only these steps** via a targeted invocation:
-   - Compliance linter over existing chapters and product copy.
-   - Illustration planner + generator (max 1–2 per chapter, matching the chapter list in the request).
-   - PDF layout re-render with the new worksheet engine.
-   - New QC gates; auto-fix up to 3 times per gate.
-3. Do **not** rerun idea/outline/chapter/manuscript QC.
-4. If all gates ≥ threshold → mark `pdf_status = ready` and push to Shopify draft (using existing `shopify-draft-upload` — no changes there).
-5. Deliver: new PDF URL, list of fixed worksheets, before/after previews for 2 worksheets, list of illustrations added, 3 illustration previews, compliance rewrites diff, and the final QC report.
+Polls every 3s while any active/queued job exists, otherwise every 15s. Uses `admin-data` edge function so passcode auth continues to work.
 
----
+## 6. Copy per §12 & timeline
 
-## Order of work
+`StatusBadge` and detail page consume `canonical_status` and produce the exact copy from the spec ("Now producing…", "Queued #3 — waiting for production slot", "Waiting for Browserless Slot — retrying automatically in 5 minutes", "Auto-fixing PDF worksheet overflow — attempt 2/3", "System code fix required — Lovable instruction generated"). Ebook detail page gets a vertical timeline: Created → Queued → Started → step trail with autofix attempts, waiting windows, retry schedule, Shopify status, terminal state.
 
-1. Migration (new score columns + `inside_illustration_plan_json`).
-2. Compliance linter + wire into pipeline.
-3. Worksheet overflow fixer in `pdf-template.ts`.
-4. Illustration planner + extend `generate-interior-visuals`.
-5. New QC gates + auto-fix routing.
-6. Live-status heartbeats.
-7. Trigger targeted re-render for the Debt Exit Strategy ebook and deliver artifacts.
+## 7. Wiring existing pipeline
 
-## What I will NOT touch
-- Manuscript content (no chapter rewrites).
-- Idea / outline / chapter QC steps.
-- Cover generation.
-- Shopify upload logic (already stable).
-- Any Phase 2 SEO/blog/keyword code.
+- `autopilot-pipeline` writes `canonical_status`, `current_step`, `current_subtask`, `progress_pct`, heartbeat on every tick; wraps every step in `classifyError()`.
+- `write-chapters`, `generate-outline`, `final-manuscript-qc`, `render-pdf`, `generate-cover`, `shopify-*` all funnel errors through the classifier instead of returning bare strings.
+- `autopilot-recovery-worker` dispatches from the queue on lock release and honours `next_retry_at`.
 
----
+## Files affected (technical)
 
-## Confirm before I start
+- Migrations: canonical status enum + columns on `ebooks`, `system_fix_instructions` table (+ GRANTs + RLS + updated_at trigger), backfill.
+- Edge functions: `_shared/error-classifier.ts` (new), `autopilot-doctor/index.ts` (new), `autopilot-pipeline`, `autopilot-recovery-worker`, `render-pdf`, `write-chapters`, `generate-outline`, `final-manuscript-qc`, `generate-cover`, `shopify-upload`, `admin-data` (expose queue + fix instructions).
+- Frontend: `LiveProductionQueue.tsx` (new), `SystemFixCard.tsx` (new), `AutopilotStatusCenter.tsx`, `Production.tsx`, `StatusBadge.tsx`, `src/lib/adminData.ts`, ebook detail timeline component.
+- Cron: doctor every 5 min, existing recovery worker every 5 min.
 
-- OK to run this end-to-end as one pass, or would you rather I ship the pipeline first, then trigger the Debt Exit re-render in a second turn once you've reviewed the code?
-- The QC autopass thresholds above (90 / 90 / 100 / 90 / 90) match your spec exactly. Change any of them before I lock them in?
-- Illustration model: default to `google/gemini-3.1-flash-image` (Nano Banana 2 — fast, high quality, "no text" prompts behave well). OK, or prefer `openai/gpt-image-2`?
+## Acceptance tests
+
+1. Start two Autopilot runs back-to-back → exactly one is `production_running`, the second is `queued_for_production` with `queue_position = 1` and visible in section B.
+2. Kill Browserless (simulate 429) → run flips to `waiting_for_browserless_slot`, appears in section C with countdown, resumes without admin action.
+3. Force outline JSON invalid 3× → auto-fix attempts visible in section D, then falls back to deterministic outline, run continues.
+4. Point Production page at a fake empty query → Doctor detects `data_binding_bug`, section E shows a Lovable fix prompt including `src/pages/Production.tsx` and `src/lib/adminData.ts`.
+5. Shopify daily cap → status `waiting_for_shopify_quota`, upload resumes at next reset window; never surfaced as `failed`.
+6. Stale heartbeat > 5 min → Doctor releases the lock and requeues; next queued ebook starts within one poll cycle.

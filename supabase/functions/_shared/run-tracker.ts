@@ -34,10 +34,50 @@ export const AUTOPILOT_STEPS: StepDef[] = [
 const STEP_MAP = new Map(AUTOPILOT_STEPS.map((s) => [s.name, s] as const));
 const TOTAL = AUTOPILOT_STEPS.length;
 
+// Map internal step_name → canonical_status shown on the admin dashboard.
+const STEP_TO_CANONICAL: Record<string, string> = {
+  start_run: "production_running",
+  generate_idea: "production_running",
+  title_and_hook: "production_running",
+  idea_qc: "running_qc",
+  outline: "generating_outline",
+  outline_qc: "running_qc",
+  chapter_writing: "writing_chapters",
+  chapter_qc: "running_qc",
+  manuscript_qc: "running_qc",
+  cover: "generating_cover",
+  cover_qc: "running_qc",
+  thumbnail: "generating_thumbnail",
+  thumbnail_qc: "running_qc",
+  pdf_layout: "rendering_pdf",
+  pdf_render: "rendering_pdf",
+  pdf_qc: "running_qc",
+  product_copy: "production_running",
+  product_qc: "running_qc",
+  shopify_draft: "uploading_shopify_draft",
+  shopify_verify: "verifying_shopify_draft",
+  complete: "completed",
+};
+
 export class RunTracker {
   private startTs = new Map<string, number>();
+  private ebookId: string | null = null;
 
-  constructor(public db: Db, public runId: string) {}
+  constructor(public db: Db, public runId: string, ebookId: string | null = null) {
+    this.ebookId = ebookId;
+  }
+
+  setEbookId(id: string | null) { this.ebookId = id; }
+
+  private async syncEbook(patch: Record<string, unknown>) {
+    if (!this.ebookId) return;
+    try {
+      await this.db.from("ebooks").update({
+        ...patch,
+        last_heartbeat_at: new Date().toISOString(),
+      }).eq("id", this.ebookId);
+    } catch (_err) { /* best-effort */ }
+  }
 
   static async start(db: Db, opts: {
     ebook_id?: string | null;
@@ -75,7 +115,7 @@ export class RunTracker {
     }));
     await db.from("autopilot_pipeline_steps").insert(rows);
 
-    const t = new RunTracker(db, data.id);
+    const t = new RunTracker(db, data.id, opts.ebook_id ?? null);
     await t.passStep("start_run", { message: "Pipeline started" });
     return t;
   }
@@ -134,6 +174,13 @@ export class RunTracker {
       current_action_message: message ?? `Running ${label}…`,
       current_subtask: subtask ?? null,
     });
+    await this.syncEbook({
+      canonical_status: STEP_TO_CANONICAL[step_name] ?? "production_running",
+      current_step: step_name,
+      current_step_label: label,
+      current_action_message: message ?? `Running ${label}…`,
+      current_subtask: subtask ?? null,
+    });
   }
 
   /**
@@ -163,6 +210,14 @@ export class RunTracker {
     if (patch.message !== undefined) runPatch.current_action_message = patch.message;
     if (patch.subtask !== undefined) runPatch.current_subtask = patch.subtask;
     await this.patchRun(runPatch);
+    if (patch.message !== undefined || patch.subtask !== undefined) {
+      await this.syncEbook({
+        current_action_message: patch.message ?? undefined,
+        current_subtask: patch.subtask ?? undefined,
+      });
+    } else {
+      await this.syncEbook({}); // just refresh heartbeat
+    }
   }
 
   async updateStep(step_name: string, patch: {
@@ -207,6 +262,14 @@ export class RunTracker {
       current_action_message: msg,
       current_subtask: subtask,
     });
+    await this.syncEbook({
+      canonical_status: "auto_fixing",
+      current_step: step_name,
+      current_step_label: label,
+      current_action_message: msg,
+      current_subtask: subtask,
+      auto_fix_attempts: attempt,
+    });
   }
 
   async passStep(step_name: string, opts: { message?: string; score?: number | null } = {}) {
@@ -221,6 +284,7 @@ export class RunTracker {
     });
     const pct = await this.progress();
     await this.patchRun({ progress_percent: pct, status: "running" });
+    await this.syncEbook({ progress_pct: pct });
   }
 
   async failStep(step_name: string, error: string) {
@@ -236,6 +300,11 @@ export class RunTracker {
       error_message: error.slice(0, 800),
       current_action_message: `${this.label(step_name)} failed.`,
     });
+    await this.syncEbook({
+      canonical_status: "failed_non_recoverable",
+      current_action_message: `${this.label(step_name)} failed.`,
+      blocker_reason: error.slice(0, 200),
+    });
   }
 
   async needsAdmin(step_name: string, reason: string, recommended?: string) {
@@ -250,7 +319,13 @@ export class RunTracker {
       admin_needed_reason: [reason, recommended ? `Recommended: ${recommended}` : null].filter(Boolean).join(" "),
       current_action_message: `Needs admin attention at ${this.label(step_name)}`,
     });
+    await this.syncEbook({
+      canonical_status: "needs_admin_attention",
+      needs_review_reason: reason.slice(0, 400),
+      current_action_message: `Needs admin attention at ${this.label(step_name)}`,
+    });
   }
+
 
   async skipStep(step_name: string, message?: string, opts: { existing?: boolean } = {}) {
     const existing = !!opts.existing;
@@ -274,7 +349,15 @@ export class RunTracker {
       current_action_message: "Pipeline complete",
       summary_json: summary,
     });
+    await this.syncEbook({
+      canonical_status: "completed",
+      progress_pct: 100,
+      current_action_message: "Pipeline complete",
+      blocker_reason: null,
+      blocker_class: null,
+    });
   }
+
 
   async isPauseRequested(): Promise<boolean> {
     const { data } = await this.db

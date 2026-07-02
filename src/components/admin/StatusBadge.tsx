@@ -8,9 +8,9 @@ export type EbookBadgeKind =
   | "waiting_for_browserless_slot" | "queued_for_production"
   | "production_running" | "rendering_pdf"
   | "draft_upload_queued"
-  | "qc_failed" | "needs_review" | "needs_admin_attention"
+  | "qc_failed" | "needs_review" | "needs_admin_attention" | "needs_code_fix"
   | "draft_uploaded" | "published" | "rejected" | "paused"
-  | "failed" | "failed_non_recoverable" | "idle" | "queued";
+  | "failed" | "failed_non_recoverable" | "idle" | "queued" | "completed";
 
 const STYLES: Record<EbookBadgeKind, { label: string; cls: string }> = {
   ready:                        { label: "Ready",                       cls: "bg-emerald-100 text-emerald-900 border-emerald-700" },
@@ -36,16 +36,29 @@ const STYLES: Record<EbookBadgeKind, { label: string; cls: string }> = {
   failed_non_recoverable:       { label: "Failed (config)",             cls: "bg-red-200 text-red-950 border-red-800" },
   idle:                         { label: "Idle",                        cls: "bg-muted text-muted-foreground border-foreground/20" },
   queued:                       { label: "Queued",                      cls: "bg-slate-100 text-slate-900 border-slate-600" },
+  needs_code_fix:               { label: "System Code Fix Required",    cls: "bg-fuchsia-100 text-fuchsia-900 border-fuchsia-700" },
+  completed:                    { label: "Completed",                   cls: "bg-emerald-200 text-emerald-950 border-emerald-800" },
 };
 
 // Maps the raw autopilot_state / shopify_status to a single display kind.
 export function resolveEbookBadge(e: {
   autopilot_state?: string | null;
+  canonical_status?: string | null;
   shopify_status?: string | null;
   manuscript_qc_status?: string | null;
   pdf_status?: string | null;
   blocker_class?: string | null;
 }): EbookBadgeKind {
+  // Prefer canonical_status when the pipeline has written it.
+  const canon = e.canonical_status ?? null;
+  if (canon === "needs_code_fix") return "needs_code_fix";
+  if (canon === "completed") return "completed";
+  if (canon === "waiting_for_shopify_quota") return "waiting_for_shopify_quota";
+  if (canon === "waiting_for_browserless_slot") return "waiting_for_browserless_slot";
+  if (canon === "queued_for_production") return "queued_for_production";
+  if (canon === "auto_fixing") return "auto_fixing";
+  if (canon === "needs_admin_attention") return "needs_admin_attention";
+  if (canon === "failed_non_recoverable") return "failed_non_recoverable";
   const s = e.autopilot_state ?? "idle";
   if (e.shopify_status === "published") return "published";
   if (s === "waiting_for_shopify_quota") return "waiting_for_shopify_quota";
