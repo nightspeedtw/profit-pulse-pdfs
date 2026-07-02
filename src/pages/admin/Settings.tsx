@@ -333,6 +333,9 @@ export default function SettingsPage() {
                 />
               </div>
             </div>
+            <div className="mt-4">
+              <ShopifyConnectionPanel />
+            </div>
           </AdvancedSection>
 
           <AdvancedSection title="API & model settings">
