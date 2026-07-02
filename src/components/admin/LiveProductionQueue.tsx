@@ -203,7 +203,7 @@ function SectionA({ items }: { items: QueueEbook[] }) {
           return (
             <div
               key={e.id}
-              className="rounded-md border-2 border-primary bg-primary/5 p-3 space-y-2 shadow-md ring-2 ring-primary/30 ring-offset-2 ring-offset-background animate-pulse-subtle"
+              className="rounded-md border-2 border-primary bg-primary/5 p-3 space-y-2 shadow-md ring-2 ring-primary/30 ring-offset-2 ring-offset-background"
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
