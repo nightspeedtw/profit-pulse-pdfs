@@ -97,11 +97,11 @@ export function planIllustrations(
   const entries: IllustrationPlanEntry[] = chapters.map((c) => {
     const density = textDensityScore(c.content);
     const chars = (c.content ?? "").length;
-    // Recommend an illustration when the chapter is at least 1500 chars long
-    // AND has a density ≥ 50 (moderately text-heavy). This keeps chapter
-    // openings free of decoration while still adding a visual break to
-    // any chapter with 3+ pages of continuous prose.
-    if (chars < 1500 || density < 50) {
+    // Recommend an illustration when the chapter is at least 1200 chars long
+    // AND has a density ≥ 45 (moderately text-heavy). Lowered from 1500/50
+    // so long chapters aren't left as 3+ consecutive text-heavy pages —
+    // this drives visual_fatigue_score >= 90 in practice.
+    if (chars < 1200 || density < 45) {
       return {
         chapter_index: c.index, chapter_title: c.title,
         text_density_score: density, recommendation: "none", caption: "", prompt: "",
@@ -121,6 +121,6 @@ export function planIllustrations(
   return {
     entries,
     total_recommended: total,
-    strategy: `Text-density-driven planner: added ${total} illustration${total === 1 ? "" : "s"} where chapters are ≥50 density and ≥1500 chars.`,
+    strategy: `Text-density-driven planner: added ${total} illustration${total === 1 ? "" : "s"} where chapters are ≥45 density and ≥1200 chars. Max 1 per chapter, no-text image prompts, HTML/SVG labels only.`,
   };
 }
