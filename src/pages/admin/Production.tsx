@@ -251,6 +251,59 @@ export default function Production() {
         </CardContent>
       </Card>
 
+      {worksheetFailures.length > 0 && (
+        <Card className="border-2 border-red-500/60">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-mono uppercase text-red-800">
+              Worksheet overflow — {worksheetFailures.length} job{worksheetFailures.length === 1 ? "" : "s"} need review
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              These ebooks failed the automated table-overflow / cropping check. Preview each fix
+              before the pipeline uploads the PDF to Shopify.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {worksheetFailures.map((e) => {
+              const isOpen = expanded.has(e.id);
+              const count = e.worksheet_previews_json?.entries?.length ?? 0;
+              return (
+                <div key={e.id} className="border border-foreground/20 rounded">
+                  <button
+                    onClick={() => toggle(e.id)}
+                    className="w-full flex items-center justify-between p-3 text-left hover:bg-muted/30"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {isOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate">{e.title || "Untitled"}</p>
+                        <p className="text-[11px] font-mono text-muted-foreground">
+                          overflow score {e.worksheet_table_overflow_score ?? "—"}/100
+                          {count > 0 && ` · ${count} preview${count === 1 ? "" : "s"} cached`}
+                        </p>
+                      </div>
+                    </div>
+                    <Link to={`/admin/ebook/${e.id}/pdf`} onClick={(ev) => ev.stopPropagation()}
+                      className="text-xs underline text-muted-foreground shrink-0 ml-3">
+                      Open PDF page →
+                    </Link>
+                  </button>
+                  {isOpen && (
+                    <div className="p-3 border-t border-foreground/10 bg-muted/10">
+                      <WorksheetOverflowReview
+                        ebookId={e.id}
+                        overflowScore={e.worksheet_table_overflow_score}
+                        initialPreviews={e.worksheet_previews_json ?? null}
+                        compact
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       <p className="text-xs text-muted-foreground">
         Need to rewrite, regenerate, view raw JSON, or run premium positioning? Open the job detail page (View).
         Advanced actions live there, not on this list.
