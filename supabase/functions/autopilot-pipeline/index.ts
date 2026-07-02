@@ -455,11 +455,12 @@ Deno.serve(async (req) => {
 
           await track(
             ["manuscript_qc"],
-            "Running final manuscript QC across the whole book…",
+            "Running manuscript QC…",
             async () => {
               await runStep("8_final_manuscript_qc", "final-manuscript-qc", { ebook_id: ebook.id, run_id });
               await refreshEbook();
             },
+            "Checking structure, depth, and repeated passages across chapters",
           );
 
           if (ebook.manuscript_qc_status === "needs_review") {
