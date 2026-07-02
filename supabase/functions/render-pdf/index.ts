@@ -403,6 +403,69 @@ function pickWorksheetKind(chapterTitle: string, chapterIndex: number): Workshee
   return chapterIndex % 2 === 0 ? "prompts" : "debt_tracker";
 }
 
+// Deterministic default worksheet content per kind. Used when the manuscript
+// didn't emit a structured worksheet — guarantees every chapter has a usable,
+// premium worksheet page.
+function defaultWorksheetFor(kind: WorksheetKind, chapterTitle: string) {
+  switch (kind) {
+    case "debt_tracker": return {
+      title: chapterTitle, kind,
+      prompts: ["List every debt account. Fill one row per creditor. Update monthly."],
+      columns: ["Creditor", "Exact Balance", "APR", "Min. Payment", "Payoff Date"],
+      rows: 8,
+    };
+    case "velocity_calculator": return {
+      title: chapterTitle, kind,
+      prompts: ["Track the impact of extra payments month over month."],
+      columns: ["Month", "Extra Payment", "Balance After", "Interest Saved"],
+      rows: 6,
+    };
+    case "resilience_scorecard": return {
+      title: chapterTitle, kind,
+      prompts: ["Rate each area 1-5. Note one action per row for the coming week."],
+      columns: ["Area", "Score 1-5", "Evidence", "Next Action"],
+      rows: 6,
+    };
+    case "sprint_timeline": return {
+      title: chapterTitle, kind,
+      prompts: ["Hour 0-4", "Hour 4-12", "Hour 12-24", "Hour 24-48", "Hour 48-72"],
+    };
+    case "negotiation_script": return {
+      title: chapterTitle, kind,
+      prompts: ["Opening line", "Anchor number", "Reason (hardship, competitor offer, tenure)", "Response to pushback", "Close"],
+    };
+    case "automation_flow": return {
+      title: chapterTitle, kind,
+      prompts: [
+        "Open your primary bank's rules screen",
+        "Create a scheduled transfer on payday",
+        "Set the amount to your weekly surplus",
+        "Route it to the target debt account",
+        "Enable email confirmation",
+        "Add a monthly calendar reminder to review",
+      ],
+    };
+    case "operating_manual": return {
+      title: chapterTitle, kind,
+      prompts: [
+        "Weekly: review balances, top up buffer",
+        "Monthly: rebalance payoff order, log wins",
+        "Quarterly: re-negotiate any rate over 12%",
+        "Annually: refresh your debt-proof rules",
+      ],
+    };
+    case "prompts":
+    default: return {
+      title: chapterTitle, kind: "prompts" as WorksheetKind,
+      prompts: [
+        "What is the single most important lesson from this chapter for your situation?",
+        "What will you do in the next 24 hours to apply it?",
+        "What is the first sign it is working?",
+      ],
+    };
+  }
+}
+
 // Generate one inside illustration via Lovable AI Gateway (non-streaming),
 // store it in `ebook-covers` (existing bucket) at
 // `<ebook_id>/illustrations/ch-<n>.png`, and return a signed URL.
