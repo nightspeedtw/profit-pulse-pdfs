@@ -25,6 +25,9 @@ import {
 import { lintChapters } from "../_shared/compliance.ts";
 import { planIllustrations, type IllustrationPlan } from "../_shared/illustration-planner.ts";
 import { logRun } from "../_shared/qc.ts";
+import {
+  LOCK_PDF, tryAcquireLock, releaseLock, browserlessBackoffAt,
+} from "../_shared/recovery.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -36,12 +39,31 @@ Deno.serve(async (req) => {
     const ebookId: string | undefined = body.ebook_id;
     if (!ebookId) return json({ error: "ebook_id required" }, 400);
 
+    // --------------------------------------------------------------------
+    // PDF render lock (browserless_concurrency=1). If another ebook already
+    // holds the render lock we DO NOT queue Browserless — we return a
+    // structured "busy" signal so the pipeline can wait its turn.
+    // --------------------------------------------------------------------
+    const lock = await tryAcquireLock(db, LOCK_PDF, ebookId, { ttlSec: 20 * 60 });
+    if (!lock.acquired) {
+      return json({
+        error: "pdf_render_lock_busy",
+        blocker_reason: "waiting_for_browserless_slot",
+        detail: `Another ebook is currently rendering (holder ${String(lock.holder ?? "").slice(0, 8)}). Waiting for the PDF render slot.`,
+        holder: lock.holder,
+        retry_at: browserlessBackoffAt(1),
+      }, 423);
+    }
+
     const { data: ebook, error: eErr } = await db.from("ebooks").select("*").eq("id", ebookId).maybeSingle();
-    if (eErr || !ebook) return json({ error: "ebook not found" }, 404);
+    if (eErr || !ebook) {
+      await releaseLock(db, LOCK_PDF, ebookId);
+      return json({ error: "ebook not found" }, 404);
+    }
 
     const { data: chapterRows, error: cErr } = await db.from("ebook_chapters")
       .select("*").eq("ebook_id", ebookId).order("chapter_index", { ascending: true });
-    if (cErr) throw cErr;
+    if (cErr) { await releaseLock(db, LOCK_PDF, ebookId); throw cErr; }
     // Fallback for legacy ebooks whose chapters live in the ebooks.chapters
     // jsonb column instead of the ebook_chapters rows table.
     let chapters = chapterRows ?? [];
