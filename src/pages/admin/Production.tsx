@@ -224,6 +224,7 @@ export default function Production() {
                   <th className="p-3 w-24 text-right">Words</th>
                   <th className="p-3 w-20 text-right">QC</th>
                   <th className="p-3 w-32">Shopify</th>
+                  <th className="p-3 w-56">Blocker / Next retry</th>
                   <th className="p-3 w-40 text-right">Actions</th>
                 </tr>
               </thead>
