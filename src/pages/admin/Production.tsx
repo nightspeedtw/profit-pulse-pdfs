@@ -16,6 +16,11 @@ import { WorksheetOverflowReview } from "@/components/admin/WorksheetOverflowRev
 
 type Ebook = {
   id: string; title: string;
+  run_id?: string | null; ebook_id?: string | null; idea_id?: string | null;
+  source?: string | null; run_status?: string | null;
+  current_step?: string | null; current_step_label?: string | null;
+  current_action_message?: string | null; current_subtask?: string | null;
+  progress_percent?: number | null; pause_requested?: boolean | null;
   autopilot_state: string | null; autopilot_mode: string | null;
   shopify_status: string | null;
   manuscript_qc_status: string | null; pdf_status: string | null;
@@ -47,9 +52,18 @@ export default function Production() {
   const filter = (params.get("filter") as FilterKey) || "all";
 
   const worksheetFailures = useMemo(
-    () => ebooks.filter((e) =>
-      (e.worksheet_table_overflow_score != null && e.worksheet_table_overflow_score < 100) ||
-      (e.worksheet_previews_json?.entries?.length ?? 0) > 0),
+    () => {
+      const seen = new Set<string>();
+      return ebooks.filter((e) => {
+        const ebookId = e.ebook_id ?? e.id;
+        if (seen.has(ebookId)) return false;
+        const failed =
+          (e.worksheet_table_overflow_score != null && e.worksheet_table_overflow_score < 100) ||
+          (e.worksheet_previews_json?.entries?.length ?? 0) > 0;
+        if (failed) seen.add(ebookId);
+        return failed;
+      });
+    },
     [ebooks],
   );
   function toggle(id: string) {
@@ -73,7 +87,7 @@ export default function Production() {
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return ebooks.filter((e) => {
-      const badge = resolveEbookBadge(e);
+      const badge = resolveJobBadge(e);
       if (filter === "running" && badge !== "writing" && badge !== "queued") return false;
       if (filter === "needs_attention" && badge !== "needs_review" && badge !== "qc_failed") return false;
       if (filter === "draft_uploaded" && badge !== "draft_uploaded") return false;
@@ -85,10 +99,12 @@ export default function Production() {
   }, [ebooks, filter, search]);
 
   async function resume(e: Ebook) {
+    const ebookId = e.ebook_id ?? e.id;
+    if (!ebookId) return toast.error("This run is not linked to an ebook yet.");
     setBusy(e.id);
     try {
       const { error } = await supabase.functions.invoke("autopilot-pipeline", {
-        body: { ebook_id: e.id, mode: e.autopilot_mode ?? "safe" },
+        body: { ebook_id: ebookId, mode: e.autopilot_mode ?? "safe" },
       });
       if (error) throw error;
       toast.success("Resumed");
@@ -99,9 +115,11 @@ export default function Production() {
   }
 
   async function fix(e: Ebook) {
+    const ebookId = e.ebook_id ?? e.id;
+    if (!ebookId) return toast.error("This run is not linked to an ebook yet.");
     setBusy(e.id);
     try {
-      const { error } = await supabase.functions.invoke("qc-fix", { body: { ebook_id: e.id } });
+      const { error } = await supabase.functions.invoke("qc-fix", { body: { ebook_id: ebookId } });
       if (error) throw error;
       toast.success("Auto-fix queued");
       load();
@@ -109,7 +127,7 @@ export default function Production() {
       // Fallback: just resume the pipeline (qc-fix may not be wired for every stage).
       try {
         await supabase.functions.invoke("autopilot-pipeline", {
-          body: { ebook_id: e.id, mode: e.autopilot_mode ?? "safe", force_rewrite: true },
+          body: { ebook_id: ebookId, mode: e.autopilot_mode ?? "safe", force_rewrite: true },
         });
         toast.success("Rewrite queued");
         load();
@@ -120,11 +138,13 @@ export default function Production() {
   }
 
   async function reject(e: Ebook) {
+    const ebookId = e.ebook_id ?? e.id;
+    if (!ebookId) return toast.error("This run is not linked to an ebook yet.");
     if (!confirm(`Reject "${e.title}"? This stops the pipeline for this job.`)) return;
     setBusy(e.id);
     const { error } = await supabase.from("ebooks")
       .update({ autopilot_state: "rejected", needs_review_reason: "Manually rejected by admin." })
-      .eq("id", e.id);
+      .eq("id", ebookId);
     setBusy(null);
     if (error) toast.error(error.message);
     else { toast.success("Rejected"); load(); }
@@ -132,14 +152,16 @@ export default function Production() {
 
   const counts: Record<FilterKey, number> = {
     all: ebooks.length,
-    running: ebooks.filter((e) => resolveEbookBadge(e) === "writing").length,
-    needs_attention: ebooks.filter((e) => {
-      const b = resolveEbookBadge(e); return b === "needs_review" || b === "qc_failed";
+    running: ebooks.filter((e) => {
+      const b = resolveJobBadge(e); return b === "writing" || b === "queued";
     }).length,
-    draft_uploaded: ebooks.filter((e) => resolveEbookBadge(e) === "draft_uploaded").length,
-    published: ebooks.filter((e) => resolveEbookBadge(e) === "published").length,
+    needs_attention: ebooks.filter((e) => {
+      const b = resolveJobBadge(e); return b === "needs_review" || b === "qc_failed";
+    }).length,
+    draft_uploaded: ebooks.filter((e) => resolveJobBadge(e) === "draft_uploaded").length,
+    published: ebooks.filter((e) => resolveJobBadge(e) === "published").length,
     failed: ebooks.filter((e) => {
-      const b = resolveEbookBadge(e); return b === "failed" || b === "rejected";
+      const b = resolveJobBadge(e); return b === "failed" || b === "rejected";
     }).length,
   };
 
@@ -196,23 +218,30 @@ export default function Production() {
                   </td></tr>
                 )}
                 {filtered.map((e) => {
-                  const badge = resolveEbookBadge(e);
+                  const badge = resolveJobBadge(e);
                   const canResume = (["failed", "qc_failed", "needs_review"] as EbookBadgeKind[]).includes(badge);
                   const canFix = badge === "qc_failed" || badge === "needs_review";
                   const canReject = badge !== "published" && badge !== "rejected";
+                  const ebookId = e.ebook_id ?? e.id;
                   return (
                     <tr key={e.id} className="border-b border-foreground/10 align-top hover:bg-muted/30">
                       <td className="p-3 max-w-[360px]">
-                        <Link to={`/admin/ebook/${e.id}`} className="font-medium hover:underline line-clamp-2">
+                        <Link to={`/admin/ebook/${ebookId}`} className="font-medium hover:underline line-clamp-2">
                           {e.title || "Untitled"}
                         </Link>
+                        {e.run_id && (
+                          <p className="text-[10px] font-mono text-muted-foreground mt-1">
+                            run {e.run_id.slice(0, 8)} · {e.run_status ?? "unknown"}
+                            {typeof e.progress_percent === "number" && ` · ${e.progress_percent}%`}
+                          </p>
+                        )}
                         {e.needs_review_reason && (
                           <p className="text-[11px] text-orange-700 mt-1 line-clamp-2">⚠ {e.needs_review_reason}</p>
                         )}
                       </td>
                       <td className="p-3"><StatusBadge kind={badge} /></td>
                       <td className="p-3 text-xs font-mono text-muted-foreground">
-                        {prettyStep(e.autopilot_state)}
+                        {e.current_step_label ?? prettyStep(e.current_step ?? e.autopilot_state)}
                       </td>
                       <td className="p-3 text-xs font-mono text-right">{(e.word_count ?? 0).toLocaleString()}</td>
                       <td className="p-3 text-xs font-mono text-right">
@@ -225,7 +254,7 @@ export default function Production() {
                       </td>
                       <td className="p-3">
                         <div className="flex flex-wrap gap-1 justify-end">
-                          <Link to={`/admin/ebook/${e.id}`}>
+                          <Link to={`/admin/ebook/${ebookId}`}>
                             <Button size="sm" variant="ghost" title="View"><Eye className="size-3" /></Button>
                           </Link>
                           {canResume && (
@@ -267,6 +296,7 @@ export default function Production() {
           </CardHeader>
           <CardContent className="space-y-3">
             {worksheetFailures.map((e) => {
+              const ebookId = e.ebook_id ?? e.id;
               const isOpen = expanded.has(e.id);
               const count = e.worksheet_previews_json?.entries?.length ?? 0;
               return (
@@ -285,7 +315,7 @@ export default function Production() {
                         </p>
                       </div>
                     </div>
-                    <Link to={`/admin/ebook/${e.id}/pdf`} onClick={(ev) => ev.stopPropagation()}
+                    <Link to={`/admin/ebook/${ebookId}/pdf`} onClick={(ev) => ev.stopPropagation()}
                       className="text-xs underline text-muted-foreground shrink-0 ml-3">
                       Open PDF page →
                     </Link>
@@ -293,7 +323,7 @@ export default function Production() {
                   {isOpen && (
                     <div className="p-3 border-t border-foreground/10 bg-muted/10">
                       <WorksheetOverflowReview
-                        ebookId={e.id}
+                        ebookId={ebookId}
                         overflowScore={e.worksheet_table_overflow_score}
                         initialPreviews={e.worksheet_previews_json ?? null}
                         compact
@@ -319,4 +349,13 @@ function prettyStep(s: string | null | undefined): string {
   if (!s) return "—";
   if (s.startsWith("writing")) return s;
   return s.replace(/_/g, " ");
+}
+
+function resolveJobBadge(e: Ebook): EbookBadgeKind {
+  const status = e.run_status ?? "";
+  if (e.pause_requested) return "paused";
+  if (["starting", "running", "auto_fixing"].includes(status)) return "writing";
+  if (status === "needs_admin") return (e.current_step ?? "").includes("qc") ? "qc_failed" : "needs_review";
+  if (status === "failed") return "failed";
+  return resolveEbookBadge(e);
 }

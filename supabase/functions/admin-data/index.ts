@@ -37,20 +37,107 @@ Deno.serve(async (req) => {
 
   try {
     if (resource === "production") {
-      const { data: ebooks } = await supabase
+      const { data: runs, error: runsError, count: runCount } = await supabase
+        .from("autopilot_pipeline_runs")
+        .select(
+          "id,ebook_id,idea_id,status,current_step,current_step_label,current_action_message,current_subtask,progress_percent,started_at,updated_at,last_heartbeat_at,completed_at,admin_needed_reason,error_message,pause_requested,mode,test_mode",
+          { count: "exact" },
+        )
+        .order("updated_at", { ascending: false })
+        .limit(500);
+      if (runsError) throw runsError;
+
+      const runRows = runs ?? [];
+      const ebookIds = Array.from(
+        new Set(runRows.map((x: { ebook_id: string | null }) => x.ebook_id).filter(Boolean)),
+      ) as string[];
+
+      let ebookRows: unknown[] = [];
+      if (ebookIds.length) {
+        const { data, error } = await supabase
+          .from("ebooks")
+          .select(
+            "id,title,autopilot_state,autopilot_mode,shopify_status,shopify_product_id,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json",
+          )
+          .in("id", ebookIds);
+        if (error) throw error;
+        ebookRows = data ?? [];
+      }
+
+      const ebookById = new Map(
+        (ebookRows as Record<string, unknown>[]).map((ebook) => [ebook.id, ebook]),
+      );
+      const jobs = runRows.map((run: Record<string, unknown>) => {
+        const ebook = ebookById.get(run.ebook_id) as Record<string, unknown> | undefined;
+        return {
+          id: run.id,
+          run_id: run.id,
+          ebook_id: run.ebook_id,
+          idea_id: run.idea_id,
+          source: "autopilot_pipeline_runs",
+          title: ebook?.title ?? `Autopilot run ${String(run.id).slice(0, 8)}`,
+          autopilot_state: statusToAutopilotState(String(run.status ?? "")),
+          autopilot_mode: run.mode ?? ebook?.autopilot_mode ?? null,
+          run_status: run.status,
+          current_step: run.current_step,
+          current_step_label: run.current_step_label,
+          current_action_message: run.current_action_message,
+          current_subtask: run.current_subtask,
+          progress_percent: run.progress_percent,
+          pause_requested: run.pause_requested,
+          shopify_status: ebook?.shopify_status ?? null,
+          shopify_product_id: ebook?.shopify_product_id ?? null,
+          manuscript_qc_status: ebook?.manuscript_qc_status ?? null,
+          pdf_status: ebook?.pdf_status ?? null,
+          word_count: ebook?.word_count ?? null,
+          final_quality_score: ebook?.final_quality_score ?? null,
+          needs_review_reason: run.admin_needed_reason ?? run.error_message ?? ebook?.needs_review_reason ?? null,
+          admin_needed_reason: run.admin_needed_reason,
+          error_message: run.error_message,
+          started_at: run.started_at,
+          completed_at: run.completed_at,
+          updated_at: run.updated_at ?? run.started_at ?? ebook?.updated_at,
+          worksheet_table_overflow_score: ebook?.worksheet_table_overflow_score ?? null,
+          worksheet_previews_json: ebook?.worksheet_previews_json ?? null,
+        };
+      });
+
+      const { data: orphanEbooks, error: orphanError } = await supabase
         .from("ebooks")
         .select(
           "id,title,autopilot_state,autopilot_mode,shopify_status,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json",
         )
+        .not("id", "in", `(${ebookIds.join(",") || "00000000-0000-0000-0000-000000000000"})`)
         .order("updated_at", { ascending: false })
         .limit(200);
+      if (orphanError) throw orphanError;
+      const orphanJobs = (orphanEbooks ?? []).map((ebook: Record<string, unknown>) => ({
+        ...ebook,
+        run_id: null,
+        ebook_id: ebook.id,
+        source: "ebooks",
+        run_status: null,
+        current_step: ebook.autopilot_state,
+        current_step_label: null,
+        progress_percent: null,
+      }));
+
       const since = new Date(); since.setHours(0, 0, 0, 0);
       const { data: costs } = await supabase
         .from("cost_log").select("cost_usd").gte("created_at", since.toISOString());
       const cost_today = (costs ?? []).reduce(
         (a, r: { cost_usd: number | null }) => a + Number(r.cost_usd ?? 0), 0,
       );
-      return json({ ebooks: ebooks ?? [], cost_today });
+      return json({
+        ebooks: [...jobs, ...orphanJobs],
+        jobs: [...jobs, ...orphanJobs],
+        totals: {
+          autopilot_pipeline_runs: runCount ?? jobs.length,
+          ebooks_linked_to_runs: ebookIds.length,
+          orphan_ebooks: orphanJobs.length,
+        },
+        cost_today,
+      });
     }
 
     if (resource === "autopilot_overview") {
@@ -144,6 +231,14 @@ Deno.serve(async (req) => {
     return json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
 });
+
+function statusToAutopilotState(status: string): string {
+  if (["starting", "running", "auto_fixing"].includes(status)) return "running";
+  if (status === "needs_admin") return "needs_review";
+  if (status === "completed") return "ready_to_publish";
+  if (status === "failed") return "failed";
+  return status || "idle";
+}
 
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
