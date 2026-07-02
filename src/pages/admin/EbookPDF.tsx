@@ -226,19 +226,45 @@ export default function EbookPDF() {
           </Card>
         </div>
 
-        {/* Preview */}
+        {/* Download panel (preview disabled — iframe was unreliable) */}
         <div className="space-y-3">
           <Card>
-            <CardContent className="p-3">
-              {ebook.pdf_url ? (
-                <iframe
-                  src={ebook.pdf_url}
-                  title="PDF preview"
-                  className="w-full aspect-[6/9] bg-muted border-2 border-foreground/10"
-                />
-              ) : (
-                <div className="w-full aspect-[6/9] grid place-items-center bg-muted border-2 border-foreground/10 text-muted-foreground text-sm">
-                  No PDF yet — click Render
+            <CardContent className="p-6 space-y-4">
+              <div className="w-full aspect-[6/9] grid place-items-center bg-muted border-2 border-foreground/10 text-muted-foreground text-sm p-6 text-center">
+                {ebook.pdf_url ? (
+                  <div className="space-y-2">
+                    <FileText className="size-10 mx-auto text-foreground/60" />
+                    <p className="font-medium text-foreground">PDF ready</p>
+                    <p className="text-xs">In-browser preview is disabled. Download or open in a new tab.</p>
+                  </div>
+                ) : (
+                  <span>No PDF yet — click Render</span>
+                )}
+              </div>
+              {ebook.pdf_url && (
+                <div className="flex flex-col gap-2">
+                  <Button
+                    size="sm"
+                    disabled={busy === "Download"}
+                    onClick={async () => {
+                      setBusy("Download");
+                      try {
+                        await downloadAdminPdf(ebook.id, ebook.title);
+                      } catch (e: any) {
+                        toast({ title: "Download failed", description: e.message ?? String(e), variant: "destructive" });
+                      } finally {
+                        setBusy(null);
+                      }
+                    }}
+                  >
+                    {busy === "Download" ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                    Download PDF
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
+                    <a href={ebook.pdf_url} target="_blank" rel="noreferrer">
+                      <ExternalLink className="size-4" /> Open in new tab
+                    </a>
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -249,6 +275,7 @@ export default function EbookPDF() {
             </p>
           )}
         </div>
+
       </div>
 
       <WorksheetOverflowReview
