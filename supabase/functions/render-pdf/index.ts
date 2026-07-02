@@ -86,21 +86,26 @@ Deno.serve(async (req) => {
             title: c.title ?? `Chapter ${i + 1}`,
             content: c.content ?? "",
           })));
-      // Reuse existing images where present; generate the rest in parallel
-      // so the whole pipeline fits inside the edge function's 150s window.
-      const toGenerate = plan.entries.filter((e) => e.recommendation !== "none");
-      const results = await Promise.all(toGenerate.map(async (entry) => {
-        const key = String(entry.chapter_index);
-        const cached = existingImages[key];
-        if (cached?.url) return { entry, url: cached.url };
-        const url = await generateAndStoreIllustration(db, ebookId, entry.chapter_index, entry.prompt).catch((err) => {
-          console.warn(`illustration ch${entry.chapter_index} failed:`, (err as Error).message);
-          return null;
-        });
-        return { entry, url };
-      }));
-      for (const { entry, url } of results) {
-        if (url) illustrationsByChapter[entry.chapter_index] = { url, caption: entry.caption };
+      // Reuse existing images where present; generate the rest in small
+      // parallel batches so we stay under the edge function's memory + time
+      // budget. Also cap total new generations at 8 per render.
+      const toGenerate = plan.entries.filter((e) => e.recommendation !== "none").slice(0, 8);
+      const CONCURRENCY = 3;
+      for (let i = 0; i < toGenerate.length; i += CONCURRENCY) {
+        const batch = toGenerate.slice(i, i + CONCURRENCY);
+        const results = await Promise.all(batch.map(async (entry) => {
+          const key = String(entry.chapter_index);
+          const cached = existingImages[key];
+          if (cached?.url) return { entry, url: cached.url };
+          const url = await generateAndStoreIllustration(db, ebookId, entry.chapter_index, entry.prompt).catch((err) => {
+            console.warn(`illustration ch${entry.chapter_index} failed:`, (err as Error).message);
+            return null;
+          });
+          return { entry, url };
+        }));
+        for (const { entry, url } of results) {
+          if (url) illustrationsByChapter[entry.chapter_index] = { url, caption: entry.caption };
+        }
       }
     } catch (err) {
       console.warn("illustration planner failed:", (err as Error).message);
