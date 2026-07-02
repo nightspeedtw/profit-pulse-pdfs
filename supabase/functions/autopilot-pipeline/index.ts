@@ -775,21 +775,54 @@ Deno.serve(async (req) => {
           await logRun(db, { ebook_id: ebook?.id, idea_id: idea?.id, step: "pipeline", status: "skip", error: "paused by admin" });
           return;
         }
+        // Classify the error and record a Lovable fix instruction when the
+        // failure is structural (data-binding bug, state-machine bug, etc).
+        let classified: ReturnType<typeof classifyError> | null = null;
+        try {
+          classified = classifyError(e, {
+            step: "pipeline",
+            ebook_id: ebook?.id,
+            run_id,
+          });
+        } catch (_err) { /* ignore classification failure */ }
+
+        const canonical = classified?.needs_code_fix
+          ? "needs_code_fix"
+          : (classified?.error_type === "quota_wait" ? "waiting_for_shopify_quota" : "failed_non_recoverable");
+
         if (ebook?.id) {
           await db.from("ebooks").update({
             autopilot_state: "failed",
-            needs_review_reason: msg.slice(0, 400),
+            canonical_status: canonical,
+            needs_review_reason: (classified?.user_friendly_message ?? msg).slice(0, 400),
+            blocker_reason: (classified?.detected_root_cause ?? msg).slice(0, 200),
+            blocker_class: classified?.error_type ?? "non_recoverable",
           }).eq("id", ebook.id);
           await markQueueFailed(db, ebook.id, "pipeline", msg);
         }
         await logRun(db, { ebook_id: ebook?.id, idea_id: idea?.id, step: "pipeline", status: "fail", error: msg });
+
+        // Persist a Lovable-copyable fix instruction when the classifier flags
+        // this as a structural bug the admin cannot solve by retrying.
+        if (classified?.needs_code_fix) {
+          try {
+            await recordSystemFix(db, {
+              ebook_id: ebook?.id ?? null,
+              run_id,
+              classified,
+            });
+          } catch (err) {
+            console.warn("[autopilot] recordSystemFix failed:", (err as Error).message);
+          }
+        }
+
         // Surface failure on the live run too.
         try {
           await db.from("autopilot_pipeline_runs").update({
-            status: "failed",
+            status: classified?.needs_code_fix ? "needs_code_fix" : "failed",
             failed_at: new Date().toISOString(),
             error_message: msg.slice(0, 800),
-            current_action_message: `Pipeline failed: ${msg.slice(0, 200)}`,
+            current_action_message: (classified?.user_friendly_message ?? `Pipeline failed: ${msg}`).slice(0, 200),
           }).eq("id", run_id);
         } catch { /* ignore */ }
       } finally {
