@@ -177,6 +177,8 @@ function chapterWorksheet(c: PdfChapter): string {
   // Table-based layouts share the same column-sized <table> renderer.
   const renderTable = (headers: string[], rows: number, prefill: string[][] = []) => {
     const cols = headers.map(shortenHeader);
+    const wide = cols.length >= 5 ? " ws-table--wide" : "";
+    const colWidth = `${(100 / cols.length).toFixed(3)}%`;
     const rowsHtml = Array.from({ length: rows }, (_, r) => {
       const cells = cols.map((_, ci) => {
         const val = prefill[r]?.[ci] ?? "";
@@ -185,8 +187,8 @@ function chapterWorksheet(c: PdfChapter): string {
       return `<tr>${cells}</tr>`;
     }).join("");
     return `
-      <table class="ws-table">
-        <colgroup>${cols.map(() => `<col />`).join("")}</colgroup>
+      <table class="ws-table${wide}">
+        <colgroup>${cols.map(() => `<col style="width:${colWidth}" />`).join("")}</colgroup>
         <thead><tr>${cols.map((h) =>
           `<th>${h.split("\n").map((line) => esc(line)).join("<br/>")}</th>`).join("")}</tr></thead>
         <tbody>${rowsHtml}</tbody>
