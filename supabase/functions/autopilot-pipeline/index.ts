@@ -212,27 +212,44 @@ Deno.serve(async (req) => {
         if (!ebook) throw new Error("no ebook to drive pipeline");
         await tracker.setEbook(ebook.id);
 
-        // ---- Resume path: when ebook_id was provided directly, the title/idea
-        // QC tracks above are skipped (no idea_id), leaving them pending. Mark
-        // them as passed_existing based on saved ebook data so the timeline
-        // reflects "continue from existing work", not "restart from scratch".
-        if (!idea_id && ebook?.idea_id) {
-          idea_id = ebook.idea_id as string;
-          const { data: i } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
-          idea = i;
-        }
-        if (ebook?.title && (ebook.title as string).trim().length >= 3) {
-          await skip(["title_and_hook"], "Title & hook — existing output found");
-        }
-        if (idea?.premium_score != null || ebook?.title) {
-          await skip(["idea_qc"], "Idea QC — existing output found");
+        // ============================================================
+        // SEQUENTIAL SAFE MODE — heavy_production lock.
+        //
+        // Only one ebook may occupy heavy production (chapters →
+        // manuscript QC → cover → PDF → Shopify) at a time. Other
+        // ebooks wait in `queued_for_production` and are auto-resumed
+        // by the recovery worker when the lock frees. Idea generation
+        // above this line runs freely (allowed parallel step).
+        // ============================================================
+        const sequentialSafeMode = settings.sequential_safe_mode !== false;
+        if (sequentialSafeMode) {
+          const heavyLock = await tryAcquireLock(db, LOCK_HEAVY, ebook.id, { ttlSec: 90 * 60, runId: run_id });
+          if (!heavyLock.acquired) {
+            const holder = await getLockHolder(db, LOCK_HEAVY);
+            await db.from("ebooks").update({
+              autopilot_state: "queued_for_production",
+              blocker_class: "recoverable_dependency_error",
+              blocker_reason: "waiting_for_production_slot",
+              needs_review_reason: null,
+              next_retry_at: browserlessBackoffAt(1),
+            }).eq("id", ebook.id);
+            await tracker.heartbeat("outline", {
+              message: "Queued — waiting for production slot",
+              subtask: `Another ebook (${String(holder.holder ?? "").slice(0, 8)}) is currently in heavy production. Auto-resumes when slot frees.`,
+            });
+            await logRun(db, { ebook_id: ebook.id, step: "queue_wait", status: "skip", error: "heavy_production_lock_busy" });
+            await db.from("autopilot_pipeline_runs").update({
+              status: "queued",
+              current_action_message: "Queued — waiting for production slot",
+            }).eq("id", run_id);
+            return;
+          }
         }
 
-
-        if (ebook.autopilot_state === "failed") {
-          await db.from("ebooks").update({ autopilot_state: "running", needs_review_reason: null }).eq("id", ebook.id);
+        if (ebook.autopilot_state === "failed" || ebook.autopilot_state === "queued_for_production") {
+          await db.from("ebooks").update({ autopilot_state: "production_running", needs_review_reason: null, blocker_class: null, blocker_reason: null }).eq("id", ebook.id);
         } else {
-          await db.from("ebooks").update({ autopilot_mode: mode, autopilot_state: "running" }).eq("id", ebook.id);
+          await db.from("ebooks").update({ autopilot_mode: mode, autopilot_state: "production_running" }).eq("id", ebook.id);
         }
 
         // ---- ebook-scoped guards ----
