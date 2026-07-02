@@ -342,13 +342,15 @@ function RunCard({
   const title = ebook?.title || (run.ebook_id ? "Untitled" : "New Run");
   const label = run.current_step_label ?? stepLabel(run.current_step);
   const meta = (step?.metadata_json ?? {}) as Record<string, unknown>;
-  const subtask = typeof meta.current_subtask === "string"
-    ? meta.current_subtask
-    : typeof meta.subtask === "string" ? meta.subtask : null;
+  const subtask = run.current_subtask
+    ?? (typeof meta.current_subtask === "string"
+      ? meta.current_subtask
+      : typeof meta.subtask === "string" ? meta.subtask : null);
   const attempts = step?.auto_fix_attempts ?? 0;
   const maxAttempts = step?.max_auto_fix_attempts ?? 3;
   const active = ACTIVE.includes(run.status);
-  const updatedSec = Math.floor((now - new Date(run.updated_at).getTime()) / 1000);
+  const heartbeatIso = run.last_heartbeat_at ?? run.updated_at;
+  const updatedSec = Math.floor((now - new Date(heartbeatIso).getTime()) / 1000);
   const stalled = active && updatedSec > 300;
   const slow = active && !stalled && updatedSec > 90;
 
