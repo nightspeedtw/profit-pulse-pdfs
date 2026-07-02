@@ -8,9 +8,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Eye, RefreshCw, Wrench, XCircle, Loader2, RotateCw } from "lucide-react";
+import { Eye, RefreshCw, Wrench, XCircle, Loader2, RotateCw, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge, resolveEbookBadge, type EbookBadgeKind } from "@/components/admin/StatusBadge";
+import { WorksheetOverflowReview } from "@/components/admin/WorksheetOverflowReview";
 
 type Ebook = {
   id: string; title: string;
