@@ -16,9 +16,11 @@ type RunRow = {
   current_step: string | null;
   current_step_label: string | null;
   current_action_message: string | null;
+  current_subtask: string | null;
   progress_percent: number;
   started_at: string;
   updated_at: string;
+  last_heartbeat_at: string | null;
   completed_at: string | null;
   admin_needed_reason: string | null;
   error_message: string | null;
