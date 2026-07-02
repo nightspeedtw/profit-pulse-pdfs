@@ -573,11 +573,15 @@ Deno.serve(async (req) => {
           }
           await track(
             ["product_copy", "product_qc", "shopify_draft", "shopify_verify"],
-            "Writing product copy, running product page QC, and uploading Shopify draft…",
+            "Uploading Shopify draft…",
             async () => {
+              await tracker.heartbeat("product_copy", { message: "Generating Shopify product copy…", subtask: "Writing title, bullets, and description" });
+              await tracker.heartbeat("shopify_draft", { message: "Uploading Shopify draft…", subtask: "Creating product and attaching digital PDF" });
               await runStep("12_shopify_draft", "shopify-draft-upload", { ebook_id: ebook.id });
+              await tracker.heartbeat("shopify_verify", { message: "Verifying Shopify draft…", subtask: "Checking product assets and pricing" });
               await refreshEbook();
             },
+            "Creating product and attaching digital PDF",
           );
         } else {
           await skip(["product_copy", "product_qc", "shopify_draft", "shopify_verify"], "Shopify draft already uploaded");
