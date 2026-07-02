@@ -165,8 +165,8 @@ Deno.serve(async (req) => {
           }
           if (idea && idea.premium_score == null && (!idea.title || idea.title.trim().length < 5)) {
             await track(
-              ["title_and_hook", "idea_qc"],
-              "Writing title, subtitle, and hard-sell hook…",
+              ["title_and_hook"],
+              "Writing baseline title, subtitle, and hard-sell hook…",
               async () => {
                 await runStep("2_best_title_qc", "idea-copywriter", { mode: "generate_one_best_concept", category_id: idea.category_id });
                 const { data: i2 } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
@@ -179,11 +179,44 @@ Deno.serve(async (req) => {
               idea_score: 85, compliance_risk_score: 2, topic_rewrite_count: 1,
             }).eq("id", idea_id);
             await logRun(db, { idea_id, step: "2_best_title_qc", status: "ok", payload: { skipped: "existing idea, auto-scored" } });
-            await skip(["title_and_hook", "idea_qc"], "Existing idea — auto-scored");
             const { data: i2 } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
             idea = i2;
+          }
+
+          // -------- Premium Book Title Psychology & Marketing Expert gate --------
+          // A weak title blocks ebook generation. The title is the product's
+          // first sales asset — chapters do not start until the gate passes.
+          const alreadyPassed = idea?.shopify_meta?.premium_title_expert?.passed === true;
+          if (alreadyPassed) {
+            await skip(["title_and_hook", "idea_qc"], "Premium title already approved — existing output found");
           } else {
-            await skip(["title_and_hook", "idea_qc"], "Idea already scored");
+            await track(
+              ["title_and_hook", "idea_qc"],
+              "Running Premium Book Title Psychology & Marketing Expert…",
+              async () => {
+                const r = await runStep("2b_premium_title_expert", "premium-title-expert", { idea_id });
+                const gateOk = r.body?.ok === true;
+                if (!gateOk) {
+                  const scores = r.body?.scores ?? {};
+                  const reasons = Array.isArray(r.body?.reasons) ? r.body.reasons.join("; ") : "premium_title_gate_failed";
+                  throw new Error(
+                    `Title failed premium marketing gate after 3 attempts. ` +
+                    `Scores ${JSON.stringify(scores)}. Reasons: ${reasons}. ` +
+                    `Ebook writing blocked until title is fixed.`,
+                  );
+                }
+                const { data: i3 } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
+                idea = i3;
+              },
+              "Scoring: title_quality, buyer_pain_match, premium_feel, shopify_click_appeal, compliance",
+            ).catch(async (err) => {
+              await needsAdmin(
+                "title_and_hook",
+                (err as Error).message,
+                "Regenerate the title in Command Center or edit the idea manually. Chapter writing is blocked until the premium title gate passes.",
+              );
+              throw err;
+            });
           }
         }
 
@@ -227,6 +260,7 @@ Deno.serve(async (req) => {
         if (idea?.premium_score != null || ebook?.title) {
           await skip(["idea_qc"], "Idea QC — existing output found");
         }
+
 
 
         // ============================================================
