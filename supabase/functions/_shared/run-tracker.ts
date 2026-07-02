@@ -284,6 +284,7 @@ export class RunTracker {
     });
     const pct = await this.progress();
     await this.patchRun({ progress_percent: pct, status: "running" });
+    await this.syncEbook({ progress_pct: pct });
   }
 
   async failStep(step_name: string, error: string) {
@@ -299,6 +300,11 @@ export class RunTracker {
       error_message: error.slice(0, 800),
       current_action_message: `${this.label(step_name)} failed.`,
     });
+    await this.syncEbook({
+      canonical_status: "failed_non_recoverable",
+      current_action_message: `${this.label(step_name)} failed.`,
+      blocker_reason: error.slice(0, 200),
+    });
   }
 
   async needsAdmin(step_name: string, reason: string, recommended?: string) {
@@ -313,7 +319,13 @@ export class RunTracker {
       admin_needed_reason: [reason, recommended ? `Recommended: ${recommended}` : null].filter(Boolean).join(" "),
       current_action_message: `Needs admin attention at ${this.label(step_name)}`,
     });
+    await this.syncEbook({
+      canonical_status: "needs_admin_attention",
+      needs_review_reason: reason.slice(0, 400),
+      current_action_message: `Needs admin attention at ${this.label(step_name)}`,
+    });
   }
+
 
   async skipStep(step_name: string, message?: string, opts: { existing?: boolean } = {}) {
     const existing = !!opts.existing;
