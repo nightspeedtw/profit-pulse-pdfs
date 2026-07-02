@@ -6,7 +6,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, Play, Pause, Sparkles, AlertTriangle, DollarSign, FlaskConical } from "lucide-react";
+import { Loader2, Play, Pause, Sparkles, AlertTriangle, DollarSign, FlaskConical, Rocket, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge, resolveEbookBadge } from "@/components/admin/StatusBadge";
 import { AutoFixChip } from "@/components/admin/AutoFixChip";
@@ -153,6 +153,49 @@ export default function CommandCenter() {
     }
   }
 
+  async function runPremiumAutopilot() {
+    if (settings?.paused) { toast.error("Autopilot is paused — resume first."); return; }
+    setBusy("premium");
+    try {
+      const { data, error } = await supabase.functions.invoke("autopilot-pipeline", {
+        body: { mode: settings?.autopilot_mode ?? "safe", premium: true, min_word_count: 18000 },
+      });
+      if (error || (data as { error?: string } | null)?.error) {
+        throw new Error(error?.message ?? (data as { error?: string }).error);
+      }
+      toast.success("Premium PDF Autopilot started — watch the live status above");
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to start");
+    } finally { setBusy(null); }
+  }
+
+  async function repushLatestShopifyDraft() {
+    const target = ebooks.find((e) => e.shopify_status === "error" || e.autopilot_state === "needs_review")
+      ?? ebooks[0];
+    if (!target) { toast.error("No recent ebook to re-push."); return; }
+    setBusy("repush");
+    try {
+      const { data: test } = await supabase.functions.invoke("shopify-test-connection", { body: {} });
+      if (!(test as { ok?: boolean })?.ok) {
+        toast.error("Shopify connection failed — fix credentials in Settings first.");
+        return;
+      }
+      const { data, error } = await supabase.functions.invoke("shopify-draft-upload", {
+        body: { ebook_id: target.id, retry: true },
+      });
+      if (error || (data as { error?: string } | null)?.error) {
+        throw new Error(error?.message ?? (data as { error?: string }).error);
+      }
+      toast.success("Shopify draft re-pushed");
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Re-push failed");
+    } finally { setBusy(null); }
+  }
+
+
+
   const costPct = settings
     ? Math.min(100, (stats.costToday / Math.max(0.01, Number(settings.daily_budget_usd))) * 100)
     : 0;
@@ -192,8 +235,44 @@ export default function CommandCenter() {
         </div>
       </div>
 
+      {/* Premium PDF Autopilot — one-click card */}
+      <Card className="border-2 border-foreground bg-gradient-to-br from-background to-muted/30">
+        <CardContent className="p-5 flex flex-wrap items-center gap-4 justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Rocket className="size-4" />
+              <p className="font-mono uppercase text-xs tracking-widest">Premium PDF Autopilot</p>
+            </div>
+            <p className="text-sm">
+              One click runs the full gated pipeline: idea → outline → 18k+ words → QC → cover → PDF → Shopify draft.
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Mode: <span className="font-mono">{settings?.autopilot_mode ?? "safe"}</span> —{" "}
+              {settings?.autopilot_mode === "full"
+                ? "will attempt live publish if gates pass and Auto-publish is on."
+                : "uploads Shopify draft only. Never auto-publishes."}
+            </p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Button onClick={runPremiumAutopilot} disabled={busy === "premium" || settings?.paused}>
+              {busy === "premium"
+                ? <Loader2 className="size-4 animate-spin mr-1" />
+                : <Rocket className="size-4 mr-1" />}
+              Run Premium PDF Autopilot
+            </Button>
+            <Button variant="outline" onClick={repushLatestShopifyDraft} disabled={busy === "repush" || ebooks.length === 0}>
+              {busy === "repush"
+                ? <Loader2 className="size-4 animate-spin mr-1" />
+                : <RefreshCw className="size-4 mr-1" />}
+              Re-push Shopify Draft
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Live Autopilot run — only renders when a run is active */}
       <LiveAutopilotCard />
+
 
       {/* Autopilot status strip */}
       <Card className="border-2 border-foreground">

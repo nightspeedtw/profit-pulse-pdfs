@@ -89,8 +89,24 @@ Deno.serve(async (req) => {
 
     const productResp = await shopifyRest(token, "POST", "/products.json", productPayload);
     if (!productResp.ok) {
-      await failLog(db, logId, ebookId, retryCount, "product_create_failed", productResp.detail);
-      return json({ error: "Shopify product create failed", status: productResp.status, detail: productResp.detail }, 502);
+      const tokenPrefix = token ? `${token.slice(0, 6)}****${token.slice(-4)}` : "(none)";
+      let friendly = `Shopify ${productResp.status}: ${productResp.detail.slice(0, 300)}`;
+      if (productResp.status === 401) {
+        friendly = `Shopify Admin API token is invalid or does not match this store. `
+          + `Please check SHOPIFY_STORE_DOMAIN (${SHOP_DOMAIN}) and SHOPIFY_ADMIN_TOKEN (${tokenPrefix}). `
+          + `Retries will not fix a 401 — update the token, click Test Shopify Connection, then Re-push.`;
+      } else if (productResp.status === 403) {
+        friendly = `Shopify token is missing required scopes (need write_products, read_products). Update the app scopes and re-install the token.`;
+      }
+      await failLog(db, logId, ebookId, retryCount, "product_create_failed", friendly);
+      return json({
+        error: friendly,
+        status: productResp.status,
+        store_domain: SHOP_DOMAIN,
+        api_version: API_VERSION,
+        token_prefix: tokenPrefix,
+        retryable: ![401, 403, 404].includes(productResp.status),
+      }, 502);
     }
     const productId = String(productResp.body?.product?.id ?? "");
     const productGid = `gid://shopify/Product/${productId}`;
