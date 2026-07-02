@@ -103,7 +103,9 @@ export function LiveProductionQueue() {
       <SectionB items={data.queued} currentTitle={current?.title ?? null} />
       <SectionC items={data.waiting} />
       <SectionD items={data.auto_fixing} />
-      <SectionE fixes={data.system_fixes} needsCode={data.needs_code_fix} needsAdmin={data.needs_admin} />
+      <SectionE fixes={data.system_fixes} needsCode={data.needs_code_fix} />
+      <SectionF needsAdmin={data.needs_admin} />
+
     </div>
   );
 }
