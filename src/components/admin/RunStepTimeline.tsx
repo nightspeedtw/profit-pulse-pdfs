@@ -17,6 +17,19 @@ export interface RunStepRow {
   completed_at: string | null;
   duration_ms: number | null;
   error_message: string | null;
+  updated_at?: string | null;
+  metadata_json?: {
+    current_subtask?: string;
+    subtask_seq?: number;
+    message?: string;
+    last_heartbeat_at?: string;
+    elapsed_ms?: number;
+    attempt?: number;
+    chapter_index?: number;
+    total_words?: number;
+    score?: number | null;
+    [k: string]: unknown;
+  } | null;
 }
 
 function statusVisual(status: string) {
