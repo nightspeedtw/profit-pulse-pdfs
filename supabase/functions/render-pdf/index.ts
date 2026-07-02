@@ -77,7 +77,9 @@ Deno.serve(async (req) => {
     try {
       const existingPlan = ebook.inside_illustration_plan_json as IllustrationPlan | null;
       const existingImages = (ebook.inside_illustrations_json ?? {}) as Record<string, { url: string; caption: string }>;
-      plan = existingPlan?.entries?.length
+      // Reuse cached plan only if it actually recommended illustrations;
+      // otherwise re-plan (rules or thresholds may have improved).
+      plan = (existingPlan?.entries?.length && (existingPlan.total_recommended ?? 0) > 0)
         ? existingPlan
         : planIllustrations(chapters.map((c: any, i: number) => ({
             index: c.chapter_index ?? (i + 1),
