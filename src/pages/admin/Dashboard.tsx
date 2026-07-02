@@ -153,6 +153,46 @@ export default function CommandCenter() {
     }
   }
 
+  async function runPremiumAutopilot() {
+    if (settings?.paused) { toast.error("Autopilot is paused — resume first."); return; }
+    setBusy("premium");
+    try {
+      const { data, error } = await supabase.functions.invoke("autopilot-pipeline", {
+        body: { mode: settings?.autopilot_mode ?? "safe", premium: true, min_word_count: 18000 },
+      });
+      if (error || (data as { error?: string } | null)?.error) {
+        throw new Error(error?.message ?? (data as { error?: string }).error);
+      }
+      toast.success("Premium PDF Autopilot started — watch the live status above");
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to start");
+    } finally { setBusy(null); }
+  }
+
+  async function repushLatestShopifyDraft() {
+    const target = ebooks.find((e) => e.shopify_status === "error" || e.autopilot_state === "needs_review")
+      ?? ebooks[0];
+    if (!target) { toast.error("No recent ebook to re-push."); return; }
+    setBusy("repush");
+    try {
+      const { data: test } = await supabase.functions.invoke("shopify-test-connection", { body: {} });
+      if (!(test as { ok?: boolean })?.ok) {
+        toast.error("Shopify connection failed — fix credentials in Settings first.");
+        return;
+      }
+      const { data, error } = await supabase.functions.invoke("shopify-draft-upload", {
+        body: { ebook_id: target.id, retry: true },
+      });
+      if (error || (data as { error?: string } | null)?.error) {
+        throw new Error(error?.message ?? (data as { error?: string }).error);
+      }
+      toast.success("Shopify draft re-pushed");
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Re-push failed");
+    } finally { setBusy(null); }
+
   const costPct = settings
     ? Math.min(100, (stats.costToday / Math.max(0.01, Number(settings.daily_budget_usd))) * 100)
     : 0;
