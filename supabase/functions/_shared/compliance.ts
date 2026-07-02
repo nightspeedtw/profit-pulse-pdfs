@@ -74,6 +74,29 @@ const RULES: Rule[] = [
     test: /\bresults?\s+guaranteed\b/gi,
     replace: () => "results depend on income, balances, interest rates, and execution",
   },
+  // "proven to X" → "designed to X"
+  {
+    name: "proven_to",
+    test: /\bproven\s+to\b/gi,
+    replace: () => "designed to",
+  },
+  // "always works" / "never fails"
+  {
+    name: "always_works",
+    test: /\balways\s+works\b/gi,
+    replace: () => "works for many readers",
+  },
+  {
+    name: "never_fails",
+    test: /\bnever\s+fails\b/gi,
+    replace: () => "rarely disappoints when applied consistently",
+  },
+  // "instantly" for financial outcomes
+  {
+    name: "instantly_finance",
+    test: /\binstantly\s+(pay off|eliminate|save|earn|double)\b/gi,
+    replace: (_m, v: string) => `may quickly ${v}`,
+  },
 ];
 
 export interface ComplianceResult {
