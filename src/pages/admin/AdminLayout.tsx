@@ -66,13 +66,8 @@ export default function AdminLayout() {
           ))}
         </nav>
         <div className="p-3 border-t-2 border-foreground space-y-2">
-          <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full justify-start"
-            onClick={async () => { await supabase.auth.signOut(); navigate("/admin/login"); }}
-          >
+          <p className="text-xs text-muted-foreground truncate">Passcode session</p>
+          <Button variant="outline" size="sm" className="w-full justify-start" onClick={signOut}>
             <LogOut className="size-4" /> Sign out
           </Button>
         </div>
