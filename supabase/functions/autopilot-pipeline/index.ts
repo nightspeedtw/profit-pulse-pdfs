@@ -107,12 +107,12 @@ Deno.serve(async (req) => {
       }
 
       // Track one or more pipeline steps as a single underlying action.
-      async function track(stepNames: string[], message: string, fn: () => Promise<void>) {
+      async function track(stepNames: string[], message: string, fn: () => Promise<void>, subtask?: string) {
         if (await tracker.isPauseRequested()) {
           await tracker.markPaused();
           throw new Error("paused_by_admin");
         }
-        for (const n of stepNames) await tracker.startStep(n, message);
+        for (const n of stepNames) await tracker.startStep(n, message, subtask);
         try {
           await fn();
           for (const n of stepNames) await tracker.passStep(n);
