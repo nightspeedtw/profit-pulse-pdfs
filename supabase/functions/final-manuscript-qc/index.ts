@@ -804,8 +804,21 @@ Deno.serve(async (req) => {
     const writingStatus = passed ? "manuscript_passed" : "needs_review";
     const pipelineStatus = passed ? "pdf_design" : "final_qc";
 
+    // Persist final state and preserve progress trail (subtask_seq / elapsed_ms).
+    const finalProgress = {
+      current_subtask: passed ? "passed" : "failed",
+      subtask_seq: subtaskSeq + 1,
+      message: passed
+        ? `Manuscript QC passed. Score ${aiScores?.final_manuscript_score ?? 0}/100.`
+        : `Manuscript QC failed after ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS} repair attempts.`,
+      last_heartbeat_at: new Date().toISOString(),
+      elapsed_ms: Date.now() - startedAt,
+      total_words: totalWords,
+      score: aiScores?.final_manuscript_score ?? null,
+      attempts_used: attemptsUsed,
+    };
     await db.from("ebooks").update({
-      final_manuscript_qc: structured as any,
+      final_manuscript_qc: { ...(structured as any), progress: finalProgress } as any,
       final_manuscript_score: aiScores?.final_manuscript_score ?? null,
       reader_value_score: aiScores?.reader_value_score ?? null,
       practical_tool_score: aiScores?.practical_tool_score ?? null,
@@ -826,6 +839,13 @@ Deno.serve(async (req) => {
       needs_review_reason: detailedReason,
       cost_usd: Number(ebook.cost_usd ?? 0) + totalCost,
     }).eq("id", ebook.id);
+
+    if (run_id) {
+      await db.from("autopilot_pipeline_steps").update({
+        message: finalProgress.message,
+        metadata_json: finalProgress,
+      }).eq("run_id", run_id).eq("step_name", "manuscript_qc");
+    }
 
     return new Response(JSON.stringify({
       ok: true, pass: passed, attempts_used: attemptsUsed,
