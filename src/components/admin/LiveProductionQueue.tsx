@@ -103,7 +103,9 @@ export function LiveProductionQueue() {
       <SectionB items={data.queued} currentTitle={current?.title ?? null} />
       <SectionC items={data.waiting} />
       <SectionD items={data.auto_fixing} />
-      <SectionE fixes={data.system_fixes} needsCode={data.needs_code_fix} needsAdmin={data.needs_admin} />
+      <SectionE fixes={data.system_fixes} needsCode={data.needs_code_fix} />
+      <SectionF needsAdmin={data.needs_admin} />
+
     </div>
   );
 }
@@ -187,10 +189,10 @@ function SectionShell({
 function SectionA({ items }: { items: QueueEbook[] }) {
   return (
     <SectionShell
-      title="Currently Working On"
+      title="AI กำลังทำเล่มนี้อยู่ · Currently Working On"
       icon={<Activity className="h-4 w-4 text-primary" />}
       count={items.length}
-      empty="No ebook is currently being produced."
+      empty="ยังไม่มีเล่มที่กำลังผลิตอยู่ตอนนี้"
     >
       <div className="space-y-3">
         {items.map((e) => {
@@ -201,18 +203,18 @@ function SectionA({ items }: { items: QueueEbook[] }) {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="font-medium">
-                    Now producing: {e.title ?? `Ebook ${e.id.slice(0, 8)}`}
+                    กำลังผลิต: {e.title ?? `Ebook ${e.id.slice(0, 8)}`}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {view.label}
-                    {e.current_step ? ` · Step: ${e.current_step}` : ""}
+                    {e.current_step ? ` · ขั้นตอน: ${e.current_step}` : ""}
                     {e.current_subtask ? ` · ${e.current_subtask}` : ""}
                   </div>
                 </div>
                 <div className="text-right text-xs">
                   <Badge variant="outline">{pct}%</Badge>
                   <div className="text-muted-foreground mt-1">
-                    Last heartbeat: {elapsedSince(e.last_heartbeat_at)}
+                    Heartbeat ล่าสุด: {elapsedSince(e.last_heartbeat_at)}
                   </div>
                 </div>
               </div>
@@ -234,10 +236,10 @@ function SectionA({ items }: { items: QueueEbook[] }) {
 function SectionB({ items, currentTitle }: { items: QueueEbook[]; currentTitle: string | null }) {
   return (
     <SectionShell
-      title="Queued Next"
+      title="เล่มต่อคิว · Queued Next"
       icon={<Clock className="h-4 w-4 text-muted-foreground" />}
       count={items.length}
-      empty="No ebooks queued."
+      empty="ไม่มีเล่มรอคิวอยู่"
     >
       <ul className="space-y-2">
         {items.map((e, i) => (
@@ -247,11 +249,11 @@ function SectionB({ items, currentTitle }: { items: QueueEbook[]; currentTitle: 
                 #{e.queue_position ?? i + 1} {e.title ?? `Ebook ${e.id.slice(0, 8)}`}
               </div>
               <div className="text-xs text-muted-foreground">
-                {e.waiting_reason ?? "Waiting for production slot"}
-                {currentTitle ? ` — starts after "${currentTitle}"` : ""}
+                {e.waiting_reason ?? "รอช่องผลิตว่าง"}
+                {currentTitle ? ` — เริ่มหลังจาก "${currentTitle}"` : ""}
               </div>
             </div>
-            <Badge variant="outline">Queued</Badge>
+            <Badge variant="outline">รอคิว</Badge>
           </li>
         ))}
       </ul>
@@ -262,10 +264,10 @@ function SectionB({ items, currentTitle }: { items: QueueEbook[]; currentTitle: 
 function SectionC({ items }: { items: QueueEbook[] }) {
   return (
     <SectionShell
-      title="Waiting / Paused Automatically"
+      title="ติด limit แต่ระบบจะลองใหม่เอง · Waiting / Auto Retry"
       icon={<PauseCircle className="h-4 w-4 text-amber-600" />}
       count={items.length}
-      empty="No ebooks waiting on external limits."
+      empty="ไม่มีเล่มที่ติด limit"
     >
       <ul className="space-y-2">
         {items.map((e) => {
@@ -277,7 +279,7 @@ function SectionC({ items }: { items: QueueEbook[] }) {
                 <Badge variant="secondary">{v.label}</Badge>
               </div>
               <div className="text-xs text-muted-foreground">
-                {v.helper ?? "Auto-resumes"} — retry {untilRetry(e.next_retry_at)}
+                {v.helper ?? "ระบบจะลองใหม่ให้อัตโนมัติ"} — ลองใหม่ {untilRetry(e.next_retry_at)}
               </div>
             </li>
           );
@@ -290,17 +292,17 @@ function SectionC({ items }: { items: QueueEbook[] }) {
 function SectionD({ items }: { items: QueueEbook[] }) {
   return (
     <SectionShell
-      title="Auto-Fixing"
+      title="ระบบกำลังแก้เอง · Auto-Fixing"
       icon={<Wrench className="h-4 w-4 text-amber-600" />}
       count={items.length}
-      empty="No ebooks currently self-repairing."
+      empty="ไม่มีเล่มที่ต้องซ่อมอัตโนมัติ"
     >
       <ul className="space-y-2">
         {items.map((e) => (
           <li key={e.id} className="rounded-md border p-2 text-sm">
             <div className="font-medium">{e.title ?? `Ebook ${e.id.slice(0, 8)}`}</div>
             <div className="text-xs text-muted-foreground">
-              {e.current_subtask ?? "Repairing issue"} — attempt {e.autofix_attempt ?? 1}/
+              {e.current_subtask ?? "กำลังแก้ปัญหา"} — ครั้งที่ {e.autofix_attempt ?? 1}/
               {e.autofix_max ?? 3}
             </div>
           </li>
@@ -313,37 +315,54 @@ function SectionD({ items }: { items: QueueEbook[] }) {
 function SectionE({
   fixes,
   needsCode,
-  needsAdmin,
 }: {
   fixes: SystemFix[];
   needsCode: QueueEbook[];
-  needsAdmin: QueueEbook[];
 }) {
-  const codeCount = fixes.length + needsCode.length;
+  const count = fixes.length + needsCode.length;
   return (
     <SectionShell
-      title="Needs Code Fix / System Repair"
+      title="ระบบเจอบั๊ก เขียน prompt ให้ Lovable แก้โค้ด · Needs Code Fix"
       icon={<AlertTriangle className="h-4 w-4 text-destructive" />}
-      count={codeCount + needsAdmin.length}
-      empty="No system-level issues detected. Autopilot is healthy."
+      count={count}
+      empty="ไม่พบบั๊กระดับโค้ด — Autopilot ทำงานปกติ"
     >
       <div className="space-y-3">
         {fixes.map((f) => (
           <SystemFixCard key={f.id} fix={f} />
         ))}
-        {needsAdmin.length > 0 && (
-          <div className="rounded-md border p-3 text-sm">
-            <div className="font-medium text-destructive">Admin attention required</div>
-            <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
-              {needsAdmin.map((e) => (
-                <li key={e.id}>
-                  {e.title ?? e.id} — {e.waiting_reason ?? "Cannot be fixed automatically"}
-                </li>
-              ))}
-            </ul>
+        {needsCode.map((e) => (
+          <div key={e.id} className="rounded-md border p-2 text-sm">
+            <div className="font-medium">{e.title ?? e.id}</div>
+            <div className="text-xs text-muted-foreground">
+              {e.waiting_reason ?? "รอ Lovable แก้โค้ด"}
+            </div>
           </div>
-        )}
+        ))}
       </div>
     </SectionShell>
   );
 }
+
+function SectionF({ needsAdmin }: { needsAdmin: QueueEbook[] }) {
+  return (
+    <SectionShell
+      title="ต้องให้แอดมินช่วย · Needs Admin"
+      icon={<AlertTriangle className="h-4 w-4 text-destructive" />}
+      count={needsAdmin.length}
+      empty="ไม่มีปัญหาที่ต้องให้แอดมินเข้ามาแก้"
+    >
+      <ul className="space-y-1 text-sm">
+        {needsAdmin.map((e) => (
+          <li key={e.id} className="rounded-md border p-2">
+            <div className="font-medium">{e.title ?? e.id}</div>
+            <div className="text-xs text-muted-foreground">
+              {e.waiting_reason ?? "ระบบแก้เองไม่ได้ ต้องให้แอดมินตัดสินใจ"}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </SectionShell>
+  );
+}
+
