@@ -271,7 +271,7 @@ export default function CommandCenter() {
       </Card>
 
       {/* Live Autopilot run — only renders when a run is active */}
-      <LiveAutopilotCard />
+      <AutopilotStatusCenter />
 
 
       {/* Autopilot status strip */}
