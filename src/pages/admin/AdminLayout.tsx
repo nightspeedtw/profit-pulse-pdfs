@@ -3,6 +3,7 @@ import { fetchAdminData } from "@/lib/adminData";
 import { Button } from "@/components/ui/button";
 import { Gauge, Factory, Package, Settings as SettingsIcon, LogOut, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
+import { FocusBadge } from "@/components/admin/FocusBadge";
 
 const PASSCODE_KEY = "admin_passcode_ok";
 
