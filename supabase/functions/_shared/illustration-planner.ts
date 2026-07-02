@@ -96,17 +96,15 @@ export function planIllustrations(
 ): IllustrationPlan {
   const entries: IllustrationPlanEntry[] = chapters.map((c) => {
     const density = textDensityScore(c.content);
-    // Only recommend an illustration when the chapter is text-heavy (>=70)
-    // AND has enough length to fill 3+ pages (~2500 chars minimum).
     const chars = (c.content ?? "").length;
-    if (density < 70 || chars < 2500) {
+    // Recommend an illustration when the chapter is at least 1500 chars long
+    // AND has a density ≥ 50 (moderately text-heavy). This keeps chapter
+    // openings free of decoration while still adding a visual break to
+    // any chapter with 3+ pages of continuous prose.
+    if (chars < 1500 || density < 50) {
       return {
-        chapter_index: c.index,
-        chapter_title: c.title,
-        text_density_score: density,
-        recommendation: "none",
-        caption: "",
-        prompt: "",
+        chapter_index: c.index, chapter_title: c.title,
+        text_density_score: density, recommendation: "none", caption: "", prompt: "",
       };
     }
     const { kind, caption } = pickKindFor(c.title, c.content);
@@ -123,6 +121,6 @@ export function planIllustrations(
   return {
     entries,
     total_recommended: total,
-    strategy: `Text-density-driven planner: added ${total} illustration${total === 1 ? "" : "s"} where chapters are >=70 density and >=2500 chars.`,
+    strategy: `Text-density-driven planner: added ${total} illustration${total === 1 ? "" : "s"} where chapters are ≥50 density and ≥1500 chars.`,
   };
 }
