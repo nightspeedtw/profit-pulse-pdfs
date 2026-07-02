@@ -24,6 +24,10 @@ import {
   withRetry,
 } from "../_shared/retry.ts";
 import { RunTracker } from "../_shared/run-tracker.ts";
+import {
+  LOCK_HEAVY, tryAcquireLock, releaseLock, getLockHolder,
+  enqueueShopifyUpload, nextUtcMidnight, browserlessBackoffAt,
+} from "../_shared/recovery.ts";
 
 interface InvokeResult { ok: boolean; status: number; body: any; }
 
