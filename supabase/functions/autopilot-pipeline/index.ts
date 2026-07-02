@@ -491,11 +491,14 @@ Deno.serve(async (req) => {
           }
           await track(
             ["cover", "cover_qc", "thumbnail", "thumbnail_qc"],
-            "Generating premium cover and thumbnail with text overlay…",
+            "Generating premium cover…",
             async () => {
+              await tracker.heartbeat("cover", { message: "Generating premium cover…", subtask: "Creating no-text background image" });
               await runStep("9_cover", "generate-cover", { ebook_id: ebook.id, mode: "full" });
+              await tracker.heartbeat("thumbnail_qc", { message: "Running thumbnail QC…", subtask: "Checking mobile readability" });
               await refreshEbook();
             },
+            "Creating no-text background image",
           );
         } else {
           await skip(["cover", "cover_qc", "thumbnail", "thumbnail_qc"], "Cover already present");
@@ -509,11 +512,14 @@ Deno.serve(async (req) => {
           }
           await track(
             ["pdf_layout", "pdf_render", "pdf_qc"],
-            "Designing and rendering premium PDF, then running PDF QC…",
+            "Rendering premium PDF…",
             async () => {
+              await tracker.heartbeat("pdf_render", { message: "Rendering premium PDF…", subtask: "Building worksheet pages" });
               await runStep("10_11_render_pdf_qc", "render-pdf", { ebook_id: ebook.id });
+              await tracker.heartbeat("pdf_qc", { message: "Running PDF QC…", subtask: "Verifying layout and asset integrity" });
               await refreshEbook();
             },
+            "Building worksheet pages",
           );
           // Soft-pass: only stop on truly missing PDF. Low QC scores are
           // logged but do not block Shopify draft upload — admin can fix later.
