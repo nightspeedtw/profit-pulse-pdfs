@@ -6,7 +6,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, Play, Pause, Sparkles, AlertTriangle, DollarSign, FlaskConical } from "lucide-react";
+import { Loader2, Play, Pause, Sparkles, AlertTriangle, DollarSign, FlaskConical, Rocket, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge, resolveEbookBadge } from "@/components/admin/StatusBadge";
 import { AutoFixChip } from "@/components/admin/AutoFixChip";
