@@ -232,33 +232,51 @@ Deno.serve(async (req) => {
     }
 
     if (resource === "live_queue") {
-      // Live Production Queue for the admin dashboard. Groups every ebook by canonical_status.
+      // Live Production Queue for the admin dashboard.
+      // Historical bug: `canonical_status` was added later and may be NULL on
+      // legacy ebooks — the source of truth today is `autopilot_state`. Filter
+      // on both, then coalesce so the UI always sees a canonical_status.
       const heavy = [
         "generating_outline", "writing_chapters", "building_manuscript", "running_qc",
         "auto_fixing", "generating_cover", "generating_thumbnail", "rendering_pdf",
         "uploading_shopify_draft", "verifying_shopify_draft", "production_running",
+        "running", "starting",
       ];
       const waiting = [
         "waiting_for_browserless_slot", "waiting_for_shopify_quota",
         "waiting_for_ai_budget", "waiting_for_worker_slot",
       ];
       const cols =
-        "id,title,canonical_status,queue_position,queued_at,estimated_start_after_run_id,waiting_reason,current_step,current_subtask,progress_pct,last_heartbeat_at,current_qc_score,autofix_attempt,autofix_max,structured_error,next_retry_at,cover_url,pdf_url,shopify_status,updated_at";
+        "id,title,canonical_status,autopilot_state,queue_position,queued_at,estimated_start_after_run_id,waiting_reason,current_step,current_subtask,progress_pct,last_heartbeat_at,current_qc_score,autofix_attempt,autofix_max,structured_error,next_retry_at,cover_url,pdf_url,shopify_status,updated_at";
+
+      const inList = (v: string[]) =>
+        `canonical_status.in.(${v.join(",")}),autopilot_state.in.(${v.join(",")})`;
+      const eqEither = (v: string) =>
+        `canonical_status.eq.${v},autopilot_state.eq.${v}`;
 
       const [now, queued, wait, autofix, needsAdmin, needsCode] = await Promise.all([
-        supabase.from("ebooks").select(cols).in("canonical_status", heavy)
-          .order("last_heartbeat_at", { ascending: false }).limit(5),
-        supabase.from("ebooks").select(cols).eq("canonical_status", "queued_for_production")
-          .order("queue_position", { ascending: true }).limit(50),
-        supabase.from("ebooks").select(cols).in("canonical_status", waiting)
-          .order("next_retry_at", { ascending: true }).limit(50),
-        supabase.from("ebooks").select(cols).eq("canonical_status", "auto_fixing")
+        supabase.from("ebooks").select(cols).or(inList(heavy))
+          .order("last_heartbeat_at", { ascending: false, nullsFirst: false }).limit(5),
+        supabase.from("ebooks").select(cols).or(eqEither("queued_for_production"))
+          .order("queue_position", { ascending: true, nullsFirst: false })
+          .order("queued_at", { ascending: true, nullsFirst: false }).limit(50),
+        supabase.from("ebooks").select(cols).or(inList(waiting))
+          .order("next_retry_at", { ascending: true, nullsFirst: false }).limit(50),
+        supabase.from("ebooks").select(cols).or(eqEither("auto_fixing"))
           .order("updated_at", { ascending: false }).limit(20),
-        supabase.from("ebooks").select(cols).eq("canonical_status", "needs_admin_attention")
+        supabase.from("ebooks").select(cols).or(`${eqEither("needs_admin_attention")},${eqEither("needs_review")}`)
           .order("updated_at", { ascending: false }).limit(20),
-        supabase.from("ebooks").select(cols).eq("canonical_status", "needs_code_fix")
+        supabase.from("ebooks").select(cols).or(eqEither("needs_code_fix"))
           .order("updated_at", { ascending: false }).limit(20),
       ]);
+
+      // Coalesce canonical_status ← autopilot_state so the UI's badges and
+      // queue-position logic work even when the newer column is null.
+      const coalesce = (rows: any[] | null | undefined) =>
+        (rows ?? []).map((r) => ({
+          ...r,
+          canonical_status: r.canonical_status ?? r.autopilot_state ?? null,
+        }));
 
       const { data: fixes } = await supabase
         .from("system_fix_instructions")
@@ -274,12 +292,12 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       return json({
-        currently_working_on: now.data ?? [],
-        queued: queued.data ?? [],
-        waiting: wait.data ?? [],
-        auto_fixing: autofix.data ?? [],
-        needs_admin: needsAdmin.data ?? [],
-        needs_code_fix: needsCode.data ?? [],
+        currently_working_on: coalesce(now.data),
+        queued: coalesce(queued.data),
+        waiting: coalesce(wait.data),
+        auto_fixing: coalesce(autofix.data),
+        needs_admin: coalesce(needsAdmin.data),
+        needs_code_fix: coalesce(needsCode.data),
         system_fixes: fixes ?? [],
         heavy_production_lock: lock ?? null,
         fetched_at: new Date().toISOString(),
