@@ -495,7 +495,7 @@ function RunTable({ rows, now }: { rows: RunRowData[]; now: number }) {
                 </td>
                 <td className="p-2">{attempts > 0 ? <span className="text-orange-800">{attempts}/{maxAttempts}</span> : "—"}</td>
                 <td className="p-2 font-mono">{ebook?.shopify_status ?? (ebook?.shopify_product_id ? "draft" : "—")}</td>
-                <td className="p-2 font-mono text-muted-foreground">{agoLabel(run.updated_at, now)}</td>
+                <td className="p-2 font-mono text-muted-foreground">{agoLabel(heartbeatIso, now)}</td>
                 <td className="p-2 text-right">
                   <Link to={`/admin/autopilot/run/${run.id}`}>
                     <Button size="sm" variant="outline" className="h-6 text-[11px]">View →</Button>
