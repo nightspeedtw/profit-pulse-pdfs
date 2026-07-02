@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, Clock, Loader2, PauseCircle, Wrench, AlertTriangle, ShieldCheck, Lock, Copy } from "lucide-react";
+import { Activity, Clock, Loader2, PauseCircle, Wrench, AlertTriangle, ShieldCheck, Lock, Copy, CheckCircle2, Download, ExternalLink, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { fetchAdminData } from "@/lib/adminData";
 import { statusView, elapsedSince, untilRetry } from "@/lib/canonicalStatus";
+import { downloadAdminPdf } from "@/lib/pdf";
 import { SystemFixCard, type SystemFix } from "./SystemFixCard";
 
 interface QueueEbook {
@@ -25,6 +26,9 @@ interface QueueEbook {
   next_retry_at: string | null;
   cover_url: string | null;
   pdf_url: string | null;
+  final_quality_score?: number | null;
+  word_count?: number | null;
+  shopify_status?: string | null;
   updated_at: string | null;
 }
 
@@ -35,6 +39,7 @@ interface LiveQueue {
   auto_fixing: QueueEbook[];
   needs_admin: QueueEbook[];
   needs_code_fix: QueueEbook[];
+  ready_to_publish: QueueEbook[];
   system_fixes: SystemFix[];
   heavy_production_lock: { holder_ebook_id: string | null; expires_at: string } | null;
 }
@@ -101,6 +106,7 @@ export function LiveProductionQueue() {
         lockExpiresAt={data.heavy_production_lock?.expires_at ?? null}
         totalWaiting={totalWaiting}
       />
+      <SectionReady items={data.ready_to_publish ?? []} />
       <SectionA items={data.currently_working_on} />
       <SectionB items={data.queued} currentTitle={current?.title ?? null} />
       <SectionC items={data.waiting} />
@@ -400,6 +406,103 @@ function SectionF({ needsAdmin }: { needsAdmin: QueueEbook[] }) {
           </li>
         ))}
       </ul>
+    </SectionShell>
+  );
+}
+
+function SectionReady({ items }: { items: QueueEbook[] }) {
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const onDownload = async (e: QueueEbook) => {
+    setBusy(e.id);
+    try {
+      await downloadAdminPdf(e.id, e.title ?? undefined);
+      toast.success("Downloaded PDF");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Download failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <SectionShell
+      title="พร้อมพรีวิว · Ready to Publish (100%)"
+      icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+      count={items.length}
+      empty="ยังไม่มีเล่มที่ผลิตเสร็จ 100%"
+    >
+      <div className="space-y-3">
+        {items.map((e) => {
+          const pdfReady = !!e.pdf_url;
+          return (
+            <div
+              key={e.id}
+              className="rounded-md border-2 border-emerald-600/60 bg-emerald-50/50 dark:bg-emerald-950/20 p-3 flex flex-wrap gap-3 items-start"
+            >
+              {e.cover_url ? (
+                <img
+                  src={e.cover_url}
+                  alt={e.title ?? "cover"}
+                  className="h-20 w-14 object-cover rounded border shadow-sm"
+                />
+              ) : (
+                <div className="h-20 w-14 rounded border bg-muted flex items-center justify-center text-[10px] text-muted-foreground">
+                  no cover
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="bg-emerald-600 text-white gap-1">
+                    <CheckCircle2 className="h-3 w-3" /> 100% — พร้อมพรีวิว
+                  </Badge>
+                  <span className="font-semibold truncate">
+                    {e.title ?? `Ebook ${e.id.slice(0, 8)}`}
+                  </span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-3">
+                  {e.final_quality_score != null && (
+                    <span>QC {Math.round(e.final_quality_score)}</span>
+                  )}
+                  {e.word_count != null && (
+                    <span>{e.word_count.toLocaleString()} words</span>
+                  )}
+                  {!pdfReady && <span className="text-amber-600">PDF ยังไม่พร้อม</span>}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => onDownload(e)}
+                  disabled={!pdfReady || busy === e.id}
+                  className="gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  {busy === e.id ? "กำลังโหลด…" : "Download PDF"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => e.pdf_url && window.open(e.pdf_url, "_blank", "noopener,noreferrer")}
+                  disabled={!pdfReady}
+                  className="gap-2"
+                >
+                  <ExternalLink className="h-4 w-4" /> Open
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled
+                  title="Phase ถัดไป — จะเปิดใช้งานเมื่อพร้อมอัพ Shopify"
+                  className="gap-2"
+                >
+                  <ShoppingBag className="h-4 w-4" /> Push to Shopify
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </SectionShell>
   );
 }
