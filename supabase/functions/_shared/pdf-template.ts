@@ -511,17 +511,27 @@ export function buildPdfHtml(data: PdfData): string {
     color: var(--muted); margin-top: 6pt; text-transform: uppercase; letter-spacing: 0.16em; }
 
   /* ---------- Worksheet — tabular ---------- */
-  .worksheet--table { page-break-inside: avoid; break-inside: avoid; }
+  /* Anti-overflow contract:
+     - table-layout: fixed + colgroup gives every column an equal share.
+     - hyphens+overflow-wrap+word-break guarantee no horizontal overflow.
+     - th font 7pt with line-height 1.15 keeps two-line headers readable.
+     - td min height 22pt keeps write-in space usable for print. */
+  .worksheet--table { page-break-inside: avoid; break-inside: avoid; overflow: hidden; }
   .ws-purpose { font-family: "Inter", sans-serif; font-size: 9.5pt; color: var(--ink-soft);
     margin: 0 0 8pt; font-style: italic; }
   .ws-table { width: 100%; border-collapse: collapse; font-family: "Inter", sans-serif;
-    font-size: 8.5pt; table-layout: fixed; margin-top: 4pt; }
+    font-size: 8pt; table-layout: fixed; margin-top: 4pt; }
   .ws-table th, .ws-table td { border: 0.5pt solid var(--ink);
-    padding: 4pt 5pt; vertical-align: top; word-break: break-word; overflow-wrap: anywhere; }
+    padding: 4pt 4pt; vertical-align: top;
+    word-break: break-word; overflow-wrap: anywhere; hyphens: auto; }
   .ws-table th { background: #f4ead8; text-align: left; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.06em; font-size: 7.5pt;
-    line-height: 1.2; color: var(--ink); }
+    text-transform: uppercase; letter-spacing: 0.04em; font-size: 7pt;
+    line-height: 1.15; color: var(--ink); word-wrap: break-word; }
   .ws-table td { height: 22pt; }
+  /* 5+ column tables get an extra shrink to guarantee the fit within 6in. */
+  .ws-table--wide { font-size: 7.5pt; }
+  .ws-table--wide th { font-size: 6.5pt; padding: 3pt 3pt; }
+  .ws-table--wide td { padding: 3pt 3pt; }
 
   /* ---------- Worksheet — timeline ---------- */
   .ws-timeline { list-style: none; padding: 0; margin: 4pt 0 0; }
