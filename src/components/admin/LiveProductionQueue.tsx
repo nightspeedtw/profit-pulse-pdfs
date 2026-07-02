@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, Clock, Loader2, PauseCircle, Wrench, AlertTriangle, ShieldCheck, Lock, Copy } from "lucide-react";
+import { Activity, Clock, Loader2, PauseCircle, Wrench, AlertTriangle, ShieldCheck, Lock, Copy, CheckCircle2, Download, ExternalLink, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { fetchAdminData } from "@/lib/adminData";
 import { statusView, elapsedSince, untilRetry } from "@/lib/canonicalStatus";
+import { downloadAdminPdf } from "@/lib/pdf";
 import { SystemFixCard, type SystemFix } from "./SystemFixCard";
 
 interface QueueEbook {
