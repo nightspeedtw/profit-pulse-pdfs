@@ -174,6 +174,13 @@ export class RunTracker {
       current_action_message: message ?? `Running ${label}…`,
       current_subtask: subtask ?? null,
     });
+    await this.syncEbook({
+      canonical_status: STEP_TO_CANONICAL[step_name] ?? "production_running",
+      current_step: step_name,
+      current_step_label: label,
+      current_action_message: message ?? `Running ${label}…`,
+      current_subtask: subtask ?? null,
+    });
   }
 
   /**
