@@ -140,14 +140,19 @@ Score 0–100 each. Be critical.
 // ---------- Premium PDF v2 scoring helpers ----------
 
 // Heuristic: penalise likely worksheet-table overflow by scanning the HTML
-// for long unbroken table header text (over 14 chars with no wrap hint).
-// The template's `shortenHeader` already emits <br/> for wraps, so a header
-// with no <br/> and >14 chars is a risk. Score starts at 100 and drops -5
-// per risky header (floor 60).
+// for long unbroken table header text. The template's `shortenHeader` emits
+// <br/> for wraps AND uses a soft-hyphen (U+00AD) for long single words.
+// A header is "risky" only if it exceeds 14 chars AND has neither a <br/>
+// nor a soft-hyphen. Score starts at 100 and drops -5 per risky header (floor 60).
 export function worksheetOverflowScore(html: string): number {
   const risky = Array.from(html.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/gi))
-    .map((m) => m[1].replace(/<[^>]+>/g, "").trim())
-    .filter((t) => t.length > 14 && !t.includes("\n"));
+    .map((m) => m[1])
+    .filter((raw) => {
+      const hasBr = /<br\s*\/?>/i.test(raw);
+      const text = raw.replace(/<[^>]+>/g, "");
+      const hasSoftHyphen = text.includes("\u00AD");
+      return text.length > 14 && !hasBr && !hasSoftHyphen;
+    });
   return Math.max(60, 100 - risky.length * 5);
 }
 

@@ -116,31 +116,46 @@ function chapterCallouts(c: PdfChapter): string {
 }
 
 // Safe short-form dictionary for worksheet table headers so long labels wrap
-// cleanly across two lines instead of overflowing.
+// cleanly across two lines instead of overflowing. Any header longer than
+// ~12 chars falls back to an auto two-line split.
 const HEADER_SHORTFORMS: [RegExp, string][] = [
   [/^current\s+exact\s+balance$/i, "Exact\nBalance"],
   [/^exact\s+balance$/i, "Exact\nBalance"],
   [/^minimum\s+monthly\s+payment$/i, "Min.\nPayment"],
+  [/^minimum\s+payment$/i, "Min.\nPayment"],
   [/^total\s+monthly\s+interest$/i, "Monthly\nInterest"],
+  [/^monthly\s+interest$/i, "Monthly\nInterest"],
   [/^annual\s+percentage\s+rate$|^apr$/i, "APR"],
   [/^outstanding\s+balance$/i, "Balance"],
+  [/^current\s+balance$/i, "Balance"],
   [/^interest\s+rate$/i, "Rate"],
   [/^payoff\s+date$/i, "Payoff\nDate"],
+  [/^projected\s+payoff\s+date$/i, "Payoff\nDate"],
   [/^credit\s+utili[sz]ation$/i, "Utili-\nzation"],
   [/^payment\s+due\s+date$/i, "Due\nDate"],
+  [/^due\s+date$/i, "Due\nDate"],
   [/^creditor\s+name$/i, "Creditor"],
   [/^account\s+number$/i, "Acct #"],
+  [/^extra\s+payment$/i, "Extra\nPayment"],
+  [/^balance\s+after$/i, "Balance\nAfter"],
+  [/^interest\s+saved$/i, "Interest\nSaved"],
+  [/^next\s+action$/i, "Next\nAction"],
+  [/^score\s+1-5$/i, "Score\n1–5"],
 ];
 function shortenHeader(h: string): string {
   const trimmed = (h ?? "").trim();
   for (const [re, short] of HEADER_SHORTFORMS) {
     if (re.test(trimmed)) return short;
   }
-  // Auto-wrap long headers into two lines at the middle space.
-  if (trimmed.length > 14 && trimmed.includes(" ")) {
+  // Auto-wrap headers > 12 chars into two balanced lines at the middle space.
+  if (trimmed.length > 12 && trimmed.includes(" ")) {
     const words = trimmed.split(/\s+/);
     const mid = Math.ceil(words.length / 2);
     return `${words.slice(0, mid).join(" ")}\n${words.slice(mid).join(" ")}`;
+  }
+  // Single long word → soft-hyphen break so it wraps inside a narrow cell.
+  if (trimmed.length > 12 && !trimmed.includes(" ")) {
+    return `${trimmed.slice(0, 8)}\u00AD${trimmed.slice(8)}`;
   }
   return trimmed;
 }
@@ -162,6 +177,8 @@ function chapterWorksheet(c: PdfChapter): string {
   // Table-based layouts share the same column-sized <table> renderer.
   const renderTable = (headers: string[], rows: number, prefill: string[][] = []) => {
     const cols = headers.map(shortenHeader);
+    const wide = cols.length >= 5 ? " ws-table--wide" : "";
+    const colWidth = `${(100 / cols.length).toFixed(3)}%`;
     const rowsHtml = Array.from({ length: rows }, (_, r) => {
       const cells = cols.map((_, ci) => {
         const val = prefill[r]?.[ci] ?? "";
@@ -170,8 +187,8 @@ function chapterWorksheet(c: PdfChapter): string {
       return `<tr>${cells}</tr>`;
     }).join("");
     return `
-      <table class="ws-table">
-        <colgroup>${cols.map(() => `<col />`).join("")}</colgroup>
+      <table class="ws-table${wide}">
+        <colgroup>${cols.map(() => `<col style="width:${colWidth}" />`).join("")}</colgroup>
         <thead><tr>${cols.map((h) =>
           `<th>${h.split("\n").map((line) => esc(line)).join("<br/>")}</th>`).join("")}</tr></thead>
         <tbody>${rowsHtml}</tbody>
@@ -246,12 +263,14 @@ function chapterChecklist(c: PdfChapter): string {
 function chapterDiagram(c: PdfChapter): string {
   const d = c.diagram;
   if (!d?.steps?.length) return "";
-  // Framework diagram: ordered numbered cards with connecting arrow ▸
+  // Framework diagram: ordered numbered cards. Connectors are rendered as CSS
+  // pseudo-elements (::after) — NEVER as raw text — so no stray characters
+  // (v, *, ▸) can leak into the PDF if fonts fall back.
   const cells = d.steps.map((s, i) => `
-    <div class="framework__cell">
+    <div class="framework__cell${i < d.steps!.length - 1 ? " framework__cell--connect" : ""}">
       <div class="framework__n">${i + 1}</div>
       <div class="framework__t">${esc(s)}</div>
-    </div>${i < d.steps!.length - 1 ? `<div class="framework__arrow">▸</div>` : ""}`).join("");
+    </div>`).join("");
   return `
     <section class="framework">
       <h3 class="block__heading">Framework — ${esc(d.title)}</h3>
@@ -461,10 +480,16 @@ export function buildPdfHtml(data: PdfData): string {
   /* ---------- Framework diagram ---------- */
   .framework__grid { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8pt; }
   .framework__cell { flex: 1 1 1.1in; min-width: 1.1in; border: 1pt solid var(--ink);
-    padding: 10pt; display: flex; flex-direction: column; gap: 6pt; }
+    padding: 10pt; display: flex; flex-direction: column; gap: 6pt; position: relative; }
+  .framework__cell--connect::after { content: ""; position: absolute; right: -12pt;
+    top: 50%; width: 8pt; height: 2pt; background: var(--accent); transform: translateY(-50%); }
+  .framework__cell--connect::before { content: ""; position: absolute; right: -14pt;
+    top: 50%; width: 0; height: 0;
+    border-left: 6pt solid var(--accent);
+    border-top: 4pt solid transparent; border-bottom: 4pt solid transparent;
+    transform: translateY(-50%); }
   .framework__n { font-family: "Inter", sans-serif; font-weight: 800; font-size: 18pt; color: var(--accent); }
   .framework__t { font-size: 10pt; color: var(--ink-soft); }
-  .framework__arrow { align-self: center; font-size: 18pt; color: var(--accent); }
 
   /* ---------- Action plan ---------- */
   .section__title { font-family: "Inter", sans-serif; font-weight: 800;
@@ -488,17 +513,27 @@ export function buildPdfHtml(data: PdfData): string {
     color: var(--muted); margin-top: 6pt; text-transform: uppercase; letter-spacing: 0.16em; }
 
   /* ---------- Worksheet — tabular ---------- */
-  .worksheet--table { page-break-inside: avoid; break-inside: avoid; }
+  /* Anti-overflow contract:
+     - table-layout: fixed + colgroup gives every column an equal share.
+     - hyphens+overflow-wrap+word-break guarantee no horizontal overflow.
+     - th font 7pt with line-height 1.15 keeps two-line headers readable.
+     - td min height 22pt keeps write-in space usable for print. */
+  .worksheet--table { page-break-inside: avoid; break-inside: avoid; overflow: hidden; }
   .ws-purpose { font-family: "Inter", sans-serif; font-size: 9.5pt; color: var(--ink-soft);
     margin: 0 0 8pt; font-style: italic; }
   .ws-table { width: 100%; border-collapse: collapse; font-family: "Inter", sans-serif;
-    font-size: 8.5pt; table-layout: fixed; margin-top: 4pt; }
+    font-size: 8pt; table-layout: fixed; margin-top: 4pt; }
   .ws-table th, .ws-table td { border: 0.5pt solid var(--ink);
-    padding: 4pt 5pt; vertical-align: top; word-break: break-word; overflow-wrap: anywhere; }
+    padding: 4pt 4pt; vertical-align: top;
+    word-break: break-word; overflow-wrap: anywhere; hyphens: auto; }
   .ws-table th { background: #f4ead8; text-align: left; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.06em; font-size: 7.5pt;
-    line-height: 1.2; color: var(--ink); }
+    text-transform: uppercase; letter-spacing: 0.04em; font-size: 7pt;
+    line-height: 1.15; color: var(--ink); word-wrap: break-word; }
   .ws-table td { height: 22pt; }
+  /* 5+ column tables get an extra shrink to guarantee the fit within 6in. */
+  .ws-table--wide { font-size: 7.5pt; }
+  .ws-table--wide th { font-size: 6.5pt; padding: 3pt 3pt; }
+  .ws-table--wide td { padding: 3pt 3pt; }
 
   /* ---------- Worksheet — timeline ---------- */
   .ws-timeline { list-style: none; padding: 0; margin: 4pt 0 0; }

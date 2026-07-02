@@ -518,6 +518,19 @@ Deno.serve(async (req) => {
               await runStep("10_11_render_pdf_qc", "render-pdf", { ebook_id: ebook.id });
               await tracker.heartbeat("pdf_qc", { message: "Running PDF QC…", subtask: "Verifying layout and asset integrity" });
               await refreshEbook();
+              // Auto-retry: if the premium gate failed (needs_review) but a
+              // pdf_url exists, re-render up to 2 more times. The compliance
+              // linter, header-shortening, and illustration planner all run
+              // fresh each render, so risky/overflow headers get progressively
+              // repaired without admin intervention.
+              for (let attempt = 1; attempt <= 2 && ebook.pdf_status === "needs_review"; attempt++) {
+                await tracker.heartbeat("pdf_qc", {
+                  message: `Auto-fixing PDF (attempt ${attempt}/2)…`,
+                  subtask: "Repairing worksheet overflow / visuals / compliance",
+                });
+                await runStep(`10_11_render_pdf_qc_retry_${attempt}`, "render-pdf", { ebook_id: ebook.id, force: true });
+                await refreshEbook();
+              }
             },
             "Building worksheet pages",
           );
@@ -529,7 +542,7 @@ Deno.serve(async (req) => {
             return;
           }
           if (ebook.pdf_status === "needs_review") {
-            console.warn("PDF QC below premium threshold but PDF exists — continuing to product copy + Shopify draft.");
+            console.warn("PDF QC below premium threshold after retries — continuing to product copy + Shopify draft.");
           }
 
         } else {
