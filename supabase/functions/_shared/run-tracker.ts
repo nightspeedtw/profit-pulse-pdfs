@@ -86,22 +86,69 @@ export class RunTracker {
     test_mode?: boolean;
     triggered_by?: string | null;
   }): Promise<RunTracker> {
-    const { data, error } = await db
+    // ── Resume-not-create guardrail ────────────────────────────────────
+    // Every call to autopilot-pipeline (manual, recovery worker,
+    // browserless retry) used to INSERT a fresh runs row, which produced
+    // duplicate "running" runs per ebook and, downstream, duplicate
+    // chapters/cover output. The DB now enforces `one_active_run_per_ebook`
+    // as a partial unique index; here we reuse an existing active run for
+    // the same ebook so the pipeline is truly idempotent per ebook.
+    if (opts.ebook_id) {
+      const { data: active } = await db
+        .from("autopilot_pipeline_runs")
+        .select("id")
+        .eq("ebook_id", opts.ebook_id)
+        .in("status", ["running", "queued", "starting"])
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (active?.id) {
+        // Refresh heartbeat + mode so the UI reflects the resumed run.
+        await db.from("autopilot_pipeline_runs").update({
+          status: "running",
+          mode: opts.mode ?? null,
+          current_action_message: "Resuming existing run…",
+          last_heartbeat_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq("id", active.id);
+        return new RunTracker(db, active.id, opts.ebook_id);
+      }
+    }
+
+    const insertRow = {
+      ebook_id: opts.ebook_id ?? null,
+      idea_id: opts.idea_id ?? null,
+      status: "running",
+      mode: opts.mode ?? null,
+      test_mode: !!opts.test_mode,
+      triggered_by: opts.triggered_by ?? null,
+      current_step: "start_run",
+      current_step_label: "Start run",
+      current_action_message: "Starting Autopilot run…",
+      progress_percent: 0,
+    };
+    let { data, error } = await db
       .from("autopilot_pipeline_runs")
-      .insert({
-        ebook_id: opts.ebook_id ?? null,
-        idea_id: opts.idea_id ?? null,
-        status: "running",
-        mode: opts.mode ?? null,
-        test_mode: !!opts.test_mode,
-        triggered_by: opts.triggered_by ?? null,
-        current_step: "start_run",
-        current_step_label: "Start run",
-        current_action_message: "Starting Autopilot run…",
-        progress_percent: 0,
-      })
+      .insert(insertRow)
       .select("id")
       .single();
+
+    // Race: another invocation just inserted the active row for this ebook
+    // (blocked by the partial unique index `one_active_run_per_ebook`).
+    // Fall back to reusing that row instead of failing the pipeline.
+    if (error && opts.ebook_id) {
+      const { data: existing } = await db
+        .from("autopilot_pipeline_runs")
+        .select("id")
+        .eq("ebook_id", opts.ebook_id)
+        .in("status", ["running", "queued", "starting"])
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existing?.id) {
+        return new RunTracker(db, existing.id, opts.ebook_id);
+      }
+    }
     if (error || !data) throw new Error(`tracker.start: ${error?.message}`);
 
     // Seed all step rows as pending so the UI shows the full timeline immediately.
