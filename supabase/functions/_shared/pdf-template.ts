@@ -110,7 +110,7 @@ function renderMd(md: string): string {
     // paragraph (gather until blank)
     const buf: string[] = [ln];
     i++;
-    while (i < lines.length && lines[i].trim() && !/^(#{1,4}\s|[-*]\s|\d+\.\s|>\s?)/.test(lines[i])) {
+    while (i < lines.length && lines[i].trim() && !/^(#{1,4}\s|[-*]\s|\d+\.\s|>\s?|\s*\|.+\|\s*$)/.test(lines[i])) {
       buf.push(lines[i]); i++;
     }
     out.push(`<p>${inline(buf.join(" "))}</p>`);
