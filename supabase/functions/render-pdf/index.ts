@@ -28,6 +28,7 @@ import { logRun } from "../_shared/qc.ts";
 import {
   LOCK_PDF, tryAcquireLock, releaseLock, browserlessBackoffAt,
 } from "../_shared/recovery.ts";
+import { classifyEbook, isKindAllowed, defaultPromptsFor, type EbookCategory } from "../_shared/category.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
