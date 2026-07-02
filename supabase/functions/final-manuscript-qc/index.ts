@@ -499,9 +499,46 @@ Deno.serve(async (req) => {
   try {
     await requireAdmin(req);
     const db = admin();
-    const { ebook_id } = await req.json();
+    const body = await req.json();
+    const { ebook_id, run_id } = body as { ebook_id: string; run_id?: string };
     if (!ebook_id) throw new Error("ebook_id required");
 
+    // ---- Subtask heartbeat helper ----
+    // Emits the current subtask on the pipeline step + run rows so the admin UI
+    // can see live progress. Also writes to ebooks.final_manuscript_qc.progress
+    // so a details panel can render subtask + last_heartbeat_at.
+    const startedAt = Date.now();
+    let subtaskSeq = 0;
+    async function emit(subtask: string, message: string, extra: Record<string, unknown> = {}) {
+      subtaskSeq++;
+      const now = new Date().toISOString();
+      const progress = {
+        current_subtask: subtask,
+        subtask_seq: subtaskSeq,
+        message,
+        last_heartbeat_at: now,
+        elapsed_ms: Date.now() - startedAt,
+        ...extra,
+      };
+      // Update pipeline step + run (if run_id was passed).
+      if (run_id) {
+        await db.from("autopilot_pipeline_steps").update({
+          message,
+          metadata_json: progress,
+        }).eq("run_id", run_id).eq("step_name", "manuscript_qc");
+        await db.from("autopilot_pipeline_runs").update({
+          current_action_message: message,
+          updated_at: now,
+        }).eq("id", run_id);
+      }
+      // Persist on the ebook so the details panel can read it after page reloads.
+      await db.from("ebooks").update({
+        manuscript_qc_status: "running",
+        final_manuscript_qc: { progress } as any,
+      }).eq("id", ebook_id);
+    }
+
+    await emit("loading_manuscript", "Loading manuscript from chapter records…");
     const { data: ebook, error } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
     if (error || !ebook) throw new Error("Ebook not found");
 
@@ -517,7 +554,9 @@ Deno.serve(async (req) => {
       manuscript_qc_status: "running",
     }).eq("id", ebook.id);
 
+    await emit("verify_chapters_exist", "Verifying all chapters exist…");
     let chapters = await loadChapters(db, ebook_id);
+
 
     // ---- Pre-validation: ensure we have *something* to QC ----
     if (chapters.length === 0) {
@@ -537,21 +576,38 @@ Deno.serve(async (req) => {
     const repairLog: { attempt: number; action: string; chapter_index?: number }[] = [];
 
     for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
+      const attemptLabel = attempt === 0 ? "initial pass" : `re-check after repair ${attempt}/${MAX_REPAIR_ATTEMPTS}`;
+      await emit("load_chapters", `Loading chapters (${attemptLabel})…`, { attempt });
       chapters = await loadChapters(db, ebook_id);
-      const totalWords = chapters.reduce((s, c) => s + (c.word_count ?? 0), 0);
 
-      // Deterministic checks
+      await emit("count_words", `Calculating total word count across ${chapters.length} chapter${chapters.length === 1 ? "" : "s"}…`, {
+        attempt, chapters_count: chapters.length,
+      });
+      const totalWords = chapters.reduce((s, c) => s + (c.word_count ?? 0), 0);
+      await emit("check_structure", `Checking structure: ${chapters.length} chapters, ${totalWords.toLocaleString()} words (target ≥ ${minWords.toLocaleString()})…`, {
+        attempt, total_words: totalWords, target_words: minWords,
+      });
+
+      // Deterministic checks: chapter depth, missing sections, duplicates, disclaimer, unsafe claims, placeholders.
+      await emit("check_depth_and_sections", "Checking chapter depth, intro/conclusion, disclaimers, worksheets, compliance…", { attempt });
       const deterministic = runDeterministicChecks(ebook.outline_json ?? {}, chapters, totalWords, minWords, topicText);
+      await emit("check_repeated_passages", "Checking repeated / templated passages across chapters…", {
+        attempt, deterministic_issues: deterministic.length,
+      });
 
       // AI score (only if chapters have meaningful content — otherwise score is meaningless)
       const meaningful = totalWords > 500;
       let scoreVal = 0;
       if (meaningful) {
+        await emit("ai_score", "Calculating final manuscript score (AI reviewer)…", { attempt });
         const s = await scoreManuscript(scoreModel, ebook, chapters);
         totalCost += s.usage.cost_usd;
         aiScores = s.data;
         await logCost(db, { ebook_id: ebook.id, step: `manuscript_qc${attempt ? `:fix${attempt}` : ""}`, model: s.model, ...s.usage });
         scoreVal = aiScores.final_manuscript_score ?? 0;
+        await emit("ai_score_done", `AI score: ${scoreVal}/100 (compliance ${aiScores.compliance_safety_score ?? 0}/100)`, {
+          attempt, score: scoreVal, compliance: aiScores.compliance_safety_score,
+        });
 
         // Pull AI-judged issues into structured reasons when they suggest blocking problems.
         if (aiScores.checks?.no_unsafe_claims === false) {
@@ -575,6 +631,7 @@ Deno.serve(async (req) => {
         }
       }
 
+
       const failedChapters = Array.from(new Set(deterministic.map((r) => r.chapter_index).filter((x): x is number => typeof x === "number")));
       const missingComponents = Array.from(new Set(deterministic.filter((r) => r.code.startsWith("missing_")).map((r) => r.code)));
       const aiPass = !meaningful ? false : (scoreVal >= PASS_MANUSCRIPT && (aiScores?.compliance_safety_score ?? 0) >= PASS_COMPLIANCE);
@@ -597,6 +654,15 @@ Deno.serve(async (req) => {
         ai_scores: aiScores,
       };
 
+      const topReasonSummary = deterministic.slice(0, 3).map((r) => r.code).join(", ") || "none";
+      await emit(
+        passed ? "qc_passed" : "qc_result",
+        passed
+          ? `Manuscript QC passed. Score ${scoreVal}/100. Continuing…`
+          : `QC score ${scoreVal}/100 · ${deterministic.length} issue${deterministic.length === 1 ? "" : "s"} (${topReasonSummary}). Attempt ${attempt}/${MAX_REPAIR_ATTEMPTS}.`,
+        { attempt, passed, score: scoreVal, issues: deterministic.length, failed_chapters: failedChapters },
+      );
+
       await logRun(db, {
         ebook_id: ebook.id, step: "final_manuscript_qc",
         status: passed ? "ok" : (attempt >= MAX_REPAIR_ATTEMPTS ? "fail" : "rewrite"),
@@ -607,6 +673,10 @@ Deno.serve(async (req) => {
 
       // ---- Targeted repair pass ----
       attemptsUsed++;
+      await emit("repair_start", `Running targeted repair — attempt ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS}. Failed chapters: [${failedChapters.join(", ") || "—"}]`, {
+        attempt: attemptsUsed, failed_chapters: failedChapters, top_reasons: deterministic.slice(0, 5).map((r) => ({ code: r.code, chapter: r.chapter_index })),
+      });
+
       // Deduplicate: at most one action per chapter per attempt; prioritize structural fixes.
       const priority: Record<string, number> = {
         regenerate_missing_chapter: 0,
@@ -633,6 +703,7 @@ Deno.serve(async (req) => {
       for (const r of sorted) {
         if (r.repair_action === "regenerate_missing_chapter" && r.chapter_index) {
           const target = wordsTarget;
+          await emit("repair_chapter", `Regenerating missing Chapter ${r.chapter_index} (attempt ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS})…`, { attempt: attemptsUsed, chapter_index: r.chapter_index });
           const w = await writeMissingChapter(fixModel, ebook, r.chapter_index, target);
           totalCost += w.usage.cost_usd;
           await logCost(db, { ebook_id: ebook.id, step: `manuscript_fix_new_ch${r.chapter_index}:r${attemptsUsed}`, model: w.model, ...w.usage });
@@ -653,10 +724,12 @@ Deno.serve(async (req) => {
           const expandTarget = Math.ceil(wordsTarget * 1.3);
           for (const ch of shortList) {
             if (seenChapters.has(ch.chapter_index)) continue;
+            await emit("repair_chapter", `Expanding short Chapter ${ch.chapter_index} to ≥${expandTarget} words (attempt ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS})…`, { attempt: attemptsUsed, chapter_index: ch.chapter_index });
             const inst = instructionsForReason({ ...r, chapter_index: ch.chapter_index }, expandTarget);
             const x = await rewriteChapter(fixModel, ebook, ch, inst, expandTarget);
             totalCost += x.usage.cost_usd;
             await logCost(db, { ebook_id: ebook.id, step: `manuscript_expand_ch${ch.chapter_index}:r${attemptsUsed}`, model: x.model, ...x.usage });
+
             await db.from("ebook_chapters").update({ content: x.data, word_count: wc(x.data) })
               .eq("ebook_id", ebook.id).eq("chapter_index", ch.chapter_index);
             repairLog.push({ attempt: attemptsUsed, action: r.repair_action, chapter_index: ch.chapter_index });
@@ -669,6 +742,7 @@ Deno.serve(async (req) => {
         const ch = chapters.find((c) => c.chapter_index === r.chapter_index);
         if (!ch) continue;
         const target = r.repair_action === "expand_chapter" ? Math.ceil(wordsTarget * 1.3) : wordsTarget;
+        await emit("repair_chapter", `Repairing Chapter ${ch.chapter_index} (${r.repair_action}) — attempt ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS}…`, { attempt: attemptsUsed, chapter_index: ch.chapter_index, action: r.repair_action });
         const x = await rewriteChapter(fixModel, ebook, ch, instructionsForReason(r, target), target);
         totalCost += x.usage.cost_usd;
         await logCost(db, { ebook_id: ebook.id, step: `manuscript_fix_ch${ch.chapter_index}:r${attemptsUsed}`, model: x.model, ...x.usage });
@@ -691,12 +765,14 @@ Deno.serve(async (req) => {
       const nothingHappened = seenChapters.size === 0 && !pickedExpandAll.done;
 
       if (humanizationNeeded && (nothingHappened || finalAttempt)) {
+        await emit("humanize_pass", `Broad humanization pass across ${chapters.length} chapters (attempt ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS})…`, { attempt: attemptsUsed });
         // Rewrite EVERY chapter with the humanization instruction to vary openings,
         // transitions, and summaries across the whole manuscript.
         const inst = instructionsForReason({ code: "humanize_manuscript", message: "", repair_action: "humanize_manuscript" }, 0);
         for (const ch of chapters) {
           if (seenChapters.has(ch.chapter_index)) continue;
           const target = Math.max(ch.word_count ?? 0, MIN_CHAPTER_WORDS);
+          await emit("humanize_chapter", `Humanizing Chapter ${ch.chapter_index}/${chapters.length}…`, { attempt: attemptsUsed, chapter_index: ch.chapter_index });
           const x = await rewriteChapter(fixModel, ebook, ch, inst, target);
           totalCost += x.usage.cost_usd;
           await logCost(db, { ebook_id: ebook.id, step: `manuscript_humanize_ch${ch.chapter_index}:r${attemptsUsed}`, model: x.model, ...x.usage });
@@ -728,8 +804,21 @@ Deno.serve(async (req) => {
     const writingStatus = passed ? "manuscript_passed" : "needs_review";
     const pipelineStatus = passed ? "pdf_design" : "final_qc";
 
+    // Persist final state and preserve progress trail (subtask_seq / elapsed_ms).
+    const finalProgress = {
+      current_subtask: passed ? "passed" : "failed",
+      subtask_seq: subtaskSeq + 1,
+      message: passed
+        ? `Manuscript QC passed. Score ${aiScores?.final_manuscript_score ?? 0}/100.`
+        : `Manuscript QC failed after ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS} repair attempts.`,
+      last_heartbeat_at: new Date().toISOString(),
+      elapsed_ms: Date.now() - startedAt,
+      total_words: totalWords,
+      score: aiScores?.final_manuscript_score ?? null,
+      attempts_used: attemptsUsed,
+    };
     await db.from("ebooks").update({
-      final_manuscript_qc: structured as any,
+      final_manuscript_qc: { ...(structured as any), progress: finalProgress } as any,
       final_manuscript_score: aiScores?.final_manuscript_score ?? null,
       reader_value_score: aiScores?.reader_value_score ?? null,
       practical_tool_score: aiScores?.practical_tool_score ?? null,
@@ -750,6 +839,13 @@ Deno.serve(async (req) => {
       needs_review_reason: detailedReason,
       cost_usd: Number(ebook.cost_usd ?? 0) + totalCost,
     }).eq("id", ebook.id);
+
+    if (run_id) {
+      await db.from("autopilot_pipeline_steps").update({
+        message: finalProgress.message,
+        metadata_json: finalProgress,
+      }).eq("run_id", run_id).eq("step_name", "manuscript_qc");
+    }
 
     return new Response(JSON.stringify({
       ok: true, pass: passed, attempts_used: attemptsUsed,

@@ -449,7 +449,7 @@ Deno.serve(async (req) => {
             ["manuscript_qc"],
             "Running final manuscript QC across the whole book…",
             async () => {
-              await runStep("8_final_manuscript_qc", "final-manuscript-qc", { ebook_id: ebook.id });
+              await runStep("8_final_manuscript_qc", "final-manuscript-qc", { ebook_id: ebook.id, run_id });
               await refreshEbook();
             },
           );
