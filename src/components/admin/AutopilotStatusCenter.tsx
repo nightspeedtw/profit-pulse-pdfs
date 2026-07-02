@@ -405,7 +405,7 @@ function RunCard({
             <Clock className="size-3" />
             {elapsedLabel(run.started_at, run.completed_at, now)} elapsed
           </span>
-          <span>Updated {agoLabel(run.updated_at, now)}</span>
+          <span>Updated {agoLabel(heartbeatIso, now)}</span>
         </div>
 
         {stalled && (
