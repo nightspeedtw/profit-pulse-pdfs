@@ -462,8 +462,12 @@ function RunTable({ rows, now }: { rows: RunRowData[]; now: number }) {
             const title = ebook?.title || (run.ebook_id ? "Untitled" : "New Run");
             const attempts = step?.auto_fix_attempts ?? 0;
             const maxAttempts = step?.max_auto_fix_attempts ?? 3;
-            const updatedSec = Math.floor((now - new Date(run.updated_at).getTime()) / 1000);
+            const heartbeatIso = run.last_heartbeat_at ?? run.updated_at;
+            const updatedSec = Math.floor((now - new Date(heartbeatIso).getTime()) / 1000);
             const stalled = ACTIVE.includes(run.status) && updatedSec > 300;
+            const subtask = run.current_subtask
+              ?? (typeof (step?.metadata_json as Record<string, unknown> | null)?.current_subtask === "string"
+                ? String((step!.metadata_json as Record<string, unknown>).current_subtask) : null);
             return (
               <tr key={run.id} className={`border-t border-foreground/10 hover:bg-muted/30 ${stalled ? "bg-red-50/40" : ""}`}>
                 <td className="p-2 max-w-[220px]">
