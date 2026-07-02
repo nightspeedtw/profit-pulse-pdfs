@@ -36,6 +36,8 @@ const STYLES: Record<EbookBadgeKind, { label: string; cls: string }> = {
   failed_non_recoverable:       { label: "Failed (config)",             cls: "bg-red-200 text-red-950 border-red-800" },
   idle:                         { label: "Idle",                        cls: "bg-muted text-muted-foreground border-foreground/20" },
   queued:                       { label: "Queued",                      cls: "bg-slate-100 text-slate-900 border-slate-600" },
+  needs_code_fix:               { label: "System Code Fix Required",    cls: "bg-fuchsia-100 text-fuchsia-900 border-fuchsia-700" },
+  completed:                    { label: "Completed",                   cls: "bg-emerald-200 text-emerald-950 border-emerald-800" },
 };
 
 // Maps the raw autopilot_state / shopify_status to a single display kind.
