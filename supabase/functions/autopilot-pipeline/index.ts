@@ -371,7 +371,13 @@ Deno.serve(async (req) => {
               await tracker.markPaused();
               throw new Error("paused_by_admin");
             }
-            await tracker.updateStep("chapter_writing", { message: label(cur, indices.length, idx) });
+            await tracker.heartbeat("chapter_writing", {
+              message: "Writing chapters…",
+              subtask: label(cur, indices.length, idx),
+              subtask_index: cur,
+              subtask_total: indices.length,
+              progress_percent: Math.round((cur / Math.max(1, indices.length)) * 100),
+            });
             await runStep(`6_write_chapter_${idx}`, "write-chapters", { ebook_id: ebook.id, chapter_index: idx });
           }
           await refreshEbook();
