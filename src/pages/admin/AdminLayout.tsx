@@ -3,6 +3,7 @@ import { fetchAdminData } from "@/lib/adminData";
 import { Button } from "@/components/ui/button";
 import { Gauge, Factory, Package, Settings as SettingsIcon, LogOut, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
+import { FocusBadge } from "@/components/admin/FocusBadge";
 
 const PASSCODE_KEY = "admin_passcode_ok";
 
@@ -66,9 +67,12 @@ export default function AdminLayout() {
         </div>
       </aside>
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 border-b-2 border-foreground bg-card flex items-center justify-between px-6">
-          <div className="font-mono uppercase tracking-widest text-xs">Premium ebook pipeline</div>
-          <div className="text-sm">
+        <header className="h-14 border-b-2 border-foreground bg-card flex items-center justify-between px-6 gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="font-mono uppercase tracking-widest text-xs shrink-0">Premium ebook pipeline</div>
+            <FocusBadge />
+          </div>
+          <div className="text-sm shrink-0">
             <span className="text-muted-foreground">Today's AI cost:</span>{" "}
             <span className="font-bold">${costToday.toFixed(4)}</span>
           </div>
