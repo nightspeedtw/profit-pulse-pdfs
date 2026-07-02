@@ -806,10 +806,10 @@ Deno.serve(async (req) => {
         // this as a structural bug the admin cannot solve by retrying.
         if (classified?.needs_code_fix) {
           try {
-            await recordSystemFix(db, {
-              ebook_id: ebook?.id ?? null,
+            await recordSystemFix(db, classified, {
+              step: "pipeline",
+              ebook_id: ebook?.id,
               run_id,
-              classified,
             });
           } catch (err) {
             console.warn("[autopilot] recordSystemFix failed:", (err as Error).message);
