@@ -230,7 +230,7 @@ export default function Production() {
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground text-sm">
+                  <tr><td colSpan={8} className="p-8 text-center text-muted-foreground text-sm">
                     No jobs match this view.
                   </td></tr>
                 )}
