@@ -199,7 +199,11 @@ Deno.serve(async (req) => {
           displayHeaderFooter: true,
           headerTemplate: headerTpl,
           footerTemplate: footerTpl,
-          margin: { top: "0.7in", bottom: "0.85in", left: "0.7in", right: "0.7in" },
+          // Zero API-level margin so CSS `@page` rules control per-page margins.
+          // `@page cover { margin: 0 }` needs this to actually produce a full-bleed
+          // cover — otherwise Chromium overrides CSS with these API margins and the
+          // cover renders as an image inside a bordered page.
+          margin: { top: "0", bottom: "0", left: "0", right: "0" },
         },
         gotoOptions: { waitUntil: "networkidle0", timeout: 60000 },
       }),
