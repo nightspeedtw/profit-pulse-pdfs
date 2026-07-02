@@ -26,6 +26,9 @@ interface QueueEbook {
   next_retry_at: string | null;
   cover_url: string | null;
   pdf_url: string | null;
+  final_quality_score?: number | null;
+  word_count?: number | null;
+  shopify_status?: string | null;
   updated_at: string | null;
 }
 
@@ -36,6 +39,7 @@ interface LiveQueue {
   auto_fixing: QueueEbook[];
   needs_admin: QueueEbook[];
   needs_code_fix: QueueEbook[];
+  ready_to_publish: QueueEbook[];
   system_fixes: SystemFix[];
   heavy_production_lock: { holder_ebook_id: string | null; expires_at: string } | null;
 }
