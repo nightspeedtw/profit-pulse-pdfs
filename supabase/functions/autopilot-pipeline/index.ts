@@ -757,6 +757,24 @@ Deno.serve(async (req) => {
             current_action_message: `Pipeline failed: ${msg.slice(0, 200)}`,
           }).eq("id", run_id);
         } catch { /* ignore */ }
+      } finally {
+        // -------- Release heavy_production lock (Sequential Safe Mode) --------
+        // Per spec, release the lock when the ebook is truly done, blocked on
+        // Shopify quota, needs admin, failed non-recoverably, or paused.
+        // Keep it held only for `waiting_for_browserless_slot` so no other
+        // ebook (or PDF render) can start until this one resumes.
+        try {
+          if (ebook?.id) {
+            const { data: fresh } = await db.from("ebooks").select("autopilot_state").eq("id", ebook.id).maybeSingle();
+            const state = fresh?.autopilot_state ?? "";
+            const HOLD_STATES = new Set(["waiting_for_browserless_slot"]);
+            if (!HOLD_STATES.has(state)) {
+              await releaseLock(db, LOCK_HEAVY, ebook.id);
+            }
+          }
+        } catch (err) {
+          console.warn("[autopilot] failed to release heavy_production lock:", (err as Error).message);
+        }
       }
     })();
 
