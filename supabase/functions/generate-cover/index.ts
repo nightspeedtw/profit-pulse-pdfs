@@ -1,4 +1,6 @@
-// Generate ebook cover: AI design strategy → text-free background → code-overlaid text → QC.
+// Premium human-level ebook cover system.
+// Pipeline: strategy -> textless background -> code-rendered typography ->
+// 12-dim QC gate -> targeted auto-fix (max 3 attempts) -> thumbnail crop -> thumbnail QC.
 import { corsHeaders, admin, aiJSON, logCost, requireAdmin } from "../_shared/ai.ts";
 import { buildCoverSVG, rasterizeSVG, type CoverSpec } from "../_shared/cover.ts";
 
@@ -12,63 +14,156 @@ type EbookRow = {
   category_id: string | null;
 };
 
-const COVER_DESIGNER_SYSTEM = `You are a world-class premium PDF ebook cover designer, visual sales strategist, and conversion-focused digital product designer.
-Create ebook covers that visually SELL the promise of the ebook to USA buyers of premium PDF guides on Shopify.
+const COVER_DESIGNER_SYSTEM = `You are a world-class ebook cover designer, premium brand strategist, buyer psychology expert, and conversion-focused digital product marketer for USA Shopify.
 
-Hard rules:
-- The background image MUST contain ZERO text, letters, numbers, logos, watermarks, signage, or typography. All title/subtitle/brand text is overlaid by code afterward.
-- Premium, bold, clear hierarchy, strong contrast, no clutter, no cheap template look, no stock-image vibe.
-- Must read as a thumbnail at 200px wide (mobile Shopify grid).
-- Match the topic and buyer psychology.
+You combine elite nonfiction cover design, high-converting digital-product packaging, buyer psychology, behavioral marketing, premium typography, editorial layout, color psychology, thumbnail conversion strategy, category-specific visual positioning, and luxury digital product presentation.
 
-Output schema fields:
-- title_text: short, punchy, MAX 50 chars, ALL CAPS friendly. No emoji.
-- subtitle_text: 1 sentence, MAX 100 chars, transformation-focused (outcome the buyer gets).
-- badge_text: optional, MAX 28 chars, all caps friendly (e.g. "2026 EDITION", "INCLUDES WORKSHEETS", "STEP-BY-STEP PLAYBOOK", "PREMIUM TACTICAL WORKBOOK").
-- brand_text: keep as provided.
-- layout_direction: "top" | "bottom" | "center".
-- typography_style: short description (e.g. "Bold condensed sans serif, tight tracking, editorial").
-- color_palette: 3 hex codes [overlay_for_text_panel, primary_text_color, accent_color]. Choose category-appropriate PREMIUM tones:
-  * Finance / debt / money / investing / wealth: navy (#0b1a2b), near-black (#0a0f1a), gold (#d4af37), emerald (#0f6b48), ivory white (#f5f1e8). Theme: clarity, control, structure, escape from debt, freedom, confidence.
-  * Health / fitness: deep forest, charcoal, lime accent, off-white.
-  * Business / marketing: midnight blue, graphite, electric orange or gold.
-  * Mindset / self-development: warm charcoal, cream, burnt orange or muted gold.
-  * Creative / design: ink black, bone, single saturated accent.
-  Avoid purple/indigo gradient AI clichés unless the topic explicitly calls for it.
-- background_image_prompt_no_text: ONE paragraph, cinematic, premium editorial, on-topic, vertical 2:3, leaves a clean low-detail area for the text panel. Explicitly state "no text, no words, no letters, no logos, no typography anywhere in the image". For finance topics, lean into visual metaphors of structure, clean architecture, ascending steps/stairs, a clear path, balanced scales, organized lines — NOT cash piles or cartoonish wallets.
-- thumbnail_readability_notes: how the title stays readable at 200px wide.
-- why_this_cover_sells: 1-2 sentences on the buyer psychology angle.
-- cover_qc_checklist: 5-7 specific QC items (readable title, brand visible, no overlap, premium feel, matches topic, no misleading claim, thumbnail-safe).`;
+Every cover must make the buyer feel:
+"This looks valuable." · "This is made for someone like me." · "This solves a problem I care about." · "This looks professional and trustworthy." · "I want to click and see what is inside."
 
-const COVER_QC_SYSTEM = `You are a conversion-focused ebook cover QC reviewer. Score the cover plan for a paid premium PDF on USA Shopify.
+ANTI-AI RULE — the cover must NEVER look like:
+- random AI art, generic AI background with text pasted on, cheap Canva template
+- amateur self-published cover, noisy abstract AI art, overdecorated fantasy poster
+- stock-photo collage, fake luxury scam design, generic business stock image
+- AI-generated text inside the image, weird surreal objects with no meaning
+- glossy over-rendered AI style, cluttered composition with no hierarchy
+
+If the concept could be produced by generic AI, REJECT it and choose a more restrained, editorial, human-crafted direction.
+
+HUMAN-DESIGNED PRINCIPLES: one strong visual idea · one clear emotional direction · clean composition · controlled spacing · strong type hierarchy · readable title · balanced negative space · clear focal point · premium palette · category-specific design language · commercial product feel. Use restraint.
+
+PSYCHOLOGY LEVERS (use at least one, explicit):
+Control Restoration · Pain Relief · Hidden Problem Reveal · Premium Authority · Identity Match · Transformation · System Promise.
+
+CATEGORY DIRECTION:
+- Finance/Debt/Wealth: navy, black, white, gold, charcoal, muted emerald. Metaphors: debt exit path, cash-flow dashboard, financial fortress, payoff ladder, dark maze with gold exit, balance-sheet blueprint. Avoid: cartoon money, dollar signs, cash piles, scammy get-rich look.
+- Business/Marketing/AI/Productivity: black, white, graphite, silver, deep purple, muted cyan, controlled electric blue. Metaphors: workflow engine, operating system, command center, automation map, precision dashboard. Avoid: generic robots, neon AI clichés, circuit boards, futuristic clutter.
+- Relationship/Self-Help/Emotional: warm neutrals, deep burgundy, muted rose, soft charcoal, cream. Metaphors: emotional reset, clean break, boundary map, conversation bridge, overthinking maze, clarity window. Avoid: cheesy hearts, couple stock, dramatic romance clichés.
+- Health/Burnout/Wellness: soft beige, muted green, warm white, calm blue. Metaphors: reset button, calm system, balance architecture, energy recovery, burnout-to-clarity. Avoid: medical fear, exaggerated bodies, generic spa, fake before/after.
+- Career/Executive/High Performer: deep navy, graphite, ivory, restrained gold. Metaphors: command system, executive playbook, decision map, promotion ladder, professional OS. Avoid: cheap corporate stock, generic office people, boring resume look.
+
+TYPOGRAPHY — the title is the hero: readable at Shopify thumbnail size, strong hierarchy, premium sans-serif, intentional line breaks, emphasis on transformation words, aligned to a clear grid, readable in 2 seconds. Subtitle supports, never competes. No childish or novelty fonts. Contrast panel behind title if the background is busy.
+
+TEXT RENDERING RULE — the AI image contains ZERO text: no letters, numbers, logos, watermarks, fake charts, fake labels, misspelled words. All real text (title, subtitle, badge, brand) is rendered by the app's code layer.
+
+BACKGROUND PROMPT RULES — the textless background prompt MUST include: category-appropriate visual metaphor, emotional tone, composition guidance, an explicit clean-space zone for the title, and the phrase "no text, no letters, no numbers, no logos, no watermarks, no signage, no typography anywhere in the image". Vertical 2:3 composition, editorial commercial ebook-cover quality.
+
+OUTPUT SCHEMA (return exactly these fields, valid JSON only):
+{
+  "target_buyer": "",
+  "buyer_pain": "",
+  "desired_transformation": "",
+  "emotional_trigger": "",
+  "category": "",
+  "product_format": "",
+  "creative_direction": "",
+  "visual_metaphor": "",
+  "composition_strategy": "",
+  "typography_strategy": "",
+  "thumbnail_strategy": "",
+  "anti_ai_design_notes": "",
+  "layout_instructions": "",
+  "title_treatment": "",
+  "subtitle_treatment": "",
+  "badge_treatment": "",
+  "brand_treatment": "",
+  "cover_strategy": "",
+  "visual_sales_angle": "",
+  "cover_size": "1600x2400 px",
+  "background_image_prompt_no_text": "",
+  "title_text": "<= 60 chars",
+  "subtitle_text": "<= 120 chars",
+  "badge_text": "<= 28 chars",
+  "brand_text": "SECRET PDF",
+  "layout_direction": "top|bottom|center",
+  "color_palette": ["#hex","#hex","#hex"],
+  "typography_style": "",
+  "thumbnail_readability_notes": "",
+  "why_this_cover_sells": "",
+  "cover_qc_checklist": ["","",""]
+}`;
+
+const COVER_QC_SYSTEM = `You are a strict premium ebook cover QC reviewer for USA Shopify digital products.
+Score harshly and honestly — never inflate. Anything that could be mistaken for generic AI art fails Anti-AI-Look.
+
 Return JSON only:
 {
-  "title_readable": true|false,
-  "subtitle_readable": true|false,
-  "brand_visible": true|false,
-  "matches_topic": true|false,
-  "looks_premium": true|false,
-  "works_as_thumbnail": true|false,
-  "no_misleading_claim": true|false,
-  "no_clutter": true|false,
+  "scores": {
+    "title_readability": 0-100,
+    "subtitle_readability": 0-100,
+    "thumbnail_readability": 0-100,
+    "human_designed_feel": 0-100,
+    "premium_feel": 0-100,
+    "category_fit": 0-100,
+    "emotional_resonance": 0-100,
+    "visual_hierarchy": 0-100,
+    "buyer_psychology_fit": 0-100,
+    "click_appeal": 0-100,
+    "sellability": 0-100,
+    "anti_ai_look": 0-100
+  },
+  "overall_score": 0-100,
+  "no_ai_text_errors": true|false,
   "no_overlap": true|false,
   "strong_contrast": true|false,
-  "no_ai_text_errors": true|false,
-  "mobile_thumbnail_readable": true|false,
-  "conversion_score": 0-100,
-  "issues": ["..."],
-  "improvements": ["..."]
+  "no_misleading_claim": true|false,
+  "failed_reasons": ["title_low"|"subtitle_low"|"thumbnail_weak"|"looks_ai_generated"|"weak_premium_feel"|"weak_emotional_hook"|"category_mismatch"|"clutter"|"low_contrast"|"weak_hierarchy"|"unsafe_claim"],
+  "improvements": ["specific actionable fixes"]
 }
-Score harshly. >= 85 required to pass.
-no_ai_text_errors: the BACKGROUND must contain ZERO letters/words/numbers. If the background prompt or strategy implies text in the image, mark false.
-no_overlap: title, subtitle, badge, brand must not visually overlap given the layout_direction and panel placement.
-strong_contrast: overlay color vs primary_text color must have strong luminance contrast.`;
 
+Pass gate — ALL must be true:
+- title_readability >= 90
+- thumbnail_readability >= 90
+- human_designed_feel >= 90
+- premium_feel >= 90
+- category_fit >= 90
+- click_appeal >= 90
+- sellability >= 90
+- anti_ai_look >= 90
+- no_ai_text_errors == true
+- no_overlap == true
+- strong_contrast == true
+- no_misleading_claim == true`;
+
+interface QCResult {
+  scores: Record<string, number>;
+  overall_score: number;
+  no_ai_text_errors: boolean;
+  no_overlap: boolean;
+  strong_contrast: boolean;
+  no_misleading_claim: boolean;
+  failed_reasons: string[];
+  improvements: string[];
+}
+
+const HARD_MIN: Record<string, number> = {
+  title_readability: 90,
+  thumbnail_readability: 90,
+  human_designed_feel: 90,
+  premium_feel: 90,
+  category_fit: 90,
+  click_appeal: 90,
+  sellability: 90,
+  anti_ai_look: 90,
+};
+
+function qcPassed(qc: QCResult): { passed: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  for (const [k, min] of Object.entries(HARD_MIN)) {
+    const v = Number(qc.scores?.[k] ?? 0);
+    if (v < min) reasons.push(`${k}=${v}<${min}`);
+  }
+  if (!qc.no_ai_text_errors) reasons.push("ai_text_errors");
+  if (!qc.no_overlap) reasons.push("overlap");
+  if (!qc.strong_contrast) reasons.push("low_contrast");
+  if (!qc.no_misleading_claim) reasons.push("unsafe_claim");
+  return { passed: reasons.length === 0, reasons };
+}
 
 async function generateBackgroundPNG(prompt: string): Promise<{ bytes: Uint8Array; cost: number }> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) throw new Error("LOVABLE_API_KEY not configured");
-  const cleanPrompt = `${prompt}\n\nABSOLUTELY NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY, NO LOGOS, NO SIGNS, NO NUMBERS in the image. Vertical 2:3 book cover composition, premium editorial photography/illustration quality. Leave a clean, low-detail area at the bottom for text overlay.`;
+  const cleanPrompt = `${prompt}\n\nABSOLUTELY NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS, NO SIGNAGE, NO TYPOGRAPHY anywhere in the image. Vertical 2:3 book-cover composition, premium editorial nonfiction quality, human-designed restraint, one strong visual metaphor, clean negative space for text overlay, no generic AI clichés, no over-rendered glossy surfaces, no random surreal objects.`;
   const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
@@ -85,12 +180,34 @@ async function generateBackgroundPNG(prompt: string): Promise<{ bytes: Uint8Arra
   return { bytes: Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), cost: 0.04 };
 }
 
-type CoverMode = "full" | "spec" | "background" | "overlay";
-
-interface ProcessOpts {
-  mode: CoverMode;
-  spec_overrides?: Partial<CoverSpec>;
+// Targeted repair guidance for the designer, keyed off QC failure reasons.
+function buildRepairFeedback(reasons: string[], improvements: string[]): string {
+  const fixes: string[] = [];
+  if (reasons.some((r) => r.includes("title_readability"))) fixes.push("Enlarge the title, tighten line breaks, boost contrast, and simplify the region behind the title.");
+  if (reasons.some((r) => r.includes("subtitle_readability"))) fixes.push("Shorten subtitle, increase line-height, move it away from busy areas.");
+  if (reasons.some((r) => r.includes("thumbnail_readability"))) fixes.push("Simplify focal point, kill tiny text, thicken title weight, ensure the thumbnail communicates at 200px wide.");
+  if (reasons.some((r) => r.includes("human_designed_feel") || r.includes("anti_ai_look"))) fixes.push("Remove any generic AI clichés (glossy renders, surreal clutter, neon sci-fi, over-decoration). Use restrained editorial composition. Choose ONE strong human-crafted metaphor.");
+  if (reasons.some((r) => r.includes("premium_feel"))) fixes.push("Refine typography, discipline the palette to 3 tones max, add negative space, remove cheap decorative effects.");
+  if (reasons.some((r) => r.includes("category_fit"))) fixes.push("Realign metaphor, palette, and typography to the category-specific direction. Drop symbols the target buyer would not trust.");
+  if (reasons.some((r) => r.includes("click_appeal") || r.includes("sellability"))) fixes.push("Sharpen the buyer-psychology angle — make the transformation or pain-relief promise unmistakable at first glance.");
+  if (reasons.some((r) => r.includes("overlap"))) fixes.push("Enforce safe margins; title, subtitle, badge, brand must never overlap.");
+  if (reasons.some((r) => r.includes("low_contrast"))) fixes.push("Increase text-panel luminance contrast; add a subtle gradient behind text if needed.");
+  if (reasons.some((r) => r.includes("ai_text_errors"))) fixes.push("The AI background must contain ZERO letters, numbers, logos, or fake charts. Rewrite the background prompt to forbid all typography.");
+  if (reasons.some((r) => r.includes("unsafe_claim"))) fixes.push("Rewrite title/subtitle to remove any guaranteed-outcome, income, health, legal, or relationship promise.");
+  const extra = improvements.filter(Boolean).slice(0, 6).map((s) => `- ${s}`).join("\n");
+  return `PREVIOUS COVER FAILED QC — targeted fixes required:\n- ${fixes.join("\n- ")}\n${extra ? "\nReviewer notes:\n" + extra : ""}`;
 }
+
+// Crop the cover PNG into a Shopify-thumbnail-safe rasterization.
+// The composition preserves the top-heavy title zone; we render the same SVG
+// at thumbnail resolution so text stays crisp.
+async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array): Promise<Uint8Array> {
+  const svg = buildCoverSVG(spec, bgBytes);
+  return await rasterizeSVG(svg, 800);
+}
+
+type CoverMode = "full" | "spec" | "background" | "overlay";
+interface ProcessOpts { mode: CoverMode; spec_overrides?: Partial<CoverSpec>; }
 
 async function processCover(ebook: EbookRow, opts: ProcessOpts) {
   const db = admin();
@@ -98,132 +215,137 @@ async function processCover(ebook: EbookRow, opts: ProcessOpts) {
   const previousStatus = ebook.status ?? "review";
   let totalCost = 0;
   const mode = opts.mode;
+
   try {
-    // 1) Cover strategy spec
+    const category = ebook.category_id
+      ? (await db.from("categories").select("name").eq("id", ebook.category_id).maybeSingle()).data?.name
+      : null;
+
     let spec: CoverSpec = ebook.cover_spec as CoverSpec;
-    const needNewSpec = !spec || mode === "full" || mode === "spec";
-    if (needNewSpec) {
-      const category = ebook.category_id
-        ? (await db.from("categories").select("name").eq("id", ebook.category_id).maybeSingle()).data?.name
-        : null;
-      const ai = await aiJSON<CoverSpec>({
-        model: "google/gemini-3.1-pro-preview",
-        system: COVER_DESIGNER_SYSTEM,
-        user: `Ebook Title: ${ebook.title}
+    let bgBytes: Uint8Array | null = null;
+    let lastQC: QCResult | null = null;
+    let lastReasons: string[] = [];
+    let passed = false;
+
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS && !passed; attempt++) {
+      // 1) STRATEGY
+      const needNewSpec = !spec || mode === "full" || mode === "spec" || attempt > 1;
+      if (needNewSpec) {
+        const feedback = lastReasons.length && lastQC
+          ? "\n\n" + buildRepairFeedback(lastReasons, lastQC.improvements ?? [])
+          : "";
+        const ai = await aiJSON<CoverSpec>({
+          model: "google/gemini-3.1-pro-preview",
+          system: COVER_DESIGNER_SYSTEM,
+          user: `Ebook Title: ${ebook.title}
 Subtitle: ${ebook.subtitle ?? ""}
 Category: ${category ?? "general"}
 Target Buyer: ${ebook.target_buyer ?? ""}
-Core Pain Point: ${ebook.hook ?? ""}
-Transformation Promise: ${(ebook.product_description ?? "").slice(0, 400)}
-Primary Hook: ${ebook.hook ?? ""}
-Brand Name: Secret PDF
-Price Tier: Premium
-Cover Style Preference: Premium editorial, bold typography overlay, on-topic imagery.
+Core Pain: ${ebook.hook ?? ""}
+Transformation Promise: ${(ebook.product_description ?? "").slice(0, 500)}
+Brand: SECRET PDF
+Price Tier: Premium ($19–$29 PDF)
+Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
+        });
+        totalCost += ai.usage.cost_usd;
+        await logCost(db, { ebook_id, step: `cover_spec:attempt_${attempt}`, model: ai.model, ...ai.usage });
+        spec = ai.data;
+        spec.brand_text = spec.brand_text || "SECRET PDF";
+        spec.title_text = (spec.title_text || ebook.title).slice(0, 60);
+        spec.subtitle_text = (spec.subtitle_text || ebook.subtitle || "").slice(0, 120);
+        spec.color_palette = (spec.color_palette && spec.color_palette.length >= 3)
+          ? spec.color_palette
+          : ["#0b1a2b", "#ffffff", "#f5c518"];
+        spec.layout_direction = spec.layout_direction || "bottom";
+        if (opts.spec_overrides && attempt === 1) spec = { ...spec, ...opts.spec_overrides } as CoverSpec;
+      }
 
-Return JSON with this exact schema:
-{
-  "cover_strategy": "",
-  "visual_sales_angle": "",
-  "cover_size": "1600x2400 px",
-  "background_image_prompt_no_text": "",
-  "title_text": "",
-  "subtitle_text": "",
-  "badge_text": "",
-  "brand_text": "SECRET PDF",
-  "layout_direction": "bottom",
-  "color_palette": ["#0b1a2b","#ffffff","#f5c518"],
-  "typography_style": "",
-  "thumbnail_readability_notes": "",
-  "why_this_cover_sells": "",
-  "cover_qc_checklist": ["",""]
-}`,
+      // 2) BACKGROUND
+      const bgPath = `${ebook_id}/bg.png`;
+      const needNewBg = attempt > 1 || mode === "full" || mode === "background" || !bgBytes;
+      if (needNewBg) {
+        // Regenerate on retry only if the previous failure implicates the image.
+        const bgFailure = attempt === 1 || lastReasons.some((r) =>
+          r.includes("anti_ai_look") || r.includes("human_designed_feel") ||
+          r.includes("category_fit") || r.includes("ai_text_errors") ||
+          r.includes("premium_feel"));
+        if (bgFailure || !bgBytes) {
+          const bg = await generateBackgroundPNG(spec.background_image_prompt_no_text || ebook.cover_prompt || `Premium editorial cover for "${ebook.title}"`);
+          totalCost += bg.cost;
+          bgBytes = bg.bytes;
+          const { error } = await db.storage.from("ebook-covers").upload(bgPath, bgBytes, { contentType: "image/png", upsert: true });
+          if (error) throw error;
+        }
+      } else if (!bgBytes) {
+        const { data, error } = await db.storage.from("ebook-covers").download(bgPath);
+        if (error || !data) throw new Error("No existing background to reuse.");
+        bgBytes = new Uint8Array(await data.arrayBuffer());
+      }
+
+      // 3) COMPOSE COVER + THUMBNAIL
+      const svg = buildCoverSVG(spec, bgBytes!);
+      const coverPng = await rasterizeSVG(svg, 1600);
+      const coverPath = `${ebook_id}/cover.png`;
+      await db.storage.from("ebook-covers").upload(coverPath, coverPng, { contentType: "image/png", upsert: true });
+
+      const thumbPng = await renderThumbnail(spec, bgBytes!);
+      const thumbPath = `${ebook_id}/thumbnail.png`;
+      await db.storage.from("ebook-covers").upload(thumbPath, thumbPng, { contentType: "image/png", upsert: true });
+
+      // 4) QC (12 dimensions + hard gates)
+      const qc = await aiJSON<QCResult>({
+        model: "google/gemini-3.1-pro-preview",
+        system: COVER_QC_SYSTEM,
+        user: `Ebook: ${ebook.title}
+Subtitle: ${ebook.subtitle ?? ""}
+Category: ${category ?? "general"}
+Target buyer: ${ebook.target_buyer ?? ""}
+Buyer pain: ${ebook.hook ?? ""}
+Attempt ${attempt}/${MAX_ATTEMPTS}.
+
+Cover spec:
+${JSON.stringify(spec, null, 2)}`,
       });
-      totalCost += ai.usage.cost_usd;
-      await logCost(db, { ebook_id, step: "cover_spec", model: ai.model, ...ai.usage });
-      spec = ai.data;
-      spec.brand_text = spec.brand_text || "SECRET PDF";
-      spec.title_text = (spec.title_text || ebook.title).slice(0, 60);
-      spec.subtitle_text = (spec.subtitle_text || ebook.subtitle || "").slice(0, 120);
-      spec.color_palette = (spec.color_palette && spec.color_palette.length >= 3)
-        ? spec.color_palette
-        : ["#0b1a2b", "#ffffff", "#f5c518"];
-      spec.layout_direction = spec.layout_direction || "bottom";
+      totalCost += qc.usage.cost_usd;
+      await logCost(db, { ebook_id, step: `cover_qc:attempt_${attempt}`, model: qc.model, ...qc.usage });
+
+      lastQC = qc.data;
+      const gate = qcPassed(qc.data);
+      lastReasons = gate.reasons;
+      passed = gate.passed;
     }
 
-    // Apply admin overrides (title/subtitle/badge/brand/colors/layout edits)
-    if (opts.spec_overrides) {
-      spec = { ...spec, ...opts.spec_overrides } as CoverSpec;
-    }
+    const [{ data: coverSigned }, { data: bgSigned }, { data: thumbSigned }] = await Promise.all([
+      db.storage.from("ebook-covers").createSignedUrl(`${ebook_id}/cover.png`, 60 * 60 * 24 * 365),
+      db.storage.from("ebook-covers").createSignedUrl(`${ebook_id}/bg.png`, 60 * 60 * 24 * 365),
+      db.storage.from("ebook-covers").createSignedUrl(`${ebook_id}/thumbnail.png`, 60 * 60 * 24 * 365),
+    ]);
 
-    // 2) Background image — generate fresh on full/background; reuse on spec/overlay
-    const bgPath = `${ebook_id}/bg.png`;
-    let bgBytes: Uint8Array | null = null;
-    const needNewBg = mode === "full" || mode === "background";
-    if (needNewBg) {
-      const bg = await generateBackgroundPNG(spec.background_image_prompt_no_text || ebook.cover_prompt || `Premium editorial cover image for "${ebook.title}"`);
-      totalCost += bg.cost;
-      bgBytes = bg.bytes;
-      const { error } = await db.storage.from("ebook-covers").upload(bgPath, bgBytes, { contentType: "image/png", upsert: true });
-      if (error) throw error;
-    } else {
-      // Re-download existing background for SVG composition
-      const { data, error } = await db.storage.from("ebook-covers").download(bgPath);
-      if (error || !data) throw new Error("No existing background to reuse — run full or background mode first.");
-      bgBytes = new Uint8Array(await data.arrayBuffer());
-    }
-    const { data: bgSigned } = await db.storage.from("ebook-covers").createSignedUrl(bgPath, 60 * 60 * 24 * 365);
-
-    // 3) Compose SVG → rasterize PNG (Shopify product cover + PDF cover page)
-    const svg = buildCoverSVG(spec, bgBytes);
-    const coverPng = await rasterizeSVG(svg, 1600);
-    const coverPath = `${ebook_id}/cover.png`;
-    {
-      const { error } = await db.storage.from("ebook-covers").upload(coverPath, coverPng, { contentType: "image/png", upsert: true });
-      if (error) throw error;
-    }
-    const { data: coverSigned } = await db.storage.from("ebook-covers").createSignedUrl(coverPath, 60 * 60 * 24 * 365);
-
-    // 4) Cover QC (expanded dimensions)
-    const qc = await aiJSON<{
-      title_readable: boolean; subtitle_readable: boolean; brand_visible: boolean;
-      matches_topic: boolean; looks_premium: boolean; works_as_thumbnail: boolean;
-      no_misleading_claim: boolean; no_clutter: boolean;
-      no_overlap: boolean; strong_contrast: boolean;
-      no_ai_text_errors: boolean; mobile_thumbnail_readable: boolean;
-      conversion_score: number; issues: string[]; improvements: string[];
-    }>({
-      model: "google/gemini-3.1-pro-preview",
-      system: COVER_QC_SYSTEM,
-      user: `Cover spec:\n${JSON.stringify(spec, null, 2)}\nEbook title: ${ebook.title}\nSubtitle: ${ebook.subtitle ?? ""}\nTarget buyer: ${ebook.target_buyer ?? ""}`,
-    });
-    totalCost += qc.usage.cost_usd;
-    await logCost(db, { ebook_id, step: "cover_qc", model: qc.model, ...qc.usage });
-
-    const score = Number(qc.data.conversion_score ?? 0);
-    const passed = score >= 85 &&
-      qc.data.title_readable && qc.data.subtitle_readable &&
-      qc.data.brand_visible && qc.data.matches_topic &&
-      qc.data.looks_premium && qc.data.works_as_thumbnail &&
-      qc.data.no_misleading_claim && qc.data.no_clutter &&
-      qc.data.no_overlap && qc.data.strong_contrast &&
-      qc.data.no_ai_text_errors && qc.data.mobile_thumbnail_readable;
-
+    const overall = Number(lastQC?.overall_score ?? 0);
     await db.from("ebooks").update({
       cover_url: coverSigned?.signedUrl,
       cover_bg_url: bgSigned?.signedUrl,
       cover_image_url: coverSigned?.signedUrl,
+      thumbnail_url: thumbSigned?.signedUrl,
       cover_spec: spec as unknown as never,
-      cover_qc: qc.data as unknown as never,
-      cover_score: score,
-      cover_approved: false, // editing/regenerating always re-requires admin approval
+      cover_qc: lastQC as unknown as never,
+      cover_score: overall,
+      cover_approved: false,
       status: previousStatus === "cover" ? "review" : previousStatus,
-      qc: { ...(ebook.qc ?? {}), cover_error: null, cover_passed: passed },
+      qc: {
+        ...(ebook.qc ?? {}),
+        cover_error: passed ? null : `premium_cover_gate_failed: ${lastReasons.join("; ")}`,
+        cover_passed: passed,
+        cover_attempts: MAX_ATTEMPTS,
+        cover_failed_reasons: passed ? [] : lastReasons,
+      },
       cost_usd: Number(ebook.cost_usd ?? 0) + totalCost,
+      ...(passed ? {} : { blocker_class: "needs_admin", blocker_reason: `Cover failed premium QC after 3 attempts: ${lastReasons.slice(0, 4).join(", ")}` }),
     }).eq("id", ebook_id);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("cover generation failed", message);
-
     await db.from("ebooks").update({
       status: previousStatus === "cover" ? "review" : previousStatus,
       qc: { ...(ebook.qc ?? {}), cover_error: message },
@@ -244,7 +366,6 @@ Deno.serve(async (req) => {
       spec_overrides?: Partial<CoverSpec>;
     };
     if (!ebook_id) throw new Error("ebook_id required");
-    // Back-compat: legacy `regenerate_spec` flag maps to mode if not provided.
     const resolvedMode: CoverMode = mode ?? (regenerate_spec === false ? "background" : "full");
 
     const { data: e } = await db.from("ebooks")
@@ -259,7 +380,6 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ status: "cover", started: true, mode: resolvedMode }), {
       status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-
   } catch (e) {
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
