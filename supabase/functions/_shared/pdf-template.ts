@@ -65,6 +65,18 @@ function renderMd(md: string): string {
   while (i < lines.length) {
     const ln = lines[i];
     if (!ln.trim()) { i++; continue; }
+    // markdown table: header row `| a | b |` followed by `| :--- | :--- |`
+    if (/^\s*\|.+\|\s*$/.test(ln) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(lines[i + 1])) {
+      const parseRow = (row: string) => row.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      const headers = parseRow(ln);
+      i += 2; // skip header + separator
+      const bodyRows: string[][] = [];
+      while (i < lines.length && /^\s*\|.+\|\s*$/.test(lines[i])) { bodyRows.push(parseRow(lines[i])); i++; }
+      const thead = `<thead><tr>${headers.map((h) => `<th>${inline(h)}</th>`).join("")}</tr></thead>`;
+      const tbody = `<tbody>${bodyRows.map((r) => `<tr>${headers.map((_, idx) => `<td>${inline(r[idx] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody>`;
+      out.push(`<table class="md-table">${thead}${tbody}</table>`);
+      continue;
+    }
     // headings
     const h = ln.match(/^(#{1,4})\s+(.*)$/);
     if (h) { const lvl = h[1].length + 1; out.push(`<h${lvl}>${inline(h[2])}</h${lvl}>`); i++; continue; }
