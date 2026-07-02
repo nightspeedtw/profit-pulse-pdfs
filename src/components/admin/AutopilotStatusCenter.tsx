@@ -175,7 +175,7 @@ export function AutopilotStatusCenter() {
   useEffect(() => {
     load();
     loadSummary();
-    const p1 = setInterval(load, 4000);
+    const p1 = setInterval(load, 3000);
     const p2 = setInterval(loadSummary, 15_000);
     const tick = setInterval(() => setNow(Date.now()), 1000);
     const channel = supabase
