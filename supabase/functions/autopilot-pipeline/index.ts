@@ -663,7 +663,6 @@ Deno.serve(async (req) => {
         // ---------- STEP 12 — Shopify draft ----------
         if (shopifyDraftEnabled && !ebook.shopify_product_id) {
           if (await shopifyOverDay()) {
-            const { enqueueShopifyUpload, nextUtcMidnight } = await import("../_shared/recovery.ts");
             const nextRetry = nextUtcMidnight();
             await db.from("ebooks").update({
               autopilot_state: "waiting_for_shopify_quota",
