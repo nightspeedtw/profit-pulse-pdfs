@@ -760,6 +760,7 @@ export type Database = {
           blocker_reason: string | null
           bonus_section_json: Json | null
           bonuses: Json
+          browserless_retry_count: number
           bundle_price_recommendation: number | null
           buyer_appeal_score: number | null
           category_id: string | null
@@ -889,6 +890,7 @@ export type Database = {
           blocker_reason?: string | null
           bonus_section_json?: Json | null
           bonuses?: Json
+          browserless_retry_count?: number
           bundle_price_recommendation?: number | null
           buyer_appeal_score?: number | null
           category_id?: string | null
@@ -1018,6 +1020,7 @@ export type Database = {
           blocker_reason?: string | null
           bonus_section_json?: Json | null
           bonuses?: Json
+          browserless_retry_count?: number
           bundle_price_recommendation?: number | null
           buyer_appeal_score?: number | null
           category_id?: string | null
@@ -1215,6 +1218,7 @@ export type Database = {
           auto_rewrite_limit: number
           autopilot_enabled: boolean
           autopilot_mode: string
+          browserless_concurrency: number
           category_mix: Json
           cost_limit_reached: boolean
           cost_limit_reached_at: string | null
@@ -1223,7 +1227,9 @@ export type Database = {
           daily_budget_usd: number
           daily_quota: number
           enabled_category_ids: string[]
+          heavy_production_concurrency: number
           id: number
+          idea_generation_concurrency: number
           max_ai_calls_per_ebook: number
           max_refund_risk: number
           max_rewrite_attempts: number
@@ -1232,9 +1238,12 @@ export type Database = {
           min_word_count: number
           mode: Database["public"]["Enums"]["generation_mode"]
           paused: boolean
+          pdf_render_concurrency: number
           per_ebook_budget_usd: number
           publish_hour_utc: number
+          sequential_safe_mode: boolean
           shopify_draft_upload_enabled: boolean
+          shopify_upload_concurrency: number
           updated_at: string
         }
         Insert: {
@@ -1242,6 +1251,7 @@ export type Database = {
           auto_rewrite_limit?: number
           autopilot_enabled?: boolean
           autopilot_mode?: string
+          browserless_concurrency?: number
           category_mix?: Json
           cost_limit_reached?: boolean
           cost_limit_reached_at?: string | null
@@ -1250,7 +1260,9 @@ export type Database = {
           daily_budget_usd?: number
           daily_quota?: number
           enabled_category_ids?: string[]
+          heavy_production_concurrency?: number
           id?: number
+          idea_generation_concurrency?: number
           max_ai_calls_per_ebook?: number
           max_refund_risk?: number
           max_rewrite_attempts?: number
@@ -1259,9 +1271,12 @@ export type Database = {
           min_word_count?: number
           mode?: Database["public"]["Enums"]["generation_mode"]
           paused?: boolean
+          pdf_render_concurrency?: number
           per_ebook_budget_usd?: number
           publish_hour_utc?: number
+          sequential_safe_mode?: boolean
           shopify_draft_upload_enabled?: boolean
+          shopify_upload_concurrency?: number
           updated_at?: string
         }
         Update: {
@@ -1269,6 +1284,7 @@ export type Database = {
           auto_rewrite_limit?: number
           autopilot_enabled?: boolean
           autopilot_mode?: string
+          browserless_concurrency?: number
           category_mix?: Json
           cost_limit_reached?: boolean
           cost_limit_reached_at?: string | null
@@ -1277,7 +1293,9 @@ export type Database = {
           daily_budget_usd?: number
           daily_quota?: number
           enabled_category_ids?: string[]
+          heavy_production_concurrency?: number
           id?: number
+          idea_generation_concurrency?: number
           max_ai_calls_per_ebook?: number
           max_refund_risk?: number
           max_rewrite_attempts?: number
@@ -1286,9 +1304,12 @@ export type Database = {
           min_word_count?: number
           mode?: Database["public"]["Enums"]["generation_mode"]
           paused?: boolean
+          pdf_render_concurrency?: number
           per_ebook_budget_usd?: number
           publish_hour_utc?: number
+          sequential_safe_mode?: boolean
           shopify_draft_upload_enabled?: boolean
+          shopify_upload_concurrency?: number
           updated_at?: string
         }
         Relationships: []
@@ -1399,6 +1420,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      production_locks: {
+        Row: {
+          acquired_at: string
+          expires_at: string
+          holder_ebook_id: string | null
+          holder_run_id: string | null
+          metadata: Json
+          name: string
+        }
+        Insert: {
+          acquired_at?: string
+          expires_at: string
+          holder_ebook_id?: string | null
+          holder_run_id?: string | null
+          metadata?: Json
+          name: string
+        }
+        Update: {
+          acquired_at?: string
+          expires_at?: string
+          holder_ebook_id?: string | null
+          holder_run_id?: string | null
+          metadata?: Json
+          name?: string
+        }
+        Relationships: []
       }
       production_queue: {
         Row: {
@@ -1689,7 +1737,23 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      release_lock: {
+        Args: { p_holder: string; p_name: string }
+        Returns: boolean
+      }
+      try_acquire_lock: {
+        Args: {
+          p_holder: string
+          p_name: string
+          p_run_id?: string
+          p_ttl_sec?: number
+        }
+        Returns: {
+          acquired: boolean
+          expires_at: string
+          holder: string
+        }[]
+      }
     }
     Enums: {
       app_role: "admin"
