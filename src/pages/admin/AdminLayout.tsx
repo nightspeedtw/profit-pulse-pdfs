@@ -1,11 +1,11 @@
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Gauge, Factory, Package, Settings as SettingsIcon, LogOut, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 
-// Simplified 4-page sidebar: Command Center / Production / Products / Settings.
+const PASSCODE_KEY = "admin_passcode_ok";
+
 const nav = [
   { to: "/admin", label: "Command Center", icon: Gauge, end: true },
   { to: "/admin/production", label: "Production", icon: Factory },
@@ -14,12 +14,12 @@ const nav = [
 ];
 
 export default function AdminLayout() {
-  const { session, isAdmin, loading, user } = useAuth();
   const navigate = useNavigate();
   const [costToday, setCostToday] = useState<number>(0);
+  const authed = typeof window !== "undefined" && localStorage.getItem(PASSCODE_KEY) === "1";
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!authed) return;
     const since = new Date();
     since.setHours(0, 0, 0, 0);
     supabase
@@ -30,21 +30,15 @@ export default function AdminLayout() {
         const total = (data ?? []).reduce((s, r) => s + Number(r.cost_usd ?? 0), 0);
         setCostToday(total);
       });
-  }, [isAdmin]);
+  }, [authed]);
 
-  if (loading) return <div className="min-h-screen grid place-items-center">Loading…</div>;
-  if (!session) return <Navigate to="/admin/login" replace />;
-  if (!isAdmin) {
-    return (
-      <div className="min-h-screen grid place-items-center p-6 text-center">
-        <div className="max-w-md space-y-3">
-          <h1 className="font-display text-3xl uppercase">Not authorized</h1>
-          <p className="text-muted-foreground">Your account is signed in but does not have admin access.</p>
-          <Button onClick={async () => { await supabase.auth.signOut(); navigate("/admin/login"); }}>Sign out</Button>
-        </div>
-      </div>
-    );
-  }
+  if (!authed) return <Navigate to="/admin/login" replace />;
+
+  const signOut = () => {
+    localStorage.removeItem(PASSCODE_KEY);
+    navigate("/admin/login");
+  };
+
 
   return (
     <div className="min-h-screen flex bg-background">
