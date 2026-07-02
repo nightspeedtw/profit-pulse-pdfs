@@ -170,6 +170,7 @@ Deno.serve(async (req) => {
         .or(
           `started_at.gte.${since},status.in.(starting,running,auto_fixing,needs_admin)`,
         )
+        .neq("status", "superseded")
         .order("started_at", { ascending: false })
         .limit(50);
 
