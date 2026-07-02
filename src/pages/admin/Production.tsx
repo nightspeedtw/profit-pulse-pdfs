@@ -30,13 +30,20 @@ type Ebook = {
   updated_at: string;
   worksheet_table_overflow_score: number | null;
   worksheet_previews_json: any;
+  blocker_class?: string | null;
+  blocker_reason?: string | null;
+  next_retry_at?: string | null;
 };
 
-type FilterKey = "all" | "running" | "needs_attention" | "draft_uploaded" | "published" | "failed";
+type FilterKey =
+  | "all" | "running" | "auto_fixing" | "waiting_quota"
+  | "needs_attention" | "draft_uploaded" | "published" | "failed";
 
 const FILTER_LABEL: Record<FilterKey, string> = {
   all: "All jobs",
   running: "Running",
+  auto_fixing: "Auto-Fixing",
+  waiting_quota: "Waiting for Quota",
   needs_attention: "Needs Attention",
   draft_uploaded: "Draft Uploaded",
   published: "Published",
