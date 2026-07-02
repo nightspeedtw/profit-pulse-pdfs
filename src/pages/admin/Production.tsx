@@ -382,6 +382,21 @@ function prettyStep(s: string | null | undefined): string {
   return s.replace(/_/g, " ");
 }
 
+function prettyBlocker(reason: string): string {
+  const map: Record<string, string> = {
+    daily_shopify_upload_cap_reached: "Daily Shopify upload cap reached (20/20)",
+    ai_daily_budget_reached: "AI daily budget reached",
+    invalid_shopify_credentials: "Shopify credentials invalid — reconnect the store",
+    invalid_shopify_api_key: "Invalid Shopify API key — reconnect the store",
+    temporary_api_error: "Temporary upstream error — retrying",
+    missing_dependency: "Missing dependency — routing back to repair",
+    stalled_heartbeat_resumed: "Stalled — resumed by recovery worker",
+    compliance_violation: "Content compliance issue — manual review required",
+    qc_repairable: "Repairable QC issue — auto-fixing",
+  };
+  return map[reason] ?? reason.replace(/_/g, " ");
+}
+
 function resolveJobBadge(e: Ebook): EbookBadgeKind {
   // Ebook-level self-healing statuses win — the recovery engine is authoritative.
   const eb = resolveEbookBadge(e);
