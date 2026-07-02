@@ -368,10 +368,17 @@ function prettyStep(s: string | null | undefined): string {
 }
 
 function resolveJobBadge(e: Ebook): EbookBadgeKind {
+  // Ebook-level self-healing statuses win — the recovery engine is authoritative.
+  const eb = resolveEbookBadge(e);
+  if ([
+    "waiting_for_shopify_quota", "waiting_for_ai_budget", "waiting_for_worker_slot",
+    "auto_fixing", "repairing_dependency", "draft_upload_queued",
+    "needs_admin_attention", "failed_non_recoverable", "published", "draft_uploaded",
+  ].includes(eb)) return eb;
   const status = e.run_status ?? "";
   if (e.pause_requested) return "paused";
   if (["starting", "running", "auto_fixing"].includes(status)) return "writing";
   if (status === "needs_admin") return (e.current_step ?? "").includes("qc") ? "qc_failed" : "needs_review";
-  if (status === "failed") return "failed";
-  return resolveEbookBadge(e);
+  if (status === "failed") return e.blocker_class === "non_recoverable_config_error" ? "failed_non_recoverable" : "failed";
+  return eb;
 }
