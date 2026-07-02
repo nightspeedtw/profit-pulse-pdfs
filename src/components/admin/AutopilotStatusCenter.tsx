@@ -135,55 +135,33 @@ export function AutopilotStatusCenter() {
   const [now, setNow] = useState(Date.now());
 
   async function load() {
-    // Show recent (last 24h) + all currently active runs.
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data: r } = await supabase
-      .from("autopilot_pipeline_runs")
-      .select("id,ebook_id,status,current_step,current_step_label,current_action_message,current_subtask,progress_percent,started_at,updated_at,last_heartbeat_at,completed_at,admin_needed_reason,error_message,pause_requested,mode,test_mode")
-      .or(`started_at.gte.${since},status.in.(starting,running,auto_fixing,needs_admin)`)
-      .order("started_at", { ascending: false })
-      .limit(50);
-    const runsData = (r ?? []) as RunRow[];
-    setRuns(runsData);
-
-    const ebookIds = Array.from(new Set(runsData.map((x) => x.ebook_id).filter(Boolean))) as string[];
-    if (ebookIds.length) {
-      const { data: eb } = await supabase
-        .from("ebooks")
-        .select("id,title,shopify_status,shopify_product_id,final_quality_score,cover_url,cover_approved,pdf_url,pdf_status,pdf_generated_at")
-        .in("id", ebookIds);
+    try {
+      const d = await fetchAdminData<{
+        runs: RunRow[]; ebooks: EbookRow[]; steps: StepRow[];
+      }>("autopilot_overview");
+      setRuns(d.runs ?? []);
       const map: Record<string, EbookRow> = {};
-      (eb ?? []).forEach((x) => { map[(x as EbookRow).id] = x as EbookRow; });
+      (d.ebooks ?? []).forEach((x) => { map[x.id] = x; });
       setEbooksById(map);
-    }
-
-    // Latest active/running step per run — for subtask + auto-fix attempts.
-    const activeRunIds = runsData.filter((x) => ACTIVE.includes(x.status)).map((x) => x.id);
-    if (activeRunIds.length) {
-      const { data: sr } = await supabase
-        .from("autopilot_pipeline_steps")
-        .select("run_id,step_name,step_label,status,score,required_score,auto_fix_attempts,max_auto_fix_attempts,metadata_json,started_at,completed_at")
-        .in("run_id", activeRunIds)
-        .in("status", ["running", "auto_fixing"])
-        .order("started_at", { ascending: false });
-      const map: Record<string, StepRow> = {};
-      (sr ?? []).forEach((row) => { const s = row as StepRow; if (!map[s.run_id]) map[s.run_id] = s; });
-      setActiveStepByRun(map);
-    } else {
-      setActiveStepByRun({});
+      const stepMap: Record<string, StepRow> = {};
+      (d.steps ?? []).forEach((s) => { if (!stepMap[s.run_id]) stepMap[s.run_id] = s; });
+      setActiveStepByRun(stepMap);
+    } catch (err) {
+      console.error("[AutopilotStatusCenter] load failed", err);
     }
   }
 
   async function loadSummary() {
-    const since = new Date(); since.setHours(0, 0, 0, 0);
-    const [{ data: settings }, { count: produced }, { data: costs }] = await Promise.all([
-      supabase.from("generation_settings").select("daily_quota").eq("id", 1).maybeSingle(),
-      supabase.from("ebooks").select("id", { count: "exact", head: true }).gte("created_at", since.toISOString()),
-      supabase.from("cost_log").select("cost_usd").gte("created_at", since.toISOString()),
-    ]);
-    setDailyQuota((settings as { daily_quota?: number } | null)?.daily_quota ?? 0);
-    setProducedToday(produced ?? 0);
-    setCostToday((costs ?? []).reduce((a, r) => a + Number(r.cost_usd ?? 0), 0));
+    try {
+      const d = await fetchAdminData<{
+        daily_quota: number; produced_today: number; cost_today: number;
+      }>("autopilot_overview");
+      setDailyQuota(d.daily_quota ?? 0);
+      setProducedToday(d.produced_today ?? 0);
+      setCostToday(Number(d.cost_today ?? 0));
+    } catch (err) {
+      console.error("[AutopilotStatusCenter] summary failed", err);
+    }
   }
 
   useEffect(() => {
