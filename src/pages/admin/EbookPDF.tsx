@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { Loader2, RefreshCw, FileText, CheckCircle2, XCircle, ExternalLink, Sparkles } from "lucide-react";
+import { WorksheetOverflowReview } from "@/components/admin/WorksheetOverflowReview";
 
 type Ebook = any;
 
@@ -248,6 +249,12 @@ export default function EbookPDF() {
           )}
         </div>
       </div>
+
+      <WorksheetOverflowReview
+        ebookId={ebook.id}
+        overflowScore={ebook.worksheet_table_overflow_score ?? qc.worksheet_table_overflow_score ?? null}
+        initialPreviews={ebook.worksheet_previews_json ?? null}
+      />
     </div>
   );
 }
