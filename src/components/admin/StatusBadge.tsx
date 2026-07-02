@@ -20,7 +20,7 @@ const STYLES: Record<EbookBadgeKind, { label: string; cls: string }> = {
   waiting_for_shopify_quota:    { label: "Waiting for Shopify Quota",   cls: "bg-cyan-100 text-cyan-900 border-cyan-700" },
   waiting_for_ai_budget:        { label: "Waiting for AI Budget",       cls: "bg-cyan-100 text-cyan-900 border-cyan-700" },
   waiting_for_worker_slot:      { label: "Waiting for Worker",          cls: "bg-cyan-100 text-cyan-900 border-cyan-700" },
-  waiting_for_browserless_slot: { label: "Waiting for Browserless",     cls: "bg-cyan-100 text-cyan-900 border-cyan-700" },
+  waiting_for_browserless_slot: { label: "Waiting for Browserless Slot — will retry automatically", cls: "bg-cyan-100 text-cyan-900 border-cyan-700" },
   queued_for_production:        { label: "Queued for Production",       cls: "bg-slate-100 text-slate-900 border-slate-600" },
   production_running:           { label: "Production Running",          cls: "bg-sky-100 text-sky-900 border-sky-700" },
   rendering_pdf:                { label: "Rendering PDF",               cls: "bg-sky-100 text-sky-900 border-sky-700" },
