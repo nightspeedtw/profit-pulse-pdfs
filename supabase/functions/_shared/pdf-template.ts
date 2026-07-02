@@ -478,10 +478,16 @@ export function buildPdfHtml(data: PdfData): string {
   /* ---------- Framework diagram ---------- */
   .framework__grid { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8pt; }
   .framework__cell { flex: 1 1 1.1in; min-width: 1.1in; border: 1pt solid var(--ink);
-    padding: 10pt; display: flex; flex-direction: column; gap: 6pt; }
+    padding: 10pt; display: flex; flex-direction: column; gap: 6pt; position: relative; }
+  .framework__cell--connect::after { content: ""; position: absolute; right: -12pt;
+    top: 50%; width: 8pt; height: 2pt; background: var(--accent); transform: translateY(-50%); }
+  .framework__cell--connect::before { content: ""; position: absolute; right: -14pt;
+    top: 50%; width: 0; height: 0;
+    border-left: 6pt solid var(--accent);
+    border-top: 4pt solid transparent; border-bottom: 4pt solid transparent;
+    transform: translateY(-50%); }
   .framework__n { font-family: "Inter", sans-serif; font-weight: 800; font-size: 18pt; color: var(--accent); }
   .framework__t { font-size: 10pt; color: var(--ink-soft); }
-  .framework__arrow { align-self: center; font-size: 18pt; color: var(--accent); }
 
   /* ---------- Action plan ---------- */
   .section__title { font-family: "Inter", sans-serif; font-weight: 800;
