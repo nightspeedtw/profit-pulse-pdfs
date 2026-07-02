@@ -127,7 +127,7 @@ export function AutopilotStatusCenter() {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data: r } = await supabase
       .from("autopilot_pipeline_runs")
-      .select("id,ebook_id,status,current_step,current_step_label,current_action_message,progress_percent,started_at,updated_at,completed_at,admin_needed_reason,error_message,pause_requested,mode,test_mode")
+      .select("id,ebook_id,status,current_step,current_step_label,current_action_message,current_subtask,progress_percent,started_at,updated_at,last_heartbeat_at,completed_at,admin_needed_reason,error_message,pause_requested,mode,test_mode")
       .or(`started_at.gte.${since},status.in.(starting,running,auto_fixing,needs_admin)`)
       .order("started_at", { ascending: false })
       .limit(50);
