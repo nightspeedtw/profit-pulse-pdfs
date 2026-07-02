@@ -83,9 +83,9 @@ export function SystemFixCard({ fix }: { fix: SystemFix }) {
           <Section label="Acceptance test">{fix.acceptance_test}</Section>
         )}
         <div className="flex gap-2 pt-2">
-          <Button onClick={copy} variant="default" size="sm" className="gap-2">
-            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-            Copy Lovable Fix Prompt
+          <Button onClick={copy} variant="destructive" size="sm" className="gap-2">
+            {copied ? <Check className="h-4 w-4" /> : <Wrench className="h-4 w-4" />}
+            {copied ? "Copied — paste into Lovable" : "Fix → Send to Lovable"}
           </Button>
         </div>
       </CardContent>
