@@ -742,6 +742,7 @@ Deno.serve(async (req) => {
         const ch = chapters.find((c) => c.chapter_index === r.chapter_index);
         if (!ch) continue;
         const target = r.repair_action === "expand_chapter" ? Math.ceil(wordsTarget * 1.3) : wordsTarget;
+        await emit("repair_chapter", `Repairing Chapter ${ch.chapter_index} (${r.repair_action}) — attempt ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS}…`, { attempt: attemptsUsed, chapter_index: ch.chapter_index, action: r.repair_action });
         const x = await rewriteChapter(fixModel, ebook, ch, instructionsForReason(r, target), target);
         totalCost += x.usage.cost_usd;
         await logCost(db, { ebook_id: ebook.id, step: `manuscript_fix_ch${ch.chapter_index}:r${attemptsUsed}`, model: x.model, ...x.usage });
