@@ -188,6 +188,10 @@ export function humanStatus(state: string | null | undefined): string {
     case "waiting_for_shopify_quota": return "Waiting for Shopify Quota";
     case "waiting_for_ai_budget": return "Waiting for AI Budget";
     case "waiting_for_worker_slot": return "Waiting for Worker Slot";
+    case "waiting_for_browserless_slot": return "Waiting for Browserless Slot";
+    case "queued_for_production": return "Queued for Production";
+    case "production_running": return "Production Running";
+    case "rendering_pdf": return "Rendering PDF";
     case "auto_fixing": return "Auto-Fixing";
     case "repairing_dependency": return "Repairing Dependency";
     case "draft_upload_queued": return "Draft Upload Queued";
