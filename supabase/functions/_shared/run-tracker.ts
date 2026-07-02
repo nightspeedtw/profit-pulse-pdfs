@@ -115,7 +115,7 @@ export class RunTracker {
     }));
     await db.from("autopilot_pipeline_steps").insert(rows);
 
-    const t = new RunTracker(db, data.id);
+    const t = new RunTracker(db, data.id, opts.ebook_id ?? null);
     await t.passStep("start_run", { message: "Pipeline started" });
     return t;
   }
