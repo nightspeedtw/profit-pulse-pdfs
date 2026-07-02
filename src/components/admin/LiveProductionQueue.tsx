@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, Clock, Loader2, PauseCircle, Wrench, AlertTriangle } from "lucide-react";
+import { Activity, Clock, Loader2, PauseCircle, Wrench, AlertTriangle, ShieldCheck, Lock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -86,16 +86,68 @@ export function LiveProductionQueue() {
     );
   }
 
+  const current = data.currently_working_on[0] ?? null;
+  const lockActive = !!data.heavy_production_lock?.holder_ebook_id;
+  const totalWaiting =
+    data.queued.length + data.waiting.length + data.auto_fixing.length;
+
   return (
     <div className="space-y-4">
+      <SafeModeBanner
+        current={current}
+        lockActive={lockActive}
+        lockExpiresAt={data.heavy_production_lock?.expires_at ?? null}
+        totalWaiting={totalWaiting}
+      />
       <SectionA items={data.currently_working_on} />
-      <SectionB items={data.queued} currentTitle={data.currently_working_on[0]?.title ?? null} />
+      <SectionB items={data.queued} currentTitle={current?.title ?? null} />
       <SectionC items={data.waiting} />
       <SectionD items={data.auto_fixing} />
       <SectionE fixes={data.system_fixes} needsCode={data.needs_code_fix} needsAdmin={data.needs_admin} />
     </div>
   );
 }
+
+function SafeModeBanner({
+  current,
+  lockActive,
+  lockExpiresAt,
+  totalWaiting,
+}: {
+  current: QueueEbook | null;
+  lockActive: boolean;
+  lockExpiresAt: string | null;
+  totalWaiting: number;
+}) {
+  return (
+    <Card className="border-2 border-foreground/20 bg-muted/30">
+      <CardContent className="p-4 flex flex-wrap items-center gap-3 text-sm">
+        <div className="flex items-center gap-2 font-medium">
+          <ShieldCheck className="h-4 w-4 text-emerald-600" />
+          Sequential Safe Mode
+        </div>
+        <span className="text-xs text-muted-foreground">
+          Only one ebook in heavy production. PDF render + Shopify upload are strictly one-by-one.
+          Topic/idea generation runs in parallel.
+        </span>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {lockActive ? (
+            <Badge variant="outline" className="gap-1">
+              <Lock className="h-3 w-3" />
+              Production slot held
+              {current?.title ? ` by "${current.title}"` : ""}
+              {lockExpiresAt ? ` · lease ${untilRetry(lockExpiresAt)}` : ""}
+            </Badge>
+          ) : (
+            <Badge variant="secondary">Production slot: free</Badge>
+          )}
+          <Badge variant="secondary">{totalWaiting} waiting</Badge>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 
 function SectionShell({
   title,
