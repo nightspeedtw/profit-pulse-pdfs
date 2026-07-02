@@ -71,12 +71,18 @@ export class RunTracker {
 
   private async syncEbook(patch: Record<string, unknown>) {
     if (!this.ebookId) return;
-    try {
-      await this.db.from("ebooks").update({
-        ...patch,
-        last_heartbeat_at: new Date().toISOString(),
-      }).eq("id", this.ebookId);
-    } catch (_err) { /* best-effort */ }
+    // Strip undefined so partial writes never overwrite existing values with null.
+    const clean: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(patch)) if (v !== undefined) clean[k] = v;
+    clean.last_heartbeat_at = new Date().toISOString();
+    // Do NOT swallow errors silently — a missing column here would hide the entire
+    // canonical_status sync (Phase 1 visibility bug root cause). Log to Deno for
+    // edge-function tail, and continue the pipeline either way.
+    const { error } = await this.db.from("ebooks").update(clean).eq("id", this.ebookId);
+    if (error) {
+      // deno-lint-ignore no-console
+      console.warn(`[run-tracker] syncEbook failed for ${this.ebookId}: ${error.message}`, { keys: Object.keys(clean) });
+    }
   }
 
   static async start(db: Db, opts: {
