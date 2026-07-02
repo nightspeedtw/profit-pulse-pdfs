@@ -320,6 +320,7 @@ Deno.serve(async (req) => {
         auto_fixing: coalesce(autofix.data),
         needs_admin: coalesce(needsAdmin.data),
         needs_code_fix: coalesce(needsCode.data),
+        ready_to_publish: coalesce(ready.data),
         system_fixes: fixes ?? [],
         heavy_production_lock: lock ?? null,
         fetched_at: new Date().toISOString(),
