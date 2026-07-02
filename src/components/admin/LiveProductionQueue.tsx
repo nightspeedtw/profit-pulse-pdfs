@@ -106,6 +106,7 @@ export function LiveProductionQueue() {
         lockExpiresAt={data.heavy_production_lock?.expires_at ?? null}
         totalWaiting={totalWaiting}
       />
+      <SectionReady items={data.ready_to_publish ?? []} />
       <SectionA items={data.currently_working_on} />
       <SectionB items={data.queued} currentTitle={current?.title ?? null} />
       <SectionC items={data.waiting} />
