@@ -433,6 +433,8 @@ function RunCard({
           <div className="text-[11px] text-red-800 line-clamp-2">{run.error_message}</div>
         )}
 
+        <PreviewTask ebook={ebook} ds={ds} />
+
         <div className="pt-1">
           <Link to={`/admin/autopilot/run/${run.id}`}>
             <Button size="sm" variant="outline" className="h-7 text-xs w-full">View Details →</Button>
@@ -440,6 +442,75 @@ function RunCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function PreviewTask({ ebook, ds }: { ebook: EbookRow | undefined; ds: DisplayStatus }) {
+  if (!ebook) return null;
+  const coverReady = !!ebook.cover_url;
+  const pdfReady = !!ebook.pdf_url;
+  // Infer generating state from the current pipeline step / display status
+  const generatingCover = !coverReady && ["running", "auto_fixing"].includes(ds);
+  const generatingPdf = coverReady && !pdfReady && (
+    ds === "rendering_pdf" || ds === "auto_fixing" || ds === "running"
+  );
+  const coverFailed = !coverReady && ds === "needs_admin";
+  const pdfFailed = !pdfReady && (ebook.pdf_status === "failed" || ds === "failed");
+
+  return (
+    <div className="border-t border-foreground/10 pt-2 mt-1">
+      <p className="text-[10px] font-mono uppercase text-muted-foreground tracking-wide mb-1">Preview Task</p>
+      <div className="grid grid-cols-2 gap-2 text-[11px]">
+        {/* Cover */}
+        <div className="flex items-start gap-2">
+          {coverReady ? (
+            <a href={ebook.cover_url ?? "#"} target="_blank" rel="noopener noreferrer"
+               className="block w-10 h-14 border border-foreground/20 overflow-hidden shrink-0 hover:ring-2 hover:ring-sky-400">
+              <img src={ebook.cover_url ?? ""} alt="cover" className="w-full h-full object-cover" />
+            </a>
+          ) : (
+            <div className="w-10 h-14 border border-dashed border-foreground/30 bg-muted/40 shrink-0" />
+          )}
+          <div className="min-w-0">
+            <p className="font-medium">Cover</p>
+            {coverReady ? (
+              <a href={ebook.cover_url ?? "#"} target="_blank" rel="noopener noreferrer"
+                 className="text-sky-700 hover:underline">Open Preview</a>
+            ) : coverFailed ? (
+              <span className="text-red-800">Preview failed</span>
+            ) : generatingCover ? (
+              <span className="text-orange-800">Generating…</span>
+            ) : (
+              <span className="text-muted-foreground">Pending</span>
+            )}
+          </div>
+        </div>
+        {/* PDF */}
+        <div className="flex items-start gap-2">
+          <div className={`w-10 h-14 border shrink-0 flex items-center justify-center text-[9px] font-mono ${pdfReady ? "border-foreground/40 bg-emerald-50 text-emerald-800" : "border-dashed border-foreground/30 bg-muted/40 text-muted-foreground"}`}>
+            PDF
+          </div>
+          <div className="min-w-0">
+            <p className="font-medium">PDF</p>
+            {pdfReady ? (
+              <a href={ebook.pdf_url ?? "#"} target="_blank" rel="noopener noreferrer"
+                 className="text-sky-700 hover:underline">Open Preview</a>
+            ) : pdfFailed ? (
+              <span className="text-red-800">Preview failed</span>
+            ) : generatingPdf ? (
+              <span className="text-orange-800">Generating…</span>
+            ) : (
+              <span className="text-muted-foreground">Pending</span>
+            )}
+            {pdfReady && ebook.pdf_generated_at && (
+              <p className="text-[10px] text-muted-foreground">
+                {new Date(ebook.pdf_generated_at).toLocaleTimeString()}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
