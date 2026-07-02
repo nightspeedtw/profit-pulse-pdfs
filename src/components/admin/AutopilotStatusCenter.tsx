@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAdminData } from "@/lib/adminData";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Activity, AlertTriangle, Clock, LayoutGrid, Rows3 } from "lucide-react";
