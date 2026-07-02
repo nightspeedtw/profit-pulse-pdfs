@@ -28,6 +28,7 @@ import {
   LOCK_HEAVY, tryAcquireLock, releaseLock, getLockHolder,
   enqueueShopifyUpload, nextUtcMidnight, browserlessBackoffAt,
 } from "../_shared/recovery.ts";
+import { classifyError, recordSystemFix } from "../_shared/error-classifier.ts";
 
 interface InvokeResult { ok: boolean; status: number; body: any; }
 
