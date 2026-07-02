@@ -117,6 +117,7 @@ export function AutopilotStatusCenter() {
   const [dailyQuota, setDailyQuota] = useState<number>(0);
   const [producedToday, setProducedToday] = useState(0);
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [view, setView] = useState<"cards" | "table">("cards");
   const [now, setNow] = useState(Date.now());
 
   async function load() {
