@@ -6,8 +6,8 @@ import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Activity, AlertTriangle, Clock } from "lucide-react";
-import { RUN_STATUS_LABEL, stepLabel, AUTOPILOT_STEPS, TOTAL_STEPS } from "@/lib/autopilot-steps";
+import { Activity, AlertTriangle, Clock, LayoutGrid, Rows3 } from "lucide-react";
+import { stepLabel, AUTOPILOT_STEPS, TOTAL_STEPS } from "@/lib/autopilot-steps";
 
 type RunRow = {
   id: string;
