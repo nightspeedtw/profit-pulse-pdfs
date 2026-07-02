@@ -86,16 +86,20 @@ Deno.serve(async (req) => {
             title: c.title ?? `Chapter ${i + 1}`,
             content: c.content ?? "",
           })));
-      // Reuse existing images where present; generate the rest (best-effort).
-      for (const entry of plan.entries) {
-        if (entry.recommendation === "none") continue;
+      // Reuse existing images where present; generate the rest in parallel
+      // so the whole pipeline fits inside the edge function's 150s window.
+      const toGenerate = plan.entries.filter((e) => e.recommendation !== "none");
+      const results = await Promise.all(toGenerate.map(async (entry) => {
         const key = String(entry.chapter_index);
         const cached = existingImages[key];
-        if (cached?.url) { illustrationsByChapter[entry.chapter_index] = cached; continue; }
+        if (cached?.url) return { entry, url: cached.url };
         const url = await generateAndStoreIllustration(db, ebookId, entry.chapter_index, entry.prompt).catch((err) => {
           console.warn(`illustration ch${entry.chapter_index} failed:`, (err as Error).message);
           return null;
         });
+        return { entry, url };
+      }));
+      for (const { entry, url } of results) {
         if (url) illustrationsByChapter[entry.chapter_index] = { url, caption: entry.caption };
       }
     } catch (err) {
