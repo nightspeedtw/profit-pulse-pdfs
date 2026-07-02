@@ -117,14 +117,20 @@ Deno.serve(async (req) => {
         const meta = (c.metadata ?? {}) as any;
         const chIdx = c.chapter_index ?? (i + 1);
         const rawWs = meta.worksheet ?? c.worksheet ?? extractWorksheet(c.content ?? "", c.title ?? "");
-        const wsKind: WorksheetKind = pickWorksheetKind(c.title ?? "", chIdx);
+        const wsKind: WorksheetKind = (rawWs?.kind as WorksheetKind | undefined) ?? pickWorksheetKind(c.title ?? "", chIdx);
+        // Guarantee every chapter has a usable worksheet — falls back to a
+        // typed template if the manuscript didn't emit one. This makes the
+        // premium PDF's worksheet section reliable instead of optional.
+        const worksheet = rawWs
+          ? { ...rawWs, kind: wsKind }
+          : defaultWorksheetFor(wsKind, c.title ?? `Chapter ${i + 1}`);
         return {
           index: chIdx,
           title: c.title ?? `Chapter ${i + 1}`,
           brief: c.brief ?? meta.brief ?? null,
           content: complianceContentByIndex.get(chIdx) ?? c.content ?? "",
           callouts: meta.callouts ?? c.callouts ?? extractCallouts(c.content ?? ""),
-          worksheet: rawWs ? { ...rawWs, kind: rawWs.kind ?? wsKind } : null,
+          worksheet,
           checklist: meta.checklist ?? c.checklist ?? extractChecklist(c.content ?? "", c.title ?? ""),
           diagram: meta.diagram ?? c.diagram ?? null,
           illustration: illustrationsByChapter[chIdx] ?? null,
