@@ -6,8 +6,8 @@ import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Activity, AlertTriangle, Clock } from "lucide-react";
-import { RUN_STATUS_LABEL, stepLabel, AUTOPILOT_STEPS, TOTAL_STEPS } from "@/lib/autopilot-steps";
+import { Activity, AlertTriangle, Clock, LayoutGrid, Rows3 } from "lucide-react";
+import { stepLabel, AUTOPILOT_STEPS, TOTAL_STEPS } from "@/lib/autopilot-steps";
 
 type RunRow = {
   id: string;
@@ -117,6 +117,7 @@ export function AutopilotStatusCenter() {
   const [dailyQuota, setDailyQuota] = useState<number>(0);
   const [producedToday, setProducedToday] = useState(0);
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [view, setView] = useState<"cards" | "table">("cards");
   const [now, setNow] = useState(Date.now());
 
   async function load() {
@@ -174,7 +175,7 @@ export function AutopilotStatusCenter() {
   useEffect(() => {
     load();
     loadSummary();
-    const p1 = setInterval(load, 4000);
+    const p1 = setInterval(load, 3000);
     const p2 = setInterval(loadSummary, 15_000);
     const tick = setInterval(() => setNow(Date.now()), 1000);
     const channel = supabase
@@ -196,8 +197,10 @@ export function AutopilotStatusCenter() {
   }), [runs, ebooksById, activeStepByRun]);
 
   const counts = useMemo(() => {
-    const c = { running: 0, queued: 0, auto_fixing: 0, draft_uploaded: 0, needs_admin: 0, failed: 0, completed: 0 };
-    enriched.forEach(({ ds }) => {
+    const c = { running: 0, queued: 0, auto_fixing: 0, draft_uploaded: 0, needs_admin: 0, failed: 0, completed: 0, avgProgress: 0 };
+    let activeCount = 0;
+    let activeSum = 0;
+    enriched.forEach(({ ds, run }) => {
       if (ds === "queued") c.queued++;
       else if (ds === "auto_fixing") c.auto_fixing++;
       else if (["running", "rendering_pdf", "uploading_shopify", "verifying_shopify"].includes(ds)) c.running++;
@@ -205,7 +208,12 @@ export function AutopilotStatusCenter() {
       else if (ds === "needs_admin") c.needs_admin++;
       else if (ds === "failed") c.failed++;
       else if (ds === "completed") c.completed++;
+      if (["running", "rendering_pdf", "uploading_shopify", "verifying_shopify", "auto_fixing"].includes(ds)) {
+        activeCount++;
+        activeSum += run.progress_percent ?? 0;
+      }
     });
+    c.avgProgress = activeCount > 0 ? Math.round(activeSum / activeCount) : 0;
     return c;
   }, [enriched]);
 
@@ -251,22 +259,26 @@ export function AutopilotStatusCenter() {
         <CardContent className="p-4">
           <div className="flex items-center gap-2 mb-3">
             <Activity className="size-4 text-sky-700" />
-            <h2 className="font-display text-base uppercase tracking-wide">Autopilot Runs</h2>
-            <span className="ml-auto text-[10px] font-mono uppercase text-muted-foreground">Live · updates every 4s</span>
+            <h2 className="font-display text-base uppercase tracking-wide">Live Autopilot Overview</h2>
+            <span className="ml-auto text-[10px] font-mono uppercase text-muted-foreground">Live · updates every 3s</span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-10 gap-2 text-xs">
+            <SummaryTile label="Daily Quota" value={dailyQuota || "—"} />
             <SummaryTile label="Completed" value={`${producedToday}/${dailyQuota || "—"}`} tone="text-emerald-800" />
             <SummaryTile label="Running" value={counts.running} tone="text-sky-800" />
             <SummaryTile label="Queued" value={counts.queued} />
             <SummaryTile label="Auto-Fixing" value={counts.auto_fixing} tone={counts.auto_fixing ? "text-orange-800" : ""} />
             <SummaryTile label="Needs Admin" value={counts.needs_admin} tone={counts.needs_admin ? "text-red-800" : ""} />
+            <SummaryTile label="Failed" value={counts.failed} tone={counts.failed ? "text-red-800" : ""} />
+            <SummaryTile label="Shopify Drafts" value={counts.draft_uploaded} tone={counts.draft_uploaded ? "text-emerald-800" : ""} />
+            <SummaryTile label="Avg Progress" value={`${counts.avgProgress}%`} />
             <SummaryTile label="AI Cost Today" value={`$${costToday.toFixed(2)}`} />
           </div>
         </CardContent>
       </Card>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-1">
+      {/* Filters + view toggle */}
+      <div className="flex flex-wrap items-center gap-1">
         {FILTERS.map((f) => (
           <Button
             key={f.key}
@@ -278,17 +290,29 @@ export function AutopilotStatusCenter() {
             {f.label}{typeof f.n === "number" ? ` (${f.n})` : ""}
           </Button>
         ))}
+        <div className="ml-auto flex gap-1">
+          <Button size="sm" variant={view === "cards" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setView("cards")}>
+            <LayoutGrid className="size-3 mr-1" />Cards
+          </Button>
+          <Button size="sm" variant={view === "table" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setView("table")}>
+            <Rows3 className="size-3 mr-1" />Table
+          </Button>
+        </div>
       </div>
 
-      {/* Per-book cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {filtered.map(({ run, ebook, ds, step }) => (
-          <RunCard key={run.id} run={run} ebook={ebook} ds={ds} step={step} now={now} />
-        ))}
-        {filtered.length === 0 && (
-          <p className="text-sm text-muted-foreground p-3">No runs match this filter.</p>
-        )}
-      </div>
+      {/* Per-book */}
+      {view === "cards" ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {filtered.map(({ run, ebook, ds, step }) => (
+            <RunCard key={run.id} run={run} ebook={ebook} ds={ds} step={step} now={now} />
+          ))}
+          {filtered.length === 0 && (
+            <p className="text-sm text-muted-foreground p-3">No runs match this filter.</p>
+          )}
+        </div>
+      ) : (
+        <RunTable rows={filtered} now={now} />
+      )}
     </section>
   );
 }
@@ -401,6 +425,79 @@ function RunCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+type RunRowData = { run: RunRow; ebook: EbookRow | undefined; ds: DisplayStatus; step: StepRow | undefined };
+
+function RunTable({ rows, now }: { rows: RunRowData[]; now: number }) {
+  if (rows.length === 0) {
+    return <p className="text-sm text-muted-foreground p-3">No runs match this filter.</p>;
+  }
+  return (
+    <div className="border-2 border-foreground overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-muted/50 font-mono uppercase text-[10px] tracking-wide">
+          <tr>
+            <th className="p-2 text-left">Ebook</th>
+            <th className="p-2 text-left">Status</th>
+            <th className="p-2 text-left w-32">Progress</th>
+            <th className="p-2 text-left">Step</th>
+            <th className="p-2 text-left">Current Action</th>
+            <th className="p-2 text-left">Auto-Fix</th>
+            <th className="p-2 text-left">Shopify</th>
+            <th className="p-2 text-left">Updated</th>
+            <th className="p-2 text-right">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ run, ebook, ds, step }) => {
+            const style = STATUS_STYLE[ds];
+            const stepIdx = stepIndex(run.current_step);
+            const label = run.current_step_label ?? stepLabel(run.current_step);
+            const title = ebook?.title || (run.ebook_id ? "Untitled" : "New Run");
+            const attempts = step?.auto_fix_attempts ?? 0;
+            const maxAttempts = step?.max_auto_fix_attempts ?? 3;
+            const updatedSec = Math.floor((now - new Date(run.updated_at).getTime()) / 1000);
+            const stalled = ACTIVE.includes(run.status) && updatedSec > 300;
+            return (
+              <tr key={run.id} className={`border-t border-foreground/10 hover:bg-muted/30 ${stalled ? "bg-red-50/40" : ""}`}>
+                <td className="p-2 max-w-[220px]">
+                  <p className="font-medium line-clamp-1">{title}</p>
+                  <p className="text-[10px] font-mono text-muted-foreground">{run.id.slice(0, 8)}</p>
+                </td>
+                <td className="p-2">
+                  <span className={`text-[10px] font-mono uppercase border-2 px-1.5 py-0.5 ${style.badge}`}>{style.label}</span>
+                  {stalled && <p className="text-[10px] text-red-800 mt-0.5">Stalled {Math.floor(updatedSec / 60)}m</p>}
+                </td>
+                <td className="p-2">
+                  <div className="flex items-center gap-1">
+                    <div className="h-1.5 flex-1 bg-muted border border-foreground/10 overflow-hidden">
+                      <div className={`h-full ${style.bar}`} style={{ width: `${Math.max(2, run.progress_percent)}%` }} />
+                    </div>
+                    <span className="font-mono text-[10px] w-8 text-right">{run.progress_percent}%</span>
+                  </div>
+                </td>
+                <td className="p-2">
+                  <span className="text-muted-foreground">{stepIdx}/{TOTAL_STEPS}</span> <span className="font-medium">{label}</span>
+                </td>
+                <td className="p-2 max-w-[260px]">
+                  <p className="line-clamp-1">{run.current_action_message ?? "—"}</p>
+                </td>
+                <td className="p-2">{attempts > 0 ? <span className="text-orange-800">{attempts}/{maxAttempts}</span> : "—"}</td>
+                <td className="p-2 font-mono">{ebook?.shopify_status ?? (ebook?.shopify_product_id ? "draft" : "—")}</td>
+                <td className="p-2 font-mono text-muted-foreground">{agoLabel(run.updated_at, now)}</td>
+                <td className="p-2 text-right">
+                  <Link to={`/admin/autopilot/run/${run.id}`}>
+                    <Button size="sm" variant="outline" className="h-6 text-[11px]">View →</Button>
+                  </Link>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
