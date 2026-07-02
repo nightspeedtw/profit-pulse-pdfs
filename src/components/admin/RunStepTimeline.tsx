@@ -154,4 +154,3 @@ export function RunStepTimeline({ steps }: { steps: RunStepRow[] }) {
     </ol>
   );
 }
-}
