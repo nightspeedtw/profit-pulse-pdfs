@@ -765,12 +765,14 @@ Deno.serve(async (req) => {
       const nothingHappened = seenChapters.size === 0 && !pickedExpandAll.done;
 
       if (humanizationNeeded && (nothingHappened || finalAttempt)) {
+        await emit("humanize_pass", `Broad humanization pass across ${chapters.length} chapters (attempt ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS})…`, { attempt: attemptsUsed });
         // Rewrite EVERY chapter with the humanization instruction to vary openings,
         // transitions, and summaries across the whole manuscript.
         const inst = instructionsForReason({ code: "humanize_manuscript", message: "", repair_action: "humanize_manuscript" }, 0);
         for (const ch of chapters) {
           if (seenChapters.has(ch.chapter_index)) continue;
           const target = Math.max(ch.word_count ?? 0, MIN_CHAPTER_WORDS);
+          await emit("humanize_chapter", `Humanizing Chapter ${ch.chapter_index}/${chapters.length}…`, { attempt: attemptsUsed, chapter_index: ch.chapter_index });
           const x = await rewriteChapter(fixModel, ebook, ch, inst, target);
           totalCost += x.usage.cost_usd;
           await logCost(db, { ebook_id: ebook.id, step: `manuscript_humanize_ch${ch.chapter_index}:r${attemptsUsed}`, model: x.model, ...x.usage });
