@@ -749,9 +749,23 @@ Deno.serve(async (req) => {
           await runStep("13_publish", "shopify-publish", { ebook_id: ebook.id });
         }
 
+        // Hard-gate: block ready_to_publish if any critical PDF QC gate failed.
+        // pdf_status === 'needs_review' means render-pdf already flagged one of:
+        // raw_markdown, chapter titles, worksheet relevance, cover full-bleed,
+        // worksheet overflow, visual fatigue, illustration relevance, compliance.
+        const pdfBlocked = ebook.pdf_status === "needs_review";
+        const nextState = autoPublish
+          ? "done"
+          : pdfBlocked
+            ? "needs_review"
+            : "ready_to_publish";
+        const qcJson = (ebook.pdf_qc ?? {}) as Record<string, unknown>;
+        const reviewReason = pdfBlocked
+          ? `PDF QC gate failed — issues: ${(qcJson.issues as string[] | undefined)?.slice(0, 4).join("; ") ?? "see pdf_qc"}`
+          : null;
         await db.from("ebooks").update({
-          autopilot_state: autoPublish ? "done" : "ready_to_publish",
-          needs_review_reason: null,
+          autopilot_state: nextState,
+          needs_review_reason: reviewReason,
         }).eq("id", ebook.id);
 
         await logRun(db, {
