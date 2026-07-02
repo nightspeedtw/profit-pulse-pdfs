@@ -753,6 +753,7 @@ export type Database = {
           category_id: string | null
           chapter_qc: Json
           chapters: Json
+          compliance_rewrites_json: Json | null
           compliance_safety_score: number | null
           content_depth_score: number | null
           conversion_score: number | null
@@ -782,6 +783,9 @@ export type Database = {
           hook: string | null
           id: string
           idea_id: string | null
+          inside_illustration_plan_json: Json | null
+          inside_illustration_relevance_score: number | null
+          inside_illustrations_json: Json | null
           interior_visuals: Json | null
           last_auto_fix_action: string | null
           launch_price: number | null
@@ -843,13 +847,17 @@ export type Database = {
           subtitle: string | null
           tags: string[]
           target_buyer: string | null
+          text_density_score: number | null
           title: string
           toc: Json
           total_word_count: number | null
           updated_at: string
           vendor: string
+          visual_fatigue_score: number | null
           visual_plan: Json
           word_count: number
+          worksheet_readability_score: number | null
+          worksheet_table_overflow_score: number | null
           writing_status: string
         }
         Insert: {
@@ -869,6 +877,7 @@ export type Database = {
           category_id?: string | null
           chapter_qc?: Json
           chapters?: Json
+          compliance_rewrites_json?: Json | null
           compliance_safety_score?: number | null
           content_depth_score?: number | null
           conversion_score?: number | null
@@ -898,6 +907,9 @@ export type Database = {
           hook?: string | null
           id?: string
           idea_id?: string | null
+          inside_illustration_plan_json?: Json | null
+          inside_illustration_relevance_score?: number | null
+          inside_illustrations_json?: Json | null
           interior_visuals?: Json | null
           last_auto_fix_action?: string | null
           launch_price?: number | null
@@ -959,13 +971,17 @@ export type Database = {
           subtitle?: string | null
           tags?: string[]
           target_buyer?: string | null
+          text_density_score?: number | null
           title: string
           toc?: Json
           total_word_count?: number | null
           updated_at?: string
           vendor?: string
+          visual_fatigue_score?: number | null
           visual_plan?: Json
           word_count?: number
+          worksheet_readability_score?: number | null
+          worksheet_table_overflow_score?: number | null
           writing_status?: string
         }
         Update: {
@@ -985,6 +1001,7 @@ export type Database = {
           category_id?: string | null
           chapter_qc?: Json
           chapters?: Json
+          compliance_rewrites_json?: Json | null
           compliance_safety_score?: number | null
           content_depth_score?: number | null
           conversion_score?: number | null
@@ -1014,6 +1031,9 @@ export type Database = {
           hook?: string | null
           id?: string
           idea_id?: string | null
+          inside_illustration_plan_json?: Json | null
+          inside_illustration_relevance_score?: number | null
+          inside_illustrations_json?: Json | null
           interior_visuals?: Json | null
           last_auto_fix_action?: string | null
           launch_price?: number | null
@@ -1075,13 +1095,17 @@ export type Database = {
           subtitle?: string | null
           tags?: string[]
           target_buyer?: string | null
+          text_density_score?: number | null
           title?: string
           toc?: Json
           total_word_count?: number | null
           updated_at?: string
           vendor?: string
+          visual_fatigue_score?: number | null
           visual_plan?: Json
           word_count?: number
+          worksheet_readability_score?: number | null
+          worksheet_table_overflow_score?: number | null
           writing_status?: string
         }
         Relationships: [

@@ -16,8 +16,14 @@
 // publishGate (qc.ts) already blocks Shopify publish unless cover_approved
 // and cover_score >= 85; we additionally require pdf_approved before publish.
 import { admin, corsHeaders, pickModel } from "../_shared/ai.ts";
-import { buildPdfHtml, buildHeaderTemplate, buildFooterTemplate, type PdfData } from "../_shared/pdf-template.ts";
-import { structuralChecks, scorePdfReadability, type PdfQcReport } from "../_shared/pdf-qc.ts";
+import { buildPdfHtml, buildHeaderTemplate, buildFooterTemplate, type PdfData, type WorksheetKind } from "../_shared/pdf-template.ts";
+import {
+  structuralChecks, scorePdfReadability,
+  worksheetOverflowScore, visualFatigueScore, illustrationRelevanceScore,
+  type PdfQcReport,
+} from "../_shared/pdf-qc.ts";
+import { lintChapters } from "../_shared/compliance.ts";
+import { planIllustrations, type IllustrationPlan } from "../_shared/illustration-planner.ts";
 import { logRun } from "../_shared/qc.ts";
 
 Deno.serve(async (req) => {
@@ -33,12 +39,77 @@ Deno.serve(async (req) => {
     const { data: ebook, error: eErr } = await db.from("ebooks").select("*").eq("id", ebookId).maybeSingle();
     if (eErr || !ebook) return json({ error: "ebook not found" }, 404);
 
-    const { data: chapters, error: cErr } = await db.from("ebook_chapters")
+    const { data: chapterRows, error: cErr } = await db.from("ebook_chapters")
       .select("*").eq("ebook_id", ebookId).order("chapter_index", { ascending: true });
     if (cErr) throw cErr;
-    if (!chapters?.length) return json({ error: "no chapters written yet" }, 400);
+    // Fallback for legacy ebooks whose chapters live in the ebooks.chapters
+    // jsonb column instead of the ebook_chapters rows table.
+    let chapters = chapterRows ?? [];
+    if (chapters.length === 0 && Array.isArray(ebook.chapters) && ebook.chapters.length) {
+      chapters = (ebook.chapters as any[]).map((c: any, i: number) => ({
+        chapter_index: c.index ?? c.chapter_index ?? (i + 1),
+        title: c.title ?? `Chapter ${i + 1}`,
+        content: c.content ?? "",
+        brief: c.brief ?? null,
+        metadata: c.metadata ?? {},
+      }));
+    }
+    if (!chapters.length) return json({ error: "no chapters written yet" }, 400);
 
     await db.from("ebooks").update({ pdf_status: "rendering" }).eq("id", ebookId);
+
+    // ---- Compliance linter (deterministic, in-memory) ----
+    // Rewrites risky finance claims into educational language BEFORE the PDF is
+    // rendered. Writes a diff audit to ebooks.compliance_rewrites_json but does
+    // not overwrite ebook_chapters — the manuscript stays authoritative.
+    const compliance = lintChapters(
+      chapters.map((c: any, i: number) => ({ index: c.chapter_index ?? (i + 1), content: c.content ?? "" })),
+    );
+    const complianceContentByIndex = new Map<number, string>();
+    for (const p of compliance.perChapter) complianceContentByIndex.set(p.index, p.content);
+
+    // ---- Inside-illustration planner + AI image generation ----
+    // Plan is persisted to ebooks.inside_illustration_plan_json for the admin
+    // Overview UI. Images are only generated for entries where recommendation
+    // !== "none" and no image is already cached.
+    let plan: IllustrationPlan | null = null;
+    let illustrationsByChapter: Record<number, { url: string; caption: string }> = {};
+    try {
+      const existingPlan = ebook.inside_illustration_plan_json as IllustrationPlan | null;
+      const existingImages = (ebook.inside_illustrations_json ?? {}) as Record<string, { url: string; caption: string }>;
+      // Reuse cached plan only if it actually recommended illustrations;
+      // otherwise re-plan (rules or thresholds may have improved).
+      plan = (existingPlan?.entries?.length && (existingPlan.total_recommended ?? 0) > 0)
+        ? existingPlan
+        : planIllustrations(chapters.map((c: any, i: number) => ({
+            index: c.chapter_index ?? (i + 1),
+            title: c.title ?? `Chapter ${i + 1}`,
+            content: c.content ?? "",
+          })));
+      // Reuse existing images where present; generate the rest in small
+      // parallel batches so we stay under the edge function's memory + time
+      // budget. Also cap total new generations at 8 per render.
+      const toGenerate = plan.entries.filter((e) => e.recommendation !== "none").slice(0, 8);
+      const CONCURRENCY = 3;
+      for (let i = 0; i < toGenerate.length; i += CONCURRENCY) {
+        const batch = toGenerate.slice(i, i + CONCURRENCY);
+        const results = await Promise.all(batch.map(async (entry) => {
+          const key = String(entry.chapter_index);
+          const cached = existingImages[key];
+          if (cached?.url) return { entry, url: cached.url };
+          const url = await generateAndStoreIllustration(db, ebookId, entry.chapter_index, entry.prompt).catch((err) => {
+            console.warn(`illustration ch${entry.chapter_index} failed:`, (err as Error).message);
+            return null;
+          });
+          return { entry, url };
+        }));
+        for (const { entry, url } of results) {
+          if (url) illustrationsByChapter[entry.chapter_index] = { url, caption: entry.caption };
+        }
+      }
+    } catch (err) {
+      console.warn("illustration planner failed:", (err as Error).message);
+    }
 
     // ---- Assemble PDF data ----
     const outline = (ebook.outline_json ?? {}) as any;
@@ -53,15 +124,25 @@ Deno.serve(async (req) => {
       disclaimer: outline.disclaimer ?? ebook.disclaimer ?? null,
       chapters: chapters.map((c: any, i: number) => {
         const meta = (c.metadata ?? {}) as any;
+        const chIdx = c.chapter_index ?? (i + 1);
+        const rawWs = meta.worksheet ?? c.worksheet ?? extractWorksheet(c.content ?? "", c.title ?? "");
+        const wsKind: WorksheetKind = (rawWs?.kind as WorksheetKind | undefined) ?? pickWorksheetKind(c.title ?? "", chIdx);
+        // Guarantee every chapter has a usable worksheet — falls back to a
+        // typed template if the manuscript didn't emit one. This makes the
+        // premium PDF's worksheet section reliable instead of optional.
+        const worksheet = rawWs
+          ? { ...rawWs, kind: wsKind }
+          : defaultWorksheetFor(wsKind, c.title ?? `Chapter ${i + 1}`);
         return {
-          index: c.chapter_index ?? (i + 1),
+          index: chIdx,
           title: c.title ?? `Chapter ${i + 1}`,
           brief: c.brief ?? meta.brief ?? null,
-          content: c.content ?? "",
+          content: complianceContentByIndex.get(chIdx) ?? c.content ?? "",
           callouts: meta.callouts ?? c.callouts ?? extractCallouts(c.content ?? ""),
-          worksheet: meta.worksheet ?? c.worksheet ?? extractWorksheet(c.content ?? "", c.title ?? ""),
+          worksheet,
           checklist: meta.checklist ?? c.checklist ?? extractChecklist(c.content ?? "", c.title ?? ""),
           diagram: meta.diagram ?? c.diagram ?? null,
+          illustration: illustrationsByChapter[chIdx] ?? null,
         };
       }),
       bonuses: outline.bonuses ?? null,
@@ -162,12 +243,25 @@ Deno.serve(async (req) => {
       (coverScore * 0.20),
     );
 
+    // ---- Premium PDF v2 scores ----
+    const wsOverflow = worksheetOverflowScore(html);
+    const visFatigue = visualFatigueScore(html, chapters.length);
+    const illRelevance = illustrationRelevanceScore(html);
+    const complianceScore = compliance.score;
+    // Worksheet readability blends AI worksheet score with the overflow gate.
+    const worksheetReadability = Math.round((aiScores.worksheet_score * 0.6) + (wsOverflow * 0.4));
+
     const qc: PdfQcReport = {
       layout_score: layoutScore,
       readability_score: aiScores.readability_score,
       worksheet_score: aiScores.worksheet_score,
       diagram_score: aiScores.diagram_score,
       cover_score: coverScore,
+      worksheet_table_overflow_score: wsOverflow,
+      worksheet_readability_score: worksheetReadability,
+      visual_fatigue_score: visFatigue,
+      inside_illustration_relevance_score: illRelevance,
+      compliance_safety_score: complianceScore,
       final_pdf_premium_score: finalPdfPremium,
       checks: struct.checks,
       issues: [...struct.issues, ...(aiScores.issues ?? [])].slice(0, 12),
@@ -180,7 +274,14 @@ Deno.serve(async (req) => {
       qc.checks.has_chapter_dividers, qc.checks.no_cut_off_text,
     ];
     const allCriticalPass = criticalChecks.every(Boolean);
-    const passed = finalPdfPremium >= 85 && layoutScore >= 80 && allCriticalPass;
+    // v2 premium gate: all critical + every new score ≥ threshold.
+    const premiumGate =
+      wsOverflow >= 100 &&
+      worksheetReadability >= 90 &&
+      visFatigue >= 90 &&
+      illRelevance >= 90 &&
+      complianceScore >= 90;
+    const passed = finalPdfPremium >= 85 && layoutScore >= 80 && allCriticalPass && premiumGate;
 
     await db.from("ebooks").update({
       pdf_url: signedPdf?.signedUrl ?? null,
@@ -196,6 +297,18 @@ Deno.serve(async (req) => {
       pdf_page_count: pageCount,
       pdf_render_count: version,
       pdf_approved: false,
+      // v2 premium fields
+      worksheet_table_overflow_score: wsOverflow,
+      worksheet_readability_score: worksheetReadability,
+      visual_fatigue_score: visFatigue,
+      inside_illustration_relevance_score: illRelevance,
+      text_density_score: plan
+        ? Math.round(plan.entries.reduce((a, e) => a + e.text_density_score, 0) / Math.max(1, plan.entries.length))
+        : null,
+      compliance_safety_score: complianceScore,
+      compliance_rewrites_json: compliance.changes.length ? { changes: compliance.changes } as unknown as Record<string, unknown> : null,
+      inside_illustration_plan_json: plan as unknown as Record<string, unknown> | null,
+      inside_illustrations_json: illustrationsByChapter as unknown as Record<string, unknown>,
       // When PDF is rendered cleanly, advance pipeline to shopify_upload stage.
       pipeline_status: passed ? "shopify_upload" : ebook.pipeline_status,
     }).eq("id", ebookId);
@@ -280,4 +393,123 @@ function defaultBonusSection(bonuses: Record<string, string> | null | undefined)
     title: k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
     body: v,
   }));
+}
+
+// ---------- Premium PDF v2 helpers ----------
+
+// Chapter-title-based picker for the type-aware worksheet renderer. If the
+// upstream writer already emitted a `kind`, that takes precedence.
+function pickWorksheetKind(chapterTitle: string, chapterIndex: number): WorksheetKind {
+  const t = (chapterTitle ?? "").toLowerCase();
+  if (/\bdebt|balance|tracker|forensic|audit\b/.test(t)) return "debt_tracker";
+  if (/\bnegotiat|call|arbitrage|hardship\b/.test(t)) return "negotiation_script";
+  if (/\bsprint|72[-\s]?hour|liquidity\b/.test(t)) return "sprint_timeline";
+  if (/\bvelocity|stacking|payoff|snowball|avalanche|calculator\b/.test(t)) return "velocity_calculator";
+  if (/\bautomat|defense|guardrail\b/.test(t)) return "automation_flow";
+  if (/\bresilience|habit|mindset|motivation|milestone\b/.test(t)) return "resilience_scorecard";
+  if (/\boperating|manual|permanent|debt-proof|long[-\s]?term\b/.test(t)) return "operating_manual";
+  // Alternate for variety when title doesn't hint.
+  return chapterIndex % 2 === 0 ? "prompts" : "debt_tracker";
+}
+
+// Deterministic default worksheet content per kind. Used when the manuscript
+// didn't emit a structured worksheet — guarantees every chapter has a usable,
+// premium worksheet page.
+function defaultWorksheetFor(kind: WorksheetKind, chapterTitle: string) {
+  switch (kind) {
+    case "debt_tracker": return {
+      title: chapterTitle, kind,
+      prompts: ["List every debt account. Fill one row per creditor. Update monthly."],
+      columns: ["Creditor", "Exact Balance", "APR", "Min. Payment", "Payoff Date"],
+      rows: 8,
+    };
+    case "velocity_calculator": return {
+      title: chapterTitle, kind,
+      prompts: ["Track the impact of extra payments month over month."],
+      columns: ["Month", "Extra Payment", "Balance After", "Interest Saved"],
+      rows: 6,
+    };
+    case "resilience_scorecard": return {
+      title: chapterTitle, kind,
+      prompts: ["Rate each area 1-5. Note one action per row for the coming week."],
+      columns: ["Area", "Score 1-5", "Evidence", "Next Action"],
+      rows: 6,
+    };
+    case "sprint_timeline": return {
+      title: chapterTitle, kind,
+      prompts: ["Hour 0-4", "Hour 4-12", "Hour 12-24", "Hour 24-48", "Hour 48-72"],
+    };
+    case "negotiation_script": return {
+      title: chapterTitle, kind,
+      prompts: ["Opening line", "Anchor number", "Reason (hardship, competitor offer, tenure)", "Response to pushback", "Close"],
+    };
+    case "automation_flow": return {
+      title: chapterTitle, kind,
+      prompts: [
+        "Open your primary bank's rules screen",
+        "Create a scheduled transfer on payday",
+        "Set the amount to your weekly surplus",
+        "Route it to the target debt account",
+        "Enable email confirmation",
+        "Add a monthly calendar reminder to review",
+      ],
+    };
+    case "operating_manual": return {
+      title: chapterTitle, kind,
+      prompts: [
+        "Weekly: review balances, top up buffer",
+        "Monthly: rebalance payoff order, log wins",
+        "Quarterly: re-negotiate any rate over 12%",
+        "Annually: refresh your debt-proof rules",
+      ],
+    };
+    case "prompts":
+    default: return {
+      title: chapterTitle, kind: "prompts" as WorksheetKind,
+      prompts: [
+        "What is the single most important lesson from this chapter for your situation?",
+        "What will you do in the next 24 hours to apply it?",
+        "What is the first sign it is working?",
+      ],
+    };
+  }
+}
+
+// Generate one inside illustration via Lovable AI Gateway (non-streaming),
+// store it in `ebook-covers` (existing bucket) at
+// `<ebook_id>/illustrations/ch-<n>.png`, and return a signed URL.
+async function generateAndStoreIllustration(
+  db: ReturnType<typeof import("../_shared/ai.ts").admin>,
+  ebookId: string,
+  chapterIndex: number,
+  prompt: string,
+): Promise<string | null> {
+  const key = Deno.env.get("LOVABLE_API_KEY");
+  if (!key) { console.warn("LOVABLE_API_KEY missing — skipping illustration"); return null; }
+  const resp = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "openai/gpt-image-1-mini",
+      prompt,
+      size: "1024x1024",
+      quality: "low",
+      n: 1,
+    }),
+  });
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => "");
+    throw new Error(`image gen ${resp.status}: ${detail.slice(0, 200)}`);
+  }
+  const body = await resp.json();
+  const b64 = body?.data?.[0]?.b64_json;
+  if (!b64) throw new Error("image gen returned no b64_json");
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const path = `${ebookId}/illustrations/ch-${chapterIndex}.png`;
+  const up = await db.storage.from("ebook-covers").upload(path, bytes, {
+    contentType: "image/png", upsert: true,
+  });
+  if (up.error) throw up.error;
+  const { data: signed } = await db.storage.from("ebook-covers").createSignedUrl(path, 60 * 60 * 24 * 30);
+  return signed?.signedUrl ?? null;
 }

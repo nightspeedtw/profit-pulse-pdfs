@@ -13,10 +13,21 @@ export interface PdfChapter {
   brief?: string;
   content: string; // markdown-ish
   callouts?: { kind?: string; title?: string; body: string }[];
-  worksheet?: { title: string; prompts: string[] } | null;
+  worksheet?: { title: string; prompts: string[]; kind?: WorksheetKind; columns?: string[]; rows?: number } | null;
   checklist?: { title: string; items: string[] } | null;
   diagram?: { title: string; steps: string[] } | null;
+  illustration?: { url: string; caption?: string } | null;
 }
+
+export type WorksheetKind =
+  | "prompts"           // default: numbered prompts with writing lines
+  | "debt_tracker"      // table with safe short-form headers
+  | "negotiation_script"// call-log format
+  | "sprint_timeline"   // hour-by-hour timeline
+  | "velocity_calculator" // calculator rows
+  | "automation_flow"   // stepped checkboxes
+  | "resilience_scorecard" // 1-5 scale grid
+  | "operating_manual"; // long checklist with headers
 
 export interface PdfData {
   title: string;
@@ -104,12 +115,112 @@ function chapterCallouts(c: PdfChapter): string {
     </aside>`).join("\n");
 }
 
+// Safe short-form dictionary for worksheet table headers so long labels wrap
+// cleanly across two lines instead of overflowing.
+const HEADER_SHORTFORMS: [RegExp, string][] = [
+  [/^current\s+exact\s+balance$/i, "Exact\nBalance"],
+  [/^exact\s+balance$/i, "Exact\nBalance"],
+  [/^minimum\s+monthly\s+payment$/i, "Min.\nPayment"],
+  [/^total\s+monthly\s+interest$/i, "Monthly\nInterest"],
+  [/^annual\s+percentage\s+rate$|^apr$/i, "APR"],
+  [/^outstanding\s+balance$/i, "Balance"],
+  [/^interest\s+rate$/i, "Rate"],
+  [/^payoff\s+date$/i, "Payoff\nDate"],
+  [/^credit\s+utili[sz]ation$/i, "Utili-\nzation"],
+  [/^payment\s+due\s+date$/i, "Due\nDate"],
+  [/^creditor\s+name$/i, "Creditor"],
+  [/^account\s+number$/i, "Acct #"],
+];
+function shortenHeader(h: string): string {
+  const trimmed = (h ?? "").trim();
+  for (const [re, short] of HEADER_SHORTFORMS) {
+    if (re.test(trimmed)) return short;
+  }
+  // Auto-wrap long headers into two lines at the middle space.
+  if (trimmed.length > 14 && trimmed.includes(" ")) {
+    const words = trimmed.split(/\s+/);
+    const mid = Math.ceil(words.length / 2);
+    return `${words.slice(0, mid).join(" ")}\n${words.slice(mid).join(" ")}`;
+  }
+  return trimmed;
+}
+
+function chapterIllustration(c: PdfChapter): string {
+  if (!c.illustration?.url) return "";
+  return `
+    <figure class="inside-illus">
+      <img src="${esc(c.illustration.url)}" alt="" />
+      ${c.illustration.caption ? `<figcaption>${esc(c.illustration.caption)}</figcaption>` : ""}
+    </figure>`;
+}
+
 function chapterWorksheet(c: PdfChapter): string {
   const w = c.worksheet;
-  if (!w?.prompts?.length) return "";
+  if (!w) return "";
+  const kind = w.kind ?? "prompts";
+
+  // Table-based layouts share the same column-sized <table> renderer.
+  const renderTable = (headers: string[], rows: number, prefill: string[][] = []) => {
+    const cols = headers.map(shortenHeader);
+    const rowsHtml = Array.from({ length: rows }, (_, r) => {
+      const cells = cols.map((_, ci) => {
+        const val = prefill[r]?.[ci] ?? "";
+        return `<td>${esc(val)}</td>`;
+      }).join("");
+      return `<tr>${cells}</tr>`;
+    }).join("");
+    return `
+      <table class="ws-table">
+        <colgroup>${cols.map(() => `<col />`).join("")}</colgroup>
+        <thead><tr>${cols.map((h) =>
+          `<th>${h.split("\n").map((line) => esc(line)).join("<br/>")}</th>`).join("")}</tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>`;
+  };
+
+  const heading = (label: string) => `<h3 class="block__heading">${esc(label)} — ${esc(w.title)}</h3>`;
+  const purpose = w.prompts?.[0] ? `<p class="ws-purpose">${esc(w.prompts[0])}</p>` : "";
+
+  if (kind === "debt_tracker") {
+    const headers = w.columns?.length ? w.columns : ["Creditor", "Exact Balance", "APR", "Min. Payment", "Payoff Date"];
+    return `<section class="worksheet worksheet--table">${heading("Debt Tracker")}${purpose}${renderTable(headers, w.rows ?? 8)}</section>`;
+  }
+  if (kind === "velocity_calculator") {
+    const headers = w.columns?.length ? w.columns : ["Month", "Extra Payment", "Balance After", "Interest Saved"];
+    return `<section class="worksheet worksheet--table">${heading("Velocity Calculator")}${purpose}${renderTable(headers, w.rows ?? 6)}</section>`;
+  }
+  if (kind === "resilience_scorecard") {
+    const headers = w.columns?.length ? w.columns : ["Area", "Score 1-5", "Evidence", "Next Action"];
+    return `<section class="worksheet worksheet--table">${heading("Resilience Scorecard")}${purpose}${renderTable(headers, w.rows ?? 6)}</section>`;
+  }
+  if (kind === "sprint_timeline") {
+    const items = (w.prompts?.length ? w.prompts : ["Hour 0-4", "Hour 4-12", "Hour 12-24", "Hour 24-48", "Hour 48-72"]);
+    return `<section class="worksheet worksheet--timeline">${heading("Sprint Timeline")}${purpose}
+      <ol class="ws-timeline">${items.map((p) =>
+        `<li><div class="ws-timeline__slot">${esc(p)}</div><div class="ws-timeline__lines"><span></span><span></span></div></li>`).join("")}</ol></section>`;
+  }
+  if (kind === "negotiation_script") {
+    const rows = w.prompts?.length ? w.prompts : ["Opening line", "Anchor number", "Response to pushback", "Close"];
+    return `<section class="worksheet worksheet--script">${heading("Negotiation Script")}${purpose}
+      <div class="ws-script">${rows.map((r) =>
+        `<div class="ws-script__row"><div class="ws-script__label">${esc(r)}</div><div class="ws-script__lines"><span></span><span></span></div></div>`).join("")}</div></section>`;
+  }
+  if (kind === "automation_flow") {
+    const items = w.prompts ?? [];
+    return `<section class="worksheet worksheet--flow">${heading("Automation Setup")}${purpose}
+      <ul class="ws-flow">${items.map((it) =>
+        `<li><span class="ws-flow__box"></span>${esc(it)}</li>`).join("")}</ul></section>`;
+  }
+  if (kind === "operating_manual") {
+    const items = w.prompts ?? [];
+    return `<section class="worksheet worksheet--manual">${heading("Operating Manual")}${purpose}
+      <ol class="ws-manual">${items.map((it) => `<li>${esc(it)}</li>`).join("")}</ol></section>`;
+  }
+  // default: prompts + writing lines
+  if (!w.prompts?.length) return "";
   return `
     <section class="worksheet">
-      <h3 class="block__heading">Worksheet — ${esc(w.title)}</h3>
+      ${heading("Worksheet")}
       <ol class="worksheet__list">
         ${w.prompts.map((p) => `
           <li>
@@ -171,6 +282,7 @@ export function buildPdfHtml(data: PdfData): string {
         ${renderMd(c.content)}
       </div>
       ${chapterCallouts(c)}
+      ${chapterIllustration(c)}
       ${chapterDiagram(c)}
       ${chapterWorksheet(c)}
       ${chapterChecklist(c)}
@@ -367,6 +479,56 @@ export function buildPdfHtml(data: PdfData): string {
   /* ---------- Bonus ---------- */
   .bonus-divider { background: #2a221a; color: #fff; height: 9in; padding: 0; }
   .bonus-divider .chapter-divider__eyebrow { color: var(--accent-soft); }
+
+  /* ---------- Inside illustrations ---------- */
+  .inside-illus { margin: 16pt 0; page-break-inside: avoid; break-inside: avoid;
+    text-align: center; border: 0.5pt solid var(--rule); padding: 8pt; background: #fbf9f4; }
+  .inside-illus img { max-width: 100%; height: auto; max-height: 3.2in; display: block; margin: 0 auto; }
+  .inside-illus figcaption { font-family: "Inter", sans-serif; font-size: 8.5pt;
+    color: var(--muted); margin-top: 6pt; text-transform: uppercase; letter-spacing: 0.16em; }
+
+  /* ---------- Worksheet — tabular ---------- */
+  .worksheet--table { page-break-inside: avoid; break-inside: avoid; }
+  .ws-purpose { font-family: "Inter", sans-serif; font-size: 9.5pt; color: var(--ink-soft);
+    margin: 0 0 8pt; font-style: italic; }
+  .ws-table { width: 100%; border-collapse: collapse; font-family: "Inter", sans-serif;
+    font-size: 8.5pt; table-layout: fixed; margin-top: 4pt; }
+  .ws-table th, .ws-table td { border: 0.5pt solid var(--ink);
+    padding: 4pt 5pt; vertical-align: top; word-break: break-word; overflow-wrap: anywhere; }
+  .ws-table th { background: #f4ead8; text-align: left; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.06em; font-size: 7.5pt;
+    line-height: 1.2; color: var(--ink); }
+  .ws-table td { height: 22pt; }
+
+  /* ---------- Worksheet — timeline ---------- */
+  .ws-timeline { list-style: none; padding: 0; margin: 4pt 0 0; }
+  .ws-timeline li { display: flex; gap: 10pt; align-items: flex-start;
+    border-left: 2pt solid var(--accent); padding: 6pt 0 6pt 10pt; margin: 0 0 6pt; }
+  .ws-timeline__slot { flex: 0 0 1.1in; font-family: "Inter", sans-serif; font-weight: 700;
+    font-size: 9pt; color: var(--accent); text-transform: uppercase; letter-spacing: 0.1em; }
+  .ws-timeline__lines { flex: 1; display: flex; flex-direction: column; gap: 8pt; }
+  .ws-timeline__lines span { display: block; height: 0; border-bottom: 0.5pt solid #b8b3a4; }
+
+  /* ---------- Worksheet — negotiation script ---------- */
+  .ws-script { display: flex; flex-direction: column; gap: 8pt; margin-top: 4pt; }
+  .ws-script__row { display: flex; gap: 10pt; align-items: flex-start;
+    border: 0.5pt solid var(--rule); padding: 6pt 8pt; }
+  .ws-script__label { flex: 0 0 1.4in; font-family: "Inter", sans-serif; font-weight: 700;
+    font-size: 9pt; color: var(--ink); }
+  .ws-script__lines { flex: 1; display: flex; flex-direction: column; gap: 6pt; }
+  .ws-script__lines span { display: block; height: 0; border-bottom: 0.5pt solid #b8b3a4; }
+
+  /* ---------- Worksheet — automation flow ---------- */
+  .ws-flow { list-style: none; padding: 0; margin: 4pt 0 0;
+    font-family: "Inter", sans-serif; font-size: 10pt; }
+  .ws-flow li { display: flex; align-items: flex-start; gap: 8pt; margin: 4pt 0;
+    padding: 4pt 6pt; border-bottom: 0.5pt dashed var(--rule); }
+  .ws-flow__box { flex: 0 0 auto; display: inline-block; width: 11pt; height: 11pt;
+    border: 1pt solid var(--ink); margin-top: 2pt; }
+
+  /* ---------- Worksheet — operating manual ---------- */
+  .ws-manual { padding-left: 18pt; font-family: "Inter", sans-serif; font-size: 10pt;
+    line-height: 1.5; }
 </style>
 </head>
 <body>

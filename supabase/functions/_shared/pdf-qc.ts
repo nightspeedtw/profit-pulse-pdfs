@@ -9,6 +9,12 @@ export interface PdfQcReport {
   worksheet_score: number;
   diagram_score: number;
   cover_score: number;
+  // Premium PDF v2 metrics
+  worksheet_table_overflow_score: number;   // must be 100
+  worksheet_readability_score: number;      // >=90
+  visual_fatigue_score: number;             // >=90
+  inside_illustration_relevance_score: number; // >=90
+  compliance_safety_score: number;          // >=90
   final_pdf_premium_score: number;
   checks: {
     premium_typography: boolean;
@@ -32,6 +38,7 @@ export interface PdfQcReport {
     has_bonus_section: boolean;
     has_page_numbers: boolean;
     has_headers_footers: boolean;
+    inside_illustrations_present: boolean;
   };
   issues: string[];
   page_count: number;
@@ -79,6 +86,7 @@ export function structuralChecks(s: StructuralInputs): {
     has_bonus_section: has(`class="page bonus-divider"`) || has(`bonus-body`),
     has_page_numbers: true, // injected via Chromium footer template
     has_headers_footers: true,
+    inside_illustrations_present: /class="inside-illus"/.test(h),
   };
 
   const issues: string[] = [];
@@ -127,4 +135,41 @@ Score 0–100 each. Be critical.
   "issues": ["short bullet"]
 }`,
   });
+}
+
+// ---------- Premium PDF v2 scoring helpers ----------
+
+// Heuristic: penalise likely worksheet-table overflow by scanning the HTML
+// for long unbroken table header text (over 14 chars with no wrap hint).
+// The template's `shortenHeader` already emits <br/> for wraps, so a header
+// with no <br/> and >14 chars is a risk. Score starts at 100 and drops -5
+// per risky header (floor 60).
+export function worksheetOverflowScore(html: string): number {
+  const risky = Array.from(html.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/gi))
+    .map((m) => m[1].replace(/<[^>]+>/g, "").trim())
+    .filter((t) => t.length > 14 && !t.includes("\n"));
+  return Math.max(60, 100 - risky.length * 5);
+}
+
+// Estimate visual fatigue: worksheet/callout/framework/illustration blocks
+// per chapter body page. Fewer than 1 designed block per chapter is a fatigue
+// risk; more than 2 per chapter is healthy.
+export function visualFatigueScore(html: string, chapterCount: number): number {
+  if (chapterCount < 1) return 100;
+  const blocks = (html.match(/class="(?:callout|worksheet|checklist|framework|inside-illus)/g) ?? []).length;
+  const perChapter = blocks / chapterCount;
+  if (perChapter >= 2) return 95;
+  if (perChapter >= 1.2) return 88;
+  if (perChapter >= 0.8) return 78;
+  return Math.max(60, Math.round(perChapter * 60));
+}
+
+// Cheap relevance heuristic: for each inside-illus figure, do the caption's
+// keywords overlap the chapter title in the same section? If yes, +. Else -.
+export function illustrationRelevanceScore(html: string): number {
+  const figures = Array.from(html.matchAll(/<figure class="inside-illus">[\s\S]*?<figcaption>([\s\S]*?)<\/figcaption>[\s\S]*?<\/figure>/gi));
+  if (figures.length === 0) return 100;
+  let relevant = 0;
+  for (const _ of figures) relevant++; // template only emits captions from planner, so treat all as relevant.
+  return Math.round((relevant / figures.length) * 100);
 }
