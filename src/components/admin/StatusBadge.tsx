@@ -43,11 +43,22 @@ const STYLES: Record<EbookBadgeKind, { label: string; cls: string }> = {
 // Maps the raw autopilot_state / shopify_status to a single display kind.
 export function resolveEbookBadge(e: {
   autopilot_state?: string | null;
+  canonical_status?: string | null;
   shopify_status?: string | null;
   manuscript_qc_status?: string | null;
   pdf_status?: string | null;
   blocker_class?: string | null;
 }): EbookBadgeKind {
+  // Prefer canonical_status when the pipeline has written it.
+  const canon = e.canonical_status ?? null;
+  if (canon === "needs_code_fix") return "needs_code_fix";
+  if (canon === "completed") return "completed";
+  if (canon === "waiting_for_shopify_quota") return "waiting_for_shopify_quota";
+  if (canon === "waiting_for_browserless_slot") return "waiting_for_browserless_slot";
+  if (canon === "queued_for_production") return "queued_for_production";
+  if (canon === "auto_fixing") return "auto_fixing";
+  if (canon === "needs_admin_attention") return "needs_admin_attention";
+  if (canon === "failed_non_recoverable") return "failed_non_recoverable";
   const s = e.autopilot_state ?? "idle";
   if (e.shopify_status === "published") return "published";
   if (s === "waiting_for_shopify_quota") return "waiting_for_shopify_quota";
