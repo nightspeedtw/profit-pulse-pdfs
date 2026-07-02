@@ -398,18 +398,6 @@ export function buildPdfHtml(data: PdfData): string {
     padding-bottom: 6pt; border-bottom: 0.5pt solid var(--rule); margin-bottom: 18pt;
   }
 
-  /* ---------- Cover ---------- */
-  .cover { page: cover; height: 9in; width: 6in; position: relative; overflow: hidden;
-    background: var(--bg-divider); color: #fff; }
-  .cover__img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 1; }
-  .cover__fallback { position: absolute; inset: 0;
-    background: radial-gradient(120% 70% at 50% 0%, #1f2937 0%, #0b0f17 100%); }
-  .cover__veil { position: absolute; inset: 0;
-    background: linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.6) 70%, rgba(0,0,0,0.85) 100%); }
-  .cover__inner { position: absolute; inset: 0; padding: 0.6in;
-    display: flex; flex-direction: column; justify-content: space-between; }
-  .cover__brand { font-family: "Inter", sans-serif; font-size: 9pt; letter-spacing: 0.34em;
-    text-transform: uppercase; color: #f4ead8; }
   /* ---------- Cover (hard full-bleed) ---------- */
   .cover { page: cover; height: 9in; width: 6in; position: relative; overflow: hidden;
     background: var(--bg-divider); color: #fff; margin: 0; padding: 0;
