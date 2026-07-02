@@ -197,8 +197,10 @@ export function AutopilotStatusCenter() {
   }), [runs, ebooksById, activeStepByRun]);
 
   const counts = useMemo(() => {
-    const c = { running: 0, queued: 0, auto_fixing: 0, draft_uploaded: 0, needs_admin: 0, failed: 0, completed: 0 };
-    enriched.forEach(({ ds }) => {
+    const c = { running: 0, queued: 0, auto_fixing: 0, draft_uploaded: 0, needs_admin: 0, failed: 0, completed: 0, avgProgress: 0 };
+    let activeCount = 0;
+    let activeSum = 0;
+    enriched.forEach(({ ds, run }) => {
       if (ds === "queued") c.queued++;
       else if (ds === "auto_fixing") c.auto_fixing++;
       else if (["running", "rendering_pdf", "uploading_shopify", "verifying_shopify"].includes(ds)) c.running++;
@@ -206,7 +208,12 @@ export function AutopilotStatusCenter() {
       else if (ds === "needs_admin") c.needs_admin++;
       else if (ds === "failed") c.failed++;
       else if (ds === "completed") c.completed++;
+      if (["running", "rendering_pdf", "uploading_shopify", "verifying_shopify", "auto_fixing"].includes(ds)) {
+        activeCount++;
+        activeSum += run.progress_percent ?? 0;
+      }
     });
+    c.avgProgress = activeCount > 0 ? Math.round(activeSum / activeCount) : 0;
     return c;
   }, [enriched]);
 
