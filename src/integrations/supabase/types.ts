@@ -128,6 +128,8 @@ export type Database = {
       autopilot_pipeline_runs: {
         Row: {
           admin_needed_reason: string | null
+          blocker_class: string | null
+          blocker_reason: string | null
           completed_at: string | null
           current_action_message: string | null
           current_step: string | null
@@ -140,6 +142,7 @@ export type Database = {
           idea_id: string | null
           last_heartbeat_at: string | null
           mode: string | null
+          next_retry_at: string | null
           pause_requested: boolean
           progress_percent: number
           started_at: string
@@ -151,6 +154,8 @@ export type Database = {
         }
         Insert: {
           admin_needed_reason?: string | null
+          blocker_class?: string | null
+          blocker_reason?: string | null
           completed_at?: string | null
           current_action_message?: string | null
           current_step?: string | null
@@ -163,6 +168,7 @@ export type Database = {
           idea_id?: string | null
           last_heartbeat_at?: string | null
           mode?: string | null
+          next_retry_at?: string | null
           pause_requested?: boolean
           progress_percent?: number
           started_at?: string
@@ -174,6 +180,8 @@ export type Database = {
         }
         Update: {
           admin_needed_reason?: string | null
+          blocker_class?: string | null
+          blocker_reason?: string | null
           completed_at?: string | null
           current_action_message?: string | null
           current_step?: string | null
@@ -186,6 +194,7 @@ export type Database = {
           idea_id?: string | null
           last_heartbeat_at?: string | null
           mode?: string | null
+          next_retry_at?: string | null
           pause_requested?: boolean
           progress_percent?: number
           started_at?: string
@@ -741,11 +750,14 @@ export type Database = {
           admin_review_reason: string | null
           auto_approved: boolean
           auto_fix_attempt_count: number
+          auto_fix_attempts: number
           auto_fix_history: Json
           auto_publish: boolean
           autopilot_mode: string
           autopilot_state: string
           blocked_at: string | null
+          blocker_class: string | null
+          blocker_reason: string | null
           bonus_section_json: Json | null
           bonuses: Json
           bundle_price_recommendation: number | null
@@ -797,6 +809,7 @@ export type Database = {
           metadata: Json
           needs_review_reason: string | null
           next_recommended_action: string | null
+          next_retry_at: string | null
           outline: Json
           outline_json: Json
           outline_qc: Json
@@ -866,11 +879,14 @@ export type Database = {
           admin_review_reason?: string | null
           auto_approved?: boolean
           auto_fix_attempt_count?: number
+          auto_fix_attempts?: number
           auto_fix_history?: Json
           auto_publish?: boolean
           autopilot_mode?: string
           autopilot_state?: string
           blocked_at?: string | null
+          blocker_class?: string | null
+          blocker_reason?: string | null
           bonus_section_json?: Json | null
           bonuses?: Json
           bundle_price_recommendation?: number | null
@@ -922,6 +938,7 @@ export type Database = {
           metadata?: Json
           needs_review_reason?: string | null
           next_recommended_action?: string | null
+          next_retry_at?: string | null
           outline?: Json
           outline_json?: Json
           outline_qc?: Json
@@ -991,11 +1008,14 @@ export type Database = {
           admin_review_reason?: string | null
           auto_approved?: boolean
           auto_fix_attempt_count?: number
+          auto_fix_attempts?: number
           auto_fix_history?: Json
           auto_publish?: boolean
           autopilot_mode?: string
           autopilot_state?: string
           blocked_at?: string | null
+          blocker_class?: string | null
+          blocker_reason?: string | null
           bonus_section_json?: Json | null
           bonuses?: Json
           bundle_price_recommendation?: number | null
@@ -1047,6 +1067,7 @@ export type Database = {
           metadata?: Json
           needs_review_reason?: string | null
           next_recommended_action?: string | null
+          next_retry_at?: string | null
           outline?: Json
           outline_json?: Json
           outline_qc?: Json
@@ -1575,6 +1596,68 @@ export type Database = {
             foreignKeyName: "shopify_sync_logs_ebook_id_fkey"
             columns: ["ebook_id"]
             isOneToOne: false
+            referencedRelation: "ebooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopify_upload_queue: {
+        Row: {
+          attempt_count: number
+          blocker_reason: string | null
+          created_at: string
+          ebook_id: string
+          id: string
+          last_error: string | null
+          max_attempts: number
+          next_retry_at: string | null
+          priority: number
+          run_id: string | null
+          shopify_draft_id: string | null
+          shopify_draft_url: string | null
+          status: string
+          updated_at: string
+          uploaded_at: string | null
+        }
+        Insert: {
+          attempt_count?: number
+          blocker_reason?: string | null
+          created_at?: string
+          ebook_id: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          next_retry_at?: string | null
+          priority?: number
+          run_id?: string | null
+          shopify_draft_id?: string | null
+          shopify_draft_url?: string | null
+          status?: string
+          updated_at?: string
+          uploaded_at?: string | null
+        }
+        Update: {
+          attempt_count?: number
+          blocker_reason?: string | null
+          created_at?: string
+          ebook_id?: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          next_retry_at?: string | null
+          priority?: number
+          run_id?: string | null
+          shopify_draft_id?: string | null
+          shopify_draft_url?: string | null
+          status?: string
+          updated_at?: string
+          uploaded_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopify_upload_queue_ebook_id_fkey"
+            columns: ["ebook_id"]
+            isOneToOne: true
             referencedRelation: "ebooks"
             referencedColumns: ["id"]
           },

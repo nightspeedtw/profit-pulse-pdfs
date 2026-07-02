@@ -30,13 +30,20 @@ type Ebook = {
   updated_at: string;
   worksheet_table_overflow_score: number | null;
   worksheet_previews_json: any;
+  blocker_class?: string | null;
+  blocker_reason?: string | null;
+  next_retry_at?: string | null;
 };
 
-type FilterKey = "all" | "running" | "needs_attention" | "draft_uploaded" | "published" | "failed";
+type FilterKey =
+  | "all" | "running" | "auto_fixing" | "waiting_quota"
+  | "needs_attention" | "draft_uploaded" | "published" | "failed";
 
 const FILTER_LABEL: Record<FilterKey, string> = {
   all: "All jobs",
   running: "Running",
+  auto_fixing: "Auto-Fixing",
+  waiting_quota: "Waiting for Quota",
   needs_attention: "Needs Attention",
   draft_uploaded: "Draft Uploaded",
   published: "Published",
@@ -89,10 +96,12 @@ export default function Production() {
     return ebooks.filter((e) => {
       const badge = resolveJobBadge(e);
       if (filter === "running" && badge !== "writing" && badge !== "queued") return false;
-      if (filter === "needs_attention" && badge !== "needs_review" && badge !== "qc_failed") return false;
+      if (filter === "auto_fixing" && badge !== "auto_fixing" && badge !== "repairing_dependency") return false;
+      if (filter === "waiting_quota" && badge !== "waiting_for_shopify_quota" && badge !== "waiting_for_ai_budget" && badge !== "waiting_for_worker_slot" && badge !== "draft_upload_queued") return false;
+      if (filter === "needs_attention" && badge !== "needs_review" && badge !== "qc_failed" && badge !== "needs_admin_attention") return false;
       if (filter === "draft_uploaded" && badge !== "draft_uploaded") return false;
       if (filter === "published" && badge !== "published") return false;
-      if (filter === "failed" && badge !== "failed" && badge !== "rejected") return false;
+      if (filter === "failed" && badge !== "failed" && badge !== "failed_non_recoverable" && badge !== "rejected") return false;
       if (term && !(e.title ?? "").toLowerCase().includes(term)) return false;
       return true;
     });
@@ -155,13 +164,20 @@ export default function Production() {
     running: ebooks.filter((e) => {
       const b = resolveJobBadge(e); return b === "writing" || b === "queued";
     }).length,
+    auto_fixing: ebooks.filter((e) => {
+      const b = resolveJobBadge(e); return b === "auto_fixing" || b === "repairing_dependency";
+    }).length,
+    waiting_quota: ebooks.filter((e) => {
+      const b = resolveJobBadge(e);
+      return b === "waiting_for_shopify_quota" || b === "waiting_for_ai_budget" || b === "waiting_for_worker_slot" || b === "draft_upload_queued";
+    }).length,
     needs_attention: ebooks.filter((e) => {
-      const b = resolveJobBadge(e); return b === "needs_review" || b === "qc_failed";
+      const b = resolveJobBadge(e); return b === "needs_review" || b === "qc_failed" || b === "needs_admin_attention";
     }).length,
     draft_uploaded: ebooks.filter((e) => resolveJobBadge(e) === "draft_uploaded").length,
     published: ebooks.filter((e) => resolveJobBadge(e) === "published").length,
     failed: ebooks.filter((e) => {
-      const b = resolveJobBadge(e); return b === "failed" || b === "rejected";
+      const b = resolveJobBadge(e); return b === "failed" || b === "failed_non_recoverable" || b === "rejected";
     }).length,
   };
 
@@ -208,12 +224,13 @@ export default function Production() {
                   <th className="p-3 w-24 text-right">Words</th>
                   <th className="p-3 w-20 text-right">QC</th>
                   <th className="p-3 w-32">Shopify</th>
+                  <th className="p-3 w-56">Blocker / Next retry</th>
                   <th className="p-3 w-40 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground text-sm">
+                  <tr><td colSpan={8} className="p-8 text-center text-muted-foreground text-sm">
                     No jobs match this view.
                   </td></tr>
                 )}
@@ -251,6 +268,20 @@ export default function Production() {
                       </td>
                       <td className="p-3 text-xs font-mono text-muted-foreground">
                         {e.shopify_status ?? "—"}
+                      </td>
+                      <td className="p-3 text-[11px] font-mono">
+                        {e.blocker_reason ? (
+                          <>
+                            <div className="text-cyan-800">{prettyBlocker(e.blocker_reason)}</div>
+                            {e.next_retry_at && (
+                              <div className="text-muted-foreground">
+                                Next retry {new Date(e.next_retry_at).toLocaleString()}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </td>
                       <td className="p-3">
                         <div className="flex flex-wrap gap-1 justify-end">
@@ -351,11 +382,33 @@ function prettyStep(s: string | null | undefined): string {
   return s.replace(/_/g, " ");
 }
 
+function prettyBlocker(reason: string): string {
+  const map: Record<string, string> = {
+    daily_shopify_upload_cap_reached: "Daily Shopify upload cap reached (20/20)",
+    ai_daily_budget_reached: "AI daily budget reached",
+    invalid_shopify_credentials: "Shopify credentials invalid — reconnect the store",
+    invalid_shopify_api_key: "Invalid Shopify API key — reconnect the store",
+    temporary_api_error: "Temporary upstream error — retrying",
+    missing_dependency: "Missing dependency — routing back to repair",
+    stalled_heartbeat_resumed: "Stalled — resumed by recovery worker",
+    compliance_violation: "Content compliance issue — manual review required",
+    qc_repairable: "Repairable QC issue — auto-fixing",
+  };
+  return map[reason] ?? reason.replace(/_/g, " ");
+}
+
 function resolveJobBadge(e: Ebook): EbookBadgeKind {
+  // Ebook-level self-healing statuses win — the recovery engine is authoritative.
+  const eb = resolveEbookBadge(e);
+  if ([
+    "waiting_for_shopify_quota", "waiting_for_ai_budget", "waiting_for_worker_slot",
+    "auto_fixing", "repairing_dependency", "draft_upload_queued",
+    "needs_admin_attention", "failed_non_recoverable", "published", "draft_uploaded",
+  ].includes(eb)) return eb;
   const status = e.run_status ?? "";
   if (e.pause_requested) return "paused";
   if (["starting", "running", "auto_fixing"].includes(status)) return "writing";
   if (status === "needs_admin") return (e.current_step ?? "").includes("qc") ? "qc_failed" : "needs_review";
-  if (status === "failed") return "failed";
-  return resolveEbookBadge(e);
+  if (status === "failed") return e.blocker_class === "non_recoverable_config_error" ? "failed_non_recoverable" : "failed";
+  return eb;
 }

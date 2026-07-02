@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
         const { data, error } = await supabase
           .from("ebooks")
           .select(
-            "id,title,autopilot_state,autopilot_mode,shopify_status,shopify_product_id,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json",
+            "id,title,autopilot_state,autopilot_mode,shopify_status,shopify_product_id,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json,blocker_class,blocker_reason,next_retry_at,pdf_url,cover_url",
           )
           .in("id", ebookIds);
         if (error) throw error;
@@ -99,13 +99,18 @@ Deno.serve(async (req) => {
           updated_at: run.updated_at ?? run.started_at ?? ebook?.updated_at,
           worksheet_table_overflow_score: ebook?.worksheet_table_overflow_score ?? null,
           worksheet_previews_json: ebook?.worksheet_previews_json ?? null,
+          blocker_class: ebook?.blocker_class ?? run.blocker_class ?? null,
+          blocker_reason: ebook?.blocker_reason ?? run.blocker_reason ?? null,
+          next_retry_at: ebook?.next_retry_at ?? run.next_retry_at ?? null,
+          pdf_url: ebook?.pdf_url ?? null,
+          cover_url: ebook?.cover_url ?? null,
         };
       });
 
       const { data: orphanEbooks, error: orphanError } = await supabase
         .from("ebooks")
         .select(
-          "id,title,autopilot_state,autopilot_mode,shopify_status,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json",
+          "id,title,autopilot_state,autopilot_mode,shopify_status,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json,blocker_class,blocker_reason,next_retry_at,pdf_url,cover_url",
         )
         .not("id", "in", `(${ebookIds.join(",") || "00000000-0000-0000-0000-000000000000"})`)
         .order("updated_at", { ascending: false })
