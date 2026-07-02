@@ -207,9 +207,42 @@ Deno.serve(async (req) => {
 
     if (!pdfResp.ok) {
       const detail = await pdfResp.text().catch(() => "");
+      // ---- Browserless 429 → structured rate-limit signal, NOT a QC/PDF failure ----
+      if (pdfResp.status === 429) {
+        const nextAttempt = Number(ebook.browserless_retry_count ?? 0) + 1;
+        const retryAt = browserlessBackoffAt(nextAttempt);
+        await db.from("ebooks").update({
+          browserless_retry_count: nextAttempt,
+          autopilot_state: nextAttempt > 3 ? "needs_admin_attention" : "waiting_for_browserless_slot",
+          blocker_class: nextAttempt > 3 ? "non_recoverable_config_error" : "recoverable_temporary_api_error",
+          blocker_reason: nextAttempt > 3 ? "browserless_rate_limit_exhausted" : "browserless_rate_limited",
+          needs_review_reason: nextAttempt > 3 ? "Browserless render rate limit continued after 3 retries." : null,
+          next_retry_at: retryAt,
+        }).eq("id", ebookId);
+        await logRun(db, {
+          ebook_id: ebookId, step: "render-pdf",
+          status: nextAttempt > 3 ? "fail" : "pending",
+          error: `browserless 429 (attempt ${nextAttempt}) — retry at ${retryAt}`,
+        });
+        await releaseLock(db, LOCK_PDF, ebookId);
+        return json({
+          error: "browserless_rate_limited",
+          blocker_reason: nextAttempt > 3 ? "browserless_rate_limit_exhausted" : "browserless_rate_limited",
+          attempt: nextAttempt,
+          retry_at: retryAt,
+          detail: nextAttempt > 3
+            ? "Browserless render rate limit continued after 3 retries."
+            : "PDF Render Rate Limited — will retry automatically.",
+        }, 429);
+      }
       await db.from("ebooks").update({ pdf_status: "failed" }).eq("id", ebookId);
       await logRun(db, { ebook_id: ebookId, step: "render-pdf", status: "fail", error: `browserless ${pdfResp.status}: ${detail.slice(0, 400)}` });
+      await releaseLock(db, LOCK_PDF, ebookId);
       return json({ error: `Browserless render failed: ${pdfResp.status}`, detail: detail.slice(0, 400) }, 502);
+    }
+    // Successful render — reset the browserless retry counter.
+    if ((ebook.browserless_retry_count ?? 0) > 0) {
+      await db.from("ebooks").update({ browserless_retry_count: 0 }).eq("id", ebookId);
     }
     const pdfBytes = new Uint8Array(await pdfResp.arrayBuffer());
     const pageCount = estimatePageCount(pdfBytes);
