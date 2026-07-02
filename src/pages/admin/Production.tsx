@@ -41,8 +41,23 @@ export default function Production() {
   const [ebooks, setEbooks] = useState<Ebook[]>([]);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [params, setParams] = useSearchParams();
   const filter = (params.get("filter") as FilterKey) || "all";
+
+  const worksheetFailures = useMemo(
+    () => ebooks.filter((e) =>
+      (e.worksheet_table_overflow_score != null && e.worksheet_table_overflow_score < 100) ||
+      (e.worksheet_previews_json?.entries?.length ?? 0) > 0),
+    [ebooks],
+  );
+  function toggle(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   async function load() {
     const { data } = await supabase.from("ebooks")
