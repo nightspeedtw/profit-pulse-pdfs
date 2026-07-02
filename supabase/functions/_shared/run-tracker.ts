@@ -34,10 +34,50 @@ export const AUTOPILOT_STEPS: StepDef[] = [
 const STEP_MAP = new Map(AUTOPILOT_STEPS.map((s) => [s.name, s] as const));
 const TOTAL = AUTOPILOT_STEPS.length;
 
+// Map internal step_name → canonical_status shown on the admin dashboard.
+const STEP_TO_CANONICAL: Record<string, string> = {
+  start_run: "production_running",
+  generate_idea: "production_running",
+  title_and_hook: "production_running",
+  idea_qc: "running_qc",
+  outline: "generating_outline",
+  outline_qc: "running_qc",
+  chapter_writing: "writing_chapters",
+  chapter_qc: "running_qc",
+  manuscript_qc: "running_qc",
+  cover: "generating_cover",
+  cover_qc: "running_qc",
+  thumbnail: "generating_thumbnail",
+  thumbnail_qc: "running_qc",
+  pdf_layout: "rendering_pdf",
+  pdf_render: "rendering_pdf",
+  pdf_qc: "running_qc",
+  product_copy: "production_running",
+  product_qc: "running_qc",
+  shopify_draft: "uploading_shopify_draft",
+  shopify_verify: "verifying_shopify_draft",
+  complete: "completed",
+};
+
 export class RunTracker {
   private startTs = new Map<string, number>();
+  private ebookId: string | null = null;
 
-  constructor(public db: Db, public runId: string) {}
+  constructor(public db: Db, public runId: string, ebookId: string | null = null) {
+    this.ebookId = ebookId;
+  }
+
+  setEbookId(id: string | null) { this.ebookId = id; }
+
+  private async syncEbook(patch: Record<string, unknown>) {
+    if (!this.ebookId) return;
+    try {
+      await this.db.from("ebooks").update({
+        ...patch,
+        last_heartbeat_at: new Date().toISOString(),
+      }).eq("id", this.ebookId);
+    } catch (_err) { /* best-effort */ }
+  }
 
   static async start(db: Db, opts: {
     ebook_id?: string | null;
