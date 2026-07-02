@@ -270,7 +270,7 @@ Deno.serve(async (req) => {
       const eqEither = (v: string) =>
         `canonical_status.eq.${v},autopilot_state.eq.${v}`;
 
-      const [now, queued, wait, autofix, needsAdmin, needsCode] = await Promise.all([
+      const [now, queued, wait, autofix, needsAdmin, needsCode, ready] = await Promise.all([
         supabase.from("ebooks").select(cols).or(inList(heavy))
           .order("last_heartbeat_at", { ascending: false, nullsFirst: false }).limit(5),
         supabase.from("ebooks").select(cols).or(eqEither("queued_for_production"))
@@ -283,6 +283,12 @@ Deno.serve(async (req) => {
         supabase.from("ebooks").select(cols).or(`${eqEither("needs_admin_attention")},${eqEither("needs_review")}`)
           .order("updated_at", { ascending: false }).limit(20),
         supabase.from("ebooks").select(cols).or(eqEither("needs_code_fix"))
+          .order("updated_at", { ascending: false }).limit(20),
+        // Ready to Publish — 100% complete, PDF ready, not yet pushed to Shopify.
+        supabase.from("ebooks")
+          .select(cols + ",final_quality_score,word_count")
+          .or("canonical_status.in.(ready_to_publish,completed),autopilot_state.in.(done,ready_to_publish)")
+          .or("shopify_status.is.null,shopify_status.neq.published")
           .order("updated_at", { ascending: false }).limit(20),
       ]);
 
