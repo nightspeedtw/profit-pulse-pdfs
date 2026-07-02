@@ -856,6 +856,7 @@ export type Database = {
           visual_fatigue_score: number | null
           visual_plan: Json
           word_count: number
+          worksheet_previews_json: Json | null
           worksheet_readability_score: number | null
           worksheet_table_overflow_score: number | null
           writing_status: string
@@ -980,6 +981,7 @@ export type Database = {
           visual_fatigue_score?: number | null
           visual_plan?: Json
           word_count?: number
+          worksheet_previews_json?: Json | null
           worksheet_readability_score?: number | null
           worksheet_table_overflow_score?: number | null
           writing_status?: string
@@ -1104,6 +1106,7 @@ export type Database = {
           visual_fatigue_score?: number | null
           visual_plan?: Json
           word_count?: number
+          worksheet_previews_json?: Json | null
           worksheet_readability_score?: number | null
           worksheet_table_overflow_score?: number | null
           writing_status?: string
