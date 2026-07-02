@@ -8,9 +8,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Eye, RefreshCw, Wrench, XCircle, Loader2, RotateCw } from "lucide-react";
+import { Eye, RefreshCw, Wrench, XCircle, Loader2, RotateCw, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge, resolveEbookBadge, type EbookBadgeKind } from "@/components/admin/StatusBadge";
+import { WorksheetOverflowReview } from "@/components/admin/WorksheetOverflowReview";
 
 type Ebook = {
   id: string; title: string;
@@ -21,6 +22,8 @@ type Ebook = {
   final_quality_score: number | null;
   needs_review_reason: string | null;
   updated_at: string;
+  worksheet_table_overflow_score: number | null;
+  worksheet_previews_json: any;
 };
 
 type FilterKey = "all" | "running" | "needs_attention" | "draft_uploaded" | "published" | "failed";
@@ -38,12 +41,27 @@ export default function Production() {
   const [ebooks, setEbooks] = useState<Ebook[]>([]);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [params, setParams] = useSearchParams();
   const filter = (params.get("filter") as FilterKey) || "all";
 
+  const worksheetFailures = useMemo(
+    () => ebooks.filter((e) =>
+      (e.worksheet_table_overflow_score != null && e.worksheet_table_overflow_score < 100) ||
+      (e.worksheet_previews_json?.entries?.length ?? 0) > 0),
+    [ebooks],
+  );
+  function toggle(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   async function load() {
     const { data } = await supabase.from("ebooks")
-      .select("id,title,autopilot_state,autopilot_mode,shopify_status,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at")
+      .select("id,title,autopilot_state,autopilot_mode,shopify_status,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json")
       .order("updated_at", { ascending: false }).limit(200);
     setEbooks((data ?? []) as Ebook[]);
   }
@@ -232,6 +250,59 @@ export default function Production() {
           </div>
         </CardContent>
       </Card>
+
+      {worksheetFailures.length > 0 && (
+        <Card className="border-2 border-red-500/60">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-mono uppercase text-red-800">
+              Worksheet overflow — {worksheetFailures.length} job{worksheetFailures.length === 1 ? "" : "s"} need review
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              These ebooks failed the automated table-overflow / cropping check. Preview each fix
+              before the pipeline uploads the PDF to Shopify.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {worksheetFailures.map((e) => {
+              const isOpen = expanded.has(e.id);
+              const count = e.worksheet_previews_json?.entries?.length ?? 0;
+              return (
+                <div key={e.id} className="border border-foreground/20 rounded">
+                  <button
+                    onClick={() => toggle(e.id)}
+                    className="w-full flex items-center justify-between p-3 text-left hover:bg-muted/30"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {isOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate">{e.title || "Untitled"}</p>
+                        <p className="text-[11px] font-mono text-muted-foreground">
+                          overflow score {e.worksheet_table_overflow_score ?? "—"}/100
+                          {count > 0 && ` · ${count} preview${count === 1 ? "" : "s"} cached`}
+                        </p>
+                      </div>
+                    </div>
+                    <Link to={`/admin/ebook/${e.id}/pdf`} onClick={(ev) => ev.stopPropagation()}
+                      className="text-xs underline text-muted-foreground shrink-0 ml-3">
+                      Open PDF page →
+                    </Link>
+                  </button>
+                  {isOpen && (
+                    <div className="p-3 border-t border-foreground/10 bg-muted/10">
+                      <WorksheetOverflowReview
+                        ebookId={e.id}
+                        overflowScore={e.worksheet_table_overflow_score}
+                        initialPreviews={e.worksheet_previews_json ?? null}
+                        compact
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       <p className="text-xs text-muted-foreground">
         Need to rewrite, regenerate, view raw JSON, or run premium positioning? Open the job detail page (View).
