@@ -10,7 +10,7 @@ import { Loader2, Play, Pause, Sparkles, AlertTriangle, DollarSign, FlaskConical
 import { toast } from "sonner";
 import { StatusBadge, resolveEbookBadge } from "@/components/admin/StatusBadge";
 import { AutoFixChip } from "@/components/admin/AutoFixChip";
-import { LiveAutopilotCard } from "@/components/admin/LiveAutopilotCard";
+import { AutopilotStatusCenter } from "@/components/admin/AutopilotStatusCenter";
 
 type Ebook = {
   id: string; title: string;
@@ -271,7 +271,7 @@ export default function CommandCenter() {
       </Card>
 
       {/* Live Autopilot run — only renders when a run is active */}
-      <LiveAutopilotCard />
+      <AutopilotStatusCenter />
 
 
       {/* Autopilot status strip */}
