@@ -43,7 +43,18 @@ type StepRow = {
   completed_at: string | null;
 };
 
-type EbookRow = { id: string; title: string | null; shopify_status: string | null; shopify_product_id: string | null; final_quality_score: number | null };
+type EbookRow = {
+  id: string;
+  title: string | null;
+  shopify_status: string | null;
+  shopify_product_id: string | null;
+  final_quality_score: number | null;
+  cover_url: string | null;
+  cover_status: string | null;
+  pdf_url: string | null;
+  pdf_status: string | null;
+  pdf_generated_at: string | null;
+};
 
 type FilterKey = "all" | "running" | "auto_fixing" | "draft_uploaded" | "needs_admin" | "failed" | "completed";
 
