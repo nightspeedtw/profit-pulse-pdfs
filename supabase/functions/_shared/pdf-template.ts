@@ -261,12 +261,14 @@ function chapterChecklist(c: PdfChapter): string {
 function chapterDiagram(c: PdfChapter): string {
   const d = c.diagram;
   if (!d?.steps?.length) return "";
-  // Framework diagram: ordered numbered cards with connecting arrow ▸
+  // Framework diagram: ordered numbered cards. Connectors are rendered as CSS
+  // pseudo-elements (::after) — NEVER as raw text — so no stray characters
+  // (v, *, ▸) can leak into the PDF if fonts fall back.
   const cells = d.steps.map((s, i) => `
-    <div class="framework__cell">
+    <div class="framework__cell${i < d.steps!.length - 1 ? " framework__cell--connect" : ""}">
       <div class="framework__n">${i + 1}</div>
       <div class="framework__t">${esc(s)}</div>
-    </div>${i < d.steps!.length - 1 ? `<div class="framework__arrow">▸</div>` : ""}`).join("");
+    </div>`).join("");
   return `
     <section class="framework">
       <h3 class="block__heading">Framework — ${esc(d.title)}</h3>
