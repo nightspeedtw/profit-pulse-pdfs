@@ -489,8 +489,9 @@ function RunTable({ rows, now }: { rows: RunRowData[]; now: number }) {
                 <td className="p-2">
                   <span className="text-muted-foreground">{stepIdx}/{TOTAL_STEPS}</span> <span className="font-medium">{label}</span>
                 </td>
-                <td className="p-2 max-w-[260px]">
+                <td className="p-2 max-w-[280px]">
                   <p className="line-clamp-1">{run.current_action_message ?? "—"}</p>
+                  {subtask && <p className="text-[10px] text-muted-foreground line-clamp-1">↳ {subtask}</p>}
                 </td>
                 <td className="p-2">{attempts > 0 ? <span className="text-orange-800">{attempts}/{maxAttempts}</span> : "—"}</td>
                 <td className="p-2 font-mono">{ebook?.shopify_status ?? (ebook?.shopify_product_id ? "draft" : "—")}</td>
