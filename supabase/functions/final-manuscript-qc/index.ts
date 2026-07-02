@@ -654,6 +654,15 @@ Deno.serve(async (req) => {
         ai_scores: aiScores,
       };
 
+      const topReasonSummary = deterministic.slice(0, 3).map((r) => r.code).join(", ") || "none";
+      await emit(
+        passed ? "qc_passed" : "qc_result",
+        passed
+          ? `Manuscript QC passed. Score ${scoreVal}/100. Continuing…`
+          : `QC score ${scoreVal}/100 · ${deterministic.length} issue${deterministic.length === 1 ? "" : "s"} (${topReasonSummary}). Attempt ${attempt}/${MAX_REPAIR_ATTEMPTS}.`,
+        { attempt, passed, score: scoreVal, issues: deterministic.length, failed_chapters: failedChapters },
+      );
+
       await logRun(db, {
         ebook_id: ebook.id, step: "final_manuscript_qc",
         status: passed ? "ok" : (attempt >= MAX_REPAIR_ATTEMPTS ? "fail" : "rewrite"),
@@ -664,6 +673,10 @@ Deno.serve(async (req) => {
 
       // ---- Targeted repair pass ----
       attemptsUsed++;
+      await emit("repair_start", `Running targeted repair — attempt ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS}. Failed chapters: [${failedChapters.join(", ") || "—"}]`, {
+        attempt: attemptsUsed, failed_chapters: failedChapters, top_reasons: deterministic.slice(0, 5).map((r) => ({ code: r.code, chapter: r.chapter_index })),
+      });
+
       // Deduplicate: at most one action per chapter per attempt; prioritize structural fixes.
       const priority: Record<string, number> = {
         regenerate_missing_chapter: 0,
