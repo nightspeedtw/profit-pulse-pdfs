@@ -43,9 +43,24 @@ Deno.serve(async (req) => {
           "id,ebook_id,idea_id,status,current_step,current_step_label,current_action_message,current_subtask,progress_percent,started_at,updated_at,last_heartbeat_at,completed_at,admin_needed_reason,error_message,pause_requested,mode,test_mode",
           { count: "exact" },
         )
+        .neq("status", "superseded")
         .order("updated_at", { ascending: false })
         .limit(500);
       if (runsError) throw runsError;
+
+      // Defensive dedupe: keep only the newest run per ebook_id so the UI
+      // never renders the same ebook (and its cover) twice, even if the
+      // supersede trigger hasn't fired yet on a legacy row.
+      const seenEbook = new Set<string>();
+      const dedupedRuns: typeof runs = [];
+      for (const r of (runs ?? [])) {
+        const key = (r as { ebook_id: string | null }).ebook_id;
+        if (key && seenEbook.has(key)) continue;
+        if (key) seenEbook.add(key);
+        dedupedRuns.push(r);
+      }
+      (runs as unknown as unknown[]).length = 0;
+      (runs as unknown as unknown[]).push(...dedupedRuns);
 
       const runRows = runs ?? [];
       const ebookIds = Array.from(
@@ -155,6 +170,7 @@ Deno.serve(async (req) => {
         .or(
           `started_at.gte.${since},status.in.(starting,running,auto_fixing,needs_admin)`,
         )
+        .neq("status", "superseded")
         .order("started_at", { ascending: false })
         .limit(50);
 
