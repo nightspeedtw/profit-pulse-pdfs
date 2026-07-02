@@ -192,6 +192,9 @@ export default function CommandCenter() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Re-push failed");
     } finally { setBusy(null); }
+  }
+
+
 
   const costPct = settings
     ? Math.min(100, (stats.costToday / Math.max(0.01, Number(settings.daily_budget_usd))) * 100)
