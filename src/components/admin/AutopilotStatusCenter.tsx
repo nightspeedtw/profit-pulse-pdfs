@@ -428,4 +428,77 @@ function RunCard({
   );
 }
 
+type RunRowData = { run: RunRow; ebook: EbookRow | undefined; ds: DisplayStatus; step: StepRow | undefined };
+
+function RunTable({ rows, now }: { rows: RunRowData[]; now: number }) {
+  if (rows.length === 0) {
+    return <p className="text-sm text-muted-foreground p-3">No runs match this filter.</p>;
+  }
+  return (
+    <div className="border-2 border-foreground overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-muted/50 font-mono uppercase text-[10px] tracking-wide">
+          <tr>
+            <th className="p-2 text-left">Ebook</th>
+            <th className="p-2 text-left">Status</th>
+            <th className="p-2 text-left w-32">Progress</th>
+            <th className="p-2 text-left">Step</th>
+            <th className="p-2 text-left">Current Action</th>
+            <th className="p-2 text-left">Auto-Fix</th>
+            <th className="p-2 text-left">Shopify</th>
+            <th className="p-2 text-left">Updated</th>
+            <th className="p-2 text-right">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ run, ebook, ds, step }) => {
+            const style = STATUS_STYLE[ds];
+            const stepIdx = stepIndex(run.current_step);
+            const label = run.current_step_label ?? stepLabel(run.current_step);
+            const title = ebook?.title || (run.ebook_id ? "Untitled" : "New Run");
+            const attempts = step?.auto_fix_attempts ?? 0;
+            const maxAttempts = step?.max_auto_fix_attempts ?? 3;
+            const updatedSec = Math.floor((now - new Date(run.updated_at).getTime()) / 1000);
+            const stalled = ACTIVE.includes(run.status) && updatedSec > 300;
+            return (
+              <tr key={run.id} className={`border-t border-foreground/10 hover:bg-muted/30 ${stalled ? "bg-red-50/40" : ""}`}>
+                <td className="p-2 max-w-[220px]">
+                  <p className="font-medium line-clamp-1">{title}</p>
+                  <p className="text-[10px] font-mono text-muted-foreground">{run.id.slice(0, 8)}</p>
+                </td>
+                <td className="p-2">
+                  <span className={`text-[10px] font-mono uppercase border-2 px-1.5 py-0.5 ${style.badge}`}>{style.label}</span>
+                  {stalled && <p className="text-[10px] text-red-800 mt-0.5">Stalled {Math.floor(updatedSec / 60)}m</p>}
+                </td>
+                <td className="p-2">
+                  <div className="flex items-center gap-1">
+                    <div className="h-1.5 flex-1 bg-muted border border-foreground/10 overflow-hidden">
+                      <div className={`h-full ${style.bar}`} style={{ width: `${Math.max(2, run.progress_percent)}%` }} />
+                    </div>
+                    <span className="font-mono text-[10px] w-8 text-right">{run.progress_percent}%</span>
+                  </div>
+                </td>
+                <td className="p-2">
+                  <span className="text-muted-foreground">{stepIdx}/{TOTAL_STEPS}</span> <span className="font-medium">{label}</span>
+                </td>
+                <td className="p-2 max-w-[260px]">
+                  <p className="line-clamp-1">{run.current_action_message ?? "—"}</p>
+                </td>
+                <td className="p-2">{attempts > 0 ? <span className="text-orange-800">{attempts}/{maxAttempts}</span> : "—"}</td>
+                <td className="p-2 font-mono">{ebook?.shopify_status ?? (ebook?.shopify_product_id ? "draft" : "—")}</td>
+                <td className="p-2 font-mono text-muted-foreground">{agoLabel(run.updated_at, now)}</td>
+                <td className="p-2 text-right">
+                  <Link to={`/admin/autopilot/run/${run.id}`}>
+                    <Button size="sm" variant="outline" className="h-6 text-[11px]">View →</Button>
+                  </Link>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default AutopilotStatusCenter;
