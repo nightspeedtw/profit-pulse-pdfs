@@ -578,6 +578,16 @@ function RunTable({ rows, now }: { rows: RunRowData[]; now: number }) {
                 </td>
                 <td className="p-2">{attempts > 0 ? <span className="text-orange-800">{attempts}/{maxAttempts}</span> : "—"}</td>
                 <td className="p-2 font-mono">{ebook?.shopify_status ?? (ebook?.shopify_product_id ? "draft" : "—")}</td>
+                <td className="p-2">
+                  <div className="flex flex-col gap-0.5 text-[10px]">
+                    {ebook?.cover_url
+                      ? <a href={ebook.cover_url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">Cover ↗</a>
+                      : <span className="text-muted-foreground">Cover: {["running","auto_fixing","rendering_pdf"].includes(ds) ? "gen…" : "—"}</span>}
+                    {ebook?.pdf_url
+                      ? <a href={ebook.pdf_url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline">PDF ↗</a>
+                      : <span className="text-muted-foreground">PDF: {ds === "rendering_pdf" ? "gen…" : (ebook?.pdf_status === "failed" ? "failed" : "—")}</span>}
+                  </div>
+                </td>
                 <td className="p-2 font-mono text-muted-foreground">{agoLabel(heartbeatIso, now)}</td>
                 <td className="p-2 text-right">
                   <Link to={`/admin/autopilot/run/${run.id}`}>
