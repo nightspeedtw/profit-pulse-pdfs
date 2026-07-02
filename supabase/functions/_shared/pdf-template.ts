@@ -116,31 +116,46 @@ function chapterCallouts(c: PdfChapter): string {
 }
 
 // Safe short-form dictionary for worksheet table headers so long labels wrap
-// cleanly across two lines instead of overflowing.
+// cleanly across two lines instead of overflowing. Any header longer than
+// ~12 chars falls back to an auto two-line split.
 const HEADER_SHORTFORMS: [RegExp, string][] = [
   [/^current\s+exact\s+balance$/i, "Exact\nBalance"],
   [/^exact\s+balance$/i, "Exact\nBalance"],
   [/^minimum\s+monthly\s+payment$/i, "Min.\nPayment"],
+  [/^minimum\s+payment$/i, "Min.\nPayment"],
   [/^total\s+monthly\s+interest$/i, "Monthly\nInterest"],
+  [/^monthly\s+interest$/i, "Monthly\nInterest"],
   [/^annual\s+percentage\s+rate$|^apr$/i, "APR"],
   [/^outstanding\s+balance$/i, "Balance"],
+  [/^current\s+balance$/i, "Balance"],
   [/^interest\s+rate$/i, "Rate"],
   [/^payoff\s+date$/i, "Payoff\nDate"],
+  [/^projected\s+payoff\s+date$/i, "Payoff\nDate"],
   [/^credit\s+utili[sz]ation$/i, "Utili-\nzation"],
   [/^payment\s+due\s+date$/i, "Due\nDate"],
+  [/^due\s+date$/i, "Due\nDate"],
   [/^creditor\s+name$/i, "Creditor"],
   [/^account\s+number$/i, "Acct #"],
+  [/^extra\s+payment$/i, "Extra\nPayment"],
+  [/^balance\s+after$/i, "Balance\nAfter"],
+  [/^interest\s+saved$/i, "Interest\nSaved"],
+  [/^next\s+action$/i, "Next\nAction"],
+  [/^score\s+1-5$/i, "Score\n1–5"],
 ];
 function shortenHeader(h: string): string {
   const trimmed = (h ?? "").trim();
   for (const [re, short] of HEADER_SHORTFORMS) {
     if (re.test(trimmed)) return short;
   }
-  // Auto-wrap long headers into two lines at the middle space.
-  if (trimmed.length > 14 && trimmed.includes(" ")) {
+  // Auto-wrap headers > 12 chars into two balanced lines at the middle space.
+  if (trimmed.length > 12 && trimmed.includes(" ")) {
     const words = trimmed.split(/\s+/);
     const mid = Math.ceil(words.length / 2);
     return `${words.slice(0, mid).join(" ")}\n${words.slice(mid).join(" ")}`;
+  }
+  // Single long word → soft-hyphen break so it wraps inside a narrow cell.
+  if (trimmed.length > 12 && !trimmed.includes(" ")) {
+    return `${trimmed.slice(0, 8)}\u00AD${trimmed.slice(8)}`;
   }
   return trimmed;
 }
