@@ -235,8 +235,44 @@ export default function CommandCenter() {
         </div>
       </div>
 
+      {/* Premium PDF Autopilot — one-click card */}
+      <Card className="border-2 border-foreground bg-gradient-to-br from-background to-muted/30">
+        <CardContent className="p-5 flex flex-wrap items-center gap-4 justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Rocket className="size-4" />
+              <p className="font-mono uppercase text-xs tracking-widest">Premium PDF Autopilot</p>
+            </div>
+            <p className="text-sm">
+              One click runs the full gated pipeline: idea → outline → 18k+ words → QC → cover → PDF → Shopify draft.
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Mode: <span className="font-mono">{settings?.autopilot_mode ?? "safe"}</span> —{" "}
+              {settings?.autopilot_mode === "full"
+                ? "will attempt live publish if gates pass and Auto-publish is on."
+                : "uploads Shopify draft only. Never auto-publishes."}
+            </p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Button onClick={runPremiumAutopilot} disabled={busy === "premium" || settings?.paused}>
+              {busy === "premium"
+                ? <Loader2 className="size-4 animate-spin mr-1" />
+                : <Rocket className="size-4 mr-1" />}
+              Run Premium PDF Autopilot
+            </Button>
+            <Button variant="outline" onClick={repushLatestShopifyDraft} disabled={busy === "repush" || ebooks.length === 0}>
+              {busy === "repush"
+                ? <Loader2 className="size-4 animate-spin mr-1" />
+                : <RefreshCw className="size-4 mr-1" />}
+              Re-push Shopify Draft
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Live Autopilot run — only renders when a run is active */}
       <LiveAutopilotCard />
+
 
       {/* Autopilot status strip */}
       <Card className="border-2 border-foreground">
