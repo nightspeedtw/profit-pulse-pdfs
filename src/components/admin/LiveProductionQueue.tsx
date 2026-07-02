@@ -330,6 +330,27 @@ function SectionE({
   needsCode: QueueEbook[];
 }) {
   const count = fixes.length + needsCode.length;
+
+  const fixAll = async () => {
+    if (fixes.length === 0) return;
+    const combined = fixes
+      .map(
+        (f, i) =>
+          `# Fix ${i + 1}/${fixes.length}: ${f.title}\n\n` +
+          `**Detected problem:** ${f.detected_problem}\n` +
+          (f.root_cause ? `**Root cause:** ${f.root_cause}\n` : "") +
+          (f.affected_files?.length
+            ? `**Affected files:**\n${f.affected_files.map((x) => `- ${x}`).join("\n")}\n`
+            : "") +
+          `\n${f.lovable_prompt}\n`,
+      )
+      .join("\n---\n\n");
+    await navigator.clipboard.writeText(
+      `Please fix the following ${fixes.length} Autopilot bug(s) detected by the self-debugging classifier:\n\n${combined}`,
+    );
+    toast.success(`Copied ${fixes.length} Lovable fix prompts — paste into Lovable chat`);
+  };
+
   return (
     <SectionShell
       title="ระบบเจอบั๊ก เขียน prompt ให้ Lovable แก้โค้ด · Needs Code Fix"
@@ -338,6 +359,13 @@ function SectionE({
       empty="ไม่พบบั๊กระดับโค้ด — Autopilot ทำงานปกติ"
     >
       <div className="space-y-3">
+        {fixes.length > 1 && (
+          <div className="flex justify-end">
+            <Button size="sm" variant="destructive" onClick={fixAll} className="gap-2">
+              <Copy className="h-4 w-4" /> Fix All ({fixes.length}) → Lovable
+            </Button>
+          </div>
+        )}
         {fixes.map((f) => (
           <SystemFixCard key={f.id} fix={f} />
         ))}
