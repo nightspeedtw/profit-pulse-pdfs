@@ -262,6 +262,14 @@ export class RunTracker {
       current_action_message: msg,
       current_subtask: subtask,
     });
+    await this.syncEbook({
+      canonical_status: "auto_fixing",
+      current_step: step_name,
+      current_step_label: label,
+      current_action_message: msg,
+      current_subtask: subtask,
+      auto_fix_attempts: attempt,
+    });
   }
 
   async passStep(step_name: string, opts: { message?: string; score?: number | null } = {}) {
