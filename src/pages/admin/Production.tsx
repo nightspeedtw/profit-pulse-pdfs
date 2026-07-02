@@ -13,6 +13,7 @@ import { Eye, RefreshCw, Wrench, XCircle, Loader2, RotateCw, ChevronDown, Chevro
 import { toast } from "sonner";
 import { StatusBadge, resolveEbookBadge, type EbookBadgeKind } from "@/components/admin/StatusBadge";
 import { WorksheetOverflowReview } from "@/components/admin/WorksheetOverflowReview";
+import { LiveProductionQueue } from "@/components/admin/LiveProductionQueue";
 
 type Ebook = {
   id: string; title: string;
