@@ -210,6 +210,14 @@ export class RunTracker {
     if (patch.message !== undefined) runPatch.current_action_message = patch.message;
     if (patch.subtask !== undefined) runPatch.current_subtask = patch.subtask;
     await this.patchRun(runPatch);
+    if (patch.message !== undefined || patch.subtask !== undefined) {
+      await this.syncEbook({
+        current_action_message: patch.message ?? undefined,
+        current_subtask: patch.subtask ?? undefined,
+      });
+    } else {
+      await this.syncEbook({}); // just refresh heartbeat
+    }
   }
 
   async updateStep(step_name: string, patch: {
