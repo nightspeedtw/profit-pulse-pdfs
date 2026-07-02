@@ -259,22 +259,26 @@ export function AutopilotStatusCenter() {
         <CardContent className="p-4">
           <div className="flex items-center gap-2 mb-3">
             <Activity className="size-4 text-sky-700" />
-            <h2 className="font-display text-base uppercase tracking-wide">Autopilot Runs</h2>
-            <span className="ml-auto text-[10px] font-mono uppercase text-muted-foreground">Live · updates every 4s</span>
+            <h2 className="font-display text-base uppercase tracking-wide">Live Autopilot Overview</h2>
+            <span className="ml-auto text-[10px] font-mono uppercase text-muted-foreground">Live · updates every 3s</span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-10 gap-2 text-xs">
+            <SummaryTile label="Daily Quota" value={dailyQuota || "—"} />
             <SummaryTile label="Completed" value={`${producedToday}/${dailyQuota || "—"}`} tone="text-emerald-800" />
             <SummaryTile label="Running" value={counts.running} tone="text-sky-800" />
             <SummaryTile label="Queued" value={counts.queued} />
             <SummaryTile label="Auto-Fixing" value={counts.auto_fixing} tone={counts.auto_fixing ? "text-orange-800" : ""} />
             <SummaryTile label="Needs Admin" value={counts.needs_admin} tone={counts.needs_admin ? "text-red-800" : ""} />
+            <SummaryTile label="Failed" value={counts.failed} tone={counts.failed ? "text-red-800" : ""} />
+            <SummaryTile label="Shopify Drafts" value={counts.draft_uploaded} tone={counts.draft_uploaded ? "text-emerald-800" : ""} />
+            <SummaryTile label="Avg Progress" value={`${counts.avgProgress}%`} />
             <SummaryTile label="AI Cost Today" value={`$${costToday.toFixed(2)}`} />
           </div>
         </CardContent>
       </Card>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-1">
+      {/* Filters + view toggle */}
+      <div className="flex flex-wrap items-center gap-1">
         {FILTERS.map((f) => (
           <Button
             key={f.key}
@@ -286,17 +290,29 @@ export function AutopilotStatusCenter() {
             {f.label}{typeof f.n === "number" ? ` (${f.n})` : ""}
           </Button>
         ))}
+        <div className="ml-auto flex gap-1">
+          <Button size="sm" variant={view === "cards" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setView("cards")}>
+            <LayoutGrid className="size-3 mr-1" />Cards
+          </Button>
+          <Button size="sm" variant={view === "table" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setView("table")}>
+            <Rows3 className="size-3 mr-1" />Table
+          </Button>
+        </div>
       </div>
 
-      {/* Per-book cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {filtered.map(({ run, ebook, ds, step }) => (
-          <RunCard key={run.id} run={run} ebook={ebook} ds={ds} step={step} now={now} />
-        ))}
-        {filtered.length === 0 && (
-          <p className="text-sm text-muted-foreground p-3">No runs match this filter.</p>
-        )}
-      </div>
+      {/* Per-book */}
+      {view === "cards" ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {filtered.map(({ run, ebook, ds, step }) => (
+            <RunCard key={run.id} run={run} ebook={ebook} ds={ds} step={step} now={now} />
+          ))}
+          {filtered.length === 0 && (
+            <p className="text-sm text-muted-foreground p-3">No runs match this filter.</p>
+          )}
+        </div>
+      ) : (
+        <RunTable rows={filtered} now={now} />
+      )}
     </section>
   );
 }
