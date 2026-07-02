@@ -375,12 +375,18 @@ Deno.serve(async (req) => {
       payload: { page_count: pageCount, version, passed },
     });
 
+    await releaseLock(db, LOCK_PDF, ebookId);
     return json({
       ok: true, passed, pdf_url: signedPdf?.signedUrl, html_url: signedHtml?.signedUrl,
       page_count: pageCount, qc,
     });
   } catch (e) {
     console.error("render-pdf failed:", e);
+    // Best-effort: release the PDF render lock so the next queued ebook can proceed.
+    try {
+      const bodyRetry = await req.clone().json().catch(() => ({}));
+      if (bodyRetry?.ebook_id) await releaseLock(db, LOCK_PDF, bodyRetry.ebook_id);
+    } catch { /* ignore */ }
     return json({ error: (e as Error).message ?? String(e) }, 500);
   }
 });
