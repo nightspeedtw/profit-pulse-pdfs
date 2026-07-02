@@ -269,6 +269,20 @@ export default function Production() {
                       <td className="p-3 text-xs font-mono text-muted-foreground">
                         {e.shopify_status ?? "—"}
                       </td>
+                      <td className="p-3 text-[11px] font-mono">
+                        {e.blocker_reason ? (
+                          <>
+                            <div className="text-cyan-800">{prettyBlocker(e.blocker_reason)}</div>
+                            {e.next_retry_at && (
+                              <div className="text-muted-foreground">
+                                Next retry {new Date(e.next_retry_at).toLocaleString()}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
                       <td className="p-3">
                         <div className="flex flex-wrap gap-1 justify-end">
                           <Link to={`/admin/ebook/${ebookId}`}>
