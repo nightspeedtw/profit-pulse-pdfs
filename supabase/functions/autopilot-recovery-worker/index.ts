@@ -12,7 +12,7 @@
 // Response: summary of how many jobs were resumed / requeued.
 
 import { admin, corsHeaders } from "../_shared/ai.ts";
-import { nextUtcMidnight } from "../_shared/recovery.ts";
+import { nextUtcMidnight, LOCK_HEAVY, getLockHolder } from "../_shared/recovery.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
