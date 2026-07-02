@@ -1,5 +1,5 @@
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { fetchAdminData } from "@/lib/adminData";
 import { Button } from "@/components/ui/button";
 import { Gauge, Factory, Package, Settings as SettingsIcon, LogOut, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
