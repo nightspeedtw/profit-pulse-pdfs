@@ -231,6 +231,84 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (resource === "live_queue") {
+      // Live Production Queue for the admin dashboard. Groups every ebook by canonical_status.
+      const heavy = [
+        "generating_outline", "writing_chapters", "building_manuscript", "running_qc",
+        "auto_fixing", "generating_cover", "generating_thumbnail", "rendering_pdf",
+        "uploading_shopify_draft", "verifying_shopify_draft", "production_running",
+      ];
+      const waiting = [
+        "waiting_for_browserless_slot", "waiting_for_shopify_quota",
+        "waiting_for_ai_budget", "waiting_for_worker_slot",
+      ];
+      const cols =
+        "id,title,canonical_status,queue_position,queued_at,estimated_start_after_run_id,waiting_reason,current_step,current_subtask,progress_pct,last_heartbeat_at,current_qc_score,autofix_attempt,autofix_max,structured_error,next_retry_at,cover_url,pdf_url,shopify_status,updated_at";
+
+      const [now, queued, wait, autofix, needsAdmin, needsCode] = await Promise.all([
+        supabase.from("ebooks").select(cols).in("canonical_status", heavy)
+          .order("last_heartbeat_at", { ascending: false }).limit(5),
+        supabase.from("ebooks").select(cols).eq("canonical_status", "queued_for_production")
+          .order("queue_position", { ascending: true }).limit(50),
+        supabase.from("ebooks").select(cols).in("canonical_status", waiting)
+          .order("next_retry_at", { ascending: true }).limit(50),
+        supabase.from("ebooks").select(cols).eq("canonical_status", "auto_fixing")
+          .order("updated_at", { ascending: false }).limit(20),
+        supabase.from("ebooks").select(cols).eq("canonical_status", "needs_admin_attention")
+          .order("updated_at", { ascending: false }).limit(20),
+        supabase.from("ebooks").select(cols).eq("canonical_status", "needs_code_fix")
+          .order("updated_at", { ascending: false }).limit(20),
+      ]);
+
+      const { data: fixes } = await supabase
+        .from("system_fix_instructions")
+        .select("*")
+        .eq("status", "open")
+        .order("last_seen_at", { ascending: false })
+        .limit(50);
+
+      const { data: lock } = await supabase
+        .from("production_locks")
+        .select("name,holder_ebook_id,holder_run_id,acquired_at,expires_at")
+        .eq("name", "heavy_production")
+        .maybeSingle();
+
+      return json({
+        currently_working_on: now.data ?? [],
+        queued: queued.data ?? [],
+        waiting: wait.data ?? [],
+        auto_fixing: autofix.data ?? [],
+        needs_admin: needsAdmin.data ?? [],
+        needs_code_fix: needsCode.data ?? [],
+        system_fixes: fixes ?? [],
+        heavy_production_lock: lock ?? null,
+        fetched_at: new Date().toISOString(),
+      });
+    }
+
+    if (resource === "system_fixes") {
+      const { data } = await supabase
+        .from("system_fix_instructions")
+        .select("*")
+        .order("last_seen_at", { ascending: false })
+        .limit(100);
+      return json({ fixes: data ?? [] });
+    }
+
+    if (resource === "run_doctor") {
+      // Invoke the doctor via internal call; return its report.
+      const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/autopilot-doctor`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-passcode": PASSCODE,
+        },
+        body: "{}",
+      });
+      return json(await res.json(), res.status);
+    }
+
     return json({ error: "unknown resource" }, 400);
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : String(err) }, 500);
