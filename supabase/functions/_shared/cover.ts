@@ -29,6 +29,24 @@ export interface CoverSpec {
   thumbnail_readability_notes: string;
   why_this_cover_sells: string;
   cover_qc_checklist: string[];
+  // Premium human-designer strategy (optional, populated by premium cover expert)
+  target_buyer?: string;
+  buyer_pain?: string;
+  desired_transformation?: string;
+  emotional_trigger?: string;
+  category?: string;
+  product_format?: string;
+  creative_direction?: string;
+  visual_metaphor?: string;
+  composition_strategy?: string;
+  typography_strategy?: string;
+  thumbnail_strategy?: string;
+  anti_ai_design_notes?: string;
+  layout_instructions?: string;
+  title_treatment?: string;
+  subtitle_treatment?: string;
+  badge_treatment?: string;
+  brand_treatment?: string;
 }
 
 function esc(s: string) {
