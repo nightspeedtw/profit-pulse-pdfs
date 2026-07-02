@@ -8,6 +8,7 @@
 // POST { idea_id: string }
 // Response: { ok: boolean, attempts, scores, package, blocker_reason? }
 import { admin, aiJSON, corsHeaders, logCost, pickModel, requireAdmin } from "../_shared/ai.ts";
+import { checkPremiumTitle } from "../_shared/title-guard.ts";
 
 // ---- Strict gate thresholds (per Premium Marketing Expert spec) ----
 const GATE = {
@@ -150,6 +151,10 @@ function gate(p: PremiumTitlePackage): { passed: boolean; reasons: string[] } {
   const unsafe = [p.recommended_title, p.subtitle, p.primary_hook, p.transformation_promise, p.premium_positioning]
     .some((t) => UNSAFE.some((re) => re.test(t)));
   if (unsafe) r.push("unsafe_claim_detected");
+  const guard = checkPremiumTitle(p.recommended_title);
+  if (!guard.ok) r.push(`generic_title:${guard.reasons.join(",")}`);
+  const shopGuard = checkPremiumTitle(p.shopify_product_title);
+  if (!shopGuard.ok) r.push(`generic_shopify_title:${shopGuard.reasons.join(",")}`);
   if (p.title_quality_score < GATE.title_quality_min) r.push(`title_quality=${p.title_quality_score}<85`);
   if (p.buyer_pain_match < GATE.buyer_pain_match_min) r.push(`buyer_pain_match=${p.buyer_pain_match}<85`);
   if (p.premium_feel < GATE.premium_feel_min) r.push(`premium_feel=${p.premium_feel}<85`);

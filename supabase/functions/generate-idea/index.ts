@@ -2,6 +2,9 @@
 // "Premium Title & Hard-Sell Copywriter" agent. One pass = one strongest version.
 import { corsHeaders, admin, aiJSON, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 import { HARDSELL_COPYWRITER_SYSTEM } from "../_shared/prompts.ts";
+import { checkPremiumTitle } from "../_shared/title-guard.ts";
+
+const MAX_TITLE_ATTEMPTS = 5;
 
 interface ObjectionHandling {
   too_expensive: string;
@@ -140,57 +143,77 @@ Return JSON in EXACTLY this shape:
     let totalCost = 0;
 
     for (let i = 0; i < requestedCount; i++) {
-      try {
-        const ai = await aiJSON<OneIdea>({ system: sys, user: userTemplate, model });
-        totalCost += ai.usage.cost_usd;
-        await logCost(db, { idea_id: null, step: "generate-idea", model: ai.model, ...ai.usage });
+      let accepted: OneIdea | null = null;
+      let lastReasons: string[] = [];
+      let attemptCost = 0;
 
-        const c = ai.data.best_sellable_concept;
-        const shop = ai.data.shopify_ready ?? {} as ShopifyReady;
-        if (!c?.title) continue;
+      for (let attempt = 1; attempt <= MAX_TITLE_ATTEMPTS; attempt++) {
+        try {
+          const feedback = lastReasons.length
+            ? `\n\nPREVIOUS ATTEMPT REJECTED by the Premium Title Guard for: ${lastReasons.join(", ")}. Rewrite using one of the REQUIRED PATTERNS. Do NOT use "How to …", generic guides, "Tips/Tricks/Advice", or blog-post phrasing.`
+            : "";
+          const ai = await aiJSON<OneIdea>({ system: sys, user: userTemplate + feedback, model });
+          attemptCost += ai.usage.cost_usd;
+          await logCost(db, { idea_id: null, step: "generate-idea", model: ai.model, ...ai.usage });
 
-        const status = mapStatus(c.status);
-        const scoreVal = Math.max(0, Math.min(100, Number(c.idea_score ?? 0)));
+          const c = ai.data.best_sellable_concept;
+          if (!c?.title) { lastReasons = ["empty_title"]; continue; }
 
-        const { data: row } = await db.from("ebook_ideas").insert({
-          category_id: categoryId,
-          title: c.title,
-          subtitle: c.subtitle,
-          target_buyer: ai.data.target_buyer,
-          hook: c.primary_hook,
-          scores: {
-            buyer_appeal: c.buyer_appeal_score,
-            premium: c.premium_score,
-            hard_sell: c.hard_sell_strength_score,
-            compliance_risk: c.compliance_risk_score,
-            idea: c.idea_score,
-          },
-          total_score: scoreVal,
-          status,
-          notes: `[hard-sell-copywriter] ${c.status} — ${c.recommended_admin_action}`,
-          cost_usd: ai.usage.cost_usd,
-          core_pain_point: c.core_pain_point,
-          deeper_emotional_fear: c.deeper_emotional_fear,
-          transformation_promise: c.transformation_promise,
-          perceived_value_boosters: c.perceived_value_boosters ?? [],
-          why_it_sells: c.why_it_sells,
-          recommended_action: c.recommended_admin_action,
-          improvement_round: 1,
-          raw_title: c.title,
-          raw_subtitle: c.subtitle,
-          raw_hook: c.primary_hook,
-          raw_target_buyer: ai.data.target_buyer,
-          buyer_identity: c.buyer_identity,
-          cost_of_doing_nothing: c.cost_of_doing_nothing,
-          value_proposition: c.value_proposition,
-          hard_sell_opening: c.hard_sell_opening,
-          objection_handling: c.objection_handling ?? {},
-          shopify_meta: shop,
-        }).select("id").single();
-        if (row?.id) created.push(row.id);
-      } catch (_e) {
-        // continue — partial batch is acceptable
+          const check = checkPremiumTitle(c.title);
+          if (!check.ok) {
+            lastReasons = check.reasons;
+            continue;
+          }
+          accepted = ai.data;
+          break;
+        } catch (_e) {
+          lastReasons = ["ai_error"];
+        }
       }
+      totalCost += attemptCost;
+      if (!accepted) continue;
+
+      const c = accepted.best_sellable_concept;
+      const shop = accepted.shopify_ready ?? {} as ShopifyReady;
+      const status = mapStatus(c.status);
+      const scoreVal = Math.max(0, Math.min(100, Number(c.idea_score ?? 0)));
+
+      const { data: row } = await db.from("ebook_ideas").insert({
+        category_id: categoryId,
+        title: c.title,
+        subtitle: c.subtitle,
+        target_buyer: accepted.target_buyer,
+        hook: c.primary_hook,
+        scores: {
+          buyer_appeal: c.buyer_appeal_score,
+          premium: c.premium_score,
+          hard_sell: c.hard_sell_strength_score,
+          compliance_risk: c.compliance_risk_score,
+          idea: c.idea_score,
+        },
+        total_score: scoreVal,
+        status,
+        notes: `[hard-sell-copywriter] ${c.status} — ${c.recommended_admin_action}`,
+        cost_usd: attemptCost,
+        core_pain_point: c.core_pain_point,
+        deeper_emotional_fear: c.deeper_emotional_fear,
+        transformation_promise: c.transformation_promise,
+        perceived_value_boosters: c.perceived_value_boosters ?? [],
+        why_it_sells: c.why_it_sells,
+        recommended_action: c.recommended_admin_action,
+        improvement_round: 1,
+        raw_title: c.title,
+        raw_subtitle: c.subtitle,
+        raw_hook: c.primary_hook,
+        raw_target_buyer: accepted.target_buyer,
+        buyer_identity: c.buyer_identity,
+        cost_of_doing_nothing: c.cost_of_doing_nothing,
+        value_proposition: c.value_proposition,
+        hard_sell_opening: c.hard_sell_opening,
+        objection_handling: c.objection_handling ?? {},
+        shopify_meta: shop,
+      }).select("id").single();
+      if (row?.id) created.push(row.id);
     }
 
     return new Response(JSON.stringify({ created: created.length, ids: created, model, cost_usd: totalCost }), {
