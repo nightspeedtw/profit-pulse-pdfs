@@ -208,6 +208,8 @@ export default function Production() {
         </div>
       </div>
 
+      <LiveProductionQueue />
+
       <Card className="border-2 border-foreground">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-mono uppercase">
