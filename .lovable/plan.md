@@ -1,170 +1,120 @@
-# Live Autopilot Run Tracking
 
-Make every Autopilot run transparent: the admin always sees the current step, action, QC score, auto-fix attempts, and the real blocker when something stops.
+# Premium PDF Upgrade — Plan
 
----
+Two deliverables, one code path:
 
-## 1. Database (migration)
+1. **Permanent pipeline upgrade** so every future ebook renders with safe worksheet tables, smart inside illustrations, low visual fatigue, and compliant finance wording.
+2. **One-off re-render** of *The Six-Month Debt Exit Strategy* using the upgraded pipeline (no manuscript rewrite — only layout, worksheets, visuals, and wording touch-ups).
 
-### `autopilot_runs` (new — current `autopilot_runs` is per-step log; rename old → `autopilot_runs_legacy` to preserve history)
-
-```
-id uuid pk
-ebook_id uuid null
-idea_id uuid null
-status text         -- starting|running|auto_fixing|needs_admin|completed|failed|paused
-current_step text   -- machine name, e.g. "render_pdf"
-current_step_label text
-current_action_message text
-progress_percent int default 0
-started_at timestamptz default now()
-updated_at timestamptz default now()
-completed_at timestamptz
-failed_at timestamptz
-admin_needed_reason text
-error_message text
-summary_json jsonb default '{}'  -- final report payload
-triggered_by uuid (auth.users)
-test_mode bool default false
-```
-
-### `autopilot_run_steps` (new)
-
-```
-id uuid pk
-run_id uuid → autopilot_runs(id) on delete cascade
-ebook_id uuid null
-step_order int
-step_name text
-step_label text
-status text           -- pending|running|passed|auto_fixing|failed|skipped|needs_admin
-message text
-score numeric
-required_score numeric
-auto_fix_attempts int default 0
-max_auto_fix_attempts int default 3
-started_at timestamptz
-completed_at timestamptz
-duration_ms int
-error_message text
-metadata_json jsonb default '{}'
-created_at timestamptz default now()
-```
-
-GRANTs: `authenticated` SELECT (admins read), `service_role` ALL. RLS: admin-only via `has_role`. Realtime: add both tables to `supabase_realtime`.
-
-Seed the 21-step template in code (constant), not a table.
+Phase 1 stability is preserved: no SEO/blog/keyword work. The pipeline order (idea → outline → chapters → manuscript QC → cover → PDF → Shopify draft) does not change; we only strengthen the PDF-layout, illustration, and compliance stages.
 
 ---
 
-## 2. Pipeline instrumentation (`supabase/functions/_shared/run-tracker.ts` new)
+## Part A — Pipeline upgrade (permanent)
 
-Shared helper used by `autopilot-pipeline` and every step function it calls:
+### 1. Worksheet layout hardening (`_shared/pdf-template.ts`)
+- Auto-shrink & wrap logic for worksheet table headers:
+  - Multi-line header cells (max 2 lines), auto-hyphenate long tokens.
+  - Font-size step-down: 11pt → 9.5pt → 8.5pt if any cell overflows.
+  - Column-width solver: allocate width proportional to `max(header, sample cell)` length; long-label columns get ≥1.3× base width.
+  - If total width > page width at 8.5pt, split table across 2 pages (repeat header on page 2) or switch that single sheet to landscape.
+- Header dictionary of safe short forms (`CURRENT EXACT BALANCE` → `Exact\nBalance`, `MINIMUM MONTHLY PAYMENT` → `Min.\nPayment`, etc.) applied automatically.
+- Per-worksheet layout picker by type: `debt_tracker`, `negotiation_script`, `sprint_timeline`, `velocity_calculator`, `automation_flow`, `resilience_scorecard`, `operating_manual`. Each has its own template (table / call-log / timeline / calculator / flowchart / scorecard / checklist).
 
-```ts
-startRun(opts) → run_id
-startStep(run_id, step_name, label, message)
-updateStep(run_id, step_name, patch)   // message, score, auto_fix_attempts
-passStep(run_id, step_name, score?)
-failStep(run_id, step_name, error)
-markAutoFixing(run_id, step_name, attempt, max, reason)
-needsAdmin(run_id, step_name, reason, recommended_action)
-completeRun(run_id, summary)
+### 2. Inside-illustration planner (new `_shared/illustration-planner.ts`)
+For each chapter, produce `inside_illustration_plan_json`:
 ```
-
-Each call also updates the parent `autopilot_runs` row's `current_step`, `current_action_message`, `progress_percent` (= passed_steps / total_steps * 100), and `updated_at = now()`.
-
-### Wire into `autopilot-pipeline/index.ts`
-
-Insert tracker calls around the existing chain:
-
+{
+  chapter_index, topic, buyer_pain, framework, worksheet_type,
+  text_density_score,
+  recommendation: "none" | "conceptual" | "infographic" | "timeline"
+                | "process_map" | "before_after" | "decision_tree"
+                | "cashflow_map" | "calculator_visual" | "system_diagram",
+  placement_hint, caption
+}
 ```
-start_run → generate_idea → idea_qc → outline → outline_qc
-→ chapters → chapter_qc → manuscript_qc → cover → cover_qc
-→ thumbnail → thumbnail_qc → pdf_layout → pdf_render → pdf_qc
-→ product_copy → product_qc → shopify_draft → shopify_verify → complete
-```
+Rules baked in:
+- Max 1–2 illustrations per chapter.
+- Only when chapter has 3+ consecutive text-heavy pages.
+- Must be topic-specific (rejected if caption ≈ generic).
+- AI image prompt is **generated with "no text, no words, no letters"**; all labels are rendered as HTML/SVG overlay in the PDF template.
+- Rejects stock-photo people, fake charts, misleading claim visuals via prompt guardrails + a post-gen vision QC.
 
-For QC gates wrapped by `runWithAutoFix`, call `markAutoFixing(attempt, 3, reason)` inside its retry callback so the live panel reflects each attempt. On terminal failure: `needsAdmin(reason)` and set run `status='needs_admin'`.
+### 3. Inside-illustration renderer (`_shared/pdf-template.ts` + `generate-interior-visuals`)
+- New illustration slot rendered as a bordered image + SVG overlay (title, arrows, mini legend).
+- Extends existing `generate-interior-visuals` edge function: adds `mode: "inside_illustrations"` that consumes the plan and stores images in `ebook-assets` bucket keyed by chapter.
+
+### 4. New QC gates (`_shared/pdf-qc.ts` + `render-pdf`)
+Adds four scores to the PDF QC report:
+- `worksheet_table_overflow_score` (must be 100)
+- `worksheet_readability_score` (≥90)
+- `visual_fatigue_score` (≥90) — computed by walking rendered pages: fails if >3 consecutive text-only pages.
+- `inside_illustration_relevance_score` (≥90) — vision-check illustration vs chapter title + topic keywords.
+- `compliance_safety_score` (≥90) — see part 5.
+
+Auto-fix chain on failure:
+1. `worksheet_*` fail → re-layout worksheet (shrink font → split → landscape) and re-render only that page range.
+2. `visual_fatigue` fail → planner adds one more illustration/callout in the offending stretch and re-renders.
+3. `illustration_relevance` fail → regenerate the specific image with tightened prompt.
+4. Up to 3 attempts per failed gate, matching existing auto-fix pattern.
+
+### 5. Compliance linter (new `_shared/compliance.ts`)
+Regex + LLM pass over final manuscript & product copy:
+- Flag: `guaranteed`, `will save`, `will eliminate`, `must result`, `success rate over N%`, `accelerate … by at least N%`, `risk-free`.
+- Rewrite to safer educational language (`may help`, `is designed to help`, `results depend on…`).
+- Emits `compliance_safety_score` and rewrites in place, keeps disclaimer page.
+- Runs as a QC pass after manuscript QC and again on product copy before Shopify upload.
+
+### 6. Schema
+Migration adds to `ebooks`:
+- `inside_illustration_plan_json jsonb`
+- `visual_fatigue_score int`
+- `inside_illustration_relevance_score int`
+- `text_density_score int`
+- `worksheet_table_overflow_score int`
+- `worksheet_readability_score int`
+- `compliance_safety_score int` (if not already present)
+
+### 7. Live status
+Each new stage emits `current_action_message` + `current_subtask` via the existing `RunTracker.heartbeat` so the Overview shows "Rendering premium PDF… ↳ Fitting worksheet 3 of 7", "Generating inside illustration 2 of 9 (cash-flow map)", "Running compliance linter…".
 
 ---
 
-## 3. UI
+## Part B — One-off: Six-Month Debt Exit Strategy
 
-### Command Center (`src/pages/admin/Dashboard.tsx`)
-
-New `<LiveAutopilotCard />` at the top, visible whenever there is an `autopilot_runs` row with `status in ('starting','running','auto_fixing')`:
-
-```
-Autopilot Running
-Current step: Rendering PDF
-Action: Generating premium PDF layout and checking page breaks...
-[==========65%==========]
-Last updated: 12s ago     [View Run Details] [Pause After Step]
-```
-
-Subscribes to `autopilot_runs` realtime; falls back to 4s polling.
-
-`Run Full Autopilot` button now navigates to `/admin/autopilot/run/:runId` after invoking the function.
-
-### Run Details Page (`src/pages/admin/AutopilotRun.tsx` new, route `/admin/autopilot/run/:runId`)
-
-Top: summary header (status pill, progress bar, started/elapsed, ebook title + thumbnail when available).
-
-If `status='needs_admin'`: render existing `<AdminNeededPanel>` at top with the failing step, score vs required, attempts used, last error, recommended action, buttons (Retry Auto-Fix Once / Edit / Regenerate / Reject).
-
-Body: vertical timeline of all 21 steps from `autopilot_run_steps` (ordered by `step_order`):
-
-- pending = gray dot
-- running = blue pulsing dot, animated message
-- passed = green check + duration + score
-- auto_fixing = orange spinner + "Auto-fixing [gate] — attempt N/3" + reason + action
-- failed / needs_admin = red, with error text
-
-Subscribes to both `autopilot_runs` and `autopilot_run_steps` realtime channels filtered by `run_id`.
-
-Footer when `status='completed'`: final report card (title, Shopify draft URL, PDF URL, cover URL, thumbnail score, final premium score, total cost from `cost_log` join, total duration, auto-fix attempts used, failed gates list).
-
-### New components
-
-- `src/components/admin/LiveAutopilotCard.tsx`
-- `src/components/admin/RunStepTimeline.tsx`
-- `src/components/admin/RunFinalReport.tsx`
+1. Locate the ebook record for this title in `ebooks`; if not present, ingest the uploaded PDF only as reference (do not touch the manuscript).
+2. Re-run **only these steps** via a targeted invocation:
+   - Compliance linter over existing chapters and product copy.
+   - Illustration planner + generator (max 1–2 per chapter, matching the chapter list in the request).
+   - PDF layout re-render with the new worksheet engine.
+   - New QC gates; auto-fix up to 3 times per gate.
+3. Do **not** rerun idea/outline/chapter/manuscript QC.
+4. If all gates ≥ threshold → mark `pdf_status = ready` and push to Shopify draft (using existing `shopify-draft-upload` — no changes there).
+5. Deliver: new PDF URL, list of fixed worksheets, before/after previews for 2 worksheets, list of illustrations added, 3 illustration previews, compliance rewrites diff, and the final QC report.
 
 ---
 
-## 4. Status labels (single source of truth)
+## Order of work
 
-`src/lib/autopilot-steps.ts` — exported array of `{name, label, order}` for all 21 steps so UI and tracker stay in sync.
+1. Migration (new score columns + `inside_illustration_plan_json`).
+2. Compliance linter + wire into pipeline.
+3. Worksheet overflow fixer in `pdf-template.ts`.
+4. Illustration planner + extend `generate-interior-visuals`.
+5. New QC gates + auto-fix routing.
+6. Live-status heartbeats.
+7. Trigger targeted re-render for the Debt Exit Strategy ebook and deliver artifacts.
 
-User-facing status labels per the spec ("Generating Idea", "Writing Chapters", "Auto-Fixing PDF", "Uploading Shopify Draft", "Needs Admin Attention", etc.) live in this file as a map from `(step_name, status)` → label.
-
----
-
-## 5. Pause After Current Step
-
-Add `pause_requested boolean default false` to `autopilot_runs`. The pipeline checks it between steps; when true, sets `status='paused'` and exits cleanly. Resume = call `autopilot-pipeline` with `resume_run_id`.
-
----
-
-## Files touched
-
-- `supabase/migrations/<ts>_autopilot_run_tracking.sql` (new)
-- `supabase/functions/_shared/run-tracker.ts` (new)
-- `supabase/functions/autopilot-pipeline/index.ts` (instrument every step + auto-fix callback)
-- `supabase/functions/_shared/autofix.ts` (accept optional `onAttempt` callback for tracker updates)
-- `src/lib/autopilot-steps.ts` (new)
-- `src/components/admin/LiveAutopilotCard.tsx` (new)
-- `src/components/admin/RunStepTimeline.tsx` (new)
-- `src/components/admin/RunFinalReport.tsx` (new)
-- `src/pages/admin/AutopilotRun.tsx` (new) + route in `App.tsx`
-- `src/pages/admin/Dashboard.tsx` (mount LiveAutopilotCard, redirect after Run Full Autopilot)
+## What I will NOT touch
+- Manuscript content (no chapter rewrites).
+- Idea / outline / chapter QC steps.
+- Cover generation.
+- Shopify upload logic (already stable).
+- Any Phase 2 SEO/blog/keyword code.
 
 ---
 
-## Out of scope
+## Confirm before I start
 
-- No changes to QC scoring formulas, PDF generation, Shopify product schema, or auto-fix logic itself (only adds observability hooks).
-- Existing per-step `autopilot_runs` table (now used as event log) is renamed to `autopilot_runs_legacy` and kept read-only; no data migration.
-
-Approve to proceed?
+- OK to run this end-to-end as one pass, or would you rather I ship the pipeline first, then trigger the Debt Exit re-render in a second turn once you've reviewed the code?
+- The QC autopass thresholds above (90 / 90 / 100 / 90 / 90) match your spec exactly. Change any of them before I lock them in?
+- Illustration model: default to `google/gemini-3.1-flash-image` (Nano Banana 2 — fast, high quality, "no text" prompts behave well). OK, or prefer `openai/gpt-image-2`?
