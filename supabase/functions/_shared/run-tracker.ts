@@ -190,19 +190,22 @@ export class RunTracker {
 
   async markAutoFixing(step_name: string, attempt: number, max: number, reason?: string, action?: string) {
     const label = this.label(step_name);
-    const msg = `Auto-fixing ${label} — attempt ${attempt}/${max}${reason ? `. Reason: ${reason}` : ""}${action ? `. Action: ${action}` : ""}`;
+    const msg = `Auto-fixing failed QC gate…`;
+    const subtask = `Repairing ${label.replace(/^Running\s+/, "").toLowerCase()} — attempt ${attempt}/${max}${reason ? ` (${reason.slice(0, 100)})` : ""}${action ? ` · ${action}` : ""}`;
     await this.patchStep(step_name, {
       status: "auto_fixing",
       auto_fix_attempts: attempt,
       max_auto_fix_attempts: max,
       message: msg,
       error_message: reason ?? null,
+      metadata_json: { current_subtask: subtask, auto_fix_attempt: attempt, auto_fix_max: max },
     });
     await this.patchRun({
       status: "auto_fixing",
       current_step: step_name,
       current_step_label: label,
       current_action_message: msg,
+      current_subtask: subtask,
     });
   }
 
