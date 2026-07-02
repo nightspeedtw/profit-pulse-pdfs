@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAdminData } from "@/lib/adminData";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,10 +61,12 @@ export default function Production() {
   }
 
   async function load() {
-    const { data } = await supabase.from("ebooks")
-      .select("id,title,autopilot_state,autopilot_mode,shopify_status,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json")
-      .order("updated_at", { ascending: false }).limit(200);
-    setEbooks((data ?? []) as Ebook[]);
+    try {
+      const { ebooks } = await fetchAdminData<{ ebooks: Ebook[] }>("production");
+      setEbooks(ebooks ?? []);
+    } catch (err) {
+      console.error("[Production] load failed", err);
+    }
   }
   useEffect(() => { load(); const t = setInterval(load, 15_000); return () => clearInterval(t); }, []);
 
