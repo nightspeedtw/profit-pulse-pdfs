@@ -349,7 +349,15 @@ export class RunTracker {
       current_action_message: "Pipeline complete",
       summary_json: summary,
     });
+    await this.syncEbook({
+      canonical_status: "completed",
+      progress_pct: 100,
+      current_action_message: "Pipeline complete",
+      blocker_reason: null,
+      blocker_class: null,
+    });
   }
+
 
   async isPauseRequested(): Promise<boolean> {
     const { data } = await this.db
