@@ -20,16 +20,9 @@ export default function AdminLayout() {
 
   useEffect(() => {
     if (!authed) return;
-    const since = new Date();
-    since.setHours(0, 0, 0, 0);
-    supabase
-      .from("cost_log")
-      .select("cost_usd")
-      .gte("created_at", since.toISOString())
-      .then(({ data }) => {
-        const total = (data ?? []).reduce((s, r) => s + Number(r.cost_usd ?? 0), 0);
-        setCostToday(total);
-      });
+    fetchAdminData<{ cost_today: number }>("production")
+      .then((d) => setCostToday(Number(d?.cost_today ?? 0)))
+      .catch((err) => console.error("[AdminLayout] cost load failed", err));
   }, [authed]);
 
   if (!authed) return <Navigate to="/admin/login" replace />;
