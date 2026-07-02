@@ -96,10 +96,12 @@ export default function Production() {
     return ebooks.filter((e) => {
       const badge = resolveJobBadge(e);
       if (filter === "running" && badge !== "writing" && badge !== "queued") return false;
-      if (filter === "needs_attention" && badge !== "needs_review" && badge !== "qc_failed") return false;
+      if (filter === "auto_fixing" && badge !== "auto_fixing" && badge !== "repairing_dependency") return false;
+      if (filter === "waiting_quota" && badge !== "waiting_for_shopify_quota" && badge !== "waiting_for_ai_budget" && badge !== "waiting_for_worker_slot" && badge !== "draft_upload_queued") return false;
+      if (filter === "needs_attention" && badge !== "needs_review" && badge !== "qc_failed" && badge !== "needs_admin_attention") return false;
       if (filter === "draft_uploaded" && badge !== "draft_uploaded") return false;
       if (filter === "published" && badge !== "published") return false;
-      if (filter === "failed" && badge !== "failed" && badge !== "rejected") return false;
+      if (filter === "failed" && badge !== "failed" && badge !== "failed_non_recoverable" && badge !== "rejected") return false;
       if (term && !(e.title ?? "").toLowerCase().includes(term)) return false;
       return true;
     });
