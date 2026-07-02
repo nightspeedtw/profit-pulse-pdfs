@@ -8,9 +8,9 @@ export type EbookBadgeKind =
   | "waiting_for_browserless_slot" | "queued_for_production"
   | "production_running" | "rendering_pdf"
   | "draft_upload_queued"
-  | "qc_failed" | "needs_review" | "needs_admin_attention"
+  | "qc_failed" | "needs_review" | "needs_admin_attention" | "needs_code_fix"
   | "draft_uploaded" | "published" | "rejected" | "paused"
-  | "failed" | "failed_non_recoverable" | "idle" | "queued";
+  | "failed" | "failed_non_recoverable" | "idle" | "queued" | "completed";
 
 const STYLES: Record<EbookBadgeKind, { label: string; cls: string }> = {
   ready:                        { label: "Ready",                       cls: "bg-emerald-100 text-emerald-900 border-emerald-700" },
