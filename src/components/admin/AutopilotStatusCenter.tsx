@@ -149,7 +149,7 @@ export function AutopilotStatusCenter() {
     if (ebookIds.length) {
       const { data: eb } = await supabase
         .from("ebooks")
-        .select("id,title,shopify_status,shopify_product_id,final_quality_score,cover_url,cover_status,pdf_url,pdf_status,pdf_generated_at")
+        .select("id,title,shopify_status,shopify_product_id,final_quality_score,cover_url,cover_approved,pdf_url,pdf_status,pdf_generated_at")
         .in("id", ebookIds);
       const map: Record<string, EbookRow> = {};
       (eb ?? []).forEach((x) => { map[(x as EbookRow).id] = x as EbookRow; });
