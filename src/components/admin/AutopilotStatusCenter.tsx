@@ -50,7 +50,7 @@ type EbookRow = {
   shopify_product_id: string | null;
   final_quality_score: number | null;
   cover_url: string | null;
-  cover_status: string | null;
+  cover_approved: boolean | null;
   pdf_url: string | null;
   pdf_status: string | null;
   pdf_generated_at: string | null;
