@@ -532,6 +532,7 @@ function RunTable({ rows, now }: { rows: RunRowData[]; now: number }) {
             <th className="p-2 text-left">Current Action</th>
             <th className="p-2 text-left">Auto-Fix</th>
             <th className="p-2 text-left">Shopify</th>
+            <th className="p-2 text-left">Preview</th>
             <th className="p-2 text-left">Updated</th>
             <th className="p-2 text-right">Action</th>
           </tr>
