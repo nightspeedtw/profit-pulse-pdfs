@@ -499,9 +499,46 @@ Deno.serve(async (req) => {
   try {
     await requireAdmin(req);
     const db = admin();
-    const { ebook_id } = await req.json();
+    const body = await req.json();
+    const { ebook_id, run_id } = body as { ebook_id: string; run_id?: string };
     if (!ebook_id) throw new Error("ebook_id required");
 
+    // ---- Subtask heartbeat helper ----
+    // Emits the current subtask on the pipeline step + run rows so the admin UI
+    // can see live progress. Also writes to ebooks.final_manuscript_qc.progress
+    // so a details panel can render subtask + last_heartbeat_at.
+    const startedAt = Date.now();
+    let subtaskSeq = 0;
+    async function emit(subtask: string, message: string, extra: Record<string, unknown> = {}) {
+      subtaskSeq++;
+      const now = new Date().toISOString();
+      const progress = {
+        current_subtask: subtask,
+        subtask_seq: subtaskSeq,
+        message,
+        last_heartbeat_at: now,
+        elapsed_ms: Date.now() - startedAt,
+        ...extra,
+      };
+      // Update pipeline step + run (if run_id was passed).
+      if (run_id) {
+        await db.from("autopilot_pipeline_steps").update({
+          message,
+          metadata_json: progress,
+        }).eq("run_id", run_id).eq("step_name", "manuscript_qc");
+        await db.from("autopilot_pipeline_runs").update({
+          current_action_message: message,
+          updated_at: now,
+        }).eq("id", run_id);
+      }
+      // Persist on the ebook so the details panel can read it after page reloads.
+      await db.from("ebooks").update({
+        manuscript_qc_status: "running",
+        final_manuscript_qc: { progress } as any,
+      }).eq("id", ebook_id);
+    }
+
+    await emit("loading_manuscript", "Loading manuscript from chapter records…");
     const { data: ebook, error } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
     if (error || !ebook) throw new Error("Ebook not found");
 
@@ -517,7 +554,9 @@ Deno.serve(async (req) => {
       manuscript_qc_status: "running",
     }).eq("id", ebook.id);
 
+    await emit("verify_chapters_exist", "Verifying all chapters exist…");
     let chapters = await loadChapters(db, ebook_id);
+
 
     // ---- Pre-validation: ensure we have *something* to QC ----
     if (chapters.length === 0) {
