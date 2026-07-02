@@ -274,6 +274,11 @@ export default function CommandCenter() {
       {/* Live Autopilot run — only renders when a run is active */}
       <AutopilotStatusCenter />
 
+      {/* Live Production Queue — always-on visibility across every ebook */}
+      <LiveProductionQueue />
+
+
+
 
       {/* Autopilot status strip */}
       <Card className="border-2 border-foreground">
