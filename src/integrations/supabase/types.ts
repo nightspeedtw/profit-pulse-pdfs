@@ -862,6 +862,7 @@ export type Database = {
           tags: string[]
           target_buyer: string | null
           text_density_score: number | null
+          thumbnail_url: string | null
           title: string
           toc: Json
           total_word_count: number | null
@@ -992,6 +993,7 @@ export type Database = {
           tags?: string[]
           target_buyer?: string | null
           text_density_score?: number | null
+          thumbnail_url?: string | null
           title: string
           toc?: Json
           total_word_count?: number | null
@@ -1122,6 +1124,7 @@ export type Database = {
           tags?: string[]
           target_buyer?: string | null
           text_density_score?: number | null
+          thumbnail_url?: string | null
           title?: string
           toc?: Json
           total_word_count?: number | null
