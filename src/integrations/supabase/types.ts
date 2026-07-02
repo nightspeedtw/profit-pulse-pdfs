@@ -753,6 +753,8 @@ export type Database = {
           auto_fix_attempts: number
           auto_fix_history: Json
           auto_publish: boolean
+          autofix_attempt: number | null
+          autofix_max: number | null
           autopilot_mode: string
           autopilot_state: string
           blocked_at: string | null
@@ -763,6 +765,7 @@ export type Database = {
           browserless_retry_count: number
           bundle_price_recommendation: number | null
           buyer_appeal_score: number | null
+          canonical_status: string | null
           category_id: string | null
           chapter_qc: Json
           chapters: Json
@@ -780,8 +783,12 @@ export type Database = {
           cover_spec: Json | null
           cover_url: string | null
           created_at: string
+          current_qc_score: number | null
+          current_step: string | null
+          current_subtask: string | null
           editorial_polish_score: number | null
           editorial_qc: Json
+          estimated_start_after_run_id: string | null
           failed_component: string | null
           failed_gate: string | null
           failed_score: number | null
@@ -801,6 +808,7 @@ export type Database = {
           inside_illustrations_json: Json | null
           interior_visuals: Json | null
           last_auto_fix_action: string | null
+          last_heartbeat_at: string | null
           launch_price: number | null
           low_price_test: number | null
           manuscript_fix_count: number
@@ -840,8 +848,11 @@ export type Database = {
           product_description: string | null
           product_page_qc: Json
           product_type: string
+          progress_pct: number | null
           qc: Json
           qc_status: string | null
+          queue_position: number | null
+          queued_at: string | null
           reader_value_score: number | null
           recommended_price: number | null
           refund_risk_score: number | null
@@ -858,6 +869,7 @@ export type Database = {
           shopify_status: string
           standard_price: number | null
           status: string
+          structured_error: Json | null
           subtitle: string | null
           tags: string[]
           target_buyer: string | null
@@ -870,6 +882,7 @@ export type Database = {
           vendor: string
           visual_fatigue_score: number | null
           visual_plan: Json
+          waiting_reason: string | null
           word_count: number
           worksheet_previews_json: Json | null
           worksheet_readability_score: number | null
@@ -884,6 +897,8 @@ export type Database = {
           auto_fix_attempts?: number
           auto_fix_history?: Json
           auto_publish?: boolean
+          autofix_attempt?: number | null
+          autofix_max?: number | null
           autopilot_mode?: string
           autopilot_state?: string
           blocked_at?: string | null
@@ -894,6 +909,7 @@ export type Database = {
           browserless_retry_count?: number
           bundle_price_recommendation?: number | null
           buyer_appeal_score?: number | null
+          canonical_status?: string | null
           category_id?: string | null
           chapter_qc?: Json
           chapters?: Json
@@ -911,8 +927,12 @@ export type Database = {
           cover_spec?: Json | null
           cover_url?: string | null
           created_at?: string
+          current_qc_score?: number | null
+          current_step?: string | null
+          current_subtask?: string | null
           editorial_polish_score?: number | null
           editorial_qc?: Json
+          estimated_start_after_run_id?: string | null
           failed_component?: string | null
           failed_gate?: string | null
           failed_score?: number | null
@@ -932,6 +952,7 @@ export type Database = {
           inside_illustrations_json?: Json | null
           interior_visuals?: Json | null
           last_auto_fix_action?: string | null
+          last_heartbeat_at?: string | null
           launch_price?: number | null
           low_price_test?: number | null
           manuscript_fix_count?: number
@@ -971,8 +992,11 @@ export type Database = {
           product_description?: string | null
           product_page_qc?: Json
           product_type?: string
+          progress_pct?: number | null
           qc?: Json
           qc_status?: string | null
+          queue_position?: number | null
+          queued_at?: string | null
           reader_value_score?: number | null
           recommended_price?: number | null
           refund_risk_score?: number | null
@@ -989,6 +1013,7 @@ export type Database = {
           shopify_status?: string
           standard_price?: number | null
           status?: string
+          structured_error?: Json | null
           subtitle?: string | null
           tags?: string[]
           target_buyer?: string | null
@@ -1001,6 +1026,7 @@ export type Database = {
           vendor?: string
           visual_fatigue_score?: number | null
           visual_plan?: Json
+          waiting_reason?: string | null
           word_count?: number
           worksheet_previews_json?: Json | null
           worksheet_readability_score?: number | null
@@ -1015,6 +1041,8 @@ export type Database = {
           auto_fix_attempts?: number
           auto_fix_history?: Json
           auto_publish?: boolean
+          autofix_attempt?: number | null
+          autofix_max?: number | null
           autopilot_mode?: string
           autopilot_state?: string
           blocked_at?: string | null
@@ -1025,6 +1053,7 @@ export type Database = {
           browserless_retry_count?: number
           bundle_price_recommendation?: number | null
           buyer_appeal_score?: number | null
+          canonical_status?: string | null
           category_id?: string | null
           chapter_qc?: Json
           chapters?: Json
@@ -1042,8 +1071,12 @@ export type Database = {
           cover_spec?: Json | null
           cover_url?: string | null
           created_at?: string
+          current_qc_score?: number | null
+          current_step?: string | null
+          current_subtask?: string | null
           editorial_polish_score?: number | null
           editorial_qc?: Json
+          estimated_start_after_run_id?: string | null
           failed_component?: string | null
           failed_gate?: string | null
           failed_score?: number | null
@@ -1063,6 +1096,7 @@ export type Database = {
           inside_illustrations_json?: Json | null
           interior_visuals?: Json | null
           last_auto_fix_action?: string | null
+          last_heartbeat_at?: string | null
           launch_price?: number | null
           low_price_test?: number | null
           manuscript_fix_count?: number
@@ -1102,8 +1136,11 @@ export type Database = {
           product_description?: string | null
           product_page_qc?: Json
           product_type?: string
+          progress_pct?: number | null
           qc?: Json
           qc_status?: string | null
+          queue_position?: number | null
+          queued_at?: string | null
           reader_value_score?: number | null
           recommended_price?: number | null
           refund_risk_score?: number | null
@@ -1120,6 +1157,7 @@ export type Database = {
           shopify_status?: string
           standard_price?: number | null
           status?: string
+          structured_error?: Json | null
           subtitle?: string | null
           tags?: string[]
           target_buyer?: string | null
@@ -1132,6 +1170,7 @@ export type Database = {
           vendor?: string
           visual_fatigue_score?: number | null
           visual_plan?: Json
+          waiting_reason?: string | null
           word_count?: number
           worksheet_previews_json?: Json | null
           worksheet_readability_score?: number | null
@@ -1713,6 +1752,75 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      system_fix_instructions: {
+        Row: {
+          acceptance_test: string | null
+          affected_ebook_id: string | null
+          affected_files: Json
+          affected_run_id: string | null
+          created_at: string
+          detected_problem: string
+          error_type: string
+          fingerprint: string | null
+          first_seen_at: string
+          id: string
+          last_seen_at: string
+          lovable_prompt: string
+          occurrences: number
+          required_fix: string
+          resolved_at: string | null
+          root_cause: string | null
+          severity: string
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          acceptance_test?: string | null
+          affected_ebook_id?: string | null
+          affected_files?: Json
+          affected_run_id?: string | null
+          created_at?: string
+          detected_problem: string
+          error_type: string
+          fingerprint?: string | null
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          lovable_prompt: string
+          occurrences?: number
+          required_fix: string
+          resolved_at?: string | null
+          root_cause?: string | null
+          severity?: string
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          acceptance_test?: string | null
+          affected_ebook_id?: string | null
+          affected_files?: Json
+          affected_run_id?: string | null
+          created_at?: string
+          detected_problem?: string
+          error_type?: string
+          fingerprint?: string | null
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          lovable_prompt?: string
+          occurrences?: number
+          required_fix?: string
+          resolved_at?: string | null
+          root_cause?: string | null
+          severity?: string
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {
