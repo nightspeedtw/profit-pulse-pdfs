@@ -576,21 +576,38 @@ Deno.serve(async (req) => {
     const repairLog: { attempt: number; action: string; chapter_index?: number }[] = [];
 
     for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
+      const attemptLabel = attempt === 0 ? "initial pass" : `re-check after repair ${attempt}/${MAX_REPAIR_ATTEMPTS}`;
+      await emit("load_chapters", `Loading chapters (${attemptLabel})…`, { attempt });
       chapters = await loadChapters(db, ebook_id);
-      const totalWords = chapters.reduce((s, c) => s + (c.word_count ?? 0), 0);
 
-      // Deterministic checks
+      await emit("count_words", `Calculating total word count across ${chapters.length} chapter${chapters.length === 1 ? "" : "s"}…`, {
+        attempt, chapters_count: chapters.length,
+      });
+      const totalWords = chapters.reduce((s, c) => s + (c.word_count ?? 0), 0);
+      await emit("check_structure", `Checking structure: ${chapters.length} chapters, ${totalWords.toLocaleString()} words (target ≥ ${minWords.toLocaleString()})…`, {
+        attempt, total_words: totalWords, target_words: minWords,
+      });
+
+      // Deterministic checks: chapter depth, missing sections, duplicates, disclaimer, unsafe claims, placeholders.
+      await emit("check_depth_and_sections", "Checking chapter depth, intro/conclusion, disclaimers, worksheets, compliance…", { attempt });
       const deterministic = runDeterministicChecks(ebook.outline_json ?? {}, chapters, totalWords, minWords, topicText);
+      await emit("check_repeated_passages", "Checking repeated / templated passages across chapters…", {
+        attempt, deterministic_issues: deterministic.length,
+      });
 
       // AI score (only if chapters have meaningful content — otherwise score is meaningless)
       const meaningful = totalWords > 500;
       let scoreVal = 0;
       if (meaningful) {
+        await emit("ai_score", "Calculating final manuscript score (AI reviewer)…", { attempt });
         const s = await scoreManuscript(scoreModel, ebook, chapters);
         totalCost += s.usage.cost_usd;
         aiScores = s.data;
         await logCost(db, { ebook_id: ebook.id, step: `manuscript_qc${attempt ? `:fix${attempt}` : ""}`, model: s.model, ...s.usage });
         scoreVal = aiScores.final_manuscript_score ?? 0;
+        await emit("ai_score_done", `AI score: ${scoreVal}/100 (compliance ${aiScores.compliance_safety_score ?? 0}/100)`, {
+          attempt, score: scoreVal, compliance: aiScores.compliance_safety_score,
+        });
 
         // Pull AI-judged issues into structured reasons when they suggest blocking problems.
         if (aiScores.checks?.no_unsafe_claims === false) {
@@ -613,6 +630,7 @@ Deno.serve(async (req) => {
           deterministic.push({ code: "placeholder_text", message: "AI reviewer flagged placeholder/AI-leak text.", repair_action: "remove_and_replace_placeholders" });
         }
       }
+
 
       const failedChapters = Array.from(new Set(deterministic.map((r) => r.chapter_index).filter((x): x is number => typeof x === "number")));
       const missingComponents = Array.from(new Set(deterministic.filter((r) => r.code.startsWith("missing_")).map((r) => r.code)));
