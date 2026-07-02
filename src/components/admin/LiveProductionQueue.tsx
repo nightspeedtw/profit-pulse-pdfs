@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { Activity, Clock, Loader2, PauseCircle, Wrench, AlertTriangle, ShieldCheck, Lock } from "lucide-react";
+import { Activity, Clock, Loader2, PauseCircle, Wrench, AlertTriangle, ShieldCheck, Lock, Copy } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -199,26 +201,34 @@ function SectionA({ items }: { items: QueueEbook[] }) {
           const view = statusView(e.canonical_status);
           const pct = e.progress_pct ?? 0;
           return (
-            <div key={e.id} className="rounded-md border p-3 space-y-2">
+            <div
+              key={e.id}
+              className="rounded-md border-2 border-primary bg-primary/5 p-3 space-y-2 shadow-md ring-2 ring-primary/30 ring-offset-2 ring-offset-background"
+            >
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <div className="font-medium">
-                    กำลังผลิต: {e.title ?? `Ebook ${e.id.slice(0, 8)}`}
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-primary text-primary-foreground animate-pulse gap-1">
+                      <Activity className="h-3 w-3" /> NOW RUNNING
+                    </Badge>
+                    <span className="font-semibold">
+                      {e.title ?? `Ebook ${e.id.slice(0, 8)}`}
+                    </span>
                   </div>
-                  <div className="text-xs text-muted-foreground">
+                  <div className="text-xs text-muted-foreground mt-1">
                     {view.label}
                     {e.current_step ? ` · ขั้นตอน: ${e.current_step}` : ""}
                     {e.current_subtask ? ` · ${e.current_subtask}` : ""}
                   </div>
                 </div>
                 <div className="text-right text-xs">
-                  <Badge variant="outline">{pct}%</Badge>
+                  <Badge variant="outline" className="border-primary text-primary font-bold">{pct}%</Badge>
                   <div className="text-muted-foreground mt-1">
-                    Heartbeat ล่าสุด: {elapsedSince(e.last_heartbeat_at)}
+                    Heartbeat: {elapsedSince(e.last_heartbeat_at)}
                   </div>
                 </div>
               </div>
-              <Progress value={pct} className="h-1.5" />
+              <Progress value={pct} className="h-2" />
               <div className="flex gap-2 text-xs text-muted-foreground">
                 {e.current_qc_score != null && <span>QC {Math.round(e.current_qc_score)}</span>}
                 {e.autofix_attempt != null && e.autofix_attempt > 0 && (
@@ -320,6 +330,27 @@ function SectionE({
   needsCode: QueueEbook[];
 }) {
   const count = fixes.length + needsCode.length;
+
+  const fixAll = async () => {
+    if (fixes.length === 0) return;
+    const combined = fixes
+      .map(
+        (f, i) =>
+          `# Fix ${i + 1}/${fixes.length}: ${f.title}\n\n` +
+          `**Detected problem:** ${f.detected_problem}\n` +
+          (f.root_cause ? `**Root cause:** ${f.root_cause}\n` : "") +
+          (f.affected_files?.length
+            ? `**Affected files:**\n${f.affected_files.map((x) => `- ${x}`).join("\n")}\n`
+            : "") +
+          `\n${f.lovable_prompt}\n`,
+      )
+      .join("\n---\n\n");
+    await navigator.clipboard.writeText(
+      `Please fix the following ${fixes.length} Autopilot bug(s) detected by the self-debugging classifier:\n\n${combined}`,
+    );
+    toast.success(`Copied ${fixes.length} Lovable fix prompts — paste into Lovable chat`);
+  };
+
   return (
     <SectionShell
       title="ระบบเจอบั๊ก เขียน prompt ให้ Lovable แก้โค้ด · Needs Code Fix"
@@ -328,6 +359,13 @@ function SectionE({
       empty="ไม่พบบั๊กระดับโค้ด — Autopilot ทำงานปกติ"
     >
       <div className="space-y-3">
+        {fixes.length > 1 && (
+          <div className="flex justify-end">
+            <Button size="sm" variant="destructive" onClick={fixAll} className="gap-2">
+              <Copy className="h-4 w-4" /> Fix All ({fixes.length}) → Lovable
+            </Button>
+          </div>
+        )}
         {fixes.map((f) => (
           <SystemFixCard key={f.id} fix={f} />
         ))}
