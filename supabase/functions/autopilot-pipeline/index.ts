@@ -576,12 +576,25 @@ Deno.serve(async (req) => {
         // ---------- STEP 12 — Shopify draft ----------
         if (shopifyDraftEnabled && !ebook.shopify_product_id) {
           if (await shopifyOverDay()) {
+            const { enqueueShopifyUpload, nextUtcMidnight } = await import("../_shared/recovery.ts");
+            const nextRetry = nextUtcMidnight();
             await db.from("ebooks").update({
-              autopilot_state: "needs_review",
-              needs_review_reason: `Daily Shopify upload cap reached (${maxShopifyPerDay}/day)`,
+              autopilot_state: "waiting_for_shopify_quota",
+              blocker_class: "recoverable_quota_error",
+              blocker_reason: "daily_shopify_upload_cap_reached",
+              needs_review_reason: null,
+              next_retry_at: nextRetry,
             }).eq("id", ebook.id);
-            await logRun(db, { ebook_id: ebook.id, step: "12_shopify_draft", status: "skip", error: "shopify daily cap" });
-            await needsAdmin("shopify_draft", `Daily Shopify upload cap reached (${maxShopifyPerDay}/day).`, "Raise the daily cap or wait for tomorrow.");
+            await enqueueShopifyUpload(db, ebook.id, {
+              run_id,
+              reason: "daily_shopify_upload_cap_reached",
+              nextRetryAt: nextRetry,
+            });
+            await tracker.heartbeat("shopify_draft", {
+              message: `Waiting for Shopify quota — cap ${maxShopifyPerDay}/day reached. Auto-resumes at next window.`,
+              subtask: "Queued in Shopify Upload Queue",
+            });
+            await logRun(db, { ebook_id: ebook.id, step: "12_shopify_draft", status: "skip", error: "shopify daily cap → queued" });
             return;
           }
           await track(
