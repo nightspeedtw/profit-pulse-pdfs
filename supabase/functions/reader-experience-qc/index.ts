@@ -502,6 +502,13 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function fallbackRepairSpan(content: string): string {
+  const clean = (content ?? "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const sentences = clean.split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, 5).join(" ");
+  return (sentences.length >= 120 ? sentences : clean.slice(0, 900)).trim();
+}
+
 // ---------- Entry ----------
 
 Deno.serve(async (req) => {
