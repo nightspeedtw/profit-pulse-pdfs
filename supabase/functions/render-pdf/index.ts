@@ -36,11 +36,13 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const t0 = Date.now();
   const db = admin();
+  let ebookIdForLock: string | null = null;
 
   try {
     const body = await req.json().catch(() => ({}));
     const ebookId: string | undefined = body.ebook_id;
     if (!ebookId) return json({ error: "ebook_id required" }, 400);
+    ebookIdForLock = ebookId;
 
     // --------------------------------------------------------------------
     // PDF render lock (browserless_concurrency=1). If another ebook already
@@ -79,7 +81,18 @@ Deno.serve(async (req) => {
         metadata: c.metadata ?? {},
       }));
     }
-    if (!chapters.length) return json({ error: "no chapters written yet" }, 400);
+    if (!chapters.length) {
+      await releaseLock(db, LOCK_PDF, ebookId);
+      await db.from("ebooks").update({
+        pdf_status: "failed",
+        autopilot_state: "writing_chapters",
+        canonical_status: "writing_chapters",
+        blocker_class: "dependency_repairable",
+        blocker_reason: "pdf_render_missing_chapters",
+        waiting_reason: "PDF cannot render yet — chapters are missing; routing back to Writing Chapters.",
+      }).eq("id", ebookId);
+      return json({ error: "no chapters written yet", blocker_reason: "missing_chapters" }, 400);
+    }
 
     await db.from("ebooks").update({ pdf_status: "rendering" }).eq("id", ebookId);
 
@@ -188,6 +201,7 @@ Deno.serve(async (req) => {
     if (!token) {
       await db.from("ebooks").update({ pdf_status: "failed" }).eq("id", ebookId);
       await logRun(db, { ebook_id: ebookId, step: "render-pdf", status: "fail", error: "BROWSERLESS_TOKEN missing" });
+      await releaseLock(db, LOCK_PDF, ebookId);
       return json({ error: "BROWSERLESS_TOKEN not configured. Set it in project secrets." }, 500);
     }
 
@@ -487,8 +501,7 @@ Deno.serve(async (req) => {
     console.error("render-pdf failed:", e);
     // Best-effort: release the PDF render lock so the next queued ebook can proceed.
     try {
-      const bodyRetry = await req.clone().json().catch(() => ({}));
-      if (bodyRetry?.ebook_id) await releaseLock(db, LOCK_PDF, bodyRetry.ebook_id);
+      if (ebookIdForLock) await releaseLock(db, LOCK_PDF, ebookIdForLock);
     } catch { /* ignore */ }
     return json({ error: (e as Error).message ?? String(e) }, 500);
   }
