@@ -414,7 +414,23 @@ Deno.serve(async (req) => {
       chapterTitleQualityScore >= 90 &&
       worksheetRelevanceScore >= 95 &&
       coverFullBleedScore === 100;
-    const passed = finalPdfPremium >= 85 && layoutScore >= 80 && allCriticalPass && premiumGate && hardGate;
+    // v3 premium book-design gate — formatter / typography / print polish.
+    const formatterGate =
+      fmtScore >= 90 &&
+      comfort >= 90 &&
+      typo >= 90 &&
+      tableRen >= 90 &&
+      wsLayout >= 90 &&
+      premLayout >= 90 &&
+      coverA4 === 100;
+    if (fmtScore < 90) qc.issues.push(`formatting_score=${fmtScore} below 90`);
+    if (comfort < 90) qc.issues.push(`reading_comfort_score=${comfort} below 90`);
+    if (typo < 90) qc.issues.push(`typography_score=${typo} below 90`);
+    if (tableRen < 90) qc.issues.push(`table_render_score=${tableRen} below 90`);
+    if (wsLayout < 90) qc.issues.push(`worksheet_layout_score=${wsLayout} below 90`);
+    if (premLayout < 90) qc.issues.push(`premium_layout_score=${premLayout} below 90`);
+    if (coverA4 !== 100) qc.issues.push(`cover_full_a4_score=${coverA4} (must be 100)`);
+    const passed = finalPdfPremium >= 85 && layoutScore >= 80 && allCriticalPass && premiumGate && hardGate && formatterGate;
 
     await db.from("ebooks").update({
       pdf_url: signedPdf?.signedUrl ?? null,
