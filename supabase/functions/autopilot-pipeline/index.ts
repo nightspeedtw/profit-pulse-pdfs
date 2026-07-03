@@ -32,6 +32,19 @@ import { classifyError, recordSystemFix } from "../_shared/error-classifier.ts";
 
 interface InvokeResult { ok: boolean; status: number; body: any; }
 
+// Reader Experience QC pass thresholds — kept in sync with the edge function
+// so the pipeline can render a specific "which gates failed" needs-review note.
+const PASS_HINTS = {
+  natural_language_score: 90,
+  human_written_feel_score: 90,
+  readability_score: 90,
+  emotional_resonance_score: 85,
+  page_turning_score: 85,
+  non_repetitive_score: 90,
+  premium_sellability_score: 90,
+} as const;
+
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const db = admin();
