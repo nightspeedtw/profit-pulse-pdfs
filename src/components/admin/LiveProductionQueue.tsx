@@ -754,9 +754,9 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
                   disabled={busy === e.id}
                   onClick={() => onRegenerateCover(e.id)}
                   className="gap-2"
-                  title="Regenerate cover + thumbnail with the new reference style"
+                  title="Regenerate thumbnail + selling copy"
                 >
-                  <RefreshCw className="h-4 w-4" /> Regen cover
+                  <RefreshCw className="h-4 w-4" /> Regen thumb + copy
                 </Button>
 
               </div>
