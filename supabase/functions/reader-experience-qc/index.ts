@@ -74,6 +74,12 @@ interface ChapterRow {
   word_count: number;
 }
 
+interface SystemicCleanupResult {
+  chaptersTouched: number;
+  replacements: number;
+  issues: string[];
+}
+
 interface FlaggedExcerpt {
   chapter_index: number;
   section_title?: string;
@@ -162,6 +168,137 @@ async function loadChapters(db: ReturnType<typeof admin>, ebook_id: string): Pro
   const { data } = await db.from("ebook_chapters")
     .select("chapter_index,title,content,word_count").eq("ebook_id", ebook_id).order("chapter_index");
   return ((data ?? []) as ChapterRow[]).filter((c) => (c.content ?? "").trim().length > 0);
+}
+
+function stripInlineMdText(s: string): string {
+  return (s ?? "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/(^|[^*])\*([^*]+)\*/g, "$1$2")
+    .replace(/`([^`]+)`/g, "$1")
+    .trim();
+}
+
+function normHeading(s: string): string {
+  return stripInlineMdText(s)
+    .toLowerCase()
+    .replace(/^chapter\s*\d+[:.\-\s]*/i, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function cleanupChapterContent(content: string, title: string, seenSalaryPhrase: { used: boolean }): { content: string; replacements: number; issues: string[] } {
+  let out = (content ?? "").replace(/\r\n/g, "\n");
+  let replacements = 0;
+  const issues: string[] = [];
+  const original = out;
+
+  // Remove duplicate leading markdown headings that repeat the chapter title.
+  out = out.replace(/^\s*(#{1,3})\s+([^\n]+)\n+/u, (full, _marks, heading) => {
+    if (normHeading(heading) && normHeading(title) && (normHeading(heading) === normHeading(title) || normHeading(title).includes(normHeading(heading)))) {
+      replacements++;
+      issues.push("duplicate_leading_markdown_heading_removed");
+      return "";
+    }
+    return full;
+  });
+
+  // Convert bold-only pseudo-headings at the top into natural prose so they do
+  // not leak as raw markdown or create a second title in PDF/reader samples.
+  out = out.replace(/^\s*\*\*([^*]{12,140})\*\*\s*/u, (_full, heading) => {
+    replacements++;
+    issues.push("bold_pseudo_heading_normalized");
+    const clean = stripInlineMdText(String(heading)).replace(/[.:\-–—]+$/g, "");
+    return `${clean}. `;
+  });
+
+  // Remove raw markdown heading markers anywhere else; keep the words.
+  out = out.replace(/^#{1,4}\s+/gm, () => {
+    replacements++;
+    issues.push("raw_markdown_heading_marker_removed");
+    return "";
+  });
+
+  // Strip remaining bold markdown markers from prose.
+  out = out.replace(/\*\*([^*]+)\*\*/g, (_full, text) => {
+    replacements++;
+    issues.push("raw_bold_markdown_removed");
+    return text;
+  });
+
+  // The same buyer-income phrase repeated across chapters reads templated. Keep
+  // the first occurrence, then vary later mentions.
+  out = out.replace(/\b(?:between\s+)?\$65,?000\s+(?:and|to|-)\s+\$130,?000\b/gi, (m) => {
+    if (!seenSalaryPhrase.used) {
+      seenSalaryPhrase.used = true;
+      return m;
+    }
+    replacements++;
+    issues.push("repeated_salary_range_varied");
+    return "a solid professional income";
+  });
+
+  const jargonPairs: [RegExp, string, string][] = [
+    [/\bfinancial architecture\b/gi, "money system", "finance_engineering_jargon_softened"],
+    [/\bfinancial infrastructure\b/gi, "day-to-day money setup", "finance_engineering_jargon_softened"],
+    [/\binfrastructure\b/gi, "setup", "finance_engineering_jargon_softened"],
+    [/\bprotocol\b/gi, "rule", "finance_engineering_jargon_softened"],
+    [/\bframework\b/gi, "method", "finance_engineering_jargon_softened"],
+    [/\bfortification\b/gi, "protection", "finance_engineering_jargon_softened"],
+    [/\bdefensive net\b/gi, "safety net", "finance_engineering_jargon_softened"],
+    [/\bhemorrhaging of capital\b/gi, "steady cash leak", "finance_engineering_jargon_softened"],
+  ];
+  for (const [re, replacement, issue] of jargonPairs) {
+    let count = 0;
+    out = out.replace(re, (m) => {
+      count++;
+      if (count <= 1) return m;
+      replacements++;
+      issues.push(issue);
+      return replacement;
+    });
+  }
+
+  // Vary common AI/cliché metaphors that appeared in this failed book.
+  const clichéRewrites: [RegExp, string, string][] = [
+    [/\bbucket with a dozen small holes\b/gi, "paycheck that keeps thinning out before it can protect you", "cliche_metaphor_softened"],
+    [/\bhigh-speed train with no brakes\b/gi, "monthly life that is moving faster than your cash buffer", "cliche_metaphor_softened"],
+    [/\binvisible erosion\b/gi, "quiet monthly drain", "cliche_metaphor_softened"],
+  ];
+  for (const [re, replacement, issue] of clichéRewrites) {
+    if (re.test(out)) {
+      out = out.replace(re, replacement);
+      replacements++;
+      issues.push(issue);
+    }
+  }
+
+  out = out.replace(/\n{3,}/g, "\n\n").trim();
+  if (out !== original && replacements === 0) replacements = 1;
+  return { content: out, replacements, issues: [...new Set(issues)] };
+}
+
+async function applySystemicCleanup(db: ReturnType<typeof admin>, ebook_id: string, chapters: ChapterRow[]): Promise<SystemicCleanupResult> {
+  let chaptersTouched = 0;
+  let replacements = 0;
+  const issues: string[] = [];
+  const seenSalaryPhrase = { used: false };
+
+  for (const row of chapters) {
+    const cleaned = cleanupChapterContent(row.content, row.title, seenSalaryPhrase);
+    if (cleaned.content !== row.content) {
+      const newWc = cleaned.content.split(/\s+/).filter(Boolean).length;
+      await db.from("ebook_chapters")
+        .update({ content: cleaned.content, word_count: newWc })
+        .eq("ebook_id", ebook_id)
+        .eq("chapter_index", row.chapter_index);
+      row.content = cleaned.content;
+      row.word_count = newWc;
+      chaptersTouched++;
+      replacements += cleaned.replacements;
+      issues.push(...cleaned.issues);
+    }
+  }
+
+  return { chaptersTouched, replacements, issues: [...new Set(issues)] };
 }
 
 function truncateForCritic(chapters: ChapterRow[], maxChars = 24_000): string {
