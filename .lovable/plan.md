@@ -1,75 +1,115 @@
-# Premium PDF Quality Fix Plan
+## Goal
 
-Goal: Make every ebook meet premium-sellable QC before it can reach `ready_to_publish`. Fix 3 current books and prevent recurrence via hard gates.
+Make every ebook show a clear "QC Gate Card" — Formatter QC / Reader QC / Cover QC scores vs. the premium-ebook-master pass targets — so you know at a glance who is ready for Shopify. Every already-generated ebook that hasn't been through the new gates must be pulled back through them before any upload. Any re-render must display the reason.
 
-## 1. Markdown Table Rendering (`_shared/pdf-template.ts`)
-- Pre-render pass: detect GFM pipe tables (header row + `:---` separator) inside chapter prose and convert to `<table class="md-table">` with `<thead>/<tbody>`, wrapping cells and forcing header wrap via soft-hyphens.
-- Add CSS: bordered rows, `table-layout: fixed`, `word-break: break-word`, `page-break-inside: auto`, header repeat on new pages (`thead { display: table-header-group }`).
-- Strip any residual `|...|...|` lines from prose after conversion.
+---
 
-## 2. Worksheet Relevance Classifier (`_shared/category.ts` + `render-pdf`)
-- Extend `classifyEbook` — already exists. Tighten `ALLOWED` map:
-  - Remove `debt_tracker` from productivity/energy/wellness/other.
-  - Add category-specific kinds: `focus_audit`, `interruption_log`, `deep_work_planner`, `energy_audit`, `caffeine_log`, `sleep_anchor`, `crash_diagnostic`, `evening_recovery`, `cashflow_surplus`, `fortress_audit`, `lifestyle_leak`, `safety_net`, `fixed_cost_scan`.
-- Register templates for each new kind in `pdf-template.ts`.
-- `pickWorksheetKind`: also inspect chapter title — only allow `debt_tracker` when chapter text/title mentions debt keywords.
+## 1. Canonical QC Gate model (single source of truth)
 
-## 3. Placeholder Chapter Titles (`write-chapters` + `render-pdf`)
-- Add `validateChapterTitle(title, index, siblings, outline)` shared helper:
-  - Reject `/^chapter\s*\d+\.?\s*$/i`, `/^chapter\s*\d+\.\s*chapter\s*\d+/i`, empty, duplicate, or mismatched-with-outline.
-- On failure in pipeline: regenerate title from outline brief; propagate to TOC, divider, header, running header.
+Add a new helper `supabase/functions/_shared/qc-gates.ts` that computes a normalized gate report from an ebook row:
 
-## 4. Visual Relevance QC (`_shared/illustration-planner.ts`)
-- Tag every planned illustration with `domain` (finance/health/productivity/etc.) derived from `classifyEbook`.
-- Reject captions containing cross-domain terms (debt in productivity, etc.).
-- AI images: ensure prompt says "no text, no letters, no numbers".
+```
+gates = {
+  formatter:  { score, pass, target: 90, breakdown: { typography, reading_comfort, table_render, worksheet_layout, premium_layout, raw_markdown } },
+  reader:     { score, pass, target: 90, status, attempts, breakdown: 11 dimensions },
+  cover_pdf:  { score, pass, target: 100, full_a4 },
+  cover_thumb:{ score, pass, target: 90, breakdown: { book_mockup, readability, click_appeal, premium_feel } },
+  overall_ready_for_shopify: boolean,
+  blocking_gates: string[]
+}
+```
 
-## 5. Category Compliance (`_shared/compliance.ts`)
-- Extend `lintCompliance(text, category)`:
-  - `energy_health` / `wellness`: append medical disclaimer to disclaimer page; rewrite "cure/diagnose/fix fatigue" → "may help support".
-  - `finance_*`: add financial disclaimer + "results vary".
-  - `productivity/business`: soften income/growth guarantees.
-- Insert disclaimer block into disclaimer page automatically based on category.
-- Score: `category_compliance_score` and count `high_risk_claims`.
+Source of truth = existing JSON columns (`pdf_qc`, `reader_experience_qc`, `cover_qc`) + scalar mirrors (`pdf_score`, `reader_experience_score`, `cover_score`). No schema change needed for scores.
 
-## 6. Hard-Gate QC (`_shared/pdf-qc.ts` + `autopilot-pipeline`)
-Add scores:
-- `markdown_table_raw_text_score` (100 required — regex scan of body)
-- `table_render_quality_score` (>=90)
-- `table_overflow_score` (100 — extend existing overflow heuristic to `md-table`)
-- `worksheet_relevance_score` (>=95 — checks kind vs category+chapter)
-- `wrong_template_score` (=0)
-- `chapter_title_quality_score` (>=90)
-- `no_placeholder_chapter_titles` (bool)
-- `inside_visual_relevance_score` (>=90)
-- `visual_label_match_score` (>=95)
-- `category_compliance_score` (>=90)
-- `final_premium_sellable_score` (>=90 combined)
+## 2. DB changes (one migration)
 
-Pipeline: if any gate fails → route to `pdf_needs_repair`, run targeted fix (3 attempts), re-render, re-QC. Never `ready_to_publish` until all pass.
+- Add `re_render_reason TEXT`, `re_render_count INT DEFAULT 0`, `re_render_last_at TIMESTAMPTZ` on `ebooks`.
+- Add `qc_ready_for_shopify BOOLEAN DEFAULT false` + `qc_gates_json JSONB` (denormalized snapshot written by pipeline on each QC pass — cheap to read from UI).
+- No new tables, no RLS surprises.
 
-## 7. Fix Current 3 Books
-Trigger re-render for:
-- **Uninterrupted Workday Protocol** — swap Debt Tracker → Focus-to-Friction Audit + Interruption Origin Log + Deep Work Deficit Calculator + Office Hours Boundary Planner. Rename placeholder "Chapter 2" → "The Biological Prime Time Map". Convert md tables. Add relevant visuals.
-- **Deep Energy Protocol** — swap Debt Forensic Dashboard → 72-Hour Energy Audit, Caffeine Half-Life Log, Energy Leakage Diagnostic, 2 PM Crash Worksheet, Evening Recovery Tracker. Compliance-safe supplement chapter.
-- **Financial Fortress Blueprint** — Fortress Baseline Audit, Cash Flow Surplus Calc, Lifestyle Leak Matrix, Safety Net Builder, Fixed Cost Fragility Scan. Keep debt worksheet only in debt-specific chapters. Fix "Quartery" typo. Convert md tables.
+## 3. Backfill / Re-QC existing ebooks
 
-## Files Touched
-- `supabase/functions/_shared/pdf-template.ts` (md-table converter + new worksheet templates + CSS)
-- `supabase/functions/_shared/category.ts` (tighter ALLOWED, new kinds)
-- `supabase/functions/_shared/pdf-qc.ts` (new scores + hard gates)
-- `supabase/functions/_shared/compliance.ts` (category-aware + disclaimers)
-- `supabase/functions/_shared/illustration-planner.ts` (domain tagging)
-- New: `supabase/functions/_shared/chapter-title-guard.ts`
-- `supabase/functions/render-pdf/index.ts` (wire md-table conversion, title validation, category compliance)
-- `supabase/functions/write-chapters/index.ts` (title validation on write)
-- `supabase/functions/autopilot-pipeline/index.ts` (hard-gate routing + retry loop)
-- Data ops: set the 3 target ebooks back to `needs_review` with `pdf_repair` flag and re-run render.
+Create edge function `requeue-legacy-qc`:
 
-## Order of Execution
-1. Ship shared helpers (category, template, qc, compliance, title-guard, illustration).
-2. Wire `render-pdf` + `write-chapters` + `autopilot-pipeline`.
-3. Trigger re-render for the 3 books.
-4. Re-QC and verify all hard gates pass before allowing 100%.
+1. Selects every ebook where any of these is true:
+   - `reader_experience_status` is NULL or score < 90
+   - `pdf_qc` missing new formatter metrics (typography/reading_comfort/premium_layout)
+   - `cover_qc` missing thumbnail_book_mockup or pdf_cover_full_a4 score
+   - `shopify_status` in ('none','error','failed') AND `qc_ready_for_shopify` = false
+2. For each, sets:
+   - `re_render_reason` = human string (e.g. "Legacy: missing Reader QC", "Cover missing full-A4 gate", "PDF missing premium formatter metrics")
+   - `re_render_count` += 1, `re_render_last_at` = now()
+   - `canonical_status` = 'needs_action', `pdf_status` = 'idle', `qc_ready_for_shopify` = false
+   - Clears stale `shopify_status` = 'queued_for_reqc'
+3. Sequential Safe Mode picks them up one at a time (no change to orchestrator needed — existing lock).
 
-No Shopify upload until every gate passes.
+Trigger from a new "Re-QC all legacy books" button on the Production page (admin only) + one-shot invocation now.
+
+## 4. Pipeline: write gate snapshot + block Shopify
+
+In `autopilot-pipeline/index.ts` at the point just before `shopify_draft`:
+
+- Import `computeQcGates()` from `_shared/qc-gates.ts`.
+- Write `qc_gates_json` + `qc_ready_for_shopify` on the ebook row.
+- If `overall_ready_for_shopify === false` → do NOT transition to `shopify_draft`; set `canonical_status = 'needs_action'`, populate `blocker_reason` with `blocking_gates.join(', ')`, and route back to the first failing repair loop (formatter → re-render, reader → humanize loop, cover → regenerate).
+- On every re-render triggered by a failing gate, set `re_render_reason` to the failing gate name(s) and increment `re_render_count`.
+
+## 5. `admin-data` edge function
+
+Extend the ebook payload with:
+
+```
+qc: {
+  formatter: { score, pass, target: 90 },
+  reader:    { score, pass, target: 90, status, attempts },
+  cover_pdf: { score, pass, target: 100 },
+  cover_thumb:{ score, pass, target: 90 },
+  ready_for_shopify: boolean,
+  blocking_gates: string[]
+},
+re_render: { count, reason, last_at }
+```
+
+Computed via the shared `computeQcGates()` helper (edge functions can import from `_shared`).
+
+## 6. UI — QC Gate Card on Production / Live Queue
+
+New component `src/components/admin/QcGateCard.tsx` used inside `LiveProductionQueue.tsx` for every ebook row (Working On, Queued, Ready to Publish, Needs Admin):
+
+```
+┌─ QC Gates ────────────────────────────────────────────┐
+│ Formatter QC   92 / 90  ✅                            │
+│ Reader QC      88 / 90  ❌  (attempt 2/3, humanizing) │
+│ Cover PDF     100 /100  ✅                            │
+│ Cover Thumb    94 / 90  ✅                            │
+│ ─────────────────────────────────────────────         │
+│ Ready for Shopify: NO — blocked by Reader QC          │
+└───────────────────────────────────────────────────────┘
+```
+
+Add a **"Re-rendering"** badge next to the title when `re_render_count > 0` showing the reason (e.g. `↻ Re-rendering · Reason: Legacy — missing Reader QC`). Thai labels alongside English (matching existing convention).
+
+Add a new "🟢 พร้อมอัพขึ้น Shopify · Ready to upload" section that lists only ebooks where `qc.ready_for_shopify === true` AND `shopify_status !== 'uploaded'`.
+
+## 7. Production page — "Re-QC legacy books" action
+
+In `src/pages/Production.tsx` (advanced mode section), add a button that calls the new `requeue-legacy-qc` function and shows a summary toast (X books requeued, list of reasons). Confirm dialog first.
+
+---
+
+## Technical notes
+
+- No changes to the existing gate thresholds — the skill already defines them. This plan surfaces + enforces what's already there.
+- All updates go through Sequential Safe Mode; the global `heavy_production` lock keeps re-QC one book at a time.
+- `computeQcGates()` is pure — same function used by the pipeline (write) and admin-data (read), so UI and enforcement can never drift.
+- No frontend business-logic duplication; UI reads the snapshot from `admin-data`.
+
+## Files touched
+
+- New: `supabase/functions/_shared/qc-gates.ts`, `supabase/functions/requeue-legacy-qc/index.ts`, `src/components/admin/QcGateCard.tsx`
+- Migration: add 5 columns on `ebooks`
+- Edit: `supabase/functions/autopilot-pipeline/index.ts` (gate check before shopify_draft, write snapshot, set re_render_reason)
+- Edit: `supabase/functions/admin-data/index.ts` (include `qc` + `re_render` in response)
+- Edit: `src/lib/adminData.ts` (types), `src/components/admin/LiveProductionQueue.tsx` (render card + Ready-to-upload section), `src/pages/Production.tsx` (Re-QC button)
+
+Uses the **premium-ebook-master** skill.

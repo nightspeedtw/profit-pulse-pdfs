@@ -205,6 +205,32 @@ export default function Production() {
             </SelectContent>
           </Select>
           <Button variant="ghost" size="icon" onClick={load} title="Refresh"><RotateCw className="size-4" /></Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              if (!confirm(
+                "Re-QC ทุกเล่มที่ยังไม่ผ่าน premium gates?\n" +
+                  "ระบบจะดึงเล่มที่ค้างกลับไปเข้า Reader QC / Formatter QC / Cover QC ทีละเล่มตาม Sequential Safe Mode",
+              )) return;
+              try {
+                const { data, error } = await supabase.functions.invoke(
+                  "requeue-legacy-qc",
+                  { body: { passcode: "453451" }, headers: { "x-admin-passcode": "453451" } },
+                );
+                if (error) throw error;
+                const d = data as { requeued?: number; items?: unknown[] };
+                toast.success(
+                  `Requeued ${d.requeued ?? 0} legacy ebooks for re-QC`,
+                );
+                load();
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Re-QC failed");
+              }
+            }}
+          >
+            Re-QC legacy books
+          </Button>
         </div>
       </div>
 

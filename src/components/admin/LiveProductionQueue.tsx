@@ -9,6 +9,7 @@ import { fetchAdminData } from "@/lib/adminData";
 import { statusView, elapsedSince, untilRetry } from "@/lib/canonicalStatus";
 import { downloadAdminPdf } from "@/lib/pdf";
 import { SystemFixCard, type SystemFix } from "./SystemFixCard";
+import { QcGateCard, type QcGateReport, type ReRenderInfo } from "./QcGateCard";
 
 interface QueueEbook {
   id: string;
@@ -30,6 +31,8 @@ interface QueueEbook {
   word_count?: number | null;
   shopify_status?: string | null;
   updated_at: string | null;
+  qc?: QcGateReport | null;
+  re_render?: ReRenderInfo | null;
 }
 
 interface LiveQueue {
@@ -241,6 +244,7 @@ function SectionA({ items }: { items: QueueEbook[] }) {
                   <span>Auto-fix {e.autofix_attempt}/{e.autofix_max ?? 3}</span>
                 )}
               </div>
+              <QcGateCard qc={e.qc} reRender={e.re_render} />
             </div>
           );
         })}
@@ -470,6 +474,9 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
                   {!pdfReady && <span className="text-amber-600">PDF ยังไม่พร้อม</span>}
                 </div>
               </div>
+              <div className="w-full">
+                <QcGateCard qc={e.qc} reRender={e.re_render} />
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"
@@ -492,8 +499,12 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled
-                  title="Phase ถัดไป — จะเปิดใช้งานเมื่อพร้อมอัพ Shopify"
+                  disabled={!e.qc?.ready_for_shopify}
+                  title={
+                    e.qc?.ready_for_shopify
+                      ? "พร้อมอัพ Shopify"
+                      : "รอ QC ผ่านทุก gate ก่อน"
+                  }
                   className="gap-2"
                 >
                   <ShoppingBag className="h-4 w-4" /> Push to Shopify
