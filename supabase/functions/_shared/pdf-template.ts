@@ -526,7 +526,9 @@ export function buildPdfHtml(data: PdfData): string {
 
   /* ---------- Callouts ---------- */
   .callout { background: var(--bg-callout); border-left: 3pt solid var(--accent);
-    padding: 10pt 14pt; margin: 12pt 0; page-break-inside: avoid; break-inside: avoid; }
+    padding: 10pt 14pt; margin: 12pt 0;
+    /* Allow long callouts to break across pages so text is never cut off. */
+    page-break-inside: auto; break-inside: auto; overflow: visible; }
   .callout__title { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.22em;
     color: var(--accent); margin-bottom: 4pt; }
   .callout--warning { border-color: #b54a3a; background: #fbecea; }
