@@ -1,136 +1,75 @@
+# Premium PDF Quality Fix Plan
 
-# Premium PDF Hard-QC & Cover Full-Bleed Fix
+Goal: Make every ebook meet premium-sellable QC before it can reach `ready_to_publish`. Fix 3 current books and prevent recurrence via hard gates.
 
-Goal: every ebook PDF passes strict QC before Shopify. Cover is true full-A4 bleed. Failed gates auto-repair the specific component and re-render, up to 3 attempts, then Needs Admin.
+## 1. Markdown Table Rendering (`_shared/pdf-template.ts`)
+- Pre-render pass: detect GFM pipe tables (header row + `:---` separator) inside chapter prose and convert to `<table class="md-table">` with `<thead>/<tbody>`, wrapping cells and forcing header wrap via soft-hyphens.
+- Add CSS: bordered rows, `table-layout: fixed`, `word-break: break-word`, `page-break-inside: auto`, header repeat on new pages (`thead { display: table-header-group }`).
+- Strip any residual `|...|...|` lines from prose after conversion.
 
-## 1. Full-bleed cover (root fix)
+## 2. Worksheet Relevance Classifier (`_shared/category.ts` + `render-pdf`)
+- Extend `classifyEbook` — already exists. Tighten `ALLOWED` map:
+  - Remove `debt_tracker` from productivity/energy/wellness/other.
+  - Add category-specific kinds: `focus_audit`, `interruption_log`, `deep_work_planner`, `energy_audit`, `caffeine_log`, `sleep_anchor`, `crash_diagnostic`, `evening_recovery`, `cashflow_surplus`, `fortress_audit`, `lifestyle_leak`, `safety_net`, `fixed_cost_scan`.
+- Register templates for each new kind in `pdf-template.ts`.
+- `pickWorksheetKind`: also inspect chapter title — only allow `debt_tracker` when chapter text/title mentions debt keywords.
 
-**File:** `supabase/functions/_shared/pdf-template.ts`
+## 3. Placeholder Chapter Titles (`write-chapters` + `render-pdf`)
+- Add `validateChapterTitle(title, index, siblings, outline)` shared helper:
+  - Reject `/^chapter\s*\d+\.?\s*$/i`, `/^chapter\s*\d+\.\s*chapter\s*\d+/i`, empty, duplicate, or mismatched-with-outline.
+- On failure in pipeline: regenerate title from outline brief; propagate to TOC, divider, header, running header.
 
-- Add dedicated `.cover-page` template separated from article pages:
-  - `@page cover { size: A4; margin: 0 }` + `.cover-page { page: cover; width: 210mm; height: 297mm; margin: 0; padding: 0; position: relative; overflow: hidden; page-break-after: always; }`
-  - `.cover-background { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }`
-  - `.cover-overlay { position: absolute; inset: 0; z-index: 2; padding: 18mm; }` (safe area)
-- Remove any header/footer/page-number injection on page 1 (Chromium `displayHeaderFooter` still on, but cover uses `@page cover { @top-left {content:none} ... }` and we pass `pageRanges` logic or a blank template for cover).
-- Ensure the composed cover PNG (from `_shared/cover.ts`) is embedded as `<img class="cover-background">` not as a decorative inline block.
+## 4. Visual Relevance QC (`_shared/illustration-planner.ts`)
+- Tag every planned illustration with `domain` (finance/health/productivity/etc.) derived from `classifyEbook`.
+- Reject captions containing cross-domain terms (debt in productivity, etc.).
+- AI images: ensure prompt says "no text, no letters, no numbers".
 
-**File:** `supabase/functions/build-pdf/index.ts` / `render-pdf/index.ts`
-- Pass Chromium `margin: {top:0,right:0,bottom:0,left:0}` and rely on per-page `@page` rules for interior margins. Header/footer templates must be empty strings for page 1 (use `<span class="pageNumber"></span>` conditional via CSS `@page:first`).
+## 5. Category Compliance (`_shared/compliance.ts`)
+- Extend `lintCompliance(text, category)`:
+  - `energy_health` / `wellness`: append medical disclaimer to disclaimer page; rewrite "cure/diagnose/fix fatigue" → "may help support".
+  - `finance_*`: add financial disclaimer + "results vary".
+  - `productivity/business`: soften income/growth guarantees.
+- Insert disclaimer block into disclaimer page automatically based on category.
+- Score: `category_compliance_score` and count `high_risk_claims`.
 
-## 2. Cover Full-Bleed QC gate
+## 6. Hard-Gate QC (`_shared/pdf-qc.ts` + `autopilot-pipeline`)
+Add scores:
+- `markdown_table_raw_text_score` (100 required — regex scan of body)
+- `table_render_quality_score` (>=90)
+- `table_overflow_score` (100 — extend existing overflow heuristic to `md-table`)
+- `worksheet_relevance_score` (>=95 — checks kind vs category+chapter)
+- `wrong_template_score` (=0)
+- `chapter_title_quality_score` (>=90)
+- `no_placeholder_chapter_titles` (bool)
+- `inside_visual_relevance_score` (>=90)
+- `visual_label_match_score` (>=95)
+- `category_compliance_score` (>=90)
+- `final_premium_sellable_score` (>=90 combined)
 
-**New:** `supabase/functions/_shared/cover-fullbleed-qc.ts`
+Pipeline: if any gate fails → route to `pdf_needs_repair`, run targeted fix (3 attempts), re-render, re-QC. Never `ready_to_publish` until all pass.
 
-- Rasterize page 1 to PNG via Browserless `screenshot` of the PDF (or reuse existing thumbnail render at 210x297mm).
-- Score `cover_full_bleed_score` (0/100 hard):
-  - Sample 40px border strip on all 4 edges; if >2% near-white pixels → fail.
-  - Sample bottom 8% row; if avg luminance near paper white → fail (blank bottom).
-  - Verify image dims == expected A4 aspect (±1%).
-  - Check safe-area: title/subtitle bounding boxes (from SVG spec) inside 15mm inset.
-- Return `{ score, reasons[] }`. Gate: must equal 100.
+## 7. Fix Current 3 Books
+Trigger re-render for:
+- **Uninterrupted Workday Protocol** — swap Debt Tracker → Focus-to-Friction Audit + Interruption Origin Log + Deep Work Deficit Calculator + Office Hours Boundary Planner. Rename placeholder "Chapter 2" → "The Biological Prime Time Map". Convert md tables. Add relevant visuals.
+- **Deep Energy Protocol** — swap Debt Forensic Dashboard → 72-Hour Energy Audit, Caffeine Half-Life Log, Energy Leakage Diagnostic, 2 PM Crash Worksheet, Evening Recovery Tracker. Compliance-safe supplement chapter.
+- **Financial Fortress Blueprint** — Fortress Baseline Audit, Cash Flow Surplus Calc, Lifestyle Leak Matrix, Safety Net Builder, Fixed Cost Fragility Scan. Keep debt worksheet only in debt-specific chapters. Fix "Quartery" typo. Convert md tables.
 
-**Repair hook:** on fail → rebuild via `generate-cover` with `layout_variant='full_bleed_v2'`, re-render, re-screenshot, re-QC. Max 3.
+## Files Touched
+- `supabase/functions/_shared/pdf-template.ts` (md-table converter + new worksheet templates + CSS)
+- `supabase/functions/_shared/category.ts` (tighter ALLOWED, new kinds)
+- `supabase/functions/_shared/pdf-qc.ts` (new scores + hard gates)
+- `supabase/functions/_shared/compliance.ts` (category-aware + disclaimers)
+- `supabase/functions/_shared/illustration-planner.ts` (domain tagging)
+- New: `supabase/functions/_shared/chapter-title-guard.ts`
+- `supabase/functions/render-pdf/index.ts` (wire md-table conversion, title validation, category compliance)
+- `supabase/functions/write-chapters/index.ts` (title validation on write)
+- `supabase/functions/autopilot-pipeline/index.ts` (hard-gate routing + retry loop)
+- Data ops: set the 3 target ebooks back to `needs_review` with `pdf_repair` flag and re-run render.
 
-## 3. Raw markdown table killer
+## Order of Execution
+1. Ship shared helpers (category, template, qc, compliance, title-guard, illustration).
+2. Wire `render-pdf` + `write-chapters` + `autopilot-pipeline`.
+3. Trigger re-render for the 3 books.
+4. Re-QC and verify all hard gates pass before allowing 100%.
 
-**New:** `supabase/functions/_shared/markdown-tables.ts`
-- `convertMarkdownTablesToHtml(md)`: regex-detect `| ... |` + `| :--- |` header lines; emit `<table class="pdf-table">…</table>` with `<thead>`, `<tbody>`, cell wrap, `word-break`, and column-count split when >6 cols.
-- Called inside `write-chapters` (before persisting HTML) AND as a safety pass inside `pdf-template.ts` right before serialization.
-
-**QC in `_shared/pdf-qc.ts`:**
-- `raw_markdown_score`: 100 if no `/^\s*\|.*\|\s*$/m` or `:---` remains in final HTML body. Hard fail.
-- `table_render_quality_score`: check each `<table>` has `<thead>`, `<th>` count matches `<td>` count per row, all cells non-empty.
-- `table_overflow_score`: reuse existing `worksheetOverflowScore` extended to all tables.
-
-## 4. Worksheet relevance classifier
-
-**New:** `supabase/functions/_shared/worksheet-registry.ts`
-- Registry: `{ category → allowedWorksheetIds[] }` for the 11 categories listed.
-- Worksheet catalog per category (Focus Audit, Interruption Log, 72h Energy Audit, Caffeine Half-Life, Fortress Baseline Audit, Cash Flow Surplus, Lifestyle Leak Matrix, Debt Ceiling Protocol, etc.).
-- `classifyEbookCategory(ebook)`: LLM-lite via title/subtitle + keyword rules; store on `ebooks.category_classified`.
-- `pickWorksheet(category, chapterTopic)`: returns worksheet template id + fields.
-
-**Integrate:** `generate-outline` and `write-chapters` request worksheets by id from registry; refuse Debt Tracker unless `category==finance_debt` OR chapter tag `debt_specific`.
-
-**QC:**
-- `worksheet_relevance_score` ≥95, `wrong_template_score` = 0, `category_match_score` ≥95.
-- Fail → regenerate offending worksheet only, patch chapter, re-render.
-
-## 5. Chapter title validation
-
-**New:** `supabase/functions/_shared/chapter-title-qc.ts`
-- Fail patterns: `/^chapter\s*\d+\.?$/i`, `/^chapter\s*\d+\.\s*chapter\s*\d+/i`, empty, duplicates, exact matches to outline placeholders.
-- On fail: regenerate that chapter title via AI, cascade update to outline JSON, TOC, chapter divider, running headers, then re-render.
-- `no_placeholder_chapter_titles=true` gate.
-
-## 6. Visual relevance QC
-
-**Update:** `supabase/functions/_shared/illustration-planner.ts`
-- Tag every planned figure with `{domain, chapterId, labelKeywords[]}`. Reject cross-domain (e.g. `domain=debt` in `category=productivity`).
-- QC `inside_visual_relevance_score` ≥90: for each `<figure class="inside-illus">`, caption keywords must overlap chapter title tokens ≥1 AND domain must match ebook category.
-
-## 7. Category compliance QC
-
-**New:** `supabase/functions/_shared/compliance-category.ts`
-- Rulesets: health/energy → require medical disclaimer, ban "cure/guaranteed/diagnose"; finance → require disclaimer + "results vary", ban "guaranteed savings/income"; productivity → ban "guaranteed growth".
-- Scan full manuscript HTML; return `category_compliance_score` and `high_risk_claims` count. Auto-inject missing disclaimers on cover-back / copyright page; rewrite offending sentences via AI.
-
-## 8. Screenshot-based visual QC
-
-**New:** `supabase/functions/_shared/pdf-screenshot-qc.ts`
-- After PDF render, screenshot pages: 1 (cover), 2 (title), TOC, first chapter divider, first article, first worksheet, first illustration, one middle random page. Use Browserless PDF→PNG.
-- Run per-page checks: white-border detection, cropped-text (edge text bbox within margin), raw-markdown regex on extracted text (pdftotext via pdf.js in edge is heavy — instead parse the HTML we sent, not the PDF).
-
-## 9. Auto-repair orchestration
-
-**Update:** `supabase/functions/autopilot-pipeline/index.ts`
-- New step `pdf_qc` runs consolidated QC returning `failed_gates[]`.
-- Repair map (cover_fullbleed→rebuild cover template, raw_markdown→re-run markdown converter+re-render, worksheet_wrong→regenerate worksheet, chapter_title→regenerate+cascade, visual_mismatch→regenerate figure, table_overflow→wrap/split, compliance→inject/rewrite).
-- Loop max 3 per gate; then `needs_admin` with structured reason.
-- Status labels in Thai/English: "Auto-fixing cover full-bleed — attempt 1/3" etc., surfaced to `LiveProductionQueue`.
-
-## 10. Shopify gate
-
-**Update:** `supabase/functions/autopilot-pipeline/index.ts` before `shopify_draft`:
-```
-require all: cover_full_bleed_score==100, cover_score>=90, thumbnail_score>=90,
-content_score>=90, chapter_title_quality_score>=90, worksheet_relevance_score>=95,
-table_render_quality_score>=90, table_overflow_score==100, raw_markdown_score==100,
-inside_visual_relevance_score>=90, visual_fatigue_score>=90,
-category_compliance_score>=90, final_premium_sellable_score>=90
-```
-If any fail → stay in `ready_to_publish=false`, route back into repair loop.
-
-## 11. Fix the 3 existing ebooks
-
-One-shot admin action `pipeline-repair` that, for the 3 named ebook ids:
-1. Reclassify category (Uninterrupted Workday→productivity, Deep Energy→energy_health, Financial Fortress→finance_cashflow).
-2. Regenerate worksheets from correct registry set.
-3. Regenerate "Chapter 2" placeholder titles in Uninterrupted Workday.
-4. Fix typo "Quartery Checks"→"Quarterly Checks" globally.
-5. Rebuild cover with full-bleed template.
-6. Re-render PDF + run full QC.
-
-Trigger via new "Repair PDF" button on the Ready-to-Publish cards.
-
-## 12. Database
-
-Migration adds columns to `ebooks`:
-- `category_classified text`
-- `pdf_qc_json jsonb` (all scores + failed_gates + attempts per gate)
-- `cover_full_bleed_score int`
-- `pdf_repair_attempts jsonb` (per-gate counter)
-
-Grants: `authenticated` SELECT/UPDATE, `service_role` ALL.
-
-## Technical notes
-
-- Chromium PDF: use per-page `@page` selectors + `pageRanges` is not needed; cover uses named page `@page cover` and `.cover-page{page:cover}`. Header/footer template returns empty for page 1 by checking `.pageNumber` CSS `@page cover { @bottom-right { content: none } }` — since Chromium's `headerTemplate` is global, we instead render page number *in HTML* per non-cover page and pass empty header/footer templates.
-- Screenshot QC uses existing Browserless token.
-- All new QC modules pure functions → unit-testable.
-
-## Out of scope
-
-- No SEO work.
-- No Shopify upload changes beyond adding gate checks.
-- No changes to idea/title generation.
+No Shopify upload until every gate passes.
