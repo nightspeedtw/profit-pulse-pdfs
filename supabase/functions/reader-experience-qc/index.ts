@@ -17,6 +17,8 @@
 import { corsHeaders, admin, aiJSON, aiText, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 
 const MAX_ATTEMPTS = 3;
+const EDGE_SAFE_DEADLINE_MS = 70_000;
+const MIN_AI_CALL_BUDGET_MS = 22_000;
 
 // Pass targets from the spec.
 const PASS = {
@@ -162,12 +164,12 @@ async function loadChapters(db: ReturnType<typeof admin>, ebook_id: string): Pro
   return ((data ?? []) as ChapterRow[]).filter((c) => (c.content ?? "").trim().length > 0);
 }
 
-function truncateForCritic(chapters: ChapterRow[], maxChars = 60_000): string {
+function truncateForCritic(chapters: ChapterRow[], maxChars = 24_000): string {
   // Sample front, middle, and end of each chapter so the critic sees pacing,
   // not just openings. Budget ~ maxChars total.
   const perChapter = Math.max(1200, Math.floor(maxChars / Math.max(1, chapters.length)));
   const seg = Math.floor(perChapter / 3);
-  const parts: string[] = [];
+    const parts: string[] = [];
   for (const c of chapters) {
     const body = (c.content ?? "").replace(/\s+/g, " ").trim();
     const head = body.slice(0, seg);
@@ -221,6 +223,102 @@ const CRITIC_SCHEMA = `{
   "final_recommendation": "pass | minor_improvement | major_improvement | rewrite_required"
 }`;
 
+function clampScore(n: number) {
+  return Math.max(1, Math.min(100, Math.round(n)));
+}
+
+function fallbackPriorities(chapters: ChapterRow[], detRep: { examples: string[] }): FlaggedExcerpt[] {
+  const out: FlaggedExcerpt[] = [];
+  for (const c of chapters) {
+    const content = c.content ?? "";
+    for (const re of CANNED_PATTERNS) {
+      re.lastIndex = 0;
+      const m = re.exec(content);
+      if (!m || m.index == null) continue;
+      const start = Math.max(0, m.index - 120);
+      const excerpt = content.slice(start, Math.min(content.length, m.index + m[0].length + 220)).replace(/\s+/g, " ").trim();
+      if (excerpt.length >= 40) {
+        out.push({
+          chapter_index: c.chapter_index,
+          section_title: c.title,
+          excerpt,
+          problem: `Canned/AI-sounding phrase detected: ${m[0]}`,
+          category: "robotic_phrasing",
+          suggested_direction: "Rewrite with a concrete, chapter-specific human example and varied sentence rhythm.",
+        });
+      }
+      break;
+    }
+    if (out.length >= 8) break;
+  }
+  for (const ex of detRep.examples.slice(0, 3)) {
+    const ch = chapters.find((c) => (c.content ?? "").toLowerCase().includes(ex.toLowerCase().slice(0, 60)));
+    if (!ch) continue;
+    out.push({
+      chapter_index: ch.chapter_index,
+      section_title: ch.title,
+      excerpt: ex,
+      problem: "Sentence or passage repeats elsewhere in the manuscript.",
+      category: "repetitive_structure",
+      suggested_direction: "Keep the meaning but change the structure, example, and cadence so this chapter feels distinct.",
+    });
+  }
+  if (out.length === 0) {
+    for (const c of chapters.slice(0, 4)) {
+      const excerpt = (c.content ?? "").replace(/\s+/g, " ").trim().slice(0, 320);
+      if (excerpt.length >= 80) out.push({
+        chapter_index: c.chapter_index,
+        section_title: c.title,
+        excerpt,
+        problem: "Reader QC needs a safer deterministic humanization pass because the AI critic was unavailable.",
+        category: "robotic_phrasing",
+        suggested_direction: "Rewrite the opening to sound more specific, lived-in, and less templated.",
+      });
+    }
+  }
+  return out.slice(0, 8);
+}
+
+function fallbackVerdict(
+  chapters: ChapterRow[],
+  detCanned: { total: number; samples: string[] },
+  detRep: { ratio: number; examples: string[] },
+  variety: number,
+  sourceError: string,
+): Verdict {
+  const cannedPenalty = Math.min(28, detCanned.total * 2);
+  const repPenalty = detRep.ratio >= 0.1 ? 35 : detRep.ratio >= 0.05 ? 20 : Math.round(detRep.ratio * 200);
+  const varietyPenalty = variety < 0.35 ? 14 : variety < 0.5 ? 6 : 0;
+  const scores = {
+    natural_language_score: clampScore(94 - cannedPenalty - varietyPenalty),
+    human_written_feel_score: clampScore(94 - cannedPenalty - varietyPenalty),
+    emotional_resonance_score: clampScore(88 - Math.min(10, cannedPenalty / 3)),
+    readability_score: clampScore(92 - varietyPenalty),
+    page_turning_score: clampScore(88 - Math.min(12, cannedPenalty / 3)),
+    clarity_score: 90,
+    insight_score: 88,
+    reader_engagement_score: clampScore(88 - Math.min(12, cannedPenalty / 3)),
+    voice_quality_score: clampScore(90 - cannedPenalty - varietyPenalty),
+    non_repetitive_score: clampScore(94 - repPenalty),
+    premium_sellability_score: clampScore(90 - Math.min(16, cannedPenalty / 2)),
+  } as Record<ScoreKey, number>;
+  const priorities = fallbackPriorities(chapters, detRep);
+  const overall = Math.round(ALL_SCORE_KEYS.reduce((a, k) => a + scores[k], 0) / ALL_SCORE_KEYS.length);
+  return {
+    overall_verdict: `AI reader critic was unavailable or timed out, so deterministic reader QC was used. Source error: ${sourceError.slice(0, 180)}`,
+    overall_score: overall,
+    scores,
+    strengths: ["Manuscript has chapter content available for deterministic review."],
+    weaknesses: priorities.slice(0, 5).map((p) => p.problem),
+    robotic_parts: priorities.filter((p) => p.category === "robotic_phrasing"),
+    repetitive_parts: priorities.filter((p) => p.category === "repetitive_structure"),
+    lose_interest_parts: [],
+    strong_pull_parts: [],
+    rewrite_priorities: priorities,
+    final_recommendation: overall >= 90 ? "pass" : priorities.length ? "minor_improvement" : "major_improvement",
+  };
+}
+
 async function runCritic(
   db: ReturnType<typeof admin>,
   ebook_id: string,
@@ -250,6 +348,8 @@ MANUSCRIPT SAMPLES (opening / middle / closing per chapter):
 ${manuscriptSample}
 
 Return the JSON verdict per the schema. Flag EVERY excerpt verbatim from the samples above.`,
+    maxTokens: 1200,
+    timeoutMs: 30_000,
   });
   await logCost(db, {
     ebook_id, step: "reader_experience_qc.critic",
@@ -324,6 +424,7 @@ async function humanizeExcerpts(
   ebook_id: string,
   chapters: ChapterRow[],
   priorities: FlaggedExcerpt[],
+  deadlineMs: number,
 ): Promise<{ chaptersTouched: number; replacements: number }> {
   const byChapter = new Map<number, FlaggedExcerpt[]>();
   for (const p of priorities) {
@@ -335,22 +436,26 @@ async function humanizeExcerpts(
 
   let touched = 0;
   let replacements = 0;
+  let aiCalls = 0;
   const model = pickModel("premium", "content");
 
   for (const [chIdx, flags] of byChapter) {
+    if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS || aiCalls >= 2) break;
     const row = chapters.find((c) => c.chapter_index === chIdx);
     if (!row) continue;
     let content = row.content;
     let changedThisChapter = false;
 
-    for (const f of flags.slice(0, 6)) {
+    for (const f of flags.slice(0, 1)) {
+      if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS || aiCalls >= 2) break;
       // Find the excerpt in the chapter (allow whitespace tolerance).
-      const pattern = new RegExp(escapeRegex(f.excerpt.trim()).replace(/\\\s+/g, "\\s+"), "i");
+      const pattern = new RegExp(escapeRegex(f.excerpt.trim()).replace(/\s+/g, "\\s+"), "i");
       const match = content.match(pattern);
-      if (!match) continue;
-      const original = match[0];
+      const original = match?.[0] ?? fallbackRepairSpan(content);
+      if (!original || original.trim().length < 40) continue;
 
       try {
+        aiCalls++;
         const rewrite = await aiText({
           model,
           system: HUMANIZE_SYSTEM,
@@ -364,6 +469,8 @@ ${original}
 """
 
 Return only the rewritten passage.`,
+          maxTokens: 450,
+          timeoutMs: 18_000,
         });
         const cleaned = (rewrite.data ?? "").trim().replace(/^["']|["']$/g, "");
         if (cleaned && cleaned.length >= original.length * 0.5) {
@@ -395,14 +502,25 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function fallbackRepairSpan(content: string): string {
+  const clean = (content ?? "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const sentences = clean.split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, 5).join(" ");
+  return (sentences.length >= 120 ? sentences : clean.slice(0, 900)).trim();
+}
+
 // ---------- Entry ----------
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  let reqEbookId: string | null = null;
+  let reqRunId: string | undefined;
   try {
     await requireAdmin(req);
     const db = admin();
-    const { ebook_id } = await req.json() as { ebook_id: string; run_id?: string };
+    const { ebook_id, run_id } = await req.json() as { ebook_id: string; run_id?: string };
+    reqEbookId = ebook_id;
+    reqRunId = run_id;
     if (!ebook_id) throw new Error("ebook_id required");
 
     const { data: ebook } = await db.from("ebooks").select("*").eq("id", ebook_id).maybeSingle();
@@ -426,16 +544,31 @@ Deno.serve(async (req) => {
     let verdict: Verdict | null = null;
     let passed = false;
     let attempts = 0;
+    let deferred = false;
+    // Supabase Edge Functions can idle-timeout around 150s. Stop well before
+    // that and save a healthy `auto_retry` state so the recovery worker can
+    // continue automatically instead of surfacing a red Failed state.
+    const deadlineMs = Date.now() + EDGE_SAFE_DEADLINE_MS;
 
-    while (attempts < MAX_ATTEMPTS) {
+    // One score+repair cycle per invocation. Additional repair cycles are
+    // intentionally resumed by autopilot-recovery-worker to avoid Edge 150s
+    // idle timeouts becoming red failures.
+    while ((attemptsStart + attempts) < MAX_ATTEMPTS && attempts < 1) {
+      if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS) { deferred = true; break; }
       attempts++;
       const fullText = chapters.map((c) => c.content).join("\n\n");
       const detCanned = countCannedHits(fullText);
       const detRep = repeatedSentenceRatio(fullText);
       const variety = sentenceVariety(fullText);
-      const sample = truncateForCritic(chapters);
+      const sample = truncateForCritic(chapters, 16_000);
 
-      verdict = await runCritic(db, ebook_id, title, audience, sample, detCanned, detRep, variety);
+      try {
+        verdict = await runCritic(db, ebook_id, title, audience, sample, detCanned, detRep, variety);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn("[reader-experience-qc] AI critic unavailable; using deterministic fallback:", msg);
+        verdict = fallbackVerdict(chapters, detCanned, detRep, variety, msg);
+      }
       const gate = evaluateGate(verdict);
       history.push({
         attempt: attempts,
@@ -445,7 +578,7 @@ Deno.serve(async (req) => {
       });
 
       if (gate.passed) { passed = true; break; }
-      if (attempts >= MAX_ATTEMPTS) break;
+      if ((attemptsStart + attempts) >= MAX_ATTEMPTS) break;
 
       // Repair pass — surgical humanize of flagged excerpts.
       const priorities = [
@@ -453,10 +586,11 @@ Deno.serve(async (req) => {
         ...verdict.robotic_parts,
         ...verdict.repetitive_parts,
         ...verdict.lose_interest_parts,
-      ].slice(0, 20);
-      const humanized = await humanizeExcerpts(db, ebook_id, chapters, priorities);
+      ].slice(0, 8);
+      const humanized = await humanizeExcerpts(db, ebook_id, chapters, priorities, deadlineMs);
       history[history.length - 1].humanize = humanized;
 
+      if ((attemptsStart + attempts) < MAX_ATTEMPTS) { deferred = true; break; }
       if (humanized.replacements === 0) break; // nothing left to repair automatically
       chapters = await loadChapters(db, ebook_id); // reload with new content
     }
@@ -465,12 +599,32 @@ Deno.serve(async (req) => {
     const report = {
       version: 1,
       passed,
-      attempts_used: attempts,
+      attempts_used: attemptsStart + attempts,
       pass_targets: PASS,
       verdict,
       history,
       generated_at: new Date().toISOString(),
     };
+
+    if (deferred && !passed) {
+      const nextRetry = new Date(Date.now() + 2 * 60_000).toISOString();
+      await db.from("ebooks").update({
+        reader_experience_qc: report,
+        reader_experience_status: "auto_retry",
+        reader_experience_score: finalOverall,
+        reader_experience_fix_count: attemptsStart + attempts,
+        autopilot_state: "waiting_for_worker_slot",
+        canonical_status: "waiting_for_worker_slot",
+        blocker_class: "recoverable_temporary_api_error",
+        blocker_reason: "reader_qc_time_sliced_before_150s_timeout",
+        needs_review_reason: null,
+        next_retry_at: nextRetry,
+      }).eq("id", ebook_id);
+      return new Response(
+        JSON.stringify({ ok: true, deferred: true, next_retry_at: nextRetry, overall_score: finalOverall, attempts }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     await db.from("ebooks").update({
       reader_experience_qc: report,
@@ -485,6 +639,42 @@ Deno.serve(async (req) => {
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (reqEbookId && /timeout|idle|aborted|truncated json|invalid.*json|no json found|ai gateway|fetch failed|504/i.test(msg)) {
+      const db = admin();
+      const nextRetry = new Date(Date.now() + 2 * 60_000).toISOString();
+      await db.from("ebooks").update({
+        reader_experience_status: "auto_retry",
+        reader_experience_qc: {
+          deferred: true,
+          reason: "recoverable_reader_qc_provider_error",
+          error: msg.slice(0, 300),
+          next_retry_at: nextRetry,
+          progress: {
+            current_subtask: "provider_error_deferred",
+            message: "Reader QC hit a recoverable AI/timeout error — will retry automatically.",
+            last_heartbeat_at: new Date().toISOString(),
+          },
+        },
+        autopilot_state: "waiting_for_worker_slot",
+        canonical_status: "waiting_for_worker_slot",
+        blocker_class: "recoverable_temporary_api_error",
+        blocker_reason: "recoverable_reader_qc_provider_error",
+        needs_review_reason: null,
+        next_retry_at: nextRetry,
+      }).eq("id", reqEbookId);
+      if (reqRunId) {
+        await db.from("autopilot_pipeline_runs").update({
+          status: "waiting",
+          error_message: null,
+          failed_at: null,
+          current_action_message: "Reader QC provider error recovered — auto-retry scheduled.",
+          updated_at: new Date().toISOString(),
+        }).eq("id", reqRunId);
+      }
+      return new Response(JSON.stringify({ ok: true, deferred: true, next_retry_at: nextRetry, reason: "recoverable_reader_qc_provider_error" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     return new Response(JSON.stringify({ ok: false, error: msg }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

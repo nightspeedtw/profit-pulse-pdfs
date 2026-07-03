@@ -13,6 +13,7 @@
 
 import { admin, corsHeaders } from "../_shared/ai.ts";
 import { nextUtcMidnight, LOCK_HEAVY, getLockHolder } from "../_shared/recovery.ts";
+import { classifyError } from "../_shared/error-classifier.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -51,6 +52,7 @@ Deno.serve(async (req) => {
   const now = new Date().toISOString();
   const resumed: string[] = [];
   const stillWaiting: string[] = [];
+  const reclassifiedRecoverable: string[] = [];
 
   // 1) Shopify quota queue — resume when we have quota AND next_retry_at passed
   const { data: queued } = await db
@@ -130,6 +132,49 @@ Deno.serve(async (req) => {
     );
   }
 
+  // 3b) Historical red failures from recoverable QC/provider errors. Older
+  //     deployments used to mark truncated JSON / Edge idle timeout as failed.
+  //     Reclassify them into wait/queue states so they heal without a click.
+  const { data: failedRecoverables } = await db
+    .from("autopilot_pipeline_runs")
+    .select("id, ebook_id, error_message")
+    .eq("status", "failed")
+    .or("error_message.ilike.%Truncated JSON%,error_message.ilike.%IDLE_TIMEOUT%,error_message.ilike.%idle timeout%,error_message.ilike.%timeout limit%,error_message.ilike.%No JSON found%,error_message.ilike.%invalid JSON%")
+    .order("failed_at", { ascending: false, nullsFirst: false })
+    .limit(25);
+
+  for (const r of failedRecoverables ?? []) {
+    if (!r.ebook_id) continue;
+    const classified = classifyError(new Error(r.error_message ?? "recoverable QC provider error"), {
+      step: String(r.error_message ?? "").includes("reader-experience-qc") ? "reader_experience_qc" : "final_manuscript_qc",
+      ebook_id: r.ebook_id,
+      run_id: r.id,
+    });
+    if (!classified.recoverable || classified.needs_code_fix) continue;
+    const retryAt = classified.next_retry_at ?? new Date(Date.now() + 2 * 60_000).toISOString();
+    const nextState = String(classified.suggested_status).startsWith("waiting_")
+      ? classified.suggested_status
+      : "queued_for_production";
+    reclassifiedRecoverable.push(r.ebook_id);
+    if (dry) continue;
+    await db.from("ebooks").update({
+      autopilot_state: nextState,
+      canonical_status: nextState,
+      blocker_class: classified.error_type,
+      blocker_reason: classified.fingerprint,
+      needs_review_reason: null,
+      next_retry_at: retryAt,
+      manuscript_qc_status: String(r.error_message ?? "").includes("final-manuscript-qc") ? "auto_retry" : undefined,
+      reader_experience_status: String(r.error_message ?? "").includes("reader-experience-qc") ? "auto_retry" : undefined,
+    }).eq("id", r.ebook_id);
+    await db.from("autopilot_pipeline_runs").update({
+      status: "waiting",
+      error_message: null,
+      current_action_message: classified.user_friendly_message,
+      updated_at: new Date().toISOString(),
+    }).eq("id", r.id);
+  }
+
   // 4) Waiting for Browserless slot — resume when next_retry_at has passed.
   //    These ebooks still hold the heavy_production lock (per Sequential Safe
   //    Mode spec) so re-invoking the pipeline for them is safe and will only
@@ -146,6 +191,31 @@ Deno.serve(async (req) => {
     if (dry) continue;
     invokePipeline(b.id).catch((e) =>
       console.warn("[recovery] browserless-wait resume failed", b.id, e?.message ?? e)
+    );
+  }
+
+  // 4b) Time-sliced AI/QC work — resume after the function intentionally
+  //     stops before the 150s idle timeout. This is a healthy wait state, not
+  //     a failure. Sequential Safe Mode will reacquire the heavy lock before
+  //     continuing.
+  const { data: workerWaiters } = await db
+    .from("ebooks")
+    .select("id, next_retry_at")
+    .in("autopilot_state", ["waiting_for_worker_slot", "waiting_for_ai_budget"])
+    .lte("next_retry_at", now)
+    .limit(5);
+  const workerResumed: string[] = [];
+  for (const w of workerWaiters ?? []) {
+    workerResumed.push(w.id);
+    if (dry) continue;
+    await db.from("ebooks").update({
+      autopilot_state: "queued_for_production",
+      canonical_status: "queued_for_production",
+      blocker_reason: null,
+      blocker_class: null,
+    }).eq("id", w.id);
+    invokePipeline(w.id).catch((e) =>
+      console.warn("[recovery] worker-wait resume failed", w.id, e?.message ?? e)
     );
   }
 
@@ -179,7 +249,9 @@ Deno.serve(async (req) => {
     shopify_still_waiting: stillWaiting,
     orphan_ebooks_enqueued: (orphans ?? []).length,
     stalled_runs_resumed: stalledResumed,
+    reclassified_recoverable_failures: reclassifiedRecoverable,
     browserless_waiters_resumed: browserlessResumed,
+    worker_waiters_resumed: workerResumed,
     heavy_production_lock: {
       holder: heavyHolder.holder,
       expires_at: heavyHolder.expires_at,

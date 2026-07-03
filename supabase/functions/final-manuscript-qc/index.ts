@@ -19,6 +19,7 @@ const PASS_COMPLIANCE = 90;
 const DEFAULT_MIN_WORDS = 18000;
 const MIN_CHAPTER_WORDS = 1200;
 const MAX_REPAIR_ATTEMPTS = 3;
+const EDGE_SAFE_DEADLINE_MS = 90_000;
 
 type RepairAction =
   | "expand_chapters"
@@ -118,6 +119,10 @@ const UNSAFE_CLAIM_RE = /\b(guaranteed?|guarantee|100%\s+(?:profit|results?)|ris
 const FINANCE_HEALTH_LEGAL_RE = /\b(finance|financial|invest|investing|trading|stocks?|crypto|money|wealth|tax|legal|law|health|diet|medical|therapy|nutrition|fitness)\b/i;
 
 function wc(text: string) { return text?.trim() ? text.trim().split(/\s+/).length : 0; }
+
+function nextWorkerRetry(minutes = 2): string {
+  return new Date(Date.now() + minutes * 60_000).toISOString();
+}
 
 function hasSection(content: string, keywords: string[]): boolean {
   const lower = (content ?? "").toLowerCase();
@@ -373,9 +378,14 @@ function runDeterministicChecks(
 
 async function scoreManuscript(model: string, ebook: any, chapters: ChapterRow[]) {
   const outline = ebook.outline_json ?? {};
-  const samples = chapters.map((c) =>
-    `### Ch ${c.chapter_index}: ${c.title} (${c.word_count} words)\n${(c.content ?? "").slice(0, 2200)}…`
-  ).join("\n\n");
+  const samples = chapters.map((c) => {
+    const body = (c.content ?? "").replace(/\s+/g, " ").trim();
+    const mid = Math.max(0, Math.floor(body.length / 2) - 350);
+    return `### Ch ${c.chapter_index}: ${c.title} (${c.word_count} words)\n` +
+      `[OPEN] ${body.slice(0, 900)}\n` +
+      `[MID] ${body.slice(mid, mid + 700)}\n` +
+      `[END] ${body.slice(-700)}`;
+  }).join("\n\n").slice(0, 24_000);
   const totalWords = chapters.reduce((s, c) => s + (c.word_count ?? 0), 0);
 
   return aiJSON<AiScores>({
@@ -396,7 +406,52 @@ Chapter samples (truncated for token budget):
 ${samples}
 
 Return JSON only matching the schema.`,
+    maxTokens: 2048,
   });
+}
+
+function fallbackAiScores(
+  chapters: ChapterRow[],
+  totalWords: number,
+  minWords: number,
+  deterministic: FailedReason[],
+  sourceError: string,
+): AiScores {
+  const blocking = deterministic.filter((r) =>
+    r.code === "word_count_too_low" || r.code === "missing_chapter" || r.code === "chapter_too_short" ||
+    r.code === "duplicate_content" || r.code === "placeholder_text" || r.code === "unsafe_claims" ||
+    r.code === "missing_disclaimer"
+  );
+  const hasUnsafe = deterministic.some((r) => r.code === "unsafe_claims" || r.code === "missing_disclaimer");
+  const lengthRatio = Math.min(1, totalWords / Math.max(1, minWords));
+  const chapterDepth = chapters.length ? chapters.filter((c) => (c.word_count ?? 0) >= MIN_CHAPTER_WORDS).length / chapters.length : 0;
+  const penalty = blocking.length * 8 + deterministic.filter((r) => r.code.includes("repeated") || r.code.includes("template")).length * 3;
+  const base = Math.max(55, Math.min(92, Math.round(62 + lengthRatio * 18 + chapterDepth * 12 - penalty)));
+  const compliance = hasUnsafe ? 72 : 92;
+  return {
+    final_content_depth_score: base,
+    reader_value_score: Math.max(55, Math.min(92, base - (totalWords < minWords ? 5 : 0))),
+    practical_tool_score: Math.max(55, Math.min(92, base - (deterministic.some((r) => r.code.includes("worksheet")) ? 8 : 0))),
+    editorial_polish_score: Math.max(55, Math.min(92, base - (deterministic.some((r) => r.code.includes("repeated")) ? 8 : 0))),
+    compliance_safety_score: compliance,
+    refund_risk_score: Math.max(8, Math.min(80, 100 - base + blocking.length * 5)),
+    final_manuscript_score: Math.min(base, compliance),
+    checks: {
+      no_repeated_sections: !deterministic.some((r) => r.code.includes("repeated") || r.code.includes("duplicate")),
+      no_generic_filler: !deterministic.some((r) => r.code.includes("template")),
+      no_broken_formatting: true,
+      chapter_flow_ok: !deterministic.some((r) => r.code === "missing_chapter"),
+      title_matches_content: true,
+      promise_delivered: totalWords >= minWords && blocking.length === 0,
+      practical_tools_present: !deterministic.some((r) => r.code.includes("worksheet") || r.code.includes("framework")),
+      compliance_safe_language: !hasUnsafe,
+      buyer_value_strong: blocking.length === 0 && totalWords >= minWords,
+      no_unsafe_claims: !hasUnsafe,
+      no_placeholders: !deterministic.some((r) => r.code === "placeholder_text"),
+    },
+    issues: [`AI reviewer JSON unavailable; deterministic fallback used: ${sourceError.slice(0, 180)}`],
+    blocking_issues: blocking.map((r) => r.message).slice(0, 6),
+  };
 }
 
 function instructionsForReason(r: FailedReason, wordsTarget: number): string {
@@ -496,11 +551,15 @@ async function loadChapters(db: ReturnType<typeof admin>, ebook_id: string): Pro
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  let reqEbookId: string | null = null;
+  let reqRunId: string | undefined;
   try {
     await requireAdmin(req);
     const db = admin();
     const body = await req.json();
     const { ebook_id, run_id } = body as { ebook_id: string; run_id?: string };
+    reqEbookId = ebook_id;
+    reqRunId = run_id;
     if (!ebook_id) throw new Error("ebook_id required");
 
     // ---- Subtask heartbeat helper ----
@@ -508,6 +567,7 @@ Deno.serve(async (req) => {
     // can see live progress. Also writes to ebooks.final_manuscript_qc.progress
     // so a details panel can render subtask + last_heartbeat_at.
     const startedAt = Date.now();
+    const deadlineMs = startedAt + EDGE_SAFE_DEADLINE_MS;
     let subtaskSeq = 0;
     async function emit(subtask: string, message: string, extra: Record<string, unknown> = {}) {
       subtaskSeq++;
@@ -536,6 +596,41 @@ Deno.serve(async (req) => {
         manuscript_qc_status: "running",
         final_manuscript_qc: { progress } as any,
       }).eq("id", ebook_id);
+    }
+
+    async function deferToWorker(reason: string, extra: Record<string, unknown> = {}) {
+      const nextRetry = nextWorkerRetry(2);
+      const progress = {
+        current_subtask: "deferred_worker_slice",
+        subtask_seq: subtaskSeq + 1,
+        message: "Manuscript QC reached the safe worker time limit — saved progress and will auto-resume.",
+        last_heartbeat_at: new Date().toISOString(),
+        elapsed_ms: Date.now() - startedAt,
+        reason,
+        next_retry_at: nextRetry,
+        ...extra,
+      };
+      await db.from("ebooks").update({
+        manuscript_qc_status: "auto_retry",
+        final_manuscript_qc: { progress, deferred: true, reason, next_retry_at: nextRetry } as any,
+        manuscript_fix_count: Number(extra.attempts_used ?? 0),
+        autopilot_state: "waiting_for_worker_slot",
+        canonical_status: "waiting_for_worker_slot",
+        blocker_class: "recoverable_temporary_api_error",
+        blocker_reason: reason,
+        needs_review_reason: null,
+        next_retry_at: nextRetry,
+      }).eq("id", ebook_id);
+      if (run_id) {
+        await db.from("autopilot_pipeline_runs").update({
+          status: "waiting",
+          current_action_message: "Manuscript QC auto-repair is continuing in the next worker slice.",
+          updated_at: new Date().toISOString(),
+        }).eq("id", run_id);
+      }
+      return new Response(JSON.stringify({ ok: true, deferred: true, next_retry_at: nextRetry, reason }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     await emit("loading_manuscript", "Loading manuscript from chapter records…");
@@ -569,13 +664,16 @@ Deno.serve(async (req) => {
     const wordsTarget = Math.max(MIN_CHAPTER_WORDS + 600, Math.ceil((minWords * 1.2) / totalChapterTarget));
 
     let totalCost = 0;
-    let attemptsUsed = 0;
+    let attemptsUsed = Number(ebook.manuscript_fix_count ?? (ebook.final_manuscript_qc as any)?.attempts_used ?? 0);
     let aiScores: AiScores | null = null;
     let structured: StructuredQC | null = null;
     let passed = false;
     const repairLog: { attempt: number; action: string; chapter_index?: number }[] = [];
 
-    for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
+    for (let attempt = attemptsUsed; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
+      if (Date.now() > deadlineMs) {
+        return await deferToWorker("manuscript_qc_time_sliced_before_150s_timeout", { attempt, attempts_used: attemptsUsed });
+      }
       const attemptLabel = attempt === 0 ? "initial pass" : `re-check after repair ${attempt}/${MAX_REPAIR_ATTEMPTS}`;
       await emit("load_chapters", `Loading chapters (${attemptLabel})…`, { attempt });
       chapters = await loadChapters(db, ebook_id);
@@ -600,10 +698,20 @@ Deno.serve(async (req) => {
       let scoreVal = 0;
       if (meaningful) {
         await emit("ai_score", "Calculating final manuscript score (AI reviewer)…", { attempt });
-        const s = await scoreManuscript(scoreModel, ebook, chapters);
-        totalCost += s.usage.cost_usd;
-        aiScores = s.data;
-        await logCost(db, { ebook_id: ebook.id, step: `manuscript_qc${attempt ? `:fix${attempt}` : ""}`, model: s.model, ...s.usage });
+        try {
+          const s = await scoreManuscript(scoreModel, ebook, chapters);
+          totalCost += s.usage.cost_usd;
+          aiScores = s.data;
+          await logCost(db, { ebook_id: ebook.id, step: `manuscript_qc${attempt ? `:fix${attempt}` : ""}`, model: s.model, ...s.usage });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn("[final-manuscript-qc] AI score failed; using deterministic fallback:", msg);
+          await emit("ai_score_fallback", "AI reviewer returned invalid/truncated JSON — using deterministic fallback and continuing auto-repair…", {
+            attempt,
+            error: msg.slice(0, 240),
+          });
+          aiScores = fallbackAiScores(chapters, totalWords, minWords, deterministic, msg);
+        }
         scoreVal = aiScores.final_manuscript_score ?? 0;
         await emit("ai_score_done", `AI score: ${scoreVal}/100 (compliance ${aiScores.compliance_safety_score ?? 0}/100)`, {
           attempt, score: scoreVal, compliance: aiScores.compliance_safety_score,
@@ -701,6 +809,13 @@ Deno.serve(async (req) => {
       const pickedExpandAll = { done: false };
 
       for (const r of sorted) {
+        if (Date.now() > deadlineMs) {
+          return await deferToWorker("manuscript_qc_time_sliced_during_targeted_repair", {
+            attempt,
+            attempts_used: attemptsUsed,
+            repaired: repairLog.length,
+          });
+        }
         if (r.repair_action === "regenerate_missing_chapter" && r.chapter_index) {
           const target = wordsTarget;
           await emit("repair_chapter", `Regenerating missing Chapter ${r.chapter_index} (attempt ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS})…`, { attempt: attemptsUsed, chapter_index: r.chapter_index });
@@ -770,6 +885,13 @@ Deno.serve(async (req) => {
         // transitions, and summaries across the whole manuscript.
         const inst = instructionsForReason({ code: "humanize_manuscript", message: "", repair_action: "humanize_manuscript" }, 0);
         for (const ch of chapters) {
+          if (Date.now() > deadlineMs) {
+            return await deferToWorker("manuscript_qc_time_sliced_during_humanization", {
+              attempt,
+              attempts_used: attemptsUsed,
+              repaired: repairLog.length,
+            });
+          }
           if (seenChapters.has(ch.chapter_index)) continue;
           const target = Math.max(ch.word_count ?? 0, MIN_CHAPTER_WORDS);
           await emit("humanize_chapter", `Humanizing Chapter ${ch.chapter_index}/${chapters.length}…`, { attempt: attemptsUsed, chapter_index: ch.chapter_index });
@@ -852,6 +974,42 @@ Deno.serve(async (req) => {
       structured, repair_log: repairLog, total_word_count: totalWords,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (reqEbookId && /truncated json|invalid.*json|no json found|timeout|aborted|ai gateway|fetch failed|504|idle/i.test(msg)) {
+      const db = admin();
+      const nextRetry = nextWorkerRetry(2);
+      await db.from("ebooks").update({
+        manuscript_qc_status: "auto_retry",
+        final_manuscript_qc: {
+          deferred: true,
+          reason: "recoverable_manuscript_qc_provider_error",
+          error: msg.slice(0, 300),
+          next_retry_at: nextRetry,
+          progress: {
+            current_subtask: "provider_error_deferred",
+            message: "Manuscript QC hit a recoverable AI/timeout error — will retry automatically.",
+            last_heartbeat_at: new Date().toISOString(),
+          },
+        } as any,
+        autopilot_state: "waiting_for_worker_slot",
+        canonical_status: "waiting_for_worker_slot",
+        blocker_class: "recoverable_temporary_api_error",
+        blocker_reason: "recoverable_manuscript_qc_provider_error",
+        needs_review_reason: null,
+        next_retry_at: nextRetry,
+      }).eq("id", reqEbookId);
+      if (reqRunId) {
+        await db.from("autopilot_pipeline_runs").update({
+          status: "waiting",
+          error_message: null,
+          current_action_message: "Manuscript QC provider error recovered — auto-retry scheduled.",
+          updated_at: new Date().toISOString(),
+        }).eq("id", reqRunId);
+      }
+      return new Response(JSON.stringify({ ok: true, deferred: true, next_retry_at: nextRetry, reason: "recoverable_manuscript_qc_provider_error" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

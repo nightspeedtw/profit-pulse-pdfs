@@ -293,6 +293,7 @@ Deno.serve(async (req) => {
             const holder = await getLockHolder(db, LOCK_HEAVY);
             await db.from("ebooks").update({
               autopilot_state: "queued_for_production",
+              canonical_status: "queued_for_production",
               blocker_class: "recoverable_dependency_error",
               blocker_reason: "waiting_for_production_slot",
               needs_review_reason: null,
@@ -312,9 +313,15 @@ Deno.serve(async (req) => {
         }
 
         if (ebook.autopilot_state === "failed" || ebook.autopilot_state === "queued_for_production") {
-          await db.from("ebooks").update({ autopilot_state: "production_running", needs_review_reason: null, blocker_class: null, blocker_reason: null }).eq("id", ebook.id);
+          await db.from("ebooks").update({
+            autopilot_state: "production_running",
+            canonical_status: "production_running",
+            needs_review_reason: null,
+            blocker_class: null,
+            blocker_reason: null,
+          }).eq("id", ebook.id);
         } else {
-          await db.from("ebooks").update({ autopilot_mode: mode, autopilot_state: "production_running" }).eq("id", ebook.id);
+          await db.from("ebooks").update({ autopilot_mode: mode, autopilot_state: "production_running", canonical_status: "production_running" }).eq("id", ebook.id);
         }
 
         // ---- ebook-scoped guards ----
@@ -543,11 +550,25 @@ Deno.serve(async (req) => {
             ["manuscript_qc"],
             "Running manuscript QC…",
             async () => {
-              await runStep("8_final_manuscript_qc", "final-manuscript-qc", { ebook_id: ebook.id, run_id });
+              const r = await runStep("8_final_manuscript_qc", "final-manuscript-qc", { ebook_id: ebook.id, run_id });
               await refreshEbook();
+              if (r.body?.deferred === true || ebook.autopilot_state === "waiting_for_worker_slot" || ebook.manuscript_qc_status === "auto_retry") {
+                await tracker.heartbeat("manuscript_qc", {
+                  message: "Manuscript QC auto-repair is continuing in the next worker slice.",
+                  subtask: `Self-healing retry at ${new Date(ebook.next_retry_at ?? r.body?.next_retry_at ?? Date.now()).toLocaleTimeString()}`,
+                });
+              }
             },
             "Checking structure, depth, and repeated passages across chapters",
           );
+
+          if (ebook.autopilot_state === "waiting_for_worker_slot" || ebook.manuscript_qc_status === "auto_retry") {
+            await db.from("autopilot_pipeline_runs").update({
+              status: "waiting",
+              current_action_message: "Manuscript QC auto-repair is continuing in the next worker slice.",
+            }).eq("id", run_id);
+            return;
+          }
 
           if (ebook.manuscript_qc_status === "needs_review") {
             const qc = (ebook.final_manuscript_qc as any) ?? {};
@@ -583,11 +604,25 @@ Deno.serve(async (req) => {
             ["manuscript_qc"],
             "Running Reader Experience QC…",
             async () => {
-              await runStep("8b_reader_experience_qc", "reader-experience-qc", { ebook_id: ebook.id, run_id });
+              const r = await runStep("8b_reader_experience_qc", "reader-experience-qc", { ebook_id: ebook.id, run_id });
               await refreshEbook();
+              if (r.body?.deferred === true || ebook.reader_experience_status === "auto_retry") {
+                await tracker.heartbeat("manuscript_qc", {
+                  message: "Reader QC time-sliced — auto-resume scheduled",
+                  subtask: `Avoided 150s timeout. Retry at ${new Date(ebook.next_retry_at ?? r.body?.next_retry_at ?? Date.now()).toLocaleTimeString()}`,
+                });
+              }
             },
             "Judging naturalness, emotional pull, page-turning, and premium feel",
           );
+
+          if (ebook.reader_experience_status === "auto_retry" || ebook.autopilot_state === "waiting_for_worker_slot") {
+            await db.from("autopilot_pipeline_runs").update({
+              status: "waiting",
+              current_action_message: "Reader QC auto-repair is continuing in the next worker slice.",
+            }).eq("id", run_id);
+            return;
+          }
 
           if (ebook.reader_experience_status === "needs_review") {
             const rx = (ebook.reader_experience_qc as any) ?? {};
@@ -872,16 +907,24 @@ Deno.serve(async (req) => {
         const canonical = classified?.needs_code_fix
           ? "needs_code_fix"
           : (classified?.error_type === "quota_wait" ? "waiting_for_shopify_quota" : "failed_non_recoverable");
+        const recoverableStatus = classified?.recoverable
+          ? classified.suggested_status
+          : canonical;
+        const shouldWait = !!classified?.recoverable && !classified.needs_code_fix;
+        const recoveryState = shouldWait
+          ? (String(recoverableStatus).startsWith("waiting_") ? recoverableStatus : "queued_for_production")
+          : "failed";
 
         if (ebook?.id) {
           await db.from("ebooks").update({
-            autopilot_state: "failed",
-            canonical_status: canonical,
-            needs_review_reason: (classified?.user_friendly_message ?? msg).slice(0, 400),
+            autopilot_state: recoveryState,
+            canonical_status: recoverableStatus,
+            needs_review_reason: shouldWait ? null : (classified?.user_friendly_message ?? msg).slice(0, 400),
             blocker_reason: (classified?.detected_root_cause ?? msg).slice(0, 200),
             blocker_class: classified?.error_type ?? "non_recoverable",
+            next_retry_at: shouldWait ? (classified?.next_retry_at ?? new Date(Date.now() + 60_000).toISOString()) : null,
           }).eq("id", ebook.id);
-          await markQueueFailed(db, ebook.id, "pipeline", msg);
+          if (!shouldWait) await markQueueFailed(db, ebook.id, "pipeline", msg);
         }
         await logRun(db, { ebook_id: ebook?.id, idea_id: idea?.id, step: "pipeline", status: "fail", error: msg });
 
@@ -902,7 +945,7 @@ Deno.serve(async (req) => {
         // Surface failure on the live run too.
         try {
           await db.from("autopilot_pipeline_runs").update({
-            status: classified?.needs_code_fix ? "needs_code_fix" : "failed",
+            status: shouldWait ? "waiting" : (classified?.needs_code_fix ? "needs_code_fix" : "failed"),
             failed_at: new Date().toISOString(),
             error_message: msg.slice(0, 800),
             current_action_message: (classified?.user_friendly_message ?? `Pipeline failed: ${msg}`).slice(0, 200),
@@ -918,7 +961,7 @@ Deno.serve(async (req) => {
           if (ebook?.id) {
             const { data: fresh } = await db.from("ebooks").select("autopilot_state").eq("id", ebook.id).maybeSingle();
             const state = fresh?.autopilot_state ?? "";
-            const HOLD_STATES = new Set(["waiting_for_browserless_slot"]);
+            const HOLD_STATES = new Set(["waiting_for_browserless_slot", "waiting_for_worker_slot", "waiting_for_ai_budget"]);
             if (!HOLD_STATES.has(state)) {
               await releaseLock(db, LOCK_HEAVY, ebook.id);
             }
