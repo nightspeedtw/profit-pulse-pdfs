@@ -1,21 +1,17 @@
 import { Link } from "react-router-dom";
-import { useCartStore } from "@/stores/cartStore";
-import { FileText } from "lucide-react";
+import { FileText, Download } from "lucide-react";
 import type { StorefrontEbook } from "@/lib/storefront";
-import { priceLabel } from "@/lib/storefront";
+import { freeDownload } from "@/lib/freeDownload";
 
 interface Props {
   product: StorefrontEbook;
 }
 
 export const ProductCard = ({ product }: Props) => {
-  const addItem = useCartStore((s) => s.addItem);
-  const price = priceLabel(product);
-
-  const handleAdd = (e: React.MouseEvent) => {
+  const handleDownload = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    addItem(product);
+    freeDownload(product.id, product.title);
   };
 
   return (
@@ -37,8 +33,8 @@ export const ProductCard = ({ product }: Props) => {
           <span className="absolute top-3 left-3 sticker">{product.product_type}</span>
         )}
 
-        <span className="absolute bottom-3 right-3 bg-foreground text-background font-display text-lg px-3 py-1 border-2 border-foreground">
-          {price}
+        <span className="absolute bottom-3 right-3 bg-accent text-accent-foreground font-display text-lg px-3 py-1 border-2 border-foreground">
+          FREE
         </span>
       </div>
       <div className="p-4 flex flex-col flex-1 gap-3">
@@ -47,13 +43,13 @@ export const ProductCard = ({ product }: Props) => {
           {product.product_description?.replace(/[#*_>`]/g, "").slice(0, 140) || "Premium PDF, instant download."}
         </p>
         <button
-          onClick={handleAdd}
-          disabled={!product.price}
-          className="mt-auto w-full h-11 bg-foreground text-background font-display uppercase text-sm tracking-wider border-2 border-foreground hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          onClick={handleDownload}
+          className="mt-auto w-full h-11 bg-foreground text-background font-display uppercase text-sm tracking-wider border-2 border-foreground hover:bg-accent hover:text-accent-foreground transition-colors flex items-center justify-center gap-2"
         >
-          Add to Cart
+          <Download className="h-4 w-4" /> Download
         </button>
       </div>
     </Link>
   );
 };
+
