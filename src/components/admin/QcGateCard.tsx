@@ -99,9 +99,19 @@ export function QcGateCard({
   ebookId?: string;
 }) {
   const [fixing, setFixing] = useState<string | null>(null);
-  if (!qc) return null;
+  // Track auto-triggered fixes across renders per (ebook,gate) so we don't
+  // spam the pipeline on every 3s poll while the fix is in flight.
+  const autoFiredRef = useRef<Set<string>>(new Set());
 
-  async function autoFix(gate: "any" | "reader" | "cover_pdf" | "cover_thumb" | "formatter") {
+  const readyFlag = qc?.ready_for_shopify ?? false;
+  const blockingKey = qc?.blocking_gates?.join(",") ?? "";
+  const firstBlocking = qc?.blocking_gates?.[0] as
+    | "reader" | "cover_pdf" | "cover_thumb" | "formatter" | undefined;
+
+  async function autoFix(
+    gate: "any" | "reader" | "cover_pdf" | "cover_thumb" | "formatter",
+    opts?: { silent?: boolean },
+  ) {
     if (!ebookId) return;
     setFixing(gate);
     try {
@@ -109,15 +119,36 @@ export function QcGateCard({
         body: { ebook_id: ebookId, action: "autofix_gate", gate },
       });
       if (error) throw error;
-      toast.success(`Auto Fix เริ่มแล้ว · ${gate}`, {
-        description: (data as { gate?: string } | null)?.gate ?? gate,
-      });
+      const escalated = (data as { escalated?: boolean } | null)?.escalated;
+      if (escalated) {
+        toast.warning("ส่งเข้า Needs Code Fix", {
+          description: `${gate} ไม่ผ่านหลัง auto-fix หลายครั้ง — สร้าง prompt ให้ Lovable แล้ว`,
+        });
+      } else if (!opts?.silent) {
+        toast.success(`Auto Fix เริ่มแล้ว · ${gate}`);
+      }
     } catch (e) {
-      toast.error("Auto Fix ล้มเหลว", { description: e instanceof Error ? e.message : String(e) });
+      if (!opts?.silent) {
+        toast.error("Auto Fix ล้มเหลว", { description: e instanceof Error ? e.message : String(e) });
+      }
     } finally {
       setFixing(null);
     }
   }
+
+  // AUTO-TRIGGER: as soon as a card renders in Blocked state, kick a
+  // targeted fix for the first blocking gate — no click needed. We
+  // remember the (ebook,gate) so we don't refire while the same block
+  // persists across polls.
+  useEffect(() => {
+    if (!ebookId || readyFlag || !firstBlocking) return;
+    const key = `${ebookId}:${blockingKey}`;
+    if (autoFiredRef.current.has(key)) return;
+    autoFiredRef.current.add(key);
+    void autoFix(firstBlocking, { silent: true });
+  }, [ebookId, readyFlag, blockingKey, firstBlocking]);
+
+  if (!qc) return null;
 
   const gateNames: (keyof QcGateReport)[] = [
     "formatter",
