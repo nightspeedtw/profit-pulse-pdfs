@@ -16,6 +16,7 @@
 // publishGate (qc.ts) already blocks Shopify publish unless cover_approved
 // and cover_score >= 85; we additionally require pdf_approved before publish.
 import { admin, corsHeaders, pickModel } from "../_shared/ai.ts";
+import { computeManuscriptHash } from "../_shared/manuscript-hash.ts";
 import { buildPdfHtml, buildHeaderTemplate, buildFooterTemplate, type PdfData, type WorksheetKind } from "../_shared/pdf-template.ts";
 import {
  structuralChecks, scorePdfReadability,
