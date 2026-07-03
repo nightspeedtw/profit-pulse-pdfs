@@ -144,7 +144,15 @@ export function decideRepairLoop(
   repairAction: string,
 ): RepairLoopDecision {
   const fingerprint = buildRepairFingerprint(report, gate, repairAction);
-  const history = asHistory(ebook).filter((h) => h.gate === gate || h.gate_name === gate);
+  // After a Lovable/code fix has changed the producer, stale fingerprints from
+  // the previous broken code must not immediately re-escalate the ebook. Allow
+  // one fresh producer repair from needs_code_fix, then normal loop protection
+  // applies again because the ebook moves back to auto_fixing with a new history
+  // row for this code version.
+  const codeFixRetry = ebook.autopilot_state === "needs_code_fix" || ebook.canonical_status === "needs_code_fix";
+  const history = codeFixRetry
+    ? []
+    : asHistory(ebook).filter((h) => h.gate === gate || h.gate_name === gate);
   const last = history[history.length - 1];
   const lastAt = last?.at || last?.timestamp;
   const recentMs = lastAt ? Date.now() - new Date(String(lastAt)).getTime() : Number.POSITIVE_INFINITY;
