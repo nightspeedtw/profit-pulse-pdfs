@@ -1,54 +1,58 @@
 
-## สภาพปัจจุบัน (ยืนยันจาก DB)
+## สถานะจริงตอนนี้ (จากฐานข้อมูล)
 
-- ✅ มี 1 run กำลังทำงานจริง: `The Credit Float Exit Protocol` — step `thumbnail_qc`, heartbeat สด
-- ⏳ 14 runs สถานะ `queued` รอ heavy_production lock ว่าง (Sequential Safe Mode)
-- ⚙️ Recovery worker cron = ทุก 5 นาที → ระยะห่างระหว่างเล่มสูงสุด ~5 นาที
-- ⚙️ Hourly autopilot cron = ทุก 1 ชั่วโมง (สำหรับสร้าง idea ใหม่)
+| กลุ่ม | จำนวน | ความหมาย |
+|---|---|---|
+| `queued_for_production` | 14 | รอคิว แต่ไม่ขยับ |
+| `needs_admin` / `needs_admin_attention` | 13 | ค้างที่ `manuscript_qc` — ระบบยอมแพ้ รอมนุษย์ |
+| `waiting_for_worker_slot` | 1 | The Credit Float Exit Protocol — ค้างที่ `cover` |
+| `needs_action` | 1 | ยังไม่เริ่ม |
 
-## ปัญหาที่ต้องแก้
+**สาเหตุหลักที่ทุกอย่างหยุด:**
 
-1. **Queued runs ไม่ auto-start** เมื่อเล่มก่อนหน้าจบ — ต้องรอ cron tick ถัดไป
-2. **Recovery worker ห่างเกินไป** (5 นาที) — ผู้ใช้เห็นเหมือนระบบนิ่ง
-3. ไม่มี **"kick next" hook** หลังจาก run เสร็จ/แพ้/superseded
-4. UI ไม่บอกชัดว่า "อีก 13 เล่มรอ lock" vs "ระบบหยุด"
+1. **`generate-cover` ชน CPU Time exceeded** (เห็นใน edge logs) → เล่มที่ถือคิวอยู่ทำ cover ไม่จบ → เล่มอื่นรอไม่รู้จบ
+2. **ไม่มี lock ค้างในตาราง `production_locks`** แต่ recovery worker ก็ไม่ได้ปล่อยเล่มถัดไปเดินหน้า → มี bug ในการ pick up
+3. **13 เล่มค้าง `manuscript_qc` แบบ `needs_admin_attention`** — auto-fix ไม่ทำงานกับสถานะกลุ่มนี้ (worker กรองเฉพาะ `queued_for_production`)
+4. **UI ไม่บอกว่ากำลังทำอะไร** — ผู้ใช้เห็นแต่ตัวเลข ไม่รู้ว่าติดตรงไหน ทำไม จะจบเมื่อไร
 
-## แผนแก้ (Auto-Continuous Mode)
+---
 
-### 1. เพิ่มความถี่ recovery worker: 5 นาที → 1 นาที
-แก้ pg_cron schedule `autopilot-recovery-worker` เป็น `* * * * *` เพื่อให้ pickup queued runs เร็วขึ้น
+## แผนแก้ (3 เฟส)
 
-### 2. Post-completion hook (สำคัญที่สุด)
-ใน `autopilot-pipeline` เมื่อ run จบ (completed / failed / handoff / superseded):
-- ปล่อย `heavy_production` lock ทันที
-- **เรียก `autopilot-recovery-worker` fire-and-forget** เพื่อปลุก queued run ตัวถัดไปทันที (ไม่ต้องรอ cron)
+### เฟส 1 — ปลดล็อกทันที (ไม่ต้องแก้โค้ด)
+- ล้าง `production_locks` ที่ค้าง (ถ้ามี) + reset `The Credit Float Exit Protocol` กลับไป step ก่อน `cover`
+- Reset `auto_fix_attempt_count = 0` ให้ 14 เล่ม `queued_for_production` + 13 เล่ม `needs_admin*` แล้วส่งกลับ `queued_for_production`
+- Kick `autopilot-recovery-worker` ทันที
 
-### 3. Post-step hook สำหรับ waiting states
-เมื่อ run เข้า `waiting_for_browserless_slot` / `waiting_for_shopify_quota`:
-- ปล่อย lock ชั่วคราว
-- Kick recovery ทันทีเพื่อให้เล่มอื่นแทรกได้
+### เฟส 2 — แก้ producers ที่พังจริง (ต้นเหตุ)
+- **`generate-cover` CPU timeout**: แยกงานหนัก (image generation + composite) เป็น 2 invocations, cache prompt result, ตัด retry loop ที่ไม่จำเป็น, ใส่ `EDGE_SAFE_DEADLINE_MS` เหมือน reader-qc
+- **`render-pdf` วนซ้ำ auto-fix 3 รอบไม่ผ่าน**: log ให้ชัดว่า sub-score ไหนตก แล้ว mirror score ให้ถูกก่อน retry (bug คล้าย cover_thumb เดิม)
+- **`manuscript_qc` → `needs_admin_attention`**: ให้ auto-fix ครอบสถานะนี้ด้วย (ไม่ใช่แค่ `queued_for_production`) + ถ้า repair 3 รอบไม่ผ่านให้ downgrade ไป rebuild from chapters แทน stop
 
-### 4. Lock TTL heartbeat
-ปัจจุบัน TTL 90 นาที — ถ้า worker ตายกลางทาง lock ค้างนาน  
-เพิ่ม heartbeat: ทุก step สำเร็จ ให้ต่ออายุ lock อีก 30 นาที + auto-release ถ้า heartbeat หายเกิน 10 นาที
+### เฟส 3 — "Now Playing" Panel (ให้เห็นว่าระบบทำอะไรอยู่)
+เพิ่ม card เดียวบนสุด Command Center ที่ตอบ 4 คำถาม:
+1. **ตอนนี้กำลังทำอะไร?** → ชื่อเล่ม + step + heartbeat อายุกี่วินาที
+2. **ทำไมหยุด?** → เหตุผลเป็นภาษาคน (เช่น "generate-cover ใช้ CPU เกิน กำลัง retry ครั้งที่ 2/3")
+3. **ต่อไปจะทำอะไร?** → เล่มถัดไปในคิว + เวลาโดยประมาณ
+4. **ต้องให้ฉันช่วยอะไรไหม?** → ปุ่ม "Fix All Stuck" + "Force Next Book" + link ไปดู logs
+- Progress bar รวม: X/28 เล่มถึง Shopify draft
+- Auto-refresh ทุก 5 วินาที
 
-### 5. UI: Live "Waiting for lock" indicator
-ที่ `LiveProductionQueue` แสดง:
-- 🟢 "Working on: <title> — step X (Yh Zm)" 
-- ⏳ "13 queued — next pickup in ~Ns" (นับจาก recovery cron ครั้งถัดไป)
-- ปุ่ม "Kick queue now" เผื่อ manual ปลุก
+---
 
-## ไฟล์ที่แก้
+## รายละเอียดเทคนิค
 
-- `supabase/migrations/` — เปลี่ยน pg_cron `autopilot-recovery-worker` เป็น `* * * * *`
-- `supabase/functions/autopilot-pipeline/index.ts` — เพิ่ม post-run hook เรียก recovery-worker
-- `supabase/functions/_shared/run-tracker.ts` — เพิ่ม `releaseLockAndKickNext()` helper
-- `supabase/functions/autopilot-recovery-worker/index.ts` — เพิ่ม auto-release lock ที่ heartbeat หายเกิน 10 นาที
-- `src/components/admin/LiveProductionQueue.tsx` — เพิ่ม "next pickup in Ns" + "Kick queue now" button
+**ไฟล์ที่จะแตะ:**
+- `supabase/functions/generate-cover/index.ts` — แยก image gen ออกจาก composite step, ใส่ deadline guard
+- `supabase/functions/render-pdf/index.ts` — log sub-score ที่ fail + persist ก่อน retry
+- `supabase/functions/autopilot-recovery-worker/index.ts` — ครอบ `needs_admin_attention` ใน pickup query
+- `supabase/functions/admin-data/index.ts` — เพิ่ม `now_playing` payload (active run + reason + next in queue)
+- `src/components/admin/NowPlayingPanel.tsx` — component ใหม่
+- `src/pages/Production.tsx` หรือ Command Center — mount panel ไว้บนสุด
 
-## ผลลัพธ์ที่คาดหวัง
+**Migration (ไม่มีตารางใหม่)**: SQL อย่างเดียว — reset ebooks ที่ค้าง + ล้าง lock
 
-- เล่มถัดไปเริ่มทำภายใน **<10 วินาที** หลังเล่มก่อนจบ (แทน 5 นาที)
-- ไม่มี run ค้างเพราะ lock stuck
-- ผู้ใช้เห็น countdown ชัดเจน ไม่คิดว่าระบบตาย
-- ไม่ต้องกดปุ่มใด ๆ เพื่อกระตุ้น
+**ไม่ทำ:**
+- ไม่ลด threshold QC ใดๆ
+- ไม่แตะ schema ตารางใหม่
+- ไม่ทำ Phase 2 SEO
