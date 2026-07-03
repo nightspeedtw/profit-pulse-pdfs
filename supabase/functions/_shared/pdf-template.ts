@@ -523,13 +523,18 @@ export function buildPdfHtml(data: PdfData): string {
 
   /* ---------- Markdown tables (from raw | col | col |) ---------- */
   .md-table { width: 100%; border-collapse: collapse; margin: 12pt 0 16pt;
-    font-family: "Inter", sans-serif; font-size: 9.5pt; page-break-inside: avoid; break-inside: avoid;
+    font-family: "Inter", sans-serif; font-size: 9.5pt;
+    /* Long tables may break across pages; the header row is repeated. */
+    page-break-inside: auto; break-inside: auto;
     table-layout: fixed; }
+  .md-table thead { display: table-header-group; }
+  .md-table tbody tr { page-break-inside: avoid; break-inside: avoid; }
   .md-table thead th { background: var(--bg-callout); color: var(--ink);
     text-align: left; padding: 6pt 8pt; border-bottom: 1pt solid var(--accent);
-    font-weight: 700; word-wrap: break-word; overflow-wrap: anywhere; }
+    font-weight: 700; word-wrap: break-word; overflow-wrap: anywhere; hyphens: auto; }
   .md-table tbody td { padding: 6pt 8pt; border-bottom: 0.5pt solid var(--rule);
-    vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; hyphens: auto; }
+    vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; hyphens: auto;
+    line-height: 1.42; }
   .md-table tbody tr:nth-child(even) td { background: #faf7ef; }
 
   /* ---------- Title page ---------- */
