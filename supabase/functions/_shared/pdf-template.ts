@@ -578,26 +578,36 @@ export function buildPdfHtml(data: PdfData): string {
     margin-top: 14pt; max-width: 4.6in; }
 
   /* ---------- Chapter body ---------- */
+  .chapter-body { padding-top: 0.55in; }
   .chapter-body__eyebrow { font-family: "Inter", sans-serif; font-size: 9pt;
     letter-spacing: 0.32em; text-transform: uppercase; color: var(--accent);
-    margin: 0 0 8pt; }
+    margin: 0 0 10pt; text-align: left; }
   .chapter-body__title { font-family: "Inter", sans-serif; font-weight: 800;
-    font-size: 20pt; margin: 0 0 20pt; line-height: 1.18; letter-spacing: -0.012em;
-    border-bottom: 1pt solid var(--rule); padding-bottom: 14pt; }
+    font-size: 22pt; margin: 0 0 26pt; line-height: 1.18; letter-spacing: -0.012em;
+    text-align: left; max-width: 5.2in; hyphens: manual;
+    /* Keep heading with the first paragraph — never orphan a title */
+    page-break-after: avoid; break-after: avoid; }
   .chapter-body__prose { text-align: justify; text-justify: inter-word;
     hyphens: auto; -webkit-hyphens: auto; hyphenate-limit-chars: 6 3 3;
+    line-height: 1.6; max-width: 5.4in;
     orphans: 3; widows: 3; }
-  .chapter-body__prose h2 { font-size: 14pt; margin: 18pt 0 6pt; text-align: left; hyphens: manual; }
-  .chapter-body__prose h3 { font-size: 12pt; margin: 14pt 0 4pt; text-align: left; hyphens: manual; }
-  .chapter-body__prose h4 { font-size: 10.5pt; margin: 10pt 0 4pt; text-align: left;
+  .chapter-body__prose p { margin: 0 0 10pt; }
+  .chapter-body__prose p + p { text-indent: 0; }
+  .chapter-body__prose h2 { font-size: 14pt; margin: 22pt 0 8pt; text-align: left; hyphens: manual;
+    page-break-after: avoid; break-after: avoid; }
+  .chapter-body__prose h3 { font-size: 12pt; margin: 16pt 0 6pt; text-align: left; hyphens: manual;
+    page-break-after: avoid; break-after: avoid; }
+  .chapter-body__prose h4 { font-size: 10.5pt; margin: 12pt 0 4pt; text-align: left;
     text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); hyphens: manual; }
   /* Drop cap on the first paragraph of every chapter body */
   .chapter-body__prose > p:first-of-type::first-letter {
     font-family: "Inter", sans-serif; font-weight: 800;
-    float: left; font-size: 40pt; line-height: 0.88; padding: 4pt 6pt 0 0;
+    float: left; font-size: 42pt; line-height: 0.88; padding: 4pt 8pt 0 0;
     color: var(--accent); }
   /* Never leave dangling headings or short lists at the bottom of a page */
-  .chapter-body__prose ul, .chapter-body__prose ol { text-align: left; hyphens: manual; }
+  .chapter-body__prose ul, .chapter-body__prose ol { text-align: left; hyphens: manual;
+    max-width: 5.4in; }
+
 
   /* ---------- Callouts ---------- */
   .callout { background: var(--bg-callout); border-left: 3pt solid var(--accent);
