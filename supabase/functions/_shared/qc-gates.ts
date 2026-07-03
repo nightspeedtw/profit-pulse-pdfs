@@ -62,7 +62,32 @@ export const COVER_THUMB_FIELD_TARGETS: Record<string, number> = {
   premium_feel: 90,
 };
 
-export const GATE_CONTRACTS: Record<"reader" | "cover_thumb", GateContract> = {
+export const GATE_CONTRACTS: Record<GateName, GateContract> = {
+  formatter: {
+    gate: "formatter",
+    target: 90,
+    required_fields: [
+      "formatting_score or formatter_score",
+      "typography",
+      "reading_comfort",
+      "table_render",
+      "worksheet_layout",
+      "premium_layout",
+      "raw_markdown",
+    ],
+    source_paths: [
+      "ebooks.pdf_qc.formatting_score | formatter_score",
+      "ebooks.pdf_qc.typography_score | typography",
+      "ebooks.pdf_qc.reading_comfort_score | reading_comfort",
+      "ebooks.pdf_qc.table_render_score | table_render",
+      "ebooks.pdf_qc.worksheet_layout_score | worksheet_layout",
+      "ebooks.pdf_qc.premium_layout_score | premium_layout",
+      "ebooks.pdf_qc.raw_markdown_score | no_raw_markdown_score",
+    ],
+    producer_function: "render-pdf",
+    persist_target: "ebooks.pdf_qc, ebooks.pdf_score",
+    pass_rule: "canonical formatter score >= 90; typography/reading_comfort/table_render/worksheet_layout/premium_layout >= 90; raw_markdown == 100",
+  },
   reader: {
     gate: "reader",
     target: 90,
@@ -89,6 +114,18 @@ export const GATE_CONTRACTS: Record<"reader" | "cover_thumb", GateContract> = {
     producer_function: "reader-experience-qc",
     persist_target: "ebooks.reader_experience_qc, ebooks.reader_experience_score, ebooks.reader_experience_status",
     pass_rule: "overall_score >= 90; natural_language/human_feel/sellability/clarity/variety/no_ai_patterns/no_repetition/voice_consistency >= 90; emotional_resonance/page_turning/trust >= 85; status passable",
+  },
+  cover_pdf: {
+    gate: "cover_pdf",
+    target: 100,
+    required_fields: ["full_a4"],
+    source_paths: [
+      "ebooks.pdf_qc.pdf_cover_full_a4_score | cover_full_a4_score | cover_full_bleed_score",
+      "ebooks.cover_qc.pdf_cover_full_a4_score | cover_full_a4_score | cover_full_bleed_score (legacy mirror)",
+    ],
+    producer_function: "render-pdf",
+    persist_target: "ebooks.pdf_qc, legacy mirror ebooks.cover_qc",
+    pass_rule: "full_a4 score must equal 100 exactly",
   },
   cover_thumb: {
     gate: "cover_thumb",
