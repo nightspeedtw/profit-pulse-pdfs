@@ -18,14 +18,18 @@ function admin() {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    const { ebook_id, action } = (await req.json()) as {
+    const { ebook_id, action, gate } = (await req.json()) as {
       ebook_id?: string;
       action?:
         | "retry"
         | "reset"
         | "mark_approved"
         | "reject"
-        | "rebuild_pdf";
+        | "rebuild_pdf"
+        | "autofix_gate";
+      // Targeted gate for autofix_gate: which premium-ebook-master QC
+      // is currently blocking Shopify readiness.
+      gate?: "reader" | "cover_pdf" | "cover_thumb" | "formatter" | "any";
     };
     if (!ebook_id || !action) {
       return new Response(JSON.stringify({ error: "ebook_id and action required" }), {
@@ -35,32 +39,64 @@ Deno.serve(async (req) => {
     }
     const db = admin();
 
-    if (action === "reset" || action === "retry") {
+    if (action === "reset" || action === "retry" || action === "autofix_gate") {
       // Clear QC blockers AND re-arm pipeline stages so retry actually
       // re-runs diagnose + targeted repair (not just clears flags).
       const { data: cur } = await db.from("ebooks")
-        .select("manuscript_qc_status, pdf_status, autopilot_state")
+        .select("manuscript_qc_status, pdf_status, autopilot_state, reader_qc_status, cover_status, auto_fix_attempt_count")
         .eq("id", ebook_id).single();
 
       const patch: Record<string, unknown> = {
-        qc_status: "qc_pending",
+        qc_status: "auto_fixing",
         failed_gate: null,
         failed_component: null,
         failed_score: null,
         required_score: null,
-        auto_fix_attempt_count: 0,
         admin_review_reason: null,
         next_recommended_action: null,
         blocked_at: null,
         autopilot_state: "running",
         needs_review_reason: null,
+        last_auto_fix_action: action === "autofix_gate" ? `autofix:${gate ?? "any"}` : action,
       };
-      // If manuscript QC is the blocker, force the pipeline to re-run it.
-      if (cur?.manuscript_qc_status === "needs_review") {
+      if (action !== "autofix_gate") {
+        patch.auto_fix_attempt_count = 0;
+      } else {
+        patch.auto_fix_attempt_count = (cur?.auto_fix_attempt_count ?? 0) + 1;
+      }
+
+      // Targeted gate resets — re-arm ONLY the failing stage so the
+      // pipeline picks up from the right place instead of restarting.
+      const g = gate ?? "any";
+      if (g === "reader" || g === "any") {
+        patch.reader_qc_status = "pending";
+        patch.reader_qc_attempts = 0;
+      }
+      if (g === "cover_pdf" || g === "cover_thumb" || g === "any") {
+        patch.cover_status = "pending";
+        patch.cover_qc_status = "pending";
+      }
+      if (g === "formatter" || g === "any") {
+        patch.pdf_status = "idle";
+        patch.pdf_qc_status = "pending";
+      }
+      if (action !== "autofix_gate" && cur?.manuscript_qc_status === "needs_review") {
         patch.manuscript_qc_status = "pending";
         patch.manuscript_fix_count = 0;
       }
       await db.from("ebooks").update(patch).eq("id", ebook_id);
+
+      // Log to auto_fix_history for visibility.
+      const { data: hcur } = await db.from("ebooks").select("auto_fix_history").eq("id", ebook_id).single();
+      const history = Array.isArray(hcur?.auto_fix_history) ? hcur!.auto_fix_history : [];
+      history.push({
+        attempt: history.length + 1,
+        gate: g,
+        action: action === "autofix_gate" ? `targeted_${g}` : action,
+        result: "kicked",
+        at: new Date().toISOString(),
+      });
+      await db.from("ebooks").update({ auto_fix_history: history }).eq("id", ebook_id);
 
       // Kick the pipeline so the retry actually does work.
       const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/autopilot-pipeline`;
@@ -70,10 +106,10 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
-        body: JSON.stringify({ ebook_id, mode: "full" }),
+        body: JSON.stringify({ ebook_id, mode: "full", resume_gate: g }),
       });
       const body = await r.json().catch(() => ({}));
-      return new Response(JSON.stringify({ ok: r.ok, resumed: body }), {
+      return new Response(JSON.stringify({ ok: r.ok, resumed: body, gate: g }), {
         status: r.ok ? 200 : 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
