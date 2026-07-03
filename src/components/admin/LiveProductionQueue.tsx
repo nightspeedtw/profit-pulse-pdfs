@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Activity, Clock, Loader2, PauseCircle, Wrench, AlertTriangle, ShieldCheck, Lock, Copy, CheckCircle2, Download, ExternalLink, ShoppingBag } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Activity, Clock, Loader2, PauseCircle, Wrench, AlertTriangle, ShieldCheck, Lock, Copy, CheckCircle2, Download, ExternalLink, ShoppingBag, FileText, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
