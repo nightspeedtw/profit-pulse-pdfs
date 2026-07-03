@@ -336,7 +336,7 @@ Deno.serve(async (req) => {
         auto_fixing: coalesce(autofix.data),
         needs_admin: coalesce(needsAdmin.data),
         needs_code_fix: coalesce(needsCode.data),
-        ready_to_publish: coalesce(ready.data),
+        ready_to_publish: coalesce((ready.data ?? []).filter((r: any) => r.shopify_status !== "published")),
         system_fixes: fixes ?? [],
         heavy_production_lock: lock ?? null,
         fetched_at: new Date().toISOString(),
