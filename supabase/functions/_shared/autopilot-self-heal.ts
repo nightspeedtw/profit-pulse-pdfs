@@ -167,7 +167,7 @@ export async function markGateNeedsCodeFix(db: any, ebook: Record<string, unknow
   await db.from("ebooks").update({
     autopilot_state: "needs_code_fix",
     canonical_status: "needs_code_fix",
-    qc_status: "needs_code_fix",
+    qc_status: "auto_fix_failed",
     blocker_class: "qc_gate_stuck",
     blocker_reason: `autofix_stuck_${gate}`,
     waiting_reason: `Auto-fix ${gate} failed after ${attempts} attempts — Lovable code-fix prompt generated.`,
