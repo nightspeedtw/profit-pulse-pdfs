@@ -725,17 +725,18 @@ async function humanizeExcerpts(
   let touched = 0;
   let replacements = 0;
   let aiCalls = 0;
+  const MAX_AI_CALLS = 8;
   const model = pickModel("premium", "content");
 
   for (const [chIdx, flags] of byChapter) {
-    if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS || aiCalls >= 4) break;
+    if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS || aiCalls >= MAX_AI_CALLS) break;
     const row = chapters.find((c) => c.chapter_index === chIdx);
     if (!row) continue;
     let content = row.content;
     let changedThisChapter = false;
 
-    for (const f of flags.slice(0, 2)) {
-      if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS || aiCalls >= 4) break;
+    for (const f of flags.slice(0, 3)) {
+      if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS || aiCalls >= MAX_AI_CALLS) break;
       // Find the excerpt in the chapter (allow whitespace tolerance).
       const pattern = new RegExp(escapeRegex(f.excerpt.trim()).replace(/\s+/g, "\\s+"), "i");
       const match = content.match(pattern);
