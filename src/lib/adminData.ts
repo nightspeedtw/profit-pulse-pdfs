@@ -13,12 +13,16 @@ function passcode(): string {
   return localStorage.getItem(PASSCODE_KEY) === "1" ? CLIENT_PASSCODE : "";
 }
 
-export async function fetchAdminData<T = unknown>(resource: string): Promise<T> {
+export async function fetchAdminData<T = unknown>(
+  resource: string,
+  extra: Record<string, unknown> = {},
+): Promise<T> {
   const { data, error } = await supabase.functions.invoke("admin-data", {
-    body: { resource, passcode: passcode() },
+    body: { resource, passcode: passcode(), ...extra },
     headers: { "x-admin-passcode": passcode() },
   });
   if (error) throw error;
   if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
   return data as T;
 }
+
