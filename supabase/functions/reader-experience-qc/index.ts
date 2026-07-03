@@ -449,7 +449,7 @@ async function humanizeExcerpts(
     for (const f of flags.slice(0, 1)) {
       if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS || aiCalls >= 2) break;
       // Find the excerpt in the chapter (allow whitespace tolerance).
-      const pattern = new RegExp(escapeRegex(f.excerpt.trim()).replace(/\\\s+/g, "\\s+"), "i");
+      const pattern = new RegExp(escapeRegex(f.excerpt.trim()).replace(/\s+/g, "\\s+"), "i");
       const match = content.match(pattern);
       const original = match?.[0] ?? fallbackRepairSpan(content);
       if (!original || original.trim().length < 40) continue;
