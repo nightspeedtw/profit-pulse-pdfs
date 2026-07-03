@@ -284,14 +284,22 @@ Deno.serve(async (req) => {
         supabase.from("ebooks").select(cols).or(eqEither("needs_code_fix"))
           .order("updated_at", { ascending: false }).limit(20),
         // Ready to Publish — 100% complete, PDF ready, not yet pushed to Shopify.
-        // NOTE: chaining `.or().or()` in PostgREST produces two `or=` query
-        // params that don't compose the way supabase-js implies (result was
-        // always empty). Fetch by state only and filter out published rows
-        // in JS below.
-        supabase.from("ebooks")
-          .select(cols + ",final_quality_score,word_count")
-          .or("canonical_status.in.(ready_to_publish,completed),autopilot_state.in.(done,ready_to_publish)")
-          .order("updated_at", { ascending: false }).limit(20),
+        // NOTE: `.or("...in.(a,b)...")` in supabase-js/PostgREST parses the
+        // inner comma as an OR separator and silently returns []. Use two
+        // simple `.in()` queries and merge in JS.
+        Promise.all([
+          supabase.from("ebooks").select(cols + ",final_quality_score,word_count")
+            .in("canonical_status", ["ready_to_publish", "completed"])
+            .order("updated_at", { ascending: false }).limit(20),
+          supabase.from("ebooks").select(cols + ",final_quality_score,word_count")
+            .in("autopilot_state", ["done", "ready_to_publish"])
+            .order("updated_at", { ascending: false }).limit(20),
+        ]).then(([a, b]) => {
+          const byId = new Map<string, any>();
+          for (const row of [...(a.data ?? []), ...(b.data ?? [])]) byId.set(row.id, row);
+          return { data: Array.from(byId.values()), error: a.error ?? b.error };
+        }),
+
 
       ]);
 
