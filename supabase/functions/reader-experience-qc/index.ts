@@ -532,7 +532,7 @@ Deno.serve(async (req) => {
     let deferred = false;
     const deadlineMs = Date.now() + 115_000;
 
-    while (attempts < MAX_ATTEMPTS) {
+    while ((attemptsStart + attempts) < MAX_ATTEMPTS) {
       if (Date.now() > deadlineMs - 12_000) { deferred = true; break; }
       attempts++;
       const fullText = chapters.map((c) => c.content).join("\n\n");
@@ -557,7 +557,7 @@ Deno.serve(async (req) => {
       });
 
       if (gate.passed) { passed = true; break; }
-      if (attempts >= MAX_ATTEMPTS) break;
+      if ((attemptsStart + attempts) >= MAX_ATTEMPTS) break;
 
       // Repair pass — surgical humanize of flagged excerpts.
       const priorities = [
@@ -578,7 +578,7 @@ Deno.serve(async (req) => {
     const report = {
       version: 1,
       passed,
-      attempts_used: attempts,
+      attempts_used: attemptsStart + attempts,
       pass_targets: PASS,
       verdict,
       history,
