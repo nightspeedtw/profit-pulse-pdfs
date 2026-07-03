@@ -371,12 +371,12 @@ function buildRepairFeedback(reasons: string[], improvements: string[]): string 
 // This is what Shopify product cards will show — must feel like a real book, not
 // a flat A4 screenshot. The flat cover itself is preserved SEPARATELY at
 // `${ebook_id}/cover.png` — this mockup path is `${ebook_id}/thumbnail.png` only.
-async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array, coverPngReuse?: Uint8Array): Promise<{ bytes: Uint8Array; assetType: ThumbnailAssetType }> {
+async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array, coverPngReuse: Uint8Array | undefined, ref: StyleRef): Promise<{ bytes: Uint8Array; assetType: ThumbnailAssetType }> {
   const coverPng = coverPngReuse ?? await rasterizeSVG(buildCoverSVG(spec, bgBytes), 1200);
 
   // 1) Try photoreal AI mockup (gemini image model, cover as reference).
   try {
-    const ai = await renderPhotorealThumbnail(coverPng, spec);
+    const ai = await renderPhotorealThumbnail(coverPng, spec, ref);
     if (ai && ai.length > 4096) return { bytes: ai, assetType: "photoreal_mockup" };
   } catch (e) {
     console.warn("photoreal thumbnail failed, using flat-cover fallback:", (e as Error).message);
