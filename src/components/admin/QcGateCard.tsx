@@ -169,8 +169,41 @@ export function QcGateCard({
         </div>
       )}
       {!ready && blockingLabels && (
-        <div className="text-[11px] text-destructive/90 pt-0.5 border-t">
-          ติดที่: {blockingLabels}
+        <div className="pt-1 border-t space-y-1.5">
+          <div className="text-[11px] text-destructive/90">
+            ติดที่: {blockingLabels}
+          </div>
+          {ebookId && (
+            <div className="flex flex-wrap gap-1.5">
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-6 px-2 text-[10px] gap-1"
+                disabled={!!fixing}
+                onClick={() => autoFix("any")}
+              >
+                {fixing === "any" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+                Auto Fix ทันที
+              </Button>
+              {qc.blocking_gates.map((g) => {
+                const key = g as "reader" | "cover_pdf" | "cover_thumb" | "formatter";
+                const label = GATE_LABEL[g]?.en ?? g;
+                return (
+                  <Button
+                    key={g}
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-[10px] gap-1"
+                    disabled={!!fixing}
+                    onClick={() => autoFix(key)}
+                  >
+                    {fixing === key ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+                    Fix {label}
+                  </Button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
       {reRender && reRender.count > 0 && (
