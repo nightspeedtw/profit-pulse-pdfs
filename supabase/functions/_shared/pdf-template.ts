@@ -118,11 +118,34 @@ function renderMd(md: string): string {
   return out.join("\n");
 }
 
+function stripInlineMd(s: string): string {
+  return (s ?? "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/(^|[^*])\*([^*]+)\*/g, "$1$2")
+    .replace(/`([^`]+)`/g, "$1")
+    .trim();
+}
+
+// Remove a leading H1/H2 whose text duplicates the chapter title, so the PDF
+// doesn't render "Chapter 2. Focus" AND then a second "# Focus" H2 right below.
+function stripDuplicateLeadingHeading(md: string, chapterTitle: string): string {
+  const src = (md ?? "").replace(/\r\n/g, "\n").replace(/^\s+/, "");
+  const m = src.match(/^(#{1,3})\s+([^\n]+)\n+/);
+  if (!m) return src;
+  const heading = stripInlineMd(m[2]);
+  const title = stripInlineMd(chapterTitle ?? "");
+  const norm = (s: string) => s.toLowerCase().replace(/^chapter\s*\d+[:.\-\s]*/i, "").replace(/[^a-z0-9]/g, "");
+  if (norm(heading) && norm(title) && (norm(heading) === norm(title) || norm(heading).includes(norm(title)) || norm(title).includes(norm(heading)))) {
+    return src.slice(m[0].length);
+  }
+  return src;
+}
+
 function chapterCallouts(c: PdfChapter): string {
   if (!c.callouts?.length) return "";
   return c.callouts.map((co) => `
     <aside class="callout callout--${esc(co.kind ?? "tip")}">
-      ${co.title ? `<div class="callout__title">${esc(co.title)}</div>` : ""}
+      ${co.title ? `<div class="callout__title">${esc(stripInlineMd(co.title))}</div>` : ""}
       <div class="callout__body">${renderMd(co.body)}</div>
     </aside>`).join("\n");
 }
@@ -295,7 +318,7 @@ export function buildPdfHtml(data: PdfData): string {
   const brand = data.brand ?? "SECRET PDF";
 
   const tocItems = data.chapters.map((c) =>
-    `<li class="toc__row"><span class="toc__title">Chapter ${c.index}. ${esc(c.title)}</span><span class="toc__dots"></span><span class="toc__page">—</span></li>`,
+    `<li class="toc__row"><span class="toc__title">Chapter ${c.index}. ${esc(stripInlineMd(c.title))}</span><span class="toc__dots"></span><span class="toc__page">—</span></li>`,
   ).join("");
 
   const chapterPages = data.chapters.map((c) => `
@@ -308,9 +331,9 @@ export function buildPdfHtml(data: PdfData): string {
     </section>
     <section class="page chapter-body" id="chapter-${c.index}">
       <header class="page__head"><span>${esc(brand)}</span><span>${esc(data.title)}</span></header>
-      <h2 class="chapter-body__title">Chapter ${c.index}. ${esc(c.title)}</h2>
+      <h2 class="chapter-body__title">Chapter ${c.index}. ${esc(stripInlineMd(c.title))}</h2>
       <div class="chapter-body__prose">
-        ${renderMd(c.content)}
+        ${renderMd(stripDuplicateLeadingHeading(c.content, c.title))}
       </div>
       ${chapterCallouts(c)}
       ${chapterIllustration(c)}
@@ -503,7 +526,9 @@ export function buildPdfHtml(data: PdfData): string {
 
   /* ---------- Callouts ---------- */
   .callout { background: var(--bg-callout); border-left: 3pt solid var(--accent);
-    padding: 10pt 14pt; margin: 12pt 0; page-break-inside: avoid; break-inside: avoid; }
+    padding: 10pt 14pt; margin: 12pt 0;
+    /* Allow long callouts to break across pages so text is never cut off. */
+    page-break-inside: auto; break-inside: auto; overflow: visible; }
   .callout__title { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.22em;
     color: var(--accent); margin-bottom: 4pt; }
   .callout--warning { border-color: #b54a3a; background: #fbecea; }

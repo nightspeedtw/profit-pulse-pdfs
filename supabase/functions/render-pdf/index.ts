@@ -195,18 +195,17 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         html,
         options: {
-          format: "Letter",
-          width: "6in",
-          height: "9in",
+          // IMPORTANT: do NOT set `format`, `width`, or `height` here.
+          // The cover uses `@page cover-a4 { size: A4 }` and the interior uses
+          // `@page { size: 6in 9in }`. `preferCSSPageSize: true` lets each page
+          // honour its own CSS size — passing an API format/width/height would
+          // override CSS and force every page (including the cover) to a single
+          // fixed size, breaking full-bleed A4 covers.
           printBackground: true,
           preferCSSPageSize: true,
           displayHeaderFooter: true,
           headerTemplate: headerTpl,
           footerTemplate: footerTpl,
-          // Zero API-level margin so CSS `@page` rules control per-page margins.
-          // `@page cover { margin: 0 }` needs this to actually produce a full-bleed
-          // cover — otherwise Chromium overrides CSS with these API margins and the
-          // cover renders as an image inside a bordered page.
           margin: { top: "0", bottom: "0", left: "0", right: "0" },
         },
         gotoOptions: { waitUntil: "networkidle0", timeout: 60000 },
