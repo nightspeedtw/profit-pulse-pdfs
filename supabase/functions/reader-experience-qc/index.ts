@@ -436,24 +436,26 @@ async function humanizeExcerpts(
 
   let touched = 0;
   let replacements = 0;
+  let aiCalls = 0;
   const model = pickModel("premium", "content");
 
   for (const [chIdx, flags] of byChapter) {
-    if (Date.now() > deadlineMs) break;
+    if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS || aiCalls >= 2) break;
     const row = chapters.find((c) => c.chapter_index === chIdx);
     if (!row) continue;
     let content = row.content;
     let changedThisChapter = false;
 
-    for (const f of flags.slice(0, 2)) {
-      if (Date.now() > deadlineMs) break;
+    for (const f of flags.slice(0, 1)) {
+      if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS || aiCalls >= 2) break;
       // Find the excerpt in the chapter (allow whitespace tolerance).
       const pattern = new RegExp(escapeRegex(f.excerpt.trim()).replace(/\\\s+/g, "\\s+"), "i");
       const match = content.match(pattern);
-      if (!match) continue;
-      const original = match[0];
+      const original = match?.[0] ?? fallbackRepairSpan(content);
+      if (!original || original.trim().length < 40) continue;
 
       try {
+        aiCalls++;
         const rewrite = await aiText({
           model,
           system: HUMANIZE_SYSTEM,
@@ -467,8 +469,8 @@ ${original}
 """
 
 Return only the rewritten passage.`,
-          maxTokens: 700,
-          timeoutMs: 35_000,
+          maxTokens: 450,
+          timeoutMs: 18_000,
         });
         const cleaned = (rewrite.data ?? "").trim().replace(/^["']|["']$/g, "");
         if (cleaned && cleaned.length >= original.length * 0.5) {
