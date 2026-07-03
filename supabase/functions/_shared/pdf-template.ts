@@ -446,20 +446,26 @@ export function buildPdfHtml(data: PdfData): string {
   * { box-sizing: border-box; }
   html, body { padding: 0; margin: 0; color: var(--ink);
     font-family: "Source Serif Pro", "Source Serif 4", Georgia, "Times New Roman", serif;
-    font-size: 11pt; line-height: 1.55; }
+    font-size: 11pt; line-height: 1.58;
+    /* Premium book-print rendering */
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "kern" 1, "liga" 1, "onum" 1;
+    -webkit-font-smoothing: antialiased; }
   h1, h2, h3, h4, .display, .eyebrow, header.page__head, .toc__title, .toc__page,
   .callout__title, .block__heading, .framework__n, .checklist__list, .worksheet__prompt,
   .action-plan__day header {
     font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
     letter-spacing: -0.005em;
   }
-  p { orphans: 3; widows: 3; margin: 0 0 0.65em; }
-  ul, ol { margin: 0 0 0.85em 1.25em; padding: 0; }
-  li { margin: 0 0 0.3em; }
+  p { orphans: 3; widows: 3; margin: 0 0 0.7em; }
+  ul, ol { margin: 0 0 0.9em 1.25em; padding: 0; }
+  li { margin: 0 0 0.32em; }
   code { font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace; font-size: 0.92em;
     background: #f2efe7; padding: 1px 4px; border-radius: 3px; }
   a { color: var(--ink); text-decoration: none; }
-  h2, h3, h4 { break-after: avoid; }
+  h2, h3, h4 { break-after: avoid; page-break-after: avoid; }
+  /* Never split a heading from the paragraph that follows. */
+  h2 + p, h3 + p, h4 + p { break-before: avoid; page-break-before: avoid; }
 
   /* ---------- Generic page ---------- */
   .page { page-break-after: always; break-after: page; }
