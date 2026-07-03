@@ -11,9 +11,6 @@ const Category = () => {
     document.title = `${cat?.label ?? "Category"} — Printly`;
   }, [cat]);
 
-  // Filter via Shopify product type or tag matching the slug
-  const query = `tag:${slug} OR product_type:${slug}`;
-
   return (
     <>
       <section className="border-b-2 border-foreground bg-secondary">
@@ -26,7 +23,7 @@ const Category = () => {
       </section>
       <section className="container py-12">
         <ProductGrid
-          query={query}
+          category={slug}
           limit={48}
           emptyTitle="Nothing in this category yet"
           emptyMessage="Tell us what to add — the chat is open."
@@ -34,6 +31,7 @@ const Category = () => {
       </section>
     </>
   );
+
 };
 
 export default Category;
