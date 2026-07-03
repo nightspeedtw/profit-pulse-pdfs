@@ -464,8 +464,8 @@ export function buildPdfHtml(data: PdfData): string {
       <div class="action-plan__grid">
         ${data.action_plan.map((d) => `
           <article class="action-plan__day">
-            <header>${esc(d.day)}</header>
-            <ul>${d.tasks.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
+            <header>${cleanLabel(d.day)}</header>
+            <ul>${d.tasks.map((t) => `<li>${cleanLabel(t)}</li>`).join("")}</ul>
           </article>`).join("")}
       </div>
     </section>` : "";
@@ -481,7 +481,7 @@ export function buildPdfHtml(data: PdfData): string {
     ${data.bonus_section.map((b) => `
       <section class="page bonus-body">
         <header class="page__head"><span>${esc(brand)}</span><span>Bonus</span></header>
-        <h2 class="chapter-body__title">${esc(b.title)}</h2>
+        <h2 class="chapter-body__title">${cleanLabel(b.title)}</h2>
         <div class="chapter-body__prose">${renderMd(b.body)}</div>
       </section>`).join("")}` : "";
 
