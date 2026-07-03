@@ -33,17 +33,17 @@ export function classifyEbook(title: string, subtitle?: string | null): EbookCat
 // Kinds allowed per category. If a chapter tries to use a kind not in this list,
 // we fall back to `prompts` with category-appropriate default prompts.
 const ALLOWED: Record<EbookCategory, string[]> = {
-  finance_debt: ["debt_tracker", "velocity_calculator", "negotiation_script", "automation_flow", "resilience_scorecard", "operating_manual", "sprint_timeline", "prompts"],
-  finance_cashflow: ["velocity_calculator", "automation_flow", "resilience_scorecard", "operating_manual", "sprint_timeline", "prompts"],
-  productivity: ["prompts", "sprint_timeline", "automation_flow", "operating_manual", "resilience_scorecard"],
-  energy_health: ["prompts", "resilience_scorecard", "operating_manual", "automation_flow"],
-  wellness: ["prompts", "resilience_scorecard", "operating_manual"],
-  relationship: ["prompts", "resilience_scorecard"],
-  career: ["prompts", "resilience_scorecard", "negotiation_script"],
-  business: ["prompts", "operating_manual", "automation_flow", "sprint_timeline"],
-  marketing: ["prompts", "operating_manual", "sprint_timeline"],
-  ai_automation: ["prompts", "automation_flow", "operating_manual"],
-  other: ["prompts", "resilience_scorecard", "operating_manual"],
+  finance_debt:      ["debt_tracker", "velocity_calculator", "negotiation_script", "automation_flow", "resilience_scorecard", "operating_manual", "sprint_timeline", "cashflow_surplus", "fortress_audit", "lifestyle_leak", "safety_net", "fixed_cost_scan", "prompts"],
+  finance_cashflow:  ["cashflow_surplus", "fortress_audit", "lifestyle_leak", "safety_net", "fixed_cost_scan", "velocity_calculator", "automation_flow", "resilience_scorecard", "operating_manual", "sprint_timeline", "prompts"],
+  productivity:      ["focus_audit", "interruption_log", "deep_work_planner", "calendar_boundary", "meeting_elimination", "sprint_timeline", "automation_flow", "operating_manual", "resilience_scorecard", "prompts"],
+  energy_health:     ["energy_audit", "caffeine_log", "sleep_anchor", "crash_diagnostic", "evening_recovery", "resilience_scorecard", "operating_manual", "automation_flow", "prompts"],
+  wellness:          ["energy_audit", "sleep_anchor", "evening_recovery", "resilience_scorecard", "operating_manual", "prompts"],
+  relationship:      ["prompts", "resilience_scorecard"],
+  career:            ["prompts", "resilience_scorecard", "negotiation_script"],
+  business:          ["prompts", "operating_manual", "automation_flow", "sprint_timeline"],
+  marketing:         ["prompts", "operating_manual", "sprint_timeline"],
+  ai_automation:     ["prompts", "automation_flow", "operating_manual"],
+  other:             ["prompts", "resilience_scorecard", "operating_manual"],
 };
 
 export function isKindAllowed(category: EbookCategory, kind: string): boolean {
