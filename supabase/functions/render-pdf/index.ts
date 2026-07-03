@@ -806,3 +806,54 @@ async function generateAndStoreIllustration(
   const { data: signed } = await db.storage.from("ebook-covers").createSignedUrl(path, 60 * 60 * 24 * 30);
   return signed?.signedUrl ?? null;
 }
+
+// ---------- Diagram fallback registry ----------
+// Every chapter should carry at least a lightweight framework diagram so the
+// PDF has a visual anchor between prose blocks (Fix #1: inject visuals from
+// registry when the writer/outline didn't emit one). Category-aware, keyword-
+// aware; falls back to a generic 4-step transformation model.
+function defaultDiagramFor(
+  chapterTitle: string,
+  chapterIndex: number,
+  category: EbookCategory,
+): { title: string; steps: string[] } {
+  const t = (chapterTitle ?? "").toLowerCase();
+  const key = `${category}::${t}`;
+
+  const REGISTRY: [RegExp, { title: string; steps: string[] }][] = [
+    // Finance / debt
+    [/\bdebt|balance|creditor|forensic\b/, { title: "Debt Forensic Loop", steps: ["List", "Prioritize", "Attack", "Track"] }],
+    [/\bnegotiat|hardship|arbitrage\b/,   { title: "Negotiation Ladder", steps: ["Open", "Anchor", "Handle Pushback", "Close"] }],
+    [/\bvelocity|payoff|snowball|avalanche|stacking\b/, { title: "Payoff Velocity Method", steps: ["Baseline", "Extra Payment", "Roll Forward", "Compound"] }],
+    // Cashflow / fortress
+    [/\bcash\s*flow|surplus|budget|income\b/, { title: "Surplus Engine", steps: ["Income In", "Fixed Out", "Variable Out", "Surplus"] }],
+    [/\bfortress|baseline|pillar|foundation\b/, { title: "Fortress Pillars", steps: ["Buffer", "Insurance", "Income Streams", "Automation"] }],
+    [/\bleak|lifestyle|expense|spending\b/, { title: "Leak Detection Loop", steps: ["Scan", "Rank", "Cut", "Redirect"] }],
+    [/\bsafety\s*net|buffer|emergency\b/, { title: "Safety Net Layers", steps: ["Starter Buffer", "1 Month", "3 Months", "6 Months"] }],
+    [/\bfixed\s*cost|fragility|contract|subscription\b/, { title: "Fragility Scan", steps: ["Inventory", "Score 1-5", "Renegotiate", "Replace"] }],
+    // Productivity
+    [/\bfocus|deep\s*work|attention\b/, { title: "Deep Work Cycle", steps: ["Prime", "Block", "Recover", "Review"] }],
+    [/\binterrupt|notif|distract\b/,     { title: "Interruption Firewall", steps: ["Detect", "Batch", "Silence", "Reclaim"] }],
+    [/\bcalendar|boundary|schedul\b/,    { title: "Calendar Boundary Loop", steps: ["Audit", "Cut", "Protect", "Communicate"] }],
+    [/\bmeeting|async|standup\b/,        { title: "Meeting Elimination", steps: ["List", "Question", "Async", "Kill"] }],
+    // Energy / health
+    [/\benergy|audit|72[-\s]?hour\b/,    { title: "Energy Audit Loop", steps: ["Log", "Pattern", "Trigger", "Fix"] }],
+    [/\bcaffeine|coffee|stimulant\b/,    { title: "Caffeine Half-Life", steps: ["Intake", "Peak", "Decay", "Cutoff"] }],
+    [/\bsleep|circadian|bedtime\b/,      { title: "Sleep Anchor System", steps: ["Wake", "Light", "Cutoff", "Wind-down"] }],
+    // Cross-cutting
+    [/\bautomat|system|guardrail|defense\b/, { title: "Automation Loop", steps: ["Trigger", "Rule", "Action", "Confirmation"] }],
+    [/\bsprint|72[-\s]?hour|day\s?1\b/,  { title: "72-Hour Sprint", steps: ["Hour 0-4", "Hour 4-24", "Hour 24-48", "Hour 48-72"] }],
+    [/\bhabit|resilien|mindset|milestone\b/, { title: "Resilience Loop", steps: ["Trigger", "Response", "Reflection", "Reinforcement"] }],
+    [/\boperating|manual|permanent|long[-\s]?term\b/, { title: "Operating System", steps: ["Daily", "Weekly", "Monthly", "Quarterly"] }],
+  ];
+
+  for (const [re, entry] of REGISTRY) {
+    if (re.test(key) || re.test(t)) return entry;
+  }
+  // Generic transformation model — safe for every category.
+  return {
+    title: `Chapter ${chapterIndex} Framework`,
+    steps: ["Diagnose", "Decide", "Do", "Debrief"],
+  };
+}
+
