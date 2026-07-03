@@ -142,12 +142,34 @@ function renderMd(md: string): string {
   return out.join("\n");
 }
 
-function stripInlineMd(s: string): string {
+export function stripInlineMd(s: string): string {
   return (s ?? "")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/(^|[^*])\*([^*]+)\*/g, "$1$2")
+    // Repeatedly strip **bold** / __bold__ / *em* / _em_ / `code` markers.
+    // Two passes catch nested / adjacent markers like ****word**** or **a**b**c**.
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/__([^_\n]+)__/g, "$1")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1$2")
+    .replace(/(^|[^_])_([^_\n]+)_/g, "$1$2")
     .replace(/`([^`]+)`/g, "$1")
+    // Strip stray leftover ** or __ pairs
+    .replace(/\*\*+/g, "")
+    .replace(/__+/g, "")
     .trim();
+}
+
+// Canonical helper: use for ALL user-facing text labels rendered into the PDF
+// (chapter titles, TOC entries, callout titles, worksheet headings, checklist
+// items, diagram steps, action-plan tasks). Guarantees markdown bold/italic
+// never leaks as literal `**` in the final PDF.
+function cleanLabel(s: string | null | undefined): string {
+  return esc(stripInlineMd(s ?? ""));
+}
+
+// Publicly reusable so other renderers (Shopify copy, headers) can normalize
+// chapter titles identically to the PDF.
+export function sanitizeChapterTitle(s: string | null | undefined): string {
+  return stripInlineMd(s ?? "").replace(/\s+/g, " ").trim();
 }
 
 // Remove a leading H1/H2 whose text duplicates the chapter title, so the PDF
