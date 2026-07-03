@@ -756,7 +756,7 @@ export function buildPdfHtml(data: PdfData): string {
      - hyphens+overflow-wrap+word-break guarantee no horizontal overflow.
      - th font 7pt with line-height 1.15 keeps two-line headers readable.
      - td min height 22pt keeps write-in space usable for print. */
-  .worksheet--table { page-break-inside: avoid; break-inside: avoid; overflow: hidden; }
+  .worksheet--table { overflow: visible; page-break-inside: auto; break-inside: auto; }
   .ws-purpose { font-family: "Inter", sans-serif; font-size: 9.5pt; color: var(--ink-soft);
     margin: 0 0 8pt; font-style: italic; }
   .ws-table { width: 100%; border-collapse: collapse; font-family: "Inter", sans-serif;
