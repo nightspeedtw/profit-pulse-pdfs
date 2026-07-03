@@ -2,11 +2,13 @@
 // Keep values in lockstep with the client config.
 export const FEATURES = {
   PHASE_1_PDF_ONLY: true,
-  SHOPIFY_UPLOAD: true,
+  SHOPIFY_UPLOAD: false,
+  NATIVE_STOREFRONT: true,
   SEO_AUTOMATION: false,
   BLOG_AUTOMATION: false,
   SOCIAL_POSTING: false,
   ADVANCED_BATCH_MODE: false,
+
   LEGACY_PIPELINE: false,
 } as const;
 
