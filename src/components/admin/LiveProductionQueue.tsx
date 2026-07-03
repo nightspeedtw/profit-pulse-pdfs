@@ -215,6 +215,39 @@ function SectionShell({
   );
 }
 
+function BlockerSummary({ e }: { e: QueueEbook }) {
+  const gate = e.failed_gate ?? e.structured_error?.gate;
+  const reason =
+    e.waiting_reason ??
+    e.current_action_message ??
+    e.needs_review_reason ??
+    e.blocker_reason ??
+    e.structured_error?.detail;
+  const action = e.structured_error?.auto_recovery_action ?? e.next_recommended_action;
+  const hasContent = reason || gate || action || e.blocker_class;
+  if (!hasContent) return null;
+
+  return (
+    <div className="rounded-md border border-amber-500/30 bg-amber-50/50 p-2 text-xs text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
+      <div className="font-medium">ติดตรงไหน / Current blocker</div>
+      <div className="mt-1 space-y-0.5">
+        {gate && (
+          <div>
+            Gate: <span className="font-semibold">{gate}</span>
+            {e.failed_score != null && e.required_score != null
+              ? ` — ${Math.round(e.failed_score)}/${Math.round(e.required_score)}`
+              : ""}
+          </div>
+        )}
+        {reason && <div>{reason}</div>}
+        {e.blocker_class && <div>Type: {e.blocker_class}</div>}
+        {action && <div>Auto action: {action}</div>}
+        {e.next_retry_at && <div>ลองใหม่: {untilRetry(e.next_retry_at)}</div>}
+      </div>
+    </div>
+  );
+}
+
 function SectionA({ items }: { items: QueueEbook[] }) {
   return (
     <SectionShell
