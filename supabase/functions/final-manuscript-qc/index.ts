@@ -373,9 +373,14 @@ function runDeterministicChecks(
 
 async function scoreManuscript(model: string, ebook: any, chapters: ChapterRow[]) {
   const outline = ebook.outline_json ?? {};
-  const samples = chapters.map((c) =>
-    `### Ch ${c.chapter_index}: ${c.title} (${c.word_count} words)\n${(c.content ?? "").slice(0, 2200)}…`
-  ).join("\n\n");
+  const samples = chapters.map((c) => {
+    const body = (c.content ?? "").replace(/\s+/g, " ").trim();
+    const mid = Math.max(0, Math.floor(body.length / 2) - 350);
+    return `### Ch ${c.chapter_index}: ${c.title} (${c.word_count} words)\n` +
+      `[OPEN] ${body.slice(0, 900)}\n` +
+      `[MID] ${body.slice(mid, mid + 700)}\n` +
+      `[END] ${body.slice(-700)}`;
+  }).join("\n\n").slice(0, 24_000);
   const totalWords = chapters.reduce((s, c) => s + (c.word_count ?? 0), 0);
 
   return aiJSON<AiScores>({
@@ -396,7 +401,52 @@ Chapter samples (truncated for token budget):
 ${samples}
 
 Return JSON only matching the schema.`,
+    maxTokens: 2048,
   });
+}
+
+function fallbackAiScores(
+  chapters: ChapterRow[],
+  totalWords: number,
+  minWords: number,
+  deterministic: FailedReason[],
+  sourceError: string,
+): AiScores {
+  const blocking = deterministic.filter((r) =>
+    r.code === "word_count_too_low" || r.code === "missing_chapter" || r.code === "chapter_too_short" ||
+    r.code === "duplicate_content" || r.code === "placeholder_text" || r.code === "unsafe_claims" ||
+    r.code === "missing_disclaimer"
+  );
+  const hasUnsafe = deterministic.some((r) => r.code === "unsafe_claims" || r.code === "missing_disclaimer");
+  const lengthRatio = Math.min(1, totalWords / Math.max(1, minWords));
+  const chapterDepth = chapters.length ? chapters.filter((c) => (c.word_count ?? 0) >= MIN_CHAPTER_WORDS).length / chapters.length : 0;
+  const penalty = blocking.length * 8 + deterministic.filter((r) => r.code.includes("repeated") || r.code.includes("template")).length * 3;
+  const base = Math.max(55, Math.min(92, Math.round(62 + lengthRatio * 18 + chapterDepth * 12 - penalty)));
+  const compliance = hasUnsafe ? 72 : 92;
+  return {
+    final_content_depth_score: base,
+    reader_value_score: Math.max(55, Math.min(92, base - (totalWords < minWords ? 5 : 0))),
+    practical_tool_score: Math.max(55, Math.min(92, base - (deterministic.some((r) => r.code.includes("worksheet")) ? 8 : 0))),
+    editorial_polish_score: Math.max(55, Math.min(92, base - (deterministic.some((r) => r.code.includes("repeated")) ? 8 : 0))),
+    compliance_safety_score: compliance,
+    refund_risk_score: Math.max(8, Math.min(80, 100 - base + blocking.length * 5)),
+    final_manuscript_score: Math.min(base, compliance),
+    checks: {
+      no_repeated_sections: !deterministic.some((r) => r.code.includes("repeated") || r.code.includes("duplicate")),
+      no_generic_filler: !deterministic.some((r) => r.code.includes("template")),
+      no_broken_formatting: true,
+      chapter_flow_ok: !deterministic.some((r) => r.code === "missing_chapter"),
+      title_matches_content: true,
+      promise_delivered: totalWords >= minWords && blocking.length === 0,
+      practical_tools_present: !deterministic.some((r) => r.code.includes("worksheet") || r.code.includes("framework")),
+      compliance_safe_language: !hasUnsafe,
+      buyer_value_strong: blocking.length === 0 && totalWords >= minWords,
+      no_unsafe_claims: !hasUnsafe,
+      no_placeholders: !deterministic.some((r) => r.code === "placeholder_text"),
+    },
+    issues: [`AI reviewer JSON unavailable; deterministic fallback used: ${sourceError.slice(0, 180)}`],
+    blocking_issues: blocking.map((r) => r.message).slice(0, 6),
+  };
 }
 
 function instructionsForReason(r: FailedReason, wordsTarget: number): string {
