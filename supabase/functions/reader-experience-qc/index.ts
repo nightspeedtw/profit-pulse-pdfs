@@ -723,6 +723,25 @@ Deno.serve(async (req) => {
       attemptsStart = MAX_ATTEMPTS - 1;
     }
 
+    if (attemptsStart >= MAX_ATTEMPTS && systemicCleanup.replacements === 0) {
+      const existingReport = (ebook.reader_experience_qc && typeof ebook.reader_experience_qc === "object")
+        ? ebook.reader_experience_qc as Record<string, unknown>
+        : {};
+      await db.from("ebooks").update({
+        reader_experience_status: "needs_review",
+        reader_experience_qc: {
+          ...existingReport,
+          systemic_cleanup: systemicCleanup,
+          exhausted_without_repair: true,
+          generated_at: new Date().toISOString(),
+        },
+      }).eq("id", ebook_id);
+      return new Response(
+        JSON.stringify({ ok: true, passed: false, exhausted: true, systemic_cleanup: systemicCleanup }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const history: Array<{ attempt: number; scores: Record<string, number>; failed_keys: string[]; humanize?: unknown }> = [];
     let verdict: Verdict | null = null;
     let passed = false;
