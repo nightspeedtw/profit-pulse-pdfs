@@ -106,24 +106,42 @@ Deno.serve(async (req) => {
     if (!e.pdf_url) missing.push("pdf");
     if (missing.length) throw new Error(`Missing required fields: ${missing.join(", ")}`);
 
-    // Generate cover if missing
+    // Always regenerate the thumbnail with the currently active reference
+    // style so every listing gets the newest look. Fire-and-forget: the
+    // generate-cover function processes in the background (returns 202) and
+    // updates cover_url when it finishes. If no cover exists yet we still
+    // block on the invocation so Stripe gets a valid image URL below.
+    await log(ebookId, "auto_list.generate_cover", "started", { force: true });
+    const { error: covErr } = await supabase.functions.invoke("generate-cover", {
+      body: { ebook_id: ebookId, mode: "full", force: true },
+    });
+    if (covErr) {
+      await log(ebookId, "auto_list.generate_cover", "failed", { error: covErr.message });
+      if (!e.cover_url) throw new Error(`Cover generation failed: ${covErr.message}`);
+    }
+    // Refresh cover_url if it was previously missing (best effort — background
+    // job may still be running for a re-list).
     if (!e.cover_url) {
-      await log(ebookId, "auto_list.generate_cover", "started", {});
-      const { error: covErr } = await supabase.functions.invoke("generate-cover", {
-        body: { ebook_id: ebookId },
-      });
-      if (covErr) {
-        await log(ebookId, "auto_list.generate_cover", "failed", { error: covErr.message });
-        throw new Error(`Cover generation failed: ${covErr.message}`);
-      }
-      // Refresh cover_url
       const { data: refreshed } = await supabase
-        .from("ebooks")
-        .select("cover_url")
-        .eq("id", ebookId)
-        .maybeSingle();
+        .from("ebooks").select("cover_url").eq("id", ebookId).maybeSingle();
       e.cover_url = refreshed?.cover_url ?? null;
-      if (!e.cover_url) throw new Error("Cover generation did not produce a cover_url");
+      if (!e.cover_url) throw new Error("Cover generation did not produce a cover_url yet — try again in ~1 min.");
+    }
+
+    // Regenerate selling copy (hook / description / bullets) on every listing
+    // so the storefront always shows the freshest sales angle.
+    await log(ebookId, "auto_list.generate_selling_copy", "started", {});
+    const { data: copyData, error: copyErr } = await supabase.functions.invoke("generate-selling-copy", {
+      body: { ebook_id: ebookId },
+    });
+    if (copyErr) {
+      await log(ebookId, "auto_list.generate_selling_copy", "failed", { error: copyErr.message });
+      // non-fatal — keep existing description
+    } else {
+      await log(ebookId, "auto_list.generate_selling_copy", "completed", copyData ?? {});
+      const { data: refreshed } = await supabase
+        .from("ebooks").select("product_description").eq("id", ebookId).maybeSingle();
+      if (refreshed?.product_description) e.product_description = refreshed.product_description;
     }
 
     // Sync Stripe

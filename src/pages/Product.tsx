@@ -47,9 +47,14 @@ export default function Product() {
             <div className="w-full h-full flex items-center justify-center text-muted-foreground">No cover</div>
           )}
         </div>
-        <div className="space-y-6">
+        <div className="space-y-5">
           {product.product_type && (
             <span className="sticker inline-block">{product.product_type}</span>
+          )}
+          {product.selling_hook && (
+            <p className="text-xs font-mono uppercase tracking-widest text-accent-foreground font-bold">
+              {product.selling_hook}
+            </p>
           )}
 
           <h1 className="font-display text-4xl uppercase leading-tight">{product.title}</h1>
@@ -57,7 +62,17 @@ export default function Product() {
           <div className="prose prose-sm max-w-none whitespace-pre-wrap">
             {product.product_description || "Premium digital PDF, instant download — no signup required."}
           </div>
-          <div className="flex gap-3">
+          {product.benefit_bullets && product.benefit_bullets.length > 0 && (
+            <ul className="space-y-2 pt-2">
+              {product.benefit_bullets.map((b, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm">
+                  <span className="mt-1 h-2 w-2 rounded-full bg-accent-foreground flex-shrink-0" />
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex gap-3 pt-2">
             <Button onClick={() => freeDownload(product.id, product.title)} className="h-14 flex-1 gap-2">
               <Download className="h-5 w-5" /> Download PDF
             </Button>

@@ -1007,6 +1007,7 @@ export type Database = {
           required_score: number | null
           resolved_at: string | null
           sales_count: number
+          selling_hook: string | null
           seo_meta: string | null
           seo_title: string | null
           shopify_draft_url: string | null
@@ -1183,6 +1184,7 @@ export type Database = {
           required_score?: number | null
           resolved_at?: string | null
           sales_count?: number
+          selling_hook?: string | null
           seo_meta?: string | null
           seo_title?: string | null
           shopify_draft_url?: string | null
@@ -1359,6 +1361,7 @@ export type Database = {
           required_score?: number | null
           resolved_at?: string | null
           sales_count?: number
+          selling_hook?: string | null
           seo_meta?: string | null
           seo_title?: string | null
           shopify_draft_url?: string | null

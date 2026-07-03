@@ -603,32 +603,35 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
     setBusy(id);
     try {
       const { supabase } = await import("@/integrations/supabase/client");
-      const { error } = await supabase.functions.invoke("generate-cover", {
-        body: { ebook_id: id, mode: "full" },
-      });
-      if (error) throw error;
-      toast.success("Cover regeneration started");
+      const [{ error: covErr }, { error: copyErr }] = await Promise.all([
+        supabase.functions.invoke("generate-cover", { body: { ebook_id: id, mode: "full", force: true } }),
+        supabase.functions.invoke("generate-selling-copy", { body: { ebook_id: id } }),
+      ]);
+      if (covErr) throw covErr;
+      if (copyErr) throw copyErr;
+      toast.success("Thumbnail + selling copy regeneration started");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to regenerate cover");
+      toast.error(err instanceof Error ? err.message : "Failed to regenerate");
     } finally {
       setBusy(null);
     }
   };
 
   const onRegenerateAllCovers = async () => {
-    if (!confirm(`Regenerate covers for all ${items.length} ready ebooks? This runs in the background.`)) return;
+    if (!confirm(`Regenerate thumbnails + selling copy for all ${items.length} ready ebooks? Runs in background.`)) return;
     const { supabase } = await import("@/integrations/supabase/client");
     let ok = 0, fail = 0;
     for (const e of items) {
       try {
-        const { error } = await supabase.functions.invoke("generate-cover", {
-          body: { ebook_id: e.id, mode: "full" },
-        });
-        if (error) throw error;
+        const [{ error: c1 }, { error: c2 }] = await Promise.all([
+          supabase.functions.invoke("generate-cover", { body: { ebook_id: e.id, mode: "full", force: true } }),
+          supabase.functions.invoke("generate-selling-copy", { body: { ebook_id: e.id } }),
+        ]);
+        if (c1 || c2) throw (c1 || c2);
         ok++;
       } catch { fail++; }
     }
-    toast.success(`Queued ${ok} cover regeneration${ok === 1 ? "" : "s"}${fail ? ` (${fail} failed)` : ""}`);
+    toast.success(`Queued ${ok} regeneration${ok === 1 ? "" : "s"}${fail ? ` (${fail} failed)` : ""}`);
   };
 
   return (
@@ -644,7 +647,7 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
       {items.length > 0 && (
         <div className="flex justify-end mb-3">
           <Button size="sm" variant="outline" onClick={onRegenerateAllCovers} className="gap-2">
-            <Sparkles className="h-4 w-4" /> Regenerate all covers (new style)
+            <Sparkles className="h-4 w-4" /> Regenerate all thumbnails + copy
           </Button>
         </div>
       )}
@@ -751,9 +754,9 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
                   disabled={busy === e.id}
                   onClick={() => onRegenerateCover(e.id)}
                   className="gap-2"
-                  title="Regenerate cover + thumbnail with the new reference style"
+                  title="Regenerate thumbnail + selling copy"
                 >
-                  <RefreshCw className="h-4 w-4" /> Regen cover
+                  <RefreshCw className="h-4 w-4" /> Regen thumb + copy
                 </Button>
 
               </div>

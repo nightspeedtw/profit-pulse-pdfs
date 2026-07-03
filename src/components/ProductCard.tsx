@@ -37,7 +37,12 @@ export const ProductCard = ({ product }: Props) => {
           FREE
         </span>
       </div>
-      <div className="p-4 flex flex-col flex-1 gap-3">
+      <div className="p-4 flex flex-col flex-1 gap-2">
+        {product.selling_hook && (
+          <p className="text-[10px] font-mono uppercase tracking-widest text-accent-foreground font-bold line-clamp-1">
+            {product.selling_hook}
+          </p>
+        )}
         <h3 className="font-display text-lg uppercase leading-tight line-clamp-2">{product.title}</h3>
         <p className="text-sm text-muted-foreground line-clamp-2 flex-1">
           {product.product_description?.replace(/[#*_>`]/g, "").slice(0, 140) || "Premium PDF, instant download."}

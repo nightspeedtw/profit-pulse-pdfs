@@ -6,6 +6,8 @@ export interface StorefrontEbook {
   price: number | null;
   cover_url: string | null;
   product_description: string | null;
+  selling_hook: string | null;
+  benefit_bullets: string[] | null;
   product_type: string | null;
   seo_title: string | null;
   seo_meta: string | null;
