@@ -660,6 +660,20 @@ Deno.serve(async (req) => {
 
 
         // ---------- STEP 9 — Cover + thumbnail ----------
+        async function waitForCoverReady(maxMs = 90_000): Promise<boolean> {
+          const start = Date.now();
+          while (Date.now() - start < maxMs) {
+            await refreshEbook();
+            if (ebook.cover_url && ebook.thumbnail_url) return true;
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            await tracker.heartbeat("cover", {
+              message: "Waiting for cover renderer…",
+              subtask: "Cover/thumbnail generation is still running in the background.",
+            });
+          }
+          return false;
+        }
+
         if (!ebook.cover_url) {
           if (await overBudget()) {
             await needsAdmin("cover", "Budget cap reached before cover.");
@@ -672,10 +686,36 @@ Deno.serve(async (req) => {
               await tracker.heartbeat("cover", { message: "Generating premium cover…", subtask: "Creating no-text background image" });
               await runStep("9_cover", "generate-cover", { ebook_id: ebook.id, mode: "full" });
               await tracker.heartbeat("thumbnail_qc", { message: "Running thumbnail QC…", subtask: "Checking mobile readability" });
-              await refreshEbook();
+              const ready = await waitForCoverReady();
+              if (!ready) {
+                const retryAt = browserlessBackoffAt(1);
+                await db.from("ebooks").update({
+                  autopilot_state: "waiting_for_worker_slot",
+                  canonical_status: "waiting_for_worker_slot",
+                  blocker_class: "temporary_api_error",
+                  blocker_reason: "cover_generation_still_running",
+                  waiting_reason: "Cover/thumbnail is still generating — pipeline will resume automatically.",
+                  next_retry_at: retryAt,
+                  current_step: "cover",
+                  current_step_label: "Generating cover",
+                  current_action_message: "Waiting for cover renderer to finish",
+                  current_subtask: "Auto-resume scheduled; no user action needed.",
+                }).eq("id", ebook.id);
+                await db.from("autopilot_pipeline_runs").update({
+                  status: "waiting",
+                  current_step: "cover",
+                  current_action_message: "Cover/thumbnail still generating — will resume automatically.",
+                }).eq("id", run_id);
+                throw new Error("cover_generation_deferred");
+              }
             },
             "Creating no-text background image",
-          );
+          ).catch(async (err) => {
+            if ((err as Error).message === "cover_generation_deferred") return;
+            throw err;
+          });
+          await refreshEbook();
+          if (ebook.autopilot_state === "waiting_for_worker_slot" && !ebook.cover_url) return;
         } else {
           await skip(["cover", "cover_qc", "thumbnail", "thumbnail_qc"], "Cover already present");
         }
