@@ -190,6 +190,7 @@ function buildRepairFeedback(reasons: string[], improvements: string[]): string 
   const fixes: string[] = [];
   if (reasons.some((r) => r.includes("title_readability"))) fixes.push("Enlarge the title, tighten line breaks, boost contrast, and simplify the region behind the title.");
   if (reasons.some((r) => r.includes("subtitle_readability"))) fixes.push("Shorten subtitle, increase line-height, move it away from busy areas.");
+  if (reasons.some((r) => r.includes("thumbnail_book_mockup") || r.includes("thumbnail_not_book_mockup"))) fixes.push("Thumbnail MUST be a realistic standing-book mockup (perspective, spine, page edges, soft ground shadow) — never a flat A4 screenshot. Rebuild the mockup composition.");
   if (reasons.some((r) => r.includes("thumbnail_readability"))) fixes.push("Simplify focal point, kill tiny text, thicken title weight, ensure the thumbnail communicates at 200px wide.");
   if (reasons.some((r) => r.includes("human_designed_feel") || r.includes("anti_ai_look"))) fixes.push("Remove any generic AI clichés (glossy renders, surreal clutter, neon sci-fi, over-decoration). Use restrained editorial composition. Choose ONE strong human-crafted metaphor.");
   if (reasons.some((r) => r.includes("premium_feel"))) fixes.push("Refine typography, discipline the palette to 3 tones max, add negative space, remove cheap decorative effects.");
