@@ -226,7 +226,7 @@ function chapterCallouts(c: PdfChapter): string {
   if (!c.callouts?.length) return "";
   return c.callouts.map((co) => `
     <aside class="callout callout--${esc(co.kind ?? "tip")}">
-      ${co.title ? `<div class="callout__title">${esc(stripInlineMd(co.title))}</div>` : ""}
+      ${co.title ? `<div class="callout__title">${cleanLabel(co.title)}</div>` : ""}
       <div class="callout__body">${renderMd(co.body)}</div>
     </aside>`).join("\n");
 }
