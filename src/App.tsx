@@ -50,6 +50,7 @@ const App = () => (
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<CommandCenter />} />
             <Route path="production" element={<Production />} />
+            <Route path="ready-shopify" element={<ReadyShopify />} />
             <Route path="products" element={<Products />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="ebook/:id" element={<EbookReview />} />
