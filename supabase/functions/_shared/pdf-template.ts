@@ -381,7 +381,7 @@ export function buildPdfHtml(data: PdfData): string {
       <div class="chapter-body__eyebrow">Chapter ${c.index}</div>
       <h2 class="chapter-body__title">${esc(stripInlineMd(c.title))}</h2>
       <div class="chapter-body__prose">
-        ${renderMd(stripDuplicateLeadingHeading(c.content, c.title))}
+        ${splitLongParagraphs(renderMd(stripDuplicateLeadingHeading(c.content, c.title)))}
       </div>
       ${chapterCallouts(c)}
       ${chapterIllustration(c)}
