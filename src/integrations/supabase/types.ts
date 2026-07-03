@@ -856,6 +856,11 @@ export type Database = {
           qc_status: string | null
           queue_position: number | null
           queued_at: string | null
+          reader_experience_attempted_at: string | null
+          reader_experience_fix_count: number
+          reader_experience_qc: Json | null
+          reader_experience_score: number | null
+          reader_experience_status: string | null
           reader_value_score: number | null
           recommended_price: number | null
           refund_risk_score: number | null
@@ -1003,6 +1008,11 @@ export type Database = {
           qc_status?: string | null
           queue_position?: number | null
           queued_at?: string | null
+          reader_experience_attempted_at?: string | null
+          reader_experience_fix_count?: number
+          reader_experience_qc?: Json | null
+          reader_experience_score?: number | null
+          reader_experience_status?: string | null
           reader_value_score?: number | null
           recommended_price?: number | null
           refund_risk_score?: number | null
@@ -1150,6 +1160,11 @@ export type Database = {
           qc_status?: string | null
           queue_position?: number | null
           queued_at?: string | null
+          reader_experience_attempted_at?: string | null
+          reader_experience_fix_count?: number
+          reader_experience_qc?: Json | null
+          reader_experience_score?: number | null
+          reader_experience_status?: string | null
           reader_value_score?: number | null
           recommended_price?: number | null
           refund_risk_score?: number | null
