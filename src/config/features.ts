@@ -6,7 +6,7 @@
 // third-party token can never block PDF generation.
 export const FEATURES = {
   PHASE_1_PDF_ONLY: true,
-  SHOPIFY_UPLOAD: false,
+  SHOPIFY_UPLOAD: true,
   SEO_AUTOMATION: false,
   BLOG_AUTOMATION: false,
   SOCIAL_POSTING: false,
