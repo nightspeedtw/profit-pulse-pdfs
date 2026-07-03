@@ -245,7 +245,7 @@ Deno.serve(async (req) => {
         }).eq("id", ebookId);
         await logRun(db, {
           ebook_id: ebookId, step: "render-pdf",
-          status: nextAttempt > 3 ? "fail" : "pending",
+          status: nextAttempt > 3 ? "fail" : "skip",
           error: `browserless 429 (attempt ${nextAttempt}) — retry at ${retryAt}`,
         });
         await releaseLock(db, LOCK_PDF, ebookId);
