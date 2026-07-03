@@ -890,10 +890,13 @@ Deno.serve(async (req) => {
           ? classified.suggested_status
           : canonical;
         const shouldWait = !!classified?.recoverable && !classified.needs_code_fix;
+        const recoveryState = shouldWait
+          ? (String(recoverableStatus).startsWith("waiting_") ? recoverableStatus : "queued_for_production")
+          : "failed";
 
         if (ebook?.id) {
           await db.from("ebooks").update({
-            autopilot_state: shouldWait ? recoverableStatus : "failed",
+            autopilot_state: recoveryState,
             canonical_status: recoverableStatus,
             needs_review_reason: shouldWait ? null : (classified?.user_friendly_message ?? msg).slice(0, 400),
             blocker_reason: (classified?.detected_root_cause ?? msg).slice(0, 200),
