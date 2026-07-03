@@ -149,6 +149,31 @@ Deno.serve(async (req) => {
     );
   }
 
+  // 4b) Time-sliced AI/QC work — resume after the function intentionally
+  //     stops before the 150s idle timeout. This is a healthy wait state, not
+  //     a failure. Sequential Safe Mode will reacquire the heavy lock before
+  //     continuing.
+  const { data: workerWaiters } = await db
+    .from("ebooks")
+    .select("id, next_retry_at")
+    .in("autopilot_state", ["waiting_for_worker_slot", "waiting_for_ai_budget"])
+    .lte("next_retry_at", now)
+    .limit(5);
+  const workerResumed: string[] = [];
+  for (const w of workerWaiters ?? []) {
+    workerResumed.push(w.id);
+    if (dry) continue;
+    await db.from("ebooks").update({
+      autopilot_state: "queued_for_production",
+      canonical_status: "queued_for_production",
+      blocker_reason: null,
+      blocker_class: null,
+    }).eq("id", w.id);
+    invokePipeline(w.id).catch((e) =>
+      console.warn("[recovery] worker-wait resume failed", w.id, e?.message ?? e)
+    );
+  }
+
   // 5) queued_for_production — dispatch ONE at a time when heavy_production
   //    lock is free (Sequential Safe Mode: heavy_production_concurrency = 1).
   const heavyHolder = await getLockHolder(db, LOCK_HEAVY);
@@ -180,6 +205,7 @@ Deno.serve(async (req) => {
     orphan_ebooks_enqueued: (orphans ?? []).length,
     stalled_runs_resumed: stalledResumed,
     browserless_waiters_resumed: browserlessResumed,
+    worker_waiters_resumed: workerResumed,
     heavy_production_lock: {
       holder: heavyHolder.holder,
       expires_at: heavyHolder.expires_at,
