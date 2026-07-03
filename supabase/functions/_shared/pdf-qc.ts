@@ -73,7 +73,7 @@ export function structuralChecks(s: StructuralInputs): {
     no_cut_off_text: has(`orphans: 3`) && has(`widows: 3`),
     no_duplicated_headings: dupHeadings.length === 0 && !mdBoldLeak,
     no_broken_diagrams: !has(`framework__grid`) || has(`framework__cell`),
-    has_cover: has(`class="page cover"`),
+    has_cover: has(`class="cover-a4"`) || has(`class="page cover"`),
     has_title_page: has(`class="page title-page"`),
     has_copyright_disclaimer: has(`>Copyright<`) && has(`>Disclaimer<`),
     has_toc: has(`class="page toc"`),
