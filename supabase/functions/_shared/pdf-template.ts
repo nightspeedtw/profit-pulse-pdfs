@@ -20,14 +20,32 @@ export interface PdfChapter {
 }
 
 export type WorksheetKind =
-  | "prompts"           // default: numbered prompts with writing lines
-  | "debt_tracker"      // table with safe short-form headers
-  | "negotiation_script"// call-log format
-  | "sprint_timeline"   // hour-by-hour timeline
-  | "velocity_calculator" // calculator rows
-  | "automation_flow"   // stepped checkboxes
-  | "resilience_scorecard" // 1-5 scale grid
-  | "operating_manual"; // long checklist with headers
+  | "prompts"
+  | "debt_tracker"
+  | "negotiation_script"
+  | "sprint_timeline"
+  | "velocity_calculator"
+  | "automation_flow"
+  | "resilience_scorecard"
+  | "operating_manual"
+  // Productivity
+  | "focus_audit"
+  | "interruption_log"
+  | "deep_work_planner"
+  | "calendar_boundary"
+  | "meeting_elimination"
+  // Energy / health
+  | "energy_audit"
+  | "caffeine_log"
+  | "sleep_anchor"
+  | "crash_diagnostic"
+  | "evening_recovery"
+  // Cashflow / fortress
+  | "cashflow_surplus"
+  | "fortress_audit"
+  | "lifestyle_leak"
+  | "safety_net"
+  | "fixed_cost_scan";
 
 export interface PdfData {
   title: string;
