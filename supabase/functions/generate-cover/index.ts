@@ -36,18 +36,27 @@ HUMAN-DESIGNED PRINCIPLES: one strong visual idea · one clear emotional directi
 PSYCHOLOGY LEVERS (use at least one, explicit):
 Control Restoration · Pain Relief · Hidden Problem Reveal · Premium Authority · Identity Match · Transformation · System Promise.
 
-CATEGORY DIRECTION:
-- Finance/Debt/Wealth: navy, black, white, gold, charcoal, muted emerald. Metaphors: debt exit path, cash-flow dashboard, financial fortress, payoff ladder, dark maze with gold exit, balance-sheet blueprint. Avoid: cartoon money, dollar signs, cash piles, scammy get-rich look.
-- Business/Marketing/AI/Productivity: black, white, graphite, silver, deep purple, muted cyan, controlled electric blue. Metaphors: workflow engine, operating system, command center, automation map, precision dashboard. Avoid: generic robots, neon AI clichés, circuit boards, futuristic clutter.
-- Relationship/Self-Help/Emotional: warm neutrals, deep burgundy, muted rose, soft charcoal, cream. Metaphors: emotional reset, clean break, boundary map, conversation bridge, overthinking maze, clarity window. Avoid: cheesy hearts, couple stock, dramatic romance clichés.
-- Health/Burnout/Wellness: soft beige, muted green, warm white, calm blue. Metaphors: reset button, calm system, balance architecture, energy recovery, burnout-to-clarity. Avoid: medical fear, exaggerated bodies, generic spa, fake before/after.
-- Career/Executive/High Performer: deep navy, graphite, ivory, restrained gold. Metaphors: command system, executive playbook, decision map, promotion ladder, professional OS. Avoid: cheap corporate stock, generic office people, boring resume look.
+CATEGORY DIRECTION (accent color follows lever, not decoration):
+- Finance/Debt/Wealth → accent_key "gold". Metaphor: dark staircase to a lit exit doorway, payoff ladder, debt-exit gate, financial fortress.
+- Business/Marketing/AI/Productivity → accent_key "cyan". Metaphor: command console, workflow engine, precision blueprint.
+- Health/Burnout/Wellness → accent_key "emerald". Metaphor: reset horizon, calm architecture, sunrise threshold.
+- Relationship/Self-Help/Mindset → accent_key "magenta". Metaphor: clean break, boundary bridge, clarity window.
+- Career/Executive → accent_key "ivory". Metaphor: executive playbook, promotion ladder, decision console.
 
-TYPOGRAPHY — the title is the hero: readable at Shopify thumbnail size, strong hierarchy, premium sans-serif, intentional line breaks, emphasis on transformation words, aligned to a clear grid, readable in 2 seconds. Subtitle supports, never competes. No childish or novelty fonts. Contrast panel behind title if the background is busy.
+DESIGN LANGUAGE (locked reference template — every book, no exceptions):
+- Vertical hardcover, 2:3, near-black solid field (color_palette[0] = "#0b0b0b" unless a specific dark tone fits better).
+- Small solid rectangular "EBOOK" chip in the accent color, top-left.
+- Huge condensed heavy sans title (uppercase, 3–4 lines, center-aligned). ONE keyword or line highlighted in the accent color — return that word/phrase as "highlight_word".
+- Two thin hairline horizontal rules bracketing a 2-line subtitle.
+- Central hero illustration zone (this is what background_image_prompt_no_text produces — textless, cinematic, on-metaphor, negative space).
+- Thin accent bar spanning the width, then a row of 4 icon+label feature chips at the bottom.
+- Spine + back-cover pick up the same palette.
 
-TEXT RENDERING RULE — the AI image contains ZERO text: no letters, numbers, logos, watermarks, fake charts, fake labels, misspelled words. All real text (title, subtitle, badge, brand) is rendered by the app's code layer.
+TYPOGRAPHY — the title is the hero: readable at Shopify thumbnail size, strong hierarchy, condensed heavy sans, intentional line breaks, emphasis on transformation words. Subtitle whispers, never competes.
 
-BACKGROUND PROMPT RULES — the textless background prompt MUST include: category-appropriate visual metaphor, emotional tone, composition guidance, an explicit clean-space zone for the title, and the phrase "no text, no letters, no numbers, no logos, no watermarks, no signage, no typography anywhere in the image". Vertical 2:3 composition, editorial commercial ebook-cover quality.
+TEXT RENDERING RULE — the AI image contains ZERO text: no letters, numbers, logos, watermarks, fake charts, fake labels, misspelled words. All real text (title, subtitle, badge, brand, chips) is rendered by the app's code layer.
+
+BACKGROUND PROMPT RULES — the textless background prompt describes ONLY the central hero illustration (staircase, doorway, blueprint, horizon, etc.) that will sit inside the reserved zone. MUST include: category-appropriate visual metaphor, cinematic dark editorial tone, one strong focal element, negative space around it, and the phrase "no text, no letters, no numbers, no logos, no watermarks, no signage, no typography anywhere in the image". Vertical composition, moody premium nonfiction quality.
 
 OUTPUT SCHEMA (return exactly these fields, valid JSON only):
 {
@@ -74,15 +83,19 @@ OUTPUT SCHEMA (return exactly these fields, valid JSON only):
   "background_image_prompt_no_text": "",
   "title_text": "<= 60 chars",
   "subtitle_text": "<= 120 chars",
-  "badge_text": "<= 28 chars",
+  "badge_text": "EBOOK",
   "brand_text": "SECRET PDF",
-  "layout_direction": "top|bottom|center",
-  "color_palette": ["#hex","#hex","#hex"],
+  "layout_direction": "center",
+  "color_palette": ["#0b0b0b","#f4f2ee","#f5c518"],
+  "accent_key": "gold|cyan|emerald|magenta|ivory|amber|violet|crimson",
+  "highlight_word": "the single word or short phrase inside title_text that must render in the accent color",
+  "feature_chips": ["<= 2-word label", "<= 2-word label", "<= 2-word label", "<= 2-word label"],
   "typography_style": "",
   "thumbnail_readability_notes": "",
   "why_this_cover_sells": "",
   "cover_qc_checklist": ["","",""]
 }`;
+
 
 const COVER_QC_SYSTEM = `You are a strict premium ebook cover QC reviewer for USA Shopify digital products.
 Score harshly and honestly — never inflate. Anything that could be mistaken for generic AI art fails Anti-AI-Look.
@@ -516,11 +529,18 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
         spec.brand_text = spec.brand_text || "SECRET PDF";
         spec.title_text = (spec.title_text || ebook.title).slice(0, 60);
         spec.subtitle_text = (spec.subtitle_text || ebook.subtitle || "").slice(0, 120);
+        spec.badge_text = (spec.badge_text || "EBOOK").slice(0, 12);
         spec.color_palette = (spec.color_palette && spec.color_palette.length >= 3)
           ? spec.color_palette
-          : ["#0b1a2b", "#ffffff", "#f5c518"];
-        spec.layout_direction = spec.layout_direction || "bottom";
+          : ["#0b0b0b", "#f4f2ee", "#f5c518"];
+        spec.layout_direction = spec.layout_direction || "center";
+        spec.feature_chips = (spec.feature_chips && spec.feature_chips.length
+          ? spec.feature_chips.filter(Boolean).slice(0, 4)
+          : ["Clear Plan", "Framework", "Momentum", "Freedom"]);
+        while (spec.feature_chips.length < 4) spec.feature_chips.push("");
+        spec.accent_key = (spec.accent_key || "").toLowerCase();
         if (opts.spec_overrides && attempt === 1) spec = { ...spec, ...opts.spec_overrides } as CoverSpec;
+
       }
       if (mode === "compose_qc" && !spec) {
         throw new Error("compose_qc mode requires an existing cover_spec on the ebook.");

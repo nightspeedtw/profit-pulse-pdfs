@@ -1,53 +1,62 @@
-# Auto-list ready ebooks + world-class covers (native only)
-
 ## Goal
-Drop Shopify from the pipeline for good. When an ebook is "ready", the platform auto-lists it as a product with category and a properly generated thumbnail cover following the `world-class-cover-designer` skill.
 
-## What "ready" means (please confirm)
-Current `ebooks.status` values in your DB: `needs_review`, `cover`, `review`, `ready_for_qc`, `published`. I'll treat **`ready_for_qc` (or manual "Approve")** as the trigger to auto-list. Confirm or tell me which status should trigger listing.
+Make every ebook thumbnail look like the reference you uploaded (dark hardcover, dramatic side light, polished black marble surface, visible spine, premium bookstore hero shot) — but with the **cover artwork itself themed to each book's topic** (not a one-size-fits-all black cover).
 
-## Changes
+## What's wrong today
 
-### 1. Activate the cover skill
-- Apply `.agents/skills/world-class-cover-designer` as an active workspace skill so the pipeline uses it as the enforced creative director.
-- `supabase/functions/generate-cover` is updated to follow it verbatim:
-  - Build a `CoverSpec` first (avatar, pain, lever, metaphor, palette, layout).
-  - Prompt image model for a **textless** background only.
-  - Overlay title/subtitle/brand server-side via SVG → PNG (using Fraunces / GT-style serif for finance/authority; geometric sans for systems).
-  - Run QC gates (thumbnail legibility ≥90, anti-AI ≥90, textless =100). Regenerate up to 2 times on gate failure.
-  - Write final `cover_url` + a 400px `thumbnail_url` to `ebook-covers` bucket.
+- The current mockup prompt only tweaks the *environment* (marble, moody light). It still just wraps whatever flat cover the pipeline produced onto a book — so the result doesn't match your reference.
+- The reference has a very specific *cover design language* too: solid black field, huge condensed sans title in white with **one word highlighted in yellow**, thin hairline rules around a short subtitle, small "EBOOK" chip top-left, and 4 icon+label feature chips along the bottom. That whole language is missing from our flat-cover generator.
 
-### 2. New auto-list edge function `auto-list-ebook`
-Given an `ebook_id`:
-1. Verify the ebook has: PDF asset, `cover_url`, `price > 0`, `category_id`, `title`.
-2. If cover missing or flagged low-quality → call `generate-cover` first.
-3. Create/refresh Stripe Product + Price via lookup_key `ebook_<uuid>_price` (tax_code `txcd_10504003`, e-books). Managed payments already on at checkout.
-4. Set `ebooks.listed_at = now()`, `status = 'published'`.
-5. Log to `pipeline_step_logs`.
+## Plan
 
-### 3. Auto-trigger
-- Database trigger on `ebooks` update: when `status` transitions to the ready value AND `listed_at IS NULL`, enqueue a call to `auto-list-ebook` via `pg_net`.
-- Manual "List for sale" button in `LiveProductionQueue` keeps working (calls same function).
+### 1. Lock a "Reference Hardcover" cover template
+Add a new deterministic template in `supabase/functions/_shared/cover.ts` that produces the flat 2:3 cover in the reference style:
 
-### 4. Categories
-- Every ebook already has a `category_id`. `list-storefront` already joins categories. No schema change needed — just surface the category on the product card and product page if not already.
+- Solid dark field (default `#0b0b0b`), subtle noise/paper texture.
+- Top-left `EBOOK` chip in the book's accent color.
+- Huge condensed sans title (Anton / Bebas-family), 2–4 lines, one keyword auto-highlighted in the accent color.
+- Two thin hairline rules bracketing a 2-line subtitle.
+- Central hero illustration zone (per-book, see step 2).
+- Bottom row: 4 auto-generated icon+label chips derived from the book's benefits/framework.
+- Spine + back-cover art matched to the same palette.
 
-### 5. Kill Shopify from the live path
-- Remove Shopify buttons/links from admin UI render tree (files kept in `_archive/`).
-- `SHOPIFY_UPLOAD` feature flag stays `false`; remove any code path that still calls `push-to-shopify` or `generate-shopify-package`.
+### 2. Per-book theming (content-aware)
+Each book gets its own palette, hero metaphor, and 4 feature chips derived from its `CoverSpec`:
 
-## Files touched
-- `supabase/functions/generate-cover/index.ts` — rewrite to skill contract
-- `supabase/functions/_shared/cover.ts` — CoverSpec builder + typography overlay
-- `supabase/functions/auto-list-ebook/index.ts` — **new**
-- `supabase/migrations/…_auto_list_trigger.sql` — status→listing trigger
-- `src/components/admin/LiveProductionQueue.tsx` — wire "List for sale" to `auto-list-ebook`; hide Shopify controls
-- `.workspace/skills/world-class-cover-designer/` — activate via `skills--apply_draft`
+- **Accent color** — chosen from the psychological lever (finance/debt → gold, productivity → electric blue, health → emerald, identity → magenta, etc.).
+- **Hero illustration** — textless AI image sized to the reserved zone, prompted from the book's core metaphor (e.g. "staircase to a lit doorway" for debt exit, "clean desk at dawn" for focus, "mountain summit" for identity, etc.). Still governed by the `world-class-cover-designer` skill's textless + anti-AI rules.
+- **Feature chips** — 4 short 1–2 word labels + Lucide-style icons, auto-derived from the book's promise (e.g. Clear Plan · 6-Month Framework · Build Momentum · Financial Freedom).
 
-## Out of scope
-- Rewriting existing published covers (only regenerated on demand or when status flips fresh).
-- Subscriptions, coupons, bundles.
+### 3. Cinematic mockup (already partially done — tightened)
+Keep the moody marble/side-light mockup in `renderPhotorealThumbnail`, but tighten it:
 
-## Confirm before I build
-1. Trigger status = **`ready_for_qc`** (auto) with a manual override button — OK?
-2. Regenerate covers for the ebooks that already have `cover_url` set (e.g. the 3 currently listed / in review), or only for new ones?
+- Wider frame so the whole book + spine + marble reflection is visible.
+- Force the specific rim-light direction, spine color match, and long soft reflection from the reference.
+- Fail QC if the mockup returns a light/white studio background.
+
+### 4. QC gates raised to enforce this style
+In `_shared/cover.ts` add two hard gates the mockup must pass, else regenerate (max 3):
+
+- `reference_style_match_score` ≥ 90 — dark cinematic marble, hardcover, spine visible, rim light.
+- `content_theming_score` ≥ 90 — accent color + hero metaphor + chips match the book's topic (not generic).
+
+### 5. Apply retroactively to existing 7 listed books
+Add an admin action "Regenerate all thumbnails" on the Live Production Queue that re-runs `generate-cover` for every listed ebook using the new template, then re-uploads the resulting `cover_url`.
+
+### Files touched
+
+- `supabase/functions/_shared/cover.ts` — new `renderReferenceStyleCover()` template + updated QC schema.
+- `supabase/functions/generate-cover/index.ts` — call the new template, tightened mockup prompt, new gates, retry loop.
+- `src/components/admin/LiveProductionQueue.tsx` — "Regenerate all thumbnails" bulk button.
+
+### Out of scope
+
+- Redesigning the PDF interior.
+- Changing pricing / checkout / download flow.
+- Non-ebook product types.
+
+## Questions before I build
+
+1. **Accent color per category** — OK if I auto-pick (finance = gold, productivity = electric blue, health = emerald, mindset = magenta, business = white-on-black only), or do you want to lock **every** book to the black + yellow reference palette?
+2. **Bottom feature chips** — auto-generate 4 chips from each book's content (varied per book), or keep a fixed set like the reference (Clear Plan · Framework · Momentum · Freedom)?
+3. **Retro-apply** — regenerate thumbnails for the 7 already-listed books now, or only apply to new books going forward?
