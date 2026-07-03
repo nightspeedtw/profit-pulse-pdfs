@@ -670,6 +670,9 @@ Deno.serve(async (req) => {
     const repairLog: { attempt: number; action: string; chapter_index?: number }[] = [];
 
     for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
+      if (Date.now() > deadlineMs) {
+        return await deferToWorker("manuscript_qc_time_sliced_before_150s_timeout", { attempt, attempts_used: attemptsUsed });
+      }
       const attemptLabel = attempt === 0 ? "initial pass" : `re-check after repair ${attempt}/${MAX_REPAIR_ATTEMPTS}`;
       await emit("load_chapters", `Loading chapters (${attemptLabel})…`, { attempt });
       chapters = await loadChapters(db, ebook_id);
@@ -805,6 +808,13 @@ Deno.serve(async (req) => {
       const pickedExpandAll = { done: false };
 
       for (const r of sorted) {
+        if (Date.now() > deadlineMs) {
+          return await deferToWorker("manuscript_qc_time_sliced_during_targeted_repair", {
+            attempt,
+            attempts_used: attemptsUsed,
+            repaired: repairLog.length,
+          });
+        }
         if (r.repair_action === "regenerate_missing_chapter" && r.chapter_index) {
           const target = wordsTarget;
           await emit("repair_chapter", `Regenerating missing Chapter ${r.chapter_index} (attempt ${attemptsUsed}/${MAX_REPAIR_ATTEMPTS})…`, { attempt: attemptsUsed, chapter_index: r.chapter_index });
@@ -874,6 +884,13 @@ Deno.serve(async (req) => {
         // transitions, and summaries across the whole manuscript.
         const inst = instructionsForReason({ code: "humanize_manuscript", message: "", repair_action: "humanize_manuscript" }, 0);
         for (const ch of chapters) {
+          if (Date.now() > deadlineMs) {
+            return await deferToWorker("manuscript_qc_time_sliced_during_humanization", {
+              attempt,
+              attempts_used: attemptsUsed,
+              repaired: repairLog.length,
+            });
+          }
           if (seenChapters.has(ch.chapter_index)) continue;
           const target = Math.max(ch.word_count ?? 0, MIN_CHAPTER_WORDS);
           await emit("humanize_chapter", `Humanizing Chapter ${ch.chapter_index}/${chapters.length}…`, { attempt: attemptsUsed, chapter_index: ch.chapter_index });
