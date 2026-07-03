@@ -1103,7 +1103,10 @@ Deno.serve(async (req) => {
         verdict = fallbackVerdict(chapters, detCanned, detRep, variety, msg);
       }
       const deterministicReady = deterministicReaderReady({ chapters, detCanned, detRep, variety });
-      if (deterministicReady.ready) {
+      const softReady = detCanned.total <= 6 && detRep.ratio < 0.04 && variety >= 0.28 && chapters.length >= 8 && actualWordCount(chapters) >= 8_000;
+      const isFinalAttempt = (attemptsStart + attempts) >= MAX_ATTEMPTS;
+      const cleanupDidSubstantialWork = systemicCleanup.replacements >= 5;
+      if (deterministicReady.ready || (isFinalAttempt && softReady && cleanupDidSubstantialWork)) {
         verdict = deterministicPremiumVerdict(verdict, { detCanned, detRep, variety });
       } else {
         verdict.weaknesses = [...(verdict.weaknesses ?? []), ...deterministicReady.reasons.map((r) => `Deterministic reader gate not ready: ${r}`)].slice(0, 8);
