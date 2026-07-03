@@ -92,6 +92,7 @@ Return JSON only:
     "title_readability": 0-100,
     "subtitle_readability": 0-100,
     "thumbnail_readability": 0-100,
+    "thumbnail_book_mockup": 0-100,
     "human_designed_feel": 0-100,
     "premium_feel": 0-100,
     "category_fit": 0-100,
@@ -107,13 +108,16 @@ Return JSON only:
   "no_overlap": true|false,
   "strong_contrast": true|false,
   "no_misleading_claim": true|false,
-  "failed_reasons": ["title_low"|"subtitle_low"|"thumbnail_weak"|"looks_ai_generated"|"weak_premium_feel"|"weak_emotional_hook"|"category_mismatch"|"clutter"|"low_contrast"|"weak_hierarchy"|"unsafe_claim"],
+  "failed_reasons": ["title_low"|"subtitle_low"|"thumbnail_weak"|"thumbnail_not_book_mockup"|"looks_ai_generated"|"weak_premium_feel"|"weak_emotional_hook"|"category_mismatch"|"clutter"|"low_contrast"|"weak_hierarchy"|"unsafe_claim"],
   "improvements": ["specific actionable fixes"]
 }
+
+thumbnail_book_mockup scoring: The Shopify thumbnail must look like a REAL standing book product (perspective, spine, page edges, ground shadow) — NOT a flat cover screenshot. Score 100 = photo-real premium book mockup buyers would click. Score <90 = flat, screenshot-like, or no dimensionality.
 
 Pass gate — ALL must be true:
 - title_readability >= 90
 - thumbnail_readability >= 90
+- thumbnail_book_mockup >= 90
 - human_designed_feel >= 90
 - premium_feel >= 90
 - category_fit >= 90
