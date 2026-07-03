@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { fetchStorefrontById, type StorefrontEbook } from "@/lib/storefront";
-import { useCartStore } from "@/stores/cartStore";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ShoppingCart, Loader2, Download } from "lucide-react";
+import { ArrowLeft, Loader2, Download } from "lucide-react";
+import { freeDownload } from "@/lib/freeDownload";
 
 export default function Product() {
   const { handle } = useParams();
   const [product, setProduct] = useState<StorefrontEbook | null>(null);
   const [loading, setLoading] = useState(true);
-  const addItem = useCartStore((s) => s.addItem);
 
   useEffect(() => {
     if (!handle) return;
@@ -35,8 +34,6 @@ export default function Product() {
     );
   }
 
-  const price = product.price != null ? `$${Number(product.price).toFixed(2)}` : "—";
-
   return (
     <div className="container py-8 max-w-5xl">
       <Link to="/library" className="inline-flex items-center gap-2 text-sm font-mono uppercase mb-6 hover:underline">
@@ -56,21 +53,21 @@ export default function Product() {
           )}
 
           <h1 className="font-display text-4xl uppercase leading-tight">{product.title}</h1>
-          <p className="font-display text-3xl">{price}</p>
+          <p className="font-display text-3xl text-accent-foreground">FREE</p>
           <div className="prose prose-sm max-w-none whitespace-pre-wrap">
-            {product.product_description || "Premium digital PDF, instant download after purchase."}
+            {product.product_description || "Premium digital PDF, instant download — no signup required."}
           </div>
           <div className="flex gap-3">
-            <Button onClick={() => addItem(product)} disabled={!product.price} className="h-14 flex-1 gap-2">
-              <ShoppingCart className="h-5 w-5" /> Add to Cart
+            <Button onClick={() => freeDownload(product.id, product.title)} className="h-14 flex-1 gap-2">
+              <Download className="h-5 w-5" /> Download PDF
             </Button>
           </div>
           <ul className="text-xs text-muted-foreground space-y-1 pt-4 border-t-2 border-foreground/20">
-            <li className="flex items-center gap-2"><Download className="h-3 w-3" /> Instant PDF delivery</li>
-            <li>7-day download window · up to 5 downloads per purchase</li>
+            <li className="flex items-center gap-2"><Download className="h-3 w-3" /> Instant PDF · no payment required</li>
           </ul>
         </div>
       </div>
     </div>
   );
 }
+
