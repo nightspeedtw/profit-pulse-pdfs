@@ -262,7 +262,7 @@ Deno.serve(async (req) => {
         "waiting_for_ai_budget", "waiting_for_worker_slot",
       ];
       const cols =
-        "id,title,canonical_status,autopilot_state,queue_position,queued_at,estimated_start_after_run_id,waiting_reason,current_step,current_step_label,current_action_message,current_subtask,progress_pct,last_heartbeat_at,current_qc_score,autofix_attempt,autofix_max,auto_fix_attempt_count,structured_error,blocker_class,blocker_reason,needs_review_reason,next_recommended_action,failed_gate,failed_score,required_score,next_retry_at,cover_url,thumbnail_url,pdf_url,shopify_status,shopify_product_id,shopify_draft_url,updated_at,pdf_qc,cover_qc,reader_experience_qc,pdf_score,cover_score,reader_experience_score,reader_experience_status,reader_experience_fix_count,re_render_reason,re_render_count,re_render_last_at,qc_ready_for_shopify,final_quality_score,word_count,shopify_title,shopify_subtitle,short_hook,body_html,benefit_bullets,whats_inside,who_its_for,who_its_not_for,price,compare_at_price,launch_price,price_tier,seo_title,meta_description,url_slug,tags,pricing_confidence_score,product_page_qc_score,thumbnail_qc_score,shopify_package_json,subtitle,slug";
+        "id,title,canonical_status,autopilot_state,queue_position,queued_at,estimated_start_after_run_id,waiting_reason,current_step,current_step_label,current_action_message,current_subtask,progress_pct,last_heartbeat_at,current_qc_score,autofix_attempt,autofix_max,auto_fix_attempt_count,structured_error,blocker_class,blocker_reason,needs_review_reason,next_recommended_action,failed_gate,failed_score,required_score,next_retry_at,cover_url,thumbnail_url,pdf_url,shopify_status,shopify_product_id,shopify_draft_url,updated_at,pdf_qc,cover_qc,reader_experience_qc,pdf_score,cover_score,reader_experience_score,reader_experience_status,reader_experience_fix_count,re_render_reason,re_render_count,re_render_last_at,qc_ready_for_shopify,final_quality_score,word_count,shopify_title,shopify_subtitle,short_hook,body_html,benefit_bullets,whats_inside,who_its_for,who_its_not_for,price,compare_at_price,launch_price,price_tier,seo_title,meta_description,url_slug,tags,pricing_confidence_score,product_page_qc_score,thumbnail_qc_score,shopify_package_json,subtitle";
 
       const inList = (v: string[]) =>
         `canonical_status.in.(${v.join(",")}),autopilot_state.in.(${v.join(",")})`;
@@ -284,11 +284,23 @@ Deno.serve(async (req) => {
         supabase.from("ebooks").select(cols).or(eqEither("needs_code_fix"))
           .order("updated_at", { ascending: false }).limit(20),
         // Ready to Publish — 100% complete, PDF ready, not yet pushed to Shopify.
-        supabase.from("ebooks")
-          .select(cols + ",final_quality_score,word_count")
-          .or("canonical_status.in.(ready_to_publish,completed),autopilot_state.in.(done,ready_to_publish)")
-          .or("shopify_status.is.null,shopify_status.neq.published")
-          .order("updated_at", { ascending: false }).limit(20),
+        // NOTE: `.or("...in.(a,b)...")` in supabase-js/PostgREST parses the
+        // inner comma as an OR separator and silently returns []. Use two
+        // simple `.in()` queries and merge in JS.
+        Promise.all([
+          supabase.from("ebooks").select(cols + ",final_quality_score,word_count")
+            .in("canonical_status", ["ready_to_publish", "completed"])
+            .order("updated_at", { ascending: false }).limit(20),
+          supabase.from("ebooks").select(cols + ",final_quality_score,word_count")
+            .in("autopilot_state", ["done", "ready_to_publish"])
+            .order("updated_at", { ascending: false }).limit(20),
+        ]).then(([a, b]) => {
+          const byId = new Map<string, any>();
+          for (const row of [...(a.data ?? []), ...(b.data ?? [])]) byId.set(row.id, row);
+          return { data: Array.from(byId.values()), error: a.error ?? b.error };
+        }),
+
+
       ]);
 
       // Coalesce canonical_status ← autopilot_state so the UI's badges and
@@ -332,7 +344,7 @@ Deno.serve(async (req) => {
         auto_fixing: coalesce(autofix.data),
         needs_admin: coalesce(needsAdmin.data),
         needs_code_fix: coalesce(needsCode.data),
-        ready_to_publish: coalesce(ready.data),
+        ready_to_publish: coalesce((ready.data ?? []).filter((r: any) => r.shopify_status !== "published")),
         system_fixes: fixes ?? [],
         heavy_production_lock: lock ?? null,
         fetched_at: new Date().toISOString(),
