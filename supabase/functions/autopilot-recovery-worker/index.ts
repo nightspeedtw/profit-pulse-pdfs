@@ -267,15 +267,25 @@ Deno.serve(async (req) => {
     if (!hasStartedAssets) continue;
     const report = await persistQcSnapshot(db, ebook as Record<string, unknown>);
     if (report.ready_for_shopify && ebook.pdf_url) {
+      const shopifyDraftEnabled = settings?.shopify_draft_upload_enabled !== false;
       if (!dry) await db.from("ebooks").update({
         autopilot_state: "ready_to_publish",
         canonical_status: "ready_to_publish",
         qc_status: "qc_passed",
         blocker_reason: null,
         blocker_class: null,
-        waiting_reason: null,
+        waiting_reason: shopifyDraftEnabled
+          ? "QC passed — resuming pipeline to upload Shopify draft automatically."
+          : null,
         needs_review_reason: null,
+        next_recommended_action: shopifyDraftEnabled ? "shopify_draft_upload" : null,
       }).eq("id", ebook.id);
+      if (shopifyDraftEnabled && !dry) {
+        resumed.push(ebook.id);
+        invokePipeline(ebook.id).catch((e) =>
+          console.warn("[recovery] ready-to-shopify resume failed", ebook.id, e?.message ?? e)
+        );
+      }
       continue;
     }
     const gate = firstBlockingGate(report);
