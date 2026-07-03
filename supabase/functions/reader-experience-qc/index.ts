@@ -706,13 +706,21 @@ Deno.serve(async (req) => {
       reader_experience_attempted_at: new Date().toISOString(),
     }).eq("id", ebook_id);
 
-    const attemptsStart = Number(ebook.reader_experience_fix_count ?? 0);
+    let attemptsStart = Number(ebook.reader_experience_fix_count ?? 0);
     const title: string = ebook.title ?? "Untitled";
     const audience: string = ebook.target_audience ?? ebook.audience ?? "";
 
     let chapters = await loadChapters(db, ebook_id);
     if (chapters.length === 0) {
       throw new Error("no_chapters_to_review");
+    }
+
+    const systemicCleanup = await applySystemicCleanup(db, ebook_id, chapters);
+    if (systemicCleanup.replacements > 0 && attemptsStart >= MAX_ATTEMPTS) {
+      // Previous auto-fix attempts were spent before the producer could make a
+      // manuscript-level repair. Give the improved manuscript one fresh scoring
+      // slice instead of immediately failing on stale attempt count.
+      attemptsStart = MAX_ATTEMPTS - 1;
     }
 
     const history: Array<{ attempt: number; scores: Record<string, number>; failed_keys: string[]; humanize?: unknown }> = [];
@@ -765,9 +773,10 @@ Deno.serve(async (req) => {
       const humanized = await humanizeExcerpts(db, ebook_id, chapters, priorities, deadlineMs);
       history[history.length - 1].humanize = humanized;
 
-      if ((attemptsStart + attempts) < MAX_ATTEMPTS) { deferred = true; break; }
       if (humanized.replacements === 0) break; // nothing left to repair automatically
+      deferred = true;
       chapters = await loadChapters(db, ebook_id); // reload with new content
+      break;
     }
 
     const finalOverall = verdict?.overall_score ?? 0;
@@ -778,6 +787,7 @@ Deno.serve(async (req) => {
       pass_targets: PASS,
       verdict,
       history,
+      systemic_cleanup: systemicCleanup,
       generated_at: new Date().toISOString(),
     };
 
