@@ -84,7 +84,7 @@ function extractJson<T>(raw: string, opts: { allowTruncated?: boolean } = {}): T
 }
 
 export async function aiJSON<T>(opts: {
-  system: string; user: string; model: string; schemaHint?: string; maxTokens?: number;
+  system: string; user: string; model: string; schemaHint?: string; maxTokens?: number; timeoutMs?: number;
 }): Promise<AIResult<T>> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) throw new Error("LOVABLE_API_KEY not configured");
@@ -99,11 +99,19 @@ export async function aiJSON<T>(opts: {
       response_format: { type: "json_object" },
       max_tokens: maxTokens,
     };
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const controller = opts.timeoutMs ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort("ai_json_timeout"), opts.timeoutMs) : null;
+    let res: Response;
+    try {
+      res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller?.signal,
+      });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`AI gateway ${res.status}: ${text.slice(0, 500)}`);
@@ -145,17 +153,26 @@ export async function aiJSON<T>(opts: {
   };
 }
 
-export async function aiText(opts: { system: string; user: string; model: string }): Promise<AIResult<string>> {
+export async function aiText(opts: { system: string; user: string; model: string; maxTokens?: number; timeoutMs?: number }): Promise<AIResult<string>> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) throw new Error("LOVABLE_API_KEY not configured");
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: opts.model,
-      messages: [{ role: "system", content: opts.system }, { role: "user", content: opts.user }],
-    }),
-  });
+  const controller = opts.timeoutMs ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort("ai_text_timeout"), opts.timeoutMs) : null;
+  let res: Response;
+  try {
+    res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: opts.model,
+        messages: [{ role: "system", content: opts.system }, { role: "user", content: opts.user }],
+        ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+      }),
+      signal: controller?.signal,
+    });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
   if (!res.ok) throw new Error(`AI gateway ${res.status}: ${(await res.text()).slice(0, 500)}`);
   const j = await res.json();
   const text = j.choices?.[0]?.message?.content ?? "";
