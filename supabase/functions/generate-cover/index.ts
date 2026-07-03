@@ -284,16 +284,59 @@ function completeThumbnailQcContract(
   return qc;
 }
 
-async function generateBackgroundPNG(prompt: string): Promise<{ bytes: Uint8Array; cost: number }> {
+type StyleRef = {
+  image_url: string;
+  image_data_url: string | null;
+  palette: string[];
+  lighting: string;
+  layout_notes: string;
+  style_summary: string;
+} | null;
+
+async function loadActiveStyleReference(db: ReturnType<typeof admin>): Promise<StyleRef> {
+  const { data: row } = await db.from("cover_style_reference").select("*").eq("is_active", true).maybeSingle();
+  if (!row) return null;
+  let dataUrl: string | null = null;
+  try {
+    if (row.storage_path) {
+      const { data } = await db.storage.from("cover-style-refs").download(row.storage_path);
+      if (data) {
+        const buf = new Uint8Array(await data.arrayBuffer());
+        let b64 = ""; const c = 0x8000;
+        for (let i = 0; i < buf.length; i += c) b64 += String.fromCharCode(...buf.subarray(i, i + c));
+        const mime = row.storage_path.endsWith(".png") ? "image/png" : row.storage_path.endsWith(".webp") ? "image/webp" : "image/jpeg";
+        dataUrl = `data:${mime};base64,${btoa(b64)}`;
+      }
+    }
+  } catch (e) { console.warn("style ref download failed", e); }
+  return {
+    image_url: row.image_url,
+    image_data_url: dataUrl,
+    palette: Array.isArray(row.palette) ? row.palette as string[] : [],
+    lighting: row.lighting ?? "",
+    layout_notes: row.layout_notes ?? "",
+    style_summary: row.style_summary ?? "",
+  };
+}
+
+function styleRefInstruction(ref: StyleRef): string {
+  if (!ref) return "";
+  return `\n\n=== MASTER STYLE REFERENCE (MANDATORY) ===\nAn approved reference cover image is provided. Every cover you produce MUST match its:\n- overall mood, lighting direction and shadow quality\n- background surface + finish\n- product-photography framing and perspective\n- typographic scale and layout rhythm\nAdapt only the metaphor/illustration/wording to fit this specific book.\nPalette to reuse (dominant→accent): ${ref.palette.join(", ") || "n/a"}\nLighting: ${ref.lighting || "n/a"}\nLayout: ${ref.layout_notes || "n/a"}\nStyle summary: ${ref.style_summary || "n/a"}\n=== END REFERENCE ===`;
+}
+
+async function generateBackgroundPNG(prompt: string, ref: StyleRef): Promise<{ bytes: Uint8Array; cost: number }> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) throw new Error("LOVABLE_API_KEY not configured");
-  const cleanPrompt = `${prompt}\n\nABSOLUTELY NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS, NO SIGNAGE, NO TYPOGRAPHY anywhere in the image. Vertical 2:3 book-cover composition, premium editorial nonfiction quality, human-designed restraint, one strong visual metaphor, clean negative space for text overlay, no generic AI clichés, no over-rendered glossy surfaces, no random surreal objects.`;
+  const styleClause = ref ? `\n\nMATCH THE ATTACHED REFERENCE IMAGE'S lighting, mood, background surface finish, palette (${ref.palette.join(", ")}), and overall aesthetic exactly. Adapt only the central metaphor/illustration to this book.` : "";
+  const cleanPrompt = `${prompt}${styleClause}\n\nABSOLUTELY NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS, NO SIGNAGE, NO TYPOGRAPHY anywhere in the image. Vertical 2:3 book-cover composition, premium editorial nonfiction quality, human-designed restraint, one strong visual metaphor, clean negative space for text overlay, no generic AI clichés, no over-rendered glossy surfaces, no random surreal objects.`;
+  const content: unknown[] = [{ type: "text", text: cleanPrompt }];
+  if (ref?.image_data_url) content.push({ type: "image_url", image_url: { url: ref.image_data_url } });
   const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "google/gemini-3-pro-image",
-      messages: [{ role: "user", content: cleanPrompt }],
+      messages: [{ role: "user", content }],
       modalities: ["image", "text"],
     }),
   });
