@@ -217,6 +217,22 @@ function cleanupChapterContent(content: string, title: string, seenSalaryPhrase:
     return "";
   });
 
+  // Delete markdown horizontal rules that break reader flow and often leak into
+  // final PDFs as artifacts.
+  out = out.replace(/^\s*(?:---|___|\*\*\*)\s*$/gm, () => {
+    replacements++;
+    issues.push("markdown_horizontal_rule_removed");
+    return "";
+  });
+
+  // Repeated template labels make chapters feel machine-built. Remove the label
+  // but keep the surrounding content so the advice remains intact.
+  out = out.replace(/^\s*(?:Chapter Objective|Key Takeaway|Action Step|Reflection|Worksheet)\s*:?\s*$/gmi, () => {
+    replacements++;
+    issues.push("repeated_template_heading_removed");
+    return "";
+  });
+
   // Strip remaining bold markdown markers from prose.
   out = out.replace(/\*\*([^*]+)\*\*/g, (_full, text) => {
     replacements++;
