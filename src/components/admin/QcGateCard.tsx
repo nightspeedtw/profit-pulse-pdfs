@@ -91,12 +91,33 @@ export function QcGateCard({
   qc,
   reRender,
   compact = false,
+  ebookId,
 }: {
   qc: QcGateReport | null | undefined;
   reRender?: ReRenderInfo | null;
   compact?: boolean;
+  ebookId?: string;
 }) {
+  const [fixing, setFixing] = useState<string | null>(null);
   if (!qc) return null;
+
+  async function autoFix(gate: "any" | "reader" | "cover_pdf" | "cover_thumb" | "formatter") {
+    if (!ebookId) return;
+    setFixing(gate);
+    try {
+      const { data, error } = await supabase.functions.invoke("autofix-action", {
+        body: { ebook_id: ebookId, action: "autofix_gate", gate },
+      });
+      if (error) throw error;
+      toast.success(`Auto Fix เริ่มแล้ว · ${gate}`, {
+        description: (data as { gate?: string } | null)?.gate ?? gate,
+      });
+    } catch (e) {
+      toast.error("Auto Fix ล้มเหลว", { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setFixing(null);
+    }
+  }
 
   const gateNames: (keyof QcGateReport)[] = [
     "formatter",
