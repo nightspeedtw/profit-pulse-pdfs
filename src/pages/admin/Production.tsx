@@ -235,6 +235,8 @@ export default function Production() {
         </div>
       </div>
 
+      <SystemHeartbeatCard />
+
       <LiveProductionQueue />
 
       <Card className="border-2 border-foreground">
