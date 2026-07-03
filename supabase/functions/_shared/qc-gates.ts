@@ -128,19 +128,33 @@ export function computeQcGates(row: Record<string, unknown>): QcGateReport {
   };
 
   // Cover thumbnail (3D mockup).
+  // The generate-cover producer stores raw AI critic output under
+  // `cover_qc.scores.<dimension>` (no `_score` suffix). Older/repair paths
+  // may also mirror `<dimension>_score` at the top level. Support both so the
+  // breakdown never comes back as nil when the producer actually scored.
+  const coverScores = pickJson(coverQc?.scores) ?? {};
+  const pickThumb = (base: string): number | null =>
+    num(coverScores?.[base]) ??
+    num(coverScores?.[`${base}_score`]) ??
+    num(coverQc?.[`${base}_score`]) ??
+    num(coverQc?.[base]);
   const thumbBreakdown = {
-    book_mockup: num(coverQc?.thumbnail_book_mockup_score),
-    readability: num(coverQc?.thumbnail_readability_score),
-    click_appeal: num(coverQc?.shopify_click_appeal_score) ??
-      num(coverQc?.shopify_click_appeal),
-    premium_feel: num(coverQc?.premium_product_feel_score) ??
-      num(coverQc?.premium_product_feel),
+    book_mockup: pickThumb("thumbnail_book_mockup"),
+    readability: pickThumb("thumbnail_readability"),
+    click_appeal: pickThumb("shopify_click_appeal") ?? pickThumb("click_appeal"),
+    premium_feel: pickThumb("premium_product_feel") ?? pickThumb("premium_feel"),
   };
   const thumbScore = avg(Object.values(thumbBreakdown)) ?? num(row.cover_score);
-  const thumbHasData = Object.values(thumbBreakdown).some((x) => x != null);
+  const thumbHasData = Object.values(thumbBreakdown).some((x) => x != null) ||
+    num(row.cover_score) != null;
+  // Gate: every populated dimension must clear 90 OR the aggregate must clear
+  // 90 when individual dimensions weren't captured (legacy runs / partial QC).
+  const dimsPresent = Object.values(thumbBreakdown).filter((x): x is number => x != null);
+  const allDimsPass = dimsPresent.length > 0 && dimsPresent.every((v) => v >= 90);
+  const aggregatePass = dimsPresent.length === 0 && thumbScore != null && thumbScore >= 90;
   const cover_thumb: GateResult = {
     score: thumbScore,
-    pass: thumbScore != null && thumbScore >= 90 && thumbHasData,
+    pass: thumbHasData && (allDimsPass || aggregatePass),
     target: 90,
     breakdown: thumbBreakdown,
   };
