@@ -14,6 +14,7 @@ import { downloadAdminPdf } from "@/lib/pdf";
 import { PdfWizard } from "@/components/admin/PdfWizard";
 import { FinalApproval } from "@/components/admin/FinalApproval";
 import ShopifyStatus from "@/components/admin/ShopifyStatus";
+import { FEATURES } from "@/config/features";
 
 
 interface Chapter { title: string; content: string }
@@ -388,8 +389,15 @@ export default function EbookReview() {
       <div className="sticky bottom-0 border-2 border-foreground bg-card p-4 flex flex-wrap gap-2">
         <Button onClick={save} disabled={busy === "save"}>{busy === "save" && <Loader2 className="size-4 animate-spin" />} Save edits</Button>
         <Button variant="outline" onClick={() => run("generate-cover")} disabled={!!busy}>{busy === "generate-cover" && <Loader2 className="size-4 animate-spin mr-1" />}Regenerate cover</Button>
-        <Button variant="outline" onClick={() => run("generate-interior-visuals")} disabled={!!busy}>{busy === "generate-interior-visuals" && <Loader2 className="size-4 animate-spin mr-1" />}Generate visuals</Button>
-        <Button variant="outline" onClick={() => run("build-pdf")} disabled={!!busy}>Build PDF (auto-QC)</Button>
+        {FEATURES.LEGACY_PIPELINE && (
+          <>
+            <Button variant="outline" onClick={() => run("generate-interior-visuals")} disabled={!!busy}>{busy === "generate-interior-visuals" && <Loader2 className="size-4 animate-spin mr-1" />}Generate visuals</Button>
+            <Button variant="outline" onClick={() => run("build-pdf")} disabled={!!busy}>Build PDF (auto-QC)</Button>
+          </>
+        )}
+        {!FEATURES.LEGACY_PIPELINE && (
+          <Button variant="outline" onClick={() => run("render-pdf")} disabled={!!busy}>{busy === "render-pdf" && <Loader2 className="size-4 animate-spin mr-1" />}Render PDF (Phase 1)</Button>
+        )}
       </div>
     </div>
   );

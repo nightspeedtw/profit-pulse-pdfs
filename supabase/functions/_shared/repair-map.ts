@@ -111,9 +111,11 @@ export const REPAIR_MAP: Record<string, RepairAction> = {
     resume_from: "pdf_qc",
   },
   worksheet_wrong_category: {
-    invoke: "generate-interior-visuals",
-    body: { mode: "regenerate_worksheets_by_category" },
-    resume_from: "pdf_rendering",
+    // Phase 1 has no separate interior-visuals producer — render-pdf handles
+    // worksheet composition. Legacy flag flips this back to generate-interior-visuals.
+    invoke: "render-pdf",
+    body: { force: true, regenerate_worksheets: true },
+    resume_from: "pdf_qc",
     targeted: true,
   },
   worksheet_overflow: {

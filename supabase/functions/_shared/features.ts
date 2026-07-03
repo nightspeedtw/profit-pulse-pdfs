@@ -7,6 +7,7 @@ export const FEATURES = {
   BLOG_AUTOMATION: false,
   SOCIAL_POSTING: false,
   ADVANCED_BATCH_MODE: false,
+  LEGACY_PIPELINE: false,
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;
