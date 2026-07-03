@@ -295,6 +295,7 @@ function SectionA({ items }: { items: QueueEbook[] }) {
                   <span>Auto-fix {e.autofix_attempt}/{e.autofix_max ?? 3}</span>
                 )}
               </div>
+              <BlockerSummary e={e} />
               <QcGateCard qc={e.qc} reRender={e.re_render} ebookId={e.id} />
             </div>
           );
@@ -352,6 +353,9 @@ function SectionC({ items }: { items: QueueEbook[] }) {
               <div className="text-xs text-muted-foreground">
                 {v.helper ?? "ระบบจะลองใหม่ให้อัตโนมัติ"} — ลองใหม่ {untilRetry(e.next_retry_at)}
               </div>
+              <div className="mt-2">
+                <BlockerSummary e={e} />
+              </div>
             </li>
           );
         })}
@@ -373,8 +377,11 @@ function SectionD({ items }: { items: QueueEbook[] }) {
           <li key={e.id} className="rounded-md border p-2 text-sm">
             <div className="font-medium">{e.title ?? `Ebook ${e.id.slice(0, 8)}`}</div>
             <div className="text-xs text-muted-foreground">
-              {e.current_subtask ?? "กำลังแก้ปัญหา"} — ครั้งที่ {e.autofix_attempt ?? 1}/
+              {e.current_subtask ?? e.current_action_message ?? "กำลังแก้ปัญหา"} — ครั้งที่ {e.autofix_attempt ?? e.structured_error?.attempt ?? 1}/
               {e.autofix_max ?? 3}
+            </div>
+            <div className="mt-2">
+              <BlockerSummary e={e} />
             </div>
           </li>
         ))}
@@ -436,6 +443,22 @@ function SectionE({
             <div className="text-xs text-muted-foreground">
               {e.waiting_reason ?? "รอ Lovable แก้โค้ด"}
             </div>
+            <div className="mt-2">
+              <BlockerSummary e={e} />
+            </div>
+            {e.structured_error?.lovable_prompt && (
+              <Button
+                size="sm"
+                variant="destructive"
+                className="mt-2 gap-2"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(e.structured_error?.lovable_prompt ?? "");
+                  toast.success("Copied Lovable fix prompt");
+                }}
+              >
+                <Copy className="h-4 w-4" /> Copy Fix Prompt
+              </Button>
+            )}
           </div>
         ))}
       </div>
@@ -457,6 +480,9 @@ function SectionF({ needsAdmin }: { needsAdmin: QueueEbook[] }) {
             <div className="font-medium">{e.title ?? e.id}</div>
             <div className="text-xs text-muted-foreground">
               {e.waiting_reason ?? "ระบบแก้เองไม่ได้ ต้องให้แอดมินตัดสินใจ"}
+            </div>
+            <div className="mt-2">
+              <BlockerSummary e={e} />
             </div>
           </li>
         ))}
