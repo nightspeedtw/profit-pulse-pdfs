@@ -298,7 +298,7 @@ function chapterWorksheet(c: PdfChapter): string {
     const rowsHtml = Array.from({ length: rows }, (_, r) => {
       const cells = cols.map((_, ci) => {
         const val = prefill[r]?.[ci] ?? "";
-        return `<td>${esc(val)}</td>`;
+        return `<td>${cleanLabel(val)}</td>`;
       }).join("");
       return `<tr>${cells}</tr>`;
     }).join("");
@@ -306,13 +306,13 @@ function chapterWorksheet(c: PdfChapter): string {
       <table class="ws-table${wide}">
         <colgroup>${cols.map(() => `<col style="width:${colWidth}" />`).join("")}</colgroup>
         <thead><tr>${cols.map((h) =>
-          `<th>${h.split("\n").map((line) => esc(line)).join("<br/>")}</th>`).join("")}</tr></thead>
+          `<th>${h.split("\n").map((line) => cleanLabel(line)).join("<br/>")}</th>`).join("")}</tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>`;
   };
 
-  const heading = (label: string) => `<h3 class="block__heading">${esc(label)} — ${esc(w.title)}</h3>`;
-  const purpose = w.prompts?.[0] ? `<p class="ws-purpose">${esc(w.prompts[0])}</p>` : "";
+  const heading = (label: string) => `<h3 class="block__heading">${cleanLabel(label)} — ${cleanLabel(w.title)}</h3>`;
+  const purpose = w.prompts?.[0] ? `<p class="ws-purpose">${cleanLabel(w.prompts[0])}</p>` : "";
 
   if (kind === "debt_tracker") {
     const headers = w.columns?.length ? w.columns : ["Creditor", "Exact Balance", "APR", "Min. Payment", "Payoff Date"];
@@ -330,24 +330,24 @@ function chapterWorksheet(c: PdfChapter): string {
     const items = (w.prompts?.length ? w.prompts : ["Hour 0-4", "Hour 4-12", "Hour 12-24", "Hour 24-48", "Hour 48-72"]);
     return `<section class="worksheet worksheet--timeline">${heading("Sprint Timeline")}${purpose}
       <ol class="ws-timeline">${items.map((p) =>
-        `<li><div class="ws-timeline__slot">${esc(p)}</div><div class="ws-timeline__lines"><span></span><span></span></div></li>`).join("")}</ol></section>`;
+        `<li><div class="ws-timeline__slot">${cleanLabel(p)}</div><div class="ws-timeline__lines"><span></span><span></span></div></li>`).join("")}</ol></section>`;
   }
   if (kind === "negotiation_script") {
     const rows = w.prompts?.length ? w.prompts : ["Opening line", "Anchor number", "Response to pushback", "Close"];
     return `<section class="worksheet worksheet--script">${heading("Negotiation Script")}${purpose}
       <div class="ws-script">${rows.map((r) =>
-        `<div class="ws-script__row"><div class="ws-script__label">${esc(r)}</div><div class="ws-script__lines"><span></span><span></span></div></div>`).join("")}</div></section>`;
+        `<div class="ws-script__row"><div class="ws-script__label">${cleanLabel(r)}</div><div class="ws-script__lines"><span></span><span></span></div></div>`).join("")}</div></section>`;
   }
   if (kind === "automation_flow") {
     const items = w.prompts ?? [];
     return `<section class="worksheet worksheet--flow">${heading("Automation Setup")}${purpose}
       <ul class="ws-flow">${items.map((it) =>
-        `<li><span class="ws-flow__box"></span>${esc(it)}</li>`).join("")}</ul></section>`;
+        `<li><span class="ws-flow__box"></span>${cleanLabel(it)}</li>`).join("")}</ul></section>`;
   }
   if (kind === "operating_manual") {
     const items = w.prompts ?? [];
     return `<section class="worksheet worksheet--manual">${heading("Operating Manual")}${purpose}
-      <ol class="ws-manual">${items.map((it) => `<li>${esc(it)}</li>`).join("")}</ol></section>`;
+      <ol class="ws-manual">${items.map((it) => `<li>${cleanLabel(it)}</li>`).join("")}</ol></section>`;
   }
   // Category-specific table worksheets (productivity, energy, cashflow).
   const TABLE_KINDS: Record<string, { label: string; cols: string[]; rows: number }> = {
