@@ -244,7 +244,7 @@ function SectionA({ items }: { items: QueueEbook[] }) {
                   <span>Auto-fix {e.autofix_attempt}/{e.autofix_max ?? 3}</span>
                 )}
               </div>
-              <QcGateCard qc={e.qc} reRender={e.re_render} />
+              <QcGateCard qc={e.qc} reRender={e.re_render} ebookId={e.id} />
             </div>
           );
         })}
@@ -475,7 +475,7 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
                 </div>
               </div>
               <div className="w-full">
-                <QcGateCard qc={e.qc} reRender={e.re_render} />
+                <QcGateCard qc={e.qc} reRender={e.re_render} ebookId={e.id} />
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
