@@ -380,7 +380,7 @@ function chapterWorksheet(c: PdfChapter): string {
       <ol class="worksheet__list">
         ${w.prompts.map((p) => `
           <li>
-            <div class="worksheet__prompt">${esc(p)}</div>
+            <div class="worksheet__prompt">${cleanLabel(p)}</div>
             <div class="worksheet__lines"><span></span><span></span><span></span></div>
           </li>`).join("")}
       </ol>
