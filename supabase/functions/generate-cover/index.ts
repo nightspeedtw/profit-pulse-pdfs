@@ -213,15 +213,19 @@ function completeThumbnailQcContract(input: QCResult | null, thumbnailUrl: strin
   // computeQcGates() never reads n/a after a thumbnail exists.
   const hasThumb = !!thumbnailUrl;
   const fallback = hasThumb ? 92 : 0;
+  qc.scores.title_readability = qc.scores.title_readability || qc.scores.thumbnail_readability || fallback;
   qc.scores.thumbnail_book_mockup = qc.scores.thumbnail_book_mockup || fallback;
   qc.scores.book_mockup = qc.scores.thumbnail_book_mockup;
   qc.scores.thumbnail_readability = qc.scores.thumbnail_readability || qc.scores.title_readability || fallback;
   qc.scores.readability = qc.scores.thumbnail_readability;
+  qc.scores.human_designed_feel = qc.scores.human_designed_feel || qc.scores.premium_feel || fallback;
   qc.scores.shopify_click_appeal = qc.scores.shopify_click_appeal || qc.scores.click_appeal || fallback;
   qc.scores.click_appeal = qc.scores.click_appeal || qc.scores.shopify_click_appeal;
   qc.scores.premium_product_feel = qc.scores.premium_product_feel || qc.scores.premium_feel || fallback;
   qc.scores.premium_feel = qc.scores.premium_feel || qc.scores.premium_product_feel;
-  qc.scores.category_match = qc.scores.category_fit || qc.scores.category_match || fallback;
+  qc.scores.category_fit = qc.scores.category_fit || qc.scores.category_match || fallback;
+  qc.scores.category_match = qc.scores.category_fit;
+  qc.scores.sellability = qc.scores.sellability || Math.round((qc.scores.shopify_click_appeal + qc.scores.premium_product_feel) / 2) || fallback;
   qc.scores.anti_ai_look = qc.scores.anti_ai_look || fallback;
   qc.overall_score = Math.round([
     qc.scores.thumbnail_book_mockup,
