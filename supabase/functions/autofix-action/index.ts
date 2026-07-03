@@ -68,22 +68,21 @@ Deno.serve(async (req) => {
       // Targeted gate resets — re-arm ONLY the failing stage so the
       // pipeline picks up from the right place instead of restarting.
       const g = gate ?? "any";
-      if (g === "reader" || g === "any") {
-        patch.reader_qc_status = "pending";
-        patch.reader_qc_attempts = 0;
-      }
-      if (g === "cover_pdf" || g === "cover_thumb" || g === "any") {
-        patch.cover_status = "pending";
-        patch.cover_qc_status = "pending";
-      }
-      if (g === "formatter" || g === "any") {
+      if (g === "formatter" || g === "cover_pdf" || g === "cover_thumb" || g === "any") {
+        // Force PDF/cover to be re-rendered; render-pdf regenerates the
+        // cover A4 page and thumbnail mockup as part of its output.
         patch.pdf_status = "idle";
-        patch.pdf_qc_status = "pending";
       }
       if (action !== "autofix_gate" && cur?.manuscript_qc_status === "needs_review") {
         patch.manuscript_qc_status = "pending";
         patch.manuscript_fix_count = 0;
       }
+      if (g === "reader") {
+        // Route through manuscript QC path so reader-experience-qc reruns.
+        patch.manuscript_qc_status = "pending";
+        patch.manuscript_fix_count = 0;
+      }
+      patch.next_recommended_action = `autofix:${g}`;
       await db.from("ebooks").update(patch).eq("id", ebook_id);
 
       // Log to auto_fix_history for visibility.
