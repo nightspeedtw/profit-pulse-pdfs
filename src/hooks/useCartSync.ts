@@ -1,15 +1,5 @@
-import { useEffect } from "react";
-import { useCartStore } from "@/stores/cartStore";
-
+// Native cart is fully client-side (persisted via zustand/persist),
+// no server sync needed. Kept as a no-op for backward compatibility.
 export function useCartSync() {
-  const syncCart = useCartStore((state) => state.syncCart);
-
-  useEffect(() => {
-    syncCart();
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") syncCart();
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [syncCart]);
+  // intentionally empty
 }

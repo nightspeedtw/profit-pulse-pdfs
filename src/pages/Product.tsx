@@ -51,9 +51,10 @@ export default function Product() {
           )}
         </div>
         <div className="space-y-6">
-          {product.product_category && (
-            <span className="sticker inline-block">{product.product_category}</span>
+          {product.product_type && (
+            <span className="sticker inline-block">{product.product_type}</span>
           )}
+
           <h1 className="font-display text-4xl uppercase leading-tight">{product.title}</h1>
           <p className="font-display text-3xl">{price}</p>
           <div className="prose prose-sm max-w-none whitespace-pre-wrap">

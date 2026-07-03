@@ -33,9 +33,10 @@ export const ProductCard = ({ product }: Props) => {
             <FileText className="h-16 w-16" strokeWidth={1.5} />
           </div>
         )}
-        {product.product_category && (
-          <span className="absolute top-3 left-3 sticker">{product.product_category}</span>
+        {product.product_type && (
+          <span className="absolute top-3 left-3 sticker">{product.product_type}</span>
         )}
+
         <span className="absolute bottom-3 right-3 bg-foreground text-background font-display text-lg px-3 py-1 border-2 border-foreground">
           {price}
         </span>
