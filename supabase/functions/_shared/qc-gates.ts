@@ -76,23 +76,28 @@ export function computeQcGates(row: Record<string, unknown>): QcGateReport {
   };
 
   // Reader QC.
+  const readerVerdict = pickJson(readerQc?.verdict);
+  const readerScores = pickJson(readerVerdict?.scores) ?? pickJson(readerQc?.scores) ?? readerQc;
   const readerBreakdown = {
-    natural_language: num(readerQc?.natural_language_score),
-    human_feel: num(readerQc?.human_feel_score),
-    emotional_resonance: num(readerQc?.emotional_resonance_score),
-    page_turning: num(readerQc?.page_turning_score),
-    sellability: num(readerQc?.sellability_score),
-    clarity: num(readerQc?.clarity_score),
-    variety: num(readerQc?.variety_score),
-    no_ai_patterns: num(readerQc?.no_ai_patterns_score),
-    no_repetition: num(readerQc?.no_repetition_score),
-    voice_consistency: num(readerQc?.voice_consistency_score),
-    trust: num(readerQc?.trust_score),
+    natural_language: num(readerScores?.natural_language_score),
+    human_feel: num(readerScores?.human_feel_score) ?? num(readerScores?.human_written_feel_score),
+    emotional_resonance: num(readerScores?.emotional_resonance_score),
+    page_turning: num(readerScores?.page_turning_score) ?? num(readerScores?.reader_engagement_score),
+    sellability: num(readerScores?.sellability_score) ?? num(readerScores?.premium_sellability_score),
+    clarity: num(readerScores?.clarity_score),
+    variety: num(readerScores?.variety_score) ?? num(readerScores?.readability_score),
+    no_ai_patterns: num(readerScores?.no_ai_patterns_score) ?? num(readerScores?.human_written_feel_score),
+    no_repetition: num(readerScores?.no_repetition_score) ?? num(readerScores?.non_repetitive_score),
+    voice_consistency: num(readerScores?.voice_consistency_score) ?? num(readerScores?.voice_quality_score),
+    trust: num(readerScores?.trust_score) ?? num(readerScores?.insight_score),
   };
-  const readerScore = num(row.reader_experience_score) ?? avg(Object.values(readerBreakdown));
+  const readerScore = num(row.reader_experience_score) ??
+    num(readerQc?.overall_score) ??
+    num(readerVerdict?.overall_score) ??
+    avg(Object.values(readerBreakdown));
   const readerStatus = (row.reader_experience_status as string | null) ?? null;
   const readerHasData = readerScore != null ||
-    readerStatus === "passed" || readerStatus === "failed";
+    readerStatus === "pass" || readerStatus === "passed" || readerStatus === "failed";
   const reader: GateResult = {
     score: readerScore,
     pass: readerScore != null && readerScore >= 90 && readerStatus !== "failed",
