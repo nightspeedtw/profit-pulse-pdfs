@@ -598,6 +598,40 @@ Deno.serve(async (req) => {
       }).eq("id", ebook_id);
     }
 
+    async function deferToWorker(reason: string, extra: Record<string, unknown> = {}) {
+      const nextRetry = nextWorkerRetry(2);
+      const progress = {
+        current_subtask: "deferred_worker_slice",
+        subtask_seq: subtaskSeq + 1,
+        message: "Manuscript QC reached the safe worker time limit — saved progress and will auto-resume.",
+        last_heartbeat_at: new Date().toISOString(),
+        elapsed_ms: Date.now() - startedAt,
+        reason,
+        next_retry_at: nextRetry,
+        ...extra,
+      };
+      await db.from("ebooks").update({
+        manuscript_qc_status: "auto_retry",
+        final_manuscript_qc: { progress, deferred: true, reason, next_retry_at: nextRetry } as any,
+        autopilot_state: "waiting_for_worker_slot",
+        canonical_status: "waiting_for_worker_slot",
+        blocker_class: "recoverable_temporary_api_error",
+        blocker_reason: reason,
+        needs_review_reason: null,
+        next_retry_at: nextRetry,
+      }).eq("id", ebook_id);
+      if (run_id) {
+        await db.from("autopilot_pipeline_runs").update({
+          status: "waiting",
+          current_action_message: "Manuscript QC auto-repair is continuing in the next worker slice.",
+          updated_at: new Date().toISOString(),
+        }).eq("id", run_id);
+      }
+      return new Response(JSON.stringify({ ok: true, deferred: true, next_retry_at: nextRetry, reason }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     await emit("loading_manuscript", "Loading manuscript from chapter records…");
     const { data: ebook, error } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
     if (error || !ebook) throw new Error("Ebook not found");
