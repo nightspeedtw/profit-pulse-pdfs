@@ -124,7 +124,6 @@ Deno.serve(async (req) => {
 
       // Targeted gate resets — re-arm ONLY the failing stage so the
       // pipeline picks up from the right place instead of restarting.
-      const g = gate ?? "any";
       if (g === "formatter" || g === "cover_pdf" || g === "cover_thumb" || g === "any") {
         // Force PDF/cover to be re-rendered; render-pdf regenerates the
         // cover A4 page and thumbnail mockup as part of its output.
