@@ -570,7 +570,7 @@ async function processCover(ebook: EbookRow, opts: ProcessOpts) {
           : "";
         const ai = await aiJSON<CoverSpec>({
           model: "google/gemini-3.1-pro-preview",
-          system: COVER_DESIGNER_SYSTEM,
+          system: COVER_DESIGNER_SYSTEM + styleRefInstruction(styleRef),
           user: `Ebook Title: ${ebook.title}
 Subtitle: ${ebook.subtitle ?? ""}
 Category: ${category ?? "general"}
