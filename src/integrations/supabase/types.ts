@@ -757,9 +757,11 @@ export type Database = {
           autofix_max: number | null
           autopilot_mode: string
           autopilot_state: string
+          benefit_bullets: Json | null
           blocked_at: string | null
           blocker_class: string | null
           blocker_reason: string | null
+          body_html: string | null
           bonus_section_json: Json | null
           bonuses: Json
           browserless_retry_count: number
@@ -769,6 +771,7 @@ export type Database = {
           category_id: string | null
           chapter_qc: Json
           chapters: Json
+          compare_at_price: number | null
           compliance_rewrites_json: Json | null
           compliance_safety_score: number | null
           content_depth_score: number | null
@@ -817,6 +820,7 @@ export type Database = {
           manuscript_qc_status: string | null
           max_auto_fix_attempts: number
           memory_state: Json
+          meta_description: string | null
           metadata: Json
           needs_review_reason: string | null
           next_recommended_action: string | null
@@ -843,12 +847,15 @@ export type Database = {
           premium_score: number | null
           price: number
           price_confidence_score: number | null
+          price_tier: string | null
           pricing_computed_at: string | null
+          pricing_confidence_score: number | null
           pricing_report: Json | null
           pricing_tier: string | null
           product_copy: Json
           product_description: string | null
           product_page_qc: Json
+          product_page_qc_score: number | null
           product_type: string
           progress_pct: number | null
           progress_percent: number | null
@@ -874,12 +881,17 @@ export type Database = {
           resolved_at: string | null
           seo_meta: string | null
           seo_title: string | null
+          shopify_draft_url: string | null
           shopify_events: Json
           shopify_handle: string | null
           shopify_last_error: string | null
           shopify_last_event_at: string | null
+          shopify_package_json: Json | null
           shopify_product_id: string | null
           shopify_status: string
+          shopify_subtitle: string | null
+          shopify_title: string | null
+          short_hook: string | null
           standard_price: number | null
           status: string
           structured_error: Json | null
@@ -887,15 +899,20 @@ export type Database = {
           tags: string[]
           target_buyer: string | null
           text_density_score: number | null
+          thumbnail_qc_score: number | null
           thumbnail_url: string | null
           title: string
           toc: Json
           total_word_count: number | null
           updated_at: string
+          url_slug: string | null
           vendor: string
           visual_fatigue_score: number | null
           visual_plan: Json
           waiting_reason: string | null
+          whats_inside: Json | null
+          who_its_for: Json | null
+          who_its_not_for: Json | null
           word_count: number
           worksheet_previews_json: Json | null
           worksheet_readability_score: number | null
@@ -914,9 +931,11 @@ export type Database = {
           autofix_max?: number | null
           autopilot_mode?: string
           autopilot_state?: string
+          benefit_bullets?: Json | null
           blocked_at?: string | null
           blocker_class?: string | null
           blocker_reason?: string | null
+          body_html?: string | null
           bonus_section_json?: Json | null
           bonuses?: Json
           browserless_retry_count?: number
@@ -926,6 +945,7 @@ export type Database = {
           category_id?: string | null
           chapter_qc?: Json
           chapters?: Json
+          compare_at_price?: number | null
           compliance_rewrites_json?: Json | null
           compliance_safety_score?: number | null
           content_depth_score?: number | null
@@ -974,6 +994,7 @@ export type Database = {
           manuscript_qc_status?: string | null
           max_auto_fix_attempts?: number
           memory_state?: Json
+          meta_description?: string | null
           metadata?: Json
           needs_review_reason?: string | null
           next_recommended_action?: string | null
@@ -1000,12 +1021,15 @@ export type Database = {
           premium_score?: number | null
           price?: number
           price_confidence_score?: number | null
+          price_tier?: string | null
           pricing_computed_at?: string | null
+          pricing_confidence_score?: number | null
           pricing_report?: Json | null
           pricing_tier?: string | null
           product_copy?: Json
           product_description?: string | null
           product_page_qc?: Json
+          product_page_qc_score?: number | null
           product_type?: string
           progress_pct?: number | null
           progress_percent?: number | null
@@ -1031,12 +1055,17 @@ export type Database = {
           resolved_at?: string | null
           seo_meta?: string | null
           seo_title?: string | null
+          shopify_draft_url?: string | null
           shopify_events?: Json
           shopify_handle?: string | null
           shopify_last_error?: string | null
           shopify_last_event_at?: string | null
+          shopify_package_json?: Json | null
           shopify_product_id?: string | null
           shopify_status?: string
+          shopify_subtitle?: string | null
+          shopify_title?: string | null
+          short_hook?: string | null
           standard_price?: number | null
           status?: string
           structured_error?: Json | null
@@ -1044,15 +1073,20 @@ export type Database = {
           tags?: string[]
           target_buyer?: string | null
           text_density_score?: number | null
+          thumbnail_qc_score?: number | null
           thumbnail_url?: string | null
           title: string
           toc?: Json
           total_word_count?: number | null
           updated_at?: string
+          url_slug?: string | null
           vendor?: string
           visual_fatigue_score?: number | null
           visual_plan?: Json
           waiting_reason?: string | null
+          whats_inside?: Json | null
+          who_its_for?: Json | null
+          who_its_not_for?: Json | null
           word_count?: number
           worksheet_previews_json?: Json | null
           worksheet_readability_score?: number | null
@@ -1071,9 +1105,11 @@ export type Database = {
           autofix_max?: number | null
           autopilot_mode?: string
           autopilot_state?: string
+          benefit_bullets?: Json | null
           blocked_at?: string | null
           blocker_class?: string | null
           blocker_reason?: string | null
+          body_html?: string | null
           bonus_section_json?: Json | null
           bonuses?: Json
           browserless_retry_count?: number
@@ -1083,6 +1119,7 @@ export type Database = {
           category_id?: string | null
           chapter_qc?: Json
           chapters?: Json
+          compare_at_price?: number | null
           compliance_rewrites_json?: Json | null
           compliance_safety_score?: number | null
           content_depth_score?: number | null
@@ -1131,6 +1168,7 @@ export type Database = {
           manuscript_qc_status?: string | null
           max_auto_fix_attempts?: number
           memory_state?: Json
+          meta_description?: string | null
           metadata?: Json
           needs_review_reason?: string | null
           next_recommended_action?: string | null
@@ -1157,12 +1195,15 @@ export type Database = {
           premium_score?: number | null
           price?: number
           price_confidence_score?: number | null
+          price_tier?: string | null
           pricing_computed_at?: string | null
+          pricing_confidence_score?: number | null
           pricing_report?: Json | null
           pricing_tier?: string | null
           product_copy?: Json
           product_description?: string | null
           product_page_qc?: Json
+          product_page_qc_score?: number | null
           product_type?: string
           progress_pct?: number | null
           progress_percent?: number | null
@@ -1188,12 +1229,17 @@ export type Database = {
           resolved_at?: string | null
           seo_meta?: string | null
           seo_title?: string | null
+          shopify_draft_url?: string | null
           shopify_events?: Json
           shopify_handle?: string | null
           shopify_last_error?: string | null
           shopify_last_event_at?: string | null
+          shopify_package_json?: Json | null
           shopify_product_id?: string | null
           shopify_status?: string
+          shopify_subtitle?: string | null
+          shopify_title?: string | null
+          short_hook?: string | null
           standard_price?: number | null
           status?: string
           structured_error?: Json | null
@@ -1201,15 +1247,20 @@ export type Database = {
           tags?: string[]
           target_buyer?: string | null
           text_density_score?: number | null
+          thumbnail_qc_score?: number | null
           thumbnail_url?: string | null
           title?: string
           toc?: Json
           total_word_count?: number | null
           updated_at?: string
+          url_slug?: string | null
           vendor?: string
           visual_fatigue_score?: number | null
           visual_plan?: Json
           waiting_reason?: string | null
+          whats_inside?: Json | null
+          who_its_for?: Json | null
+          who_its_not_for?: Json | null
           word_count?: number
           worksheet_previews_json?: Json | null
           worksheet_readability_score?: number | null
