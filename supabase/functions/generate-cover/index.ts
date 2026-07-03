@@ -100,6 +100,8 @@ Return JSON only:
     "visual_hierarchy": 0-100,
     "buyer_psychology_fit": 0-100,
     "click_appeal": 0-100,
+    "shopify_click_appeal": 0-100,
+    "premium_product_feel": 0-100,
     "sellability": 0-100,
     "anti_ai_look": 0-100
   },
@@ -122,6 +124,8 @@ Pass gate — ALL must be true:
 - premium_feel >= 90
 - category_fit >= 90
 - click_appeal >= 90
+- shopify_click_appeal >= 90
+- premium_product_feel >= 90
 - sellability >= 90
 - anti_ai_look >= 90
 - no_ai_text_errors == true
@@ -148,6 +152,8 @@ const HARD_MIN: Record<string, number> = {
   premium_feel: 90,
   category_fit: 90,
   click_appeal: 90,
+  shopify_click_appeal: 90,
+  premium_product_feel: 90,
   sellability: 90,
   anti_ai_look: 90,
 };
