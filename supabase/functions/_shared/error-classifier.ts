@@ -515,14 +515,8 @@ export function lovablePrompt(input: {
 
 // Convenience upsert (service role client is passed in to avoid duplicating env plumbing).
 export async function recordSystemFix(
-  supabase: {
-    from: (t: string) => {
-      upsert: (
-        row: Record<string, unknown>,
-        opts: { onConflict: string },
-      ) => Promise<{ error: unknown }>;
-    };
-  },
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
   s: StructuredError,
   ctx: ClassifyContext,
 ): Promise<void> {
