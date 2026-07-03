@@ -142,12 +142,34 @@ function renderMd(md: string): string {
   return out.join("\n");
 }
 
-function stripInlineMd(s: string): string {
+export function stripInlineMd(s: string): string {
   return (s ?? "")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/(^|[^*])\*([^*]+)\*/g, "$1$2")
+    // Repeatedly strip **bold** / __bold__ / *em* / _em_ / `code` markers.
+    // Two passes catch nested / adjacent markers like ****word**** or **a**b**c**.
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/__([^_\n]+)__/g, "$1")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1$2")
+    .replace(/(^|[^_])_([^_\n]+)_/g, "$1$2")
     .replace(/`([^`]+)`/g, "$1")
+    // Strip stray leftover ** or __ pairs
+    .replace(/\*\*+/g, "")
+    .replace(/__+/g, "")
     .trim();
+}
+
+// Canonical helper: use for ALL user-facing text labels rendered into the PDF
+// (chapter titles, TOC entries, callout titles, worksheet headings, checklist
+// items, diagram steps, action-plan tasks). Guarantees markdown bold/italic
+// never leaks as literal `**` in the final PDF.
+function cleanLabel(s: string | null | undefined): string {
+  return esc(stripInlineMd(s ?? ""));
+}
+
+// Publicly reusable so other renderers (Shopify copy, headers) can normalize
+// chapter titles identically to the PDF.
+export function sanitizeChapterTitle(s: string | null | undefined): string {
+  return stripInlineMd(s ?? "").replace(/\s+/g, " ").trim();
 }
 
 // Remove a leading H1/H2 whose text duplicates the chapter title, so the PDF
@@ -204,7 +226,7 @@ function chapterCallouts(c: PdfChapter): string {
   if (!c.callouts?.length) return "";
   return c.callouts.map((co) => `
     <aside class="callout callout--${esc(co.kind ?? "tip")}">
-      ${co.title ? `<div class="callout__title">${esc(stripInlineMd(co.title))}</div>` : ""}
+      ${co.title ? `<div class="callout__title">${cleanLabel(co.title)}</div>` : ""}
       <div class="callout__body">${renderMd(co.body)}</div>
     </aside>`).join("\n");
 }
@@ -276,7 +298,7 @@ function chapterWorksheet(c: PdfChapter): string {
     const rowsHtml = Array.from({ length: rows }, (_, r) => {
       const cells = cols.map((_, ci) => {
         const val = prefill[r]?.[ci] ?? "";
-        return `<td>${esc(val)}</td>`;
+        return `<td>${cleanLabel(val)}</td>`;
       }).join("");
       return `<tr>${cells}</tr>`;
     }).join("");
@@ -284,13 +306,13 @@ function chapterWorksheet(c: PdfChapter): string {
       <table class="ws-table${wide}">
         <colgroup>${cols.map(() => `<col style="width:${colWidth}" />`).join("")}</colgroup>
         <thead><tr>${cols.map((h) =>
-          `<th>${h.split("\n").map((line) => esc(line)).join("<br/>")}</th>`).join("")}</tr></thead>
+          `<th>${h.split("\n").map((line) => cleanLabel(line)).join("<br/>")}</th>`).join("")}</tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>`;
   };
 
-  const heading = (label: string) => `<h3 class="block__heading">${esc(label)} — ${esc(w.title)}</h3>`;
-  const purpose = w.prompts?.[0] ? `<p class="ws-purpose">${esc(w.prompts[0])}</p>` : "";
+  const heading = (label: string) => `<h3 class="block__heading">${cleanLabel(label)} — ${cleanLabel(w.title)}</h3>`;
+  const purpose = w.prompts?.[0] ? `<p class="ws-purpose">${cleanLabel(w.prompts[0])}</p>` : "";
 
   if (kind === "debt_tracker") {
     const headers = w.columns?.length ? w.columns : ["Creditor", "Exact Balance", "APR", "Min. Payment", "Payoff Date"];
@@ -308,24 +330,24 @@ function chapterWorksheet(c: PdfChapter): string {
     const items = (w.prompts?.length ? w.prompts : ["Hour 0-4", "Hour 4-12", "Hour 12-24", "Hour 24-48", "Hour 48-72"]);
     return `<section class="worksheet worksheet--timeline">${heading("Sprint Timeline")}${purpose}
       <ol class="ws-timeline">${items.map((p) =>
-        `<li><div class="ws-timeline__slot">${esc(p)}</div><div class="ws-timeline__lines"><span></span><span></span></div></li>`).join("")}</ol></section>`;
+        `<li><div class="ws-timeline__slot">${cleanLabel(p)}</div><div class="ws-timeline__lines"><span></span><span></span></div></li>`).join("")}</ol></section>`;
   }
   if (kind === "negotiation_script") {
     const rows = w.prompts?.length ? w.prompts : ["Opening line", "Anchor number", "Response to pushback", "Close"];
     return `<section class="worksheet worksheet--script">${heading("Negotiation Script")}${purpose}
       <div class="ws-script">${rows.map((r) =>
-        `<div class="ws-script__row"><div class="ws-script__label">${esc(r)}</div><div class="ws-script__lines"><span></span><span></span></div></div>`).join("")}</div></section>`;
+        `<div class="ws-script__row"><div class="ws-script__label">${cleanLabel(r)}</div><div class="ws-script__lines"><span></span><span></span></div></div>`).join("")}</div></section>`;
   }
   if (kind === "automation_flow") {
     const items = w.prompts ?? [];
     return `<section class="worksheet worksheet--flow">${heading("Automation Setup")}${purpose}
       <ul class="ws-flow">${items.map((it) =>
-        `<li><span class="ws-flow__box"></span>${esc(it)}</li>`).join("")}</ul></section>`;
+        `<li><span class="ws-flow__box"></span>${cleanLabel(it)}</li>`).join("")}</ul></section>`;
   }
   if (kind === "operating_manual") {
     const items = w.prompts ?? [];
     return `<section class="worksheet worksheet--manual">${heading("Operating Manual")}${purpose}
-      <ol class="ws-manual">${items.map((it) => `<li>${esc(it)}</li>`).join("")}</ol></section>`;
+      <ol class="ws-manual">${items.map((it) => `<li>${cleanLabel(it)}</li>`).join("")}</ol></section>`;
   }
   // Category-specific table worksheets (productivity, energy, cashflow).
   const TABLE_KINDS: Record<string, { label: string; cols: string[]; rows: number }> = {
@@ -358,7 +380,7 @@ function chapterWorksheet(c: PdfChapter): string {
       <ol class="worksheet__list">
         ${w.prompts.map((p) => `
           <li>
-            <div class="worksheet__prompt">${esc(p)}</div>
+            <div class="worksheet__prompt">${cleanLabel(p)}</div>
             <div class="worksheet__lines"><span></span><span></span><span></span></div>
           </li>`).join("")}
       </ol>
@@ -370,9 +392,9 @@ function chapterChecklist(c: PdfChapter): string {
   if (!cl?.items?.length) return "";
   return `
     <section class="checklist">
-      <h3 class="block__heading">Checklist — ${esc(cl.title)}</h3>
+      <h3 class="block__heading">Checklist — ${cleanLabel(cl.title)}</h3>
       <ul class="checklist__list">
-        ${cl.items.map((it) => `<li><span class="checklist__box"></span>${esc(it)}</li>`).join("")}
+        ${cl.items.map((it) => `<li><span class="checklist__box"></span>${cleanLabel(it)}</li>`).join("")}
       </ul>
     </section>`;
 }
@@ -386,11 +408,11 @@ function chapterDiagram(c: PdfChapter): string {
   const cells = d.steps.map((s, i) => `
     <div class="framework__cell${i < d.steps!.length - 1 ? " framework__cell--connect" : ""}">
       <div class="framework__n">${i + 1}</div>
-      <div class="framework__t">${esc(s)}</div>
+      <div class="framework__t">${cleanLabel(s)}</div>
     </div>`).join("");
   return `
     <section class="framework">
-      <h3 class="block__heading">Framework — ${esc(d.title)}</h3>
+      <h3 class="block__heading">Framework — ${cleanLabel(d.title)}</h3>
       <div class="framework__grid">${cells}</div>
     </section>`;
 }
@@ -399,22 +421,31 @@ export function buildPdfHtml(data: PdfData): string {
   const year = data.copyright_year ?? new Date().getFullYear();
   const brand = data.brand ?? "SECRET PDF";
 
+  // Canonical title normalizer used for EVERY chapter label (TOC, divider,
+  // running header on body pages). Guarantees identical, markdown-free text
+  // wherever a chapter title appears in the PDF.
+  const chTitle = (c: PdfChapter) => sanitizeChapterTitle(c.title);
+
   const tocItems = data.chapters.map((c) =>
-    `<li class="toc__row"><span class="toc__title">Chapter ${c.index}. ${esc(stripInlineMd(c.title))}</span><span class="toc__dots"></span><span class="toc__page">—</span></li>`,
+    `<li class="toc__row"><span class="toc__title">Chapter ${c.index}. ${esc(chTitle(c))}</span><span class="toc__dots"></span><span class="toc__page">—</span></li>`,
   ).join("");
 
+  // NOTE (Fix #2 — Remove duplicate H2/chapter-title rendering):
+  // The chapter divider page already shows "Chapter N" + full title as an H1.
+  // The body page must NOT repeat the same title as an H2 immediately below.
+  // We keep the running header (brand · ebook title) for orientation and let
+  // the body page start directly with the prose. `stripDuplicateLeadingHeading`
+  // additionally removes any leading markdown H1/H2 in the body content itself.
   const chapterPages = data.chapters.map((c) => `
     <section class="page chapter-divider" id="chapter-${c.index}-divider">
       <div class="chapter-divider__inner">
         <div class="chapter-divider__eyebrow">Chapter ${c.index}</div>
-        <h1 class="chapter-divider__title">${esc(c.title)}</h1>
-        ${c.brief ? `<p class="chapter-divider__brief">${esc(c.brief)}</p>` : ""}
+        <h1 class="chapter-divider__title">${esc(chTitle(c))}</h1>
+        ${c.brief ? `<p class="chapter-divider__brief">${cleanLabel(c.brief)}</p>` : ""}
       </div>
     </section>
     <section class="page chapter-body" id="chapter-${c.index}">
-      <header class="page__head"><span>${esc(brand)}</span><span>${esc(data.title)}</span></header>
-      <div class="chapter-body__eyebrow">Chapter ${c.index}</div>
-      <h2 class="chapter-body__title">${esc(stripInlineMd(c.title))}</h2>
+      <header class="page__head"><span>${esc(brand)}</span><span>Chapter ${c.index} · ${esc(chTitle(c))}</span></header>
       <div class="chapter-body__prose">
         ${splitLongParagraphs(renderMd(stripDuplicateLeadingHeading(c.content, c.title)))}
       </div>
@@ -433,8 +464,8 @@ export function buildPdfHtml(data: PdfData): string {
       <div class="action-plan__grid">
         ${data.action_plan.map((d) => `
           <article class="action-plan__day">
-            <header>${esc(d.day)}</header>
-            <ul>${d.tasks.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
+            <header>${cleanLabel(d.day)}</header>
+            <ul>${d.tasks.map((t) => `<li>${cleanLabel(t)}</li>`).join("")}</ul>
           </article>`).join("")}
       </div>
     </section>` : "";
@@ -450,7 +481,7 @@ export function buildPdfHtml(data: PdfData): string {
     ${data.bonus_section.map((b) => `
       <section class="page bonus-body">
         <header class="page__head"><span>${esc(brand)}</span><span>Bonus</span></header>
-        <h2 class="chapter-body__title">${esc(b.title)}</h2>
+        <h2 class="chapter-body__title">${cleanLabel(b.title)}</h2>
         <div class="chapter-body__prose">${renderMd(b.body)}</div>
       </section>`).join("")}` : "";
 
@@ -646,17 +677,29 @@ export function buildPdfHtml(data: PdfData): string {
 
   /* ---------- Callouts ---------- */
   .callout { background: var(--bg-callout); border-left: 3pt solid var(--accent);
-    padding: 10pt 14pt; margin: 12pt 0;
-    /* Allow long callouts to break across pages so text is never cut off. */
-    page-break-inside: auto; break-inside: auto; overflow: visible; }
+    padding: 12pt 16pt 14pt; margin: 14pt 0;
+    /* Allow long callouts to break across pages so text is never cut off.
+       min-height guarantees short callouts have room for title + body without
+       clipping the descenders of the last line. */
+    page-break-inside: auto; break-inside: auto; overflow: visible;
+    min-height: 40pt; }
   .callout__title { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.22em;
-    color: var(--accent); margin-bottom: 4pt; }
+    color: var(--accent); margin-bottom: 6pt; }
+  .callout__body { overflow: visible; }
+  .callout__body p:last-child { margin-bottom: 0; }
   .callout--warning { border-color: #b54a3a; background: #fbecea; }
   .callout--warning .callout__title { color: #b54a3a; }
   .callout--quote { font-style: italic; color: var(--ink-soft); }
 
-  /* ---------- Worksheet ---------- */
-  .worksheet, .checklist, .framework { margin: 18pt 0; page-break-inside: avoid; break-inside: avoid; }
+  /* ---------- Worksheet ----------
+     Fix #4: allow tall worksheets to break across pages instead of being
+     clipped when they do not fit at the bottom of a page. overflow visible
+     ensures descenders on the last row are never cut off. */
+  .worksheet, .checklist, .framework { margin: 20pt 0; overflow: visible;
+    page-break-inside: auto; break-inside: auto; }
+  .worksheet--table, .checklist { page-break-inside: auto; break-inside: auto; }
+  .worksheet--table > table, .worksheet--table tbody tr { page-break-inside: avoid; break-inside: avoid; }
+  .worksheet, .checklist, .framework { padding-bottom: 4pt; }
   .block__heading { font-family: "Inter", sans-serif; font-size: 11pt;
     text-transform: uppercase; letter-spacing: 0.22em; color: var(--accent);
     border-top: 1pt solid var(--accent); padding-top: 6pt; margin: 0 0 10pt; }
@@ -713,7 +756,7 @@ export function buildPdfHtml(data: PdfData): string {
      - hyphens+overflow-wrap+word-break guarantee no horizontal overflow.
      - th font 7pt with line-height 1.15 keeps two-line headers readable.
      - td min height 22pt keeps write-in space usable for print. */
-  .worksheet--table { page-break-inside: avoid; break-inside: avoid; overflow: hidden; }
+  .worksheet--table { overflow: visible; page-break-inside: auto; break-inside: auto; }
   .ws-purpose { font-family: "Inter", sans-serif; font-size: 9.5pt; color: var(--ink-soft);
     margin: 0 0 8pt; font-style: italic; }
   .ws-table { width: 100%; border-collapse: collapse; font-family: "Inter", sans-serif;
