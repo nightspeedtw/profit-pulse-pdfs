@@ -680,6 +680,24 @@ function defaultWorksheetFor(kind: WorksheetKind, chapterTitle: string, category
             "Annually: refresh your rules",
           ],
     };
+    // Category-specific table worksheets — render as titled tables; the template
+    // supplies the columns/rows if we don't override here.
+    case "focus_audit":
+    case "interruption_log":
+    case "deep_work_planner":
+    case "calendar_boundary":
+    case "meeting_elimination":
+    case "energy_audit":
+    case "caffeine_log":
+    case "sleep_anchor":
+    case "crash_diagnostic":
+    case "evening_recovery":
+    case "cashflow_surplus":
+    case "fortress_audit":
+    case "lifestyle_leak":
+    case "safety_net":
+    case "fixed_cost_scan":
+      return { title: chapterTitle, kind };
     case "prompts":
     default: return {
       title: chapterTitle, kind: "prompts" as WorksheetKind,
