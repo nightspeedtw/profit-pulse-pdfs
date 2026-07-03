@@ -16,6 +16,7 @@ import { nextUtcMidnight, LOCK_HEAVY, getLockHolder } from "../_shared/recovery.
 import { classifyError } from "../_shared/error-classifier.ts";
 import {
   firstBlockingGate,
+  decideRepairLoop,
   markGateNeedsCodeFix,
   persistQcSnapshot,
   MAX_AUTOFIX_ATTEMPTS,
@@ -322,29 +323,36 @@ Deno.serve(async (req) => {
     if (!gate) continue;
     const retryingAfterCodeFix = ebook.autopilot_state === "needs_code_fix" || ebook.canonical_status === "needs_code_fix";
     const attempts = retryingAfterCodeFix ? 0 : Number(ebook.auto_fix_attempt_count ?? ebook.autofix_attempt ?? 0);
-    if (attempts >= MAX_AUTOFIX_ATTEMPTS) {
+    const decision = decideRepairLoop(ebook as Record<string, unknown>, gate, report, `targeted_${gate}`);
+    if (decision.alreadyInFlight) continue;
+    if (decision.escalate || (decision.countAttempt && attempts >= MAX_AUTOFIX_ATTEMPTS)) {
       qcEscalatedToCodeFix.push({ ebook_id: ebook.id, gate });
-      if (!dry) await markGateNeedsCodeFix(db, ebook as Record<string, unknown>, gate, report, attempts);
+      if (!dry) await markGateNeedsCodeFix(db, ebook as Record<string, unknown>, gate, report, attempts, decision.reason);
       continue;
     }
-    qcAutofixQueued.push({ ebook_id: ebook.id, gate, attempt: attempts + 1 });
+    const nextAttempt = decision.countAttempt ? attempts + 1 : attempts;
+    qcAutofixQueued.push({ ebook_id: ebook.id, gate, attempt: nextAttempt });
     if (dry) continue;
     await db.from("ebooks").update({
       autopilot_state: "auto_fixing",
       canonical_status: "auto_fixing",
-      waiting_reason: `Auto-fixing ${gate} automatically — attempt ${attempts + 1}/${MAX_AUTOFIX_ATTEMPTS}`,
+      waiting_reason: decision.missingData
+        ? `Repairing missing ${gate} QC data — producer repair does not count against attempts`
+        : `Auto-fixing ${gate} automatically — attempt ${nextAttempt}/${MAX_AUTOFIX_ATTEMPTS}`,
       blocker_class: "qc_repairable",
       blocker_reason: `autofix_${gate}`,
       next_recommended_action: `autofix:${gate}`,
       current_step: gate,
       current_step_label: `Auto-fix ${gate}`,
       current_action_message: `Auto-fixing failed QC gate: ${gate}`,
-      current_subtask: `Backend recovery worker triggered targeted repair ${attempts + 1}/${MAX_AUTOFIX_ATTEMPTS}`,
+      current_subtask: decision.missingData
+        ? "Backend recovery worker triggered missing-data producer repair"
+        : `Backend recovery worker triggered targeted repair ${nextAttempt}/${MAX_AUTOFIX_ATTEMPTS}`,
       structured_error: {
         error_type: "qc_repairable",
         gate,
         auto_recovery_action: `autofix:${gate}`,
-        attempt: attempts + 1,
+        attempt: nextAttempt,
         max_attempts: MAX_AUTOFIX_ATTEMPTS,
       },
       ...(retryingAfterCodeFix ? { auto_fix_attempt_count: 0, autofix_attempt: 0 } : {}),
