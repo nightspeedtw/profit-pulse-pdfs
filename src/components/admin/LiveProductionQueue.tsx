@@ -680,20 +680,24 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
                   variant="secondary"
                   disabled={!pdfReady || busy === e.id}
                   onClick={async () => {
+                    setBusy(e.id);
                     try {
                       const { supabase } = await import("@/integrations/supabase/client");
-                      const { error } = await supabase
-                        .from("ebooks")
-                        .update({ listed_at: new Date().toISOString() })
-                        .eq("id", e.id);
+                      const { getStripeEnvironment } = await import("@/lib/stripe");
+                      const { data, error } = await supabase.functions.invoke("auto-list-ebook", {
+                        body: { ebook_id: e.id, environment: getStripeEnvironment() },
+                      });
                       if (error) throw error;
-                      toast.success("Listed for sale on the storefront");
+                      if (data && data.ok === false) throw new Error(data.error || "Failed");
+                      toast.success("Listed on the storefront + synced to Stripe");
                     } catch (err) {
                       toast.error(err instanceof Error ? err.message : "Failed to list");
+                    } finally {
+                      setBusy(null);
                     }
                   }}
                   className="gap-2"
-                  title="Publish this ebook on the native storefront"
+                  title="Generate cover if needed, sync to Stripe, publish on the storefront"
                 >
                   <ShoppingBag className="h-4 w-4" /> List for sale
                 </Button>
