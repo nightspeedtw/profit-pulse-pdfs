@@ -165,7 +165,7 @@ export function SystemHeartbeatCard() {
               )}
             </div>
           </div>
-          <Button size="sm" variant={stalled ? "default" : "outline"} onClick={kick} disabled={kicking}>
+          <Button size="sm" variant={stalled ? "default" : "outline"} onClick={() => kick()} disabled={kicking}>
             {kicking ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Zap className="h-3.5 w-3.5 mr-1.5" />}
             Kick Now
           </Button>
