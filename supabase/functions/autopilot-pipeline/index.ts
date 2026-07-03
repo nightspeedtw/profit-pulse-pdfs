@@ -987,7 +987,9 @@ Deno.serve(async (req) => {
           return;
         }
 
-        const nextState = autoPublish ? "done" : "ready_to_publish";
+        const nextState = ebook.shopify_product_id
+          ? (autoPublish && ebook.shopify_status !== "draft" ? "completed" : "draft_uploaded")
+          : "ready_to_publish";
         await db.from("ebooks").update({
           autopilot_state: nextState,
           canonical_status: nextState,
@@ -995,9 +997,11 @@ Deno.serve(async (req) => {
           qc_ready_for_shopify: true,
           pdf_status: "passed",
           needs_review_reason: null,
-          waiting_reason: shopifyDraftEnabled
+          waiting_reason: ebook.shopify_product_id
             ? null
-            : "PDF and premium gates passed — Shopify draft upload is disabled in Settings.",
+            : shopifyDraftEnabled
+              ? "PDF and premium gates passed, but no Shopify draft ID was returned — recovery worker will retry upload."
+              : "PDF and premium gates passed — Shopify draft upload is disabled in Settings.",
           blocker_class: null,
           blocker_reason: null,
           next_recommended_action: ebook.shopify_product_id ? null : "shopify_draft_upload",
