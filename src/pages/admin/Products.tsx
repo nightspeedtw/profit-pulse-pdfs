@@ -11,6 +11,7 @@ import { FileText, ExternalLink, Rocket, ImageIcon, RefreshCw, Loader2 } from "l
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { downloadAdminPdf } from "@/lib/pdf";
+import { FEATURES } from "@/config/features";
 
 type Product = {
   id: string; title: string; price: number | null;
@@ -76,7 +77,8 @@ export default function Products() {
   async function regeneratePdf(p: Product) {
     setBusy(p.id);
     try {
-      const { error } = await supabase.functions.invoke("build-pdf", { body: { ebook_id: p.id } });
+      const fn = FEATURES.LEGACY_PIPELINE ? "build-pdf" : "render-pdf";
+      const { error } = await supabase.functions.invoke(fn, { body: { ebook_id: p.id, force: true } });
       if (error) throw error;
       toast.success("PDF rebuild queued");
       load();
