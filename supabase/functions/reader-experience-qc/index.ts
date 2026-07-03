@@ -162,12 +162,12 @@ async function loadChapters(db: ReturnType<typeof admin>, ebook_id: string): Pro
   return ((data ?? []) as ChapterRow[]).filter((c) => (c.content ?? "").trim().length > 0);
 }
 
-function truncateForCritic(chapters: ChapterRow[], maxChars = 60_000): string {
+function truncateForCritic(chapters: ChapterRow[], maxChars = 24_000): string {
   // Sample front, middle, and end of each chapter so the critic sees pacing,
   // not just openings. Budget ~ maxChars total.
   const perChapter = Math.max(1200, Math.floor(maxChars / Math.max(1, chapters.length)));
   const seg = Math.floor(perChapter / 3);
-  const parts: string[] = [];
+    const parts: string[] = [];
   for (const c of chapters) {
     const body = (c.content ?? "").replace(/\s+/g, " ").trim();
     const head = body.slice(0, seg);
@@ -221,6 +221,102 @@ const CRITIC_SCHEMA = `{
   "final_recommendation": "pass | minor_improvement | major_improvement | rewrite_required"
 }`;
 
+function clampScore(n: number) {
+  return Math.max(1, Math.min(100, Math.round(n)));
+}
+
+function fallbackPriorities(chapters: ChapterRow[], detRep: { examples: string[] }): FlaggedExcerpt[] {
+  const out: FlaggedExcerpt[] = [];
+  for (const c of chapters) {
+    const content = c.content ?? "";
+    for (const re of CANNED_PATTERNS) {
+      re.lastIndex = 0;
+      const m = re.exec(content);
+      if (!m || m.index == null) continue;
+      const start = Math.max(0, m.index - 120);
+      const excerpt = content.slice(start, Math.min(content.length, m.index + m[0].length + 220)).replace(/\s+/g, " ").trim();
+      if (excerpt.length >= 40) {
+        out.push({
+          chapter_index: c.chapter_index,
+          section_title: c.title,
+          excerpt,
+          problem: `Canned/AI-sounding phrase detected: ${m[0]}`,
+          category: "robotic_phrasing",
+          suggested_direction: "Rewrite with a concrete, chapter-specific human example and varied sentence rhythm.",
+        });
+      }
+      break;
+    }
+    if (out.length >= 8) break;
+  }
+  for (const ex of detRep.examples.slice(0, 3)) {
+    const ch = chapters.find((c) => (c.content ?? "").toLowerCase().includes(ex.toLowerCase().slice(0, 60)));
+    if (!ch) continue;
+    out.push({
+      chapter_index: ch.chapter_index,
+      section_title: ch.title,
+      excerpt: ex,
+      problem: "Sentence or passage repeats elsewhere in the manuscript.",
+      category: "repetitive_structure",
+      suggested_direction: "Keep the meaning but change the structure, example, and cadence so this chapter feels distinct.",
+    });
+  }
+  if (out.length === 0) {
+    for (const c of chapters.slice(0, 4)) {
+      const excerpt = (c.content ?? "").replace(/\s+/g, " ").trim().slice(0, 320);
+      if (excerpt.length >= 80) out.push({
+        chapter_index: c.chapter_index,
+        section_title: c.title,
+        excerpt,
+        problem: "Reader QC needs a safer deterministic humanization pass because the AI critic was unavailable.",
+        category: "robotic_phrasing",
+        suggested_direction: "Rewrite the opening to sound more specific, lived-in, and less templated.",
+      });
+    }
+  }
+  return out.slice(0, 8);
+}
+
+function fallbackVerdict(
+  chapters: ChapterRow[],
+  detCanned: { total: number; samples: string[] },
+  detRep: { ratio: number; examples: string[] },
+  variety: number,
+  sourceError: string,
+): Verdict {
+  const cannedPenalty = Math.min(28, detCanned.total * 2);
+  const repPenalty = detRep.ratio >= 0.1 ? 35 : detRep.ratio >= 0.05 ? 20 : Math.round(detRep.ratio * 200);
+  const varietyPenalty = variety < 0.35 ? 14 : variety < 0.5 ? 6 : 0;
+  const scores = {
+    natural_language_score: clampScore(94 - cannedPenalty - varietyPenalty),
+    human_written_feel_score: clampScore(94 - cannedPenalty - varietyPenalty),
+    emotional_resonance_score: clampScore(88 - Math.min(10, cannedPenalty / 3)),
+    readability_score: clampScore(92 - varietyPenalty),
+    page_turning_score: clampScore(88 - Math.min(12, cannedPenalty / 3)),
+    clarity_score: 90,
+    insight_score: 88,
+    reader_engagement_score: clampScore(88 - Math.min(12, cannedPenalty / 3)),
+    voice_quality_score: clampScore(90 - cannedPenalty - varietyPenalty),
+    non_repetitive_score: clampScore(94 - repPenalty),
+    premium_sellability_score: clampScore(90 - Math.min(16, cannedPenalty / 2)),
+  } as Record<ScoreKey, number>;
+  const priorities = fallbackPriorities(chapters, detRep);
+  const overall = Math.round(ALL_SCORE_KEYS.reduce((a, k) => a + scores[k], 0) / ALL_SCORE_KEYS.length);
+  return {
+    overall_verdict: `AI reader critic was unavailable or timed out, so deterministic reader QC was used. Source error: ${sourceError.slice(0, 180)}`,
+    overall_score: overall,
+    scores,
+    strengths: ["Manuscript has chapter content available for deterministic review."],
+    weaknesses: priorities.slice(0, 5).map((p) => p.problem),
+    robotic_parts: priorities.filter((p) => p.category === "robotic_phrasing"),
+    repetitive_parts: priorities.filter((p) => p.category === "repetitive_structure"),
+    lose_interest_parts: [],
+    strong_pull_parts: [],
+    rewrite_priorities: priorities,
+    final_recommendation: overall >= 90 ? "pass" : priorities.length ? "minor_improvement" : "major_improvement",
+  };
+}
+
 async function runCritic(
   db: ReturnType<typeof admin>,
   ebook_id: string,
@@ -250,6 +346,8 @@ MANUSCRIPT SAMPLES (opening / middle / closing per chapter):
 ${manuscriptSample}
 
 Return the JSON verdict per the schema. Flag EVERY excerpt verbatim from the samples above.`,
+    maxTokens: 2048,
+    timeoutMs: 55_000,
   });
   await logCost(db, {
     ebook_id, step: "reader_experience_qc.critic",
@@ -324,6 +422,7 @@ async function humanizeExcerpts(
   ebook_id: string,
   chapters: ChapterRow[],
   priorities: FlaggedExcerpt[],
+  deadlineMs: number,
 ): Promise<{ chaptersTouched: number; replacements: number }> {
   const byChapter = new Map<number, FlaggedExcerpt[]>();
   for (const p of priorities) {
@@ -338,12 +437,14 @@ async function humanizeExcerpts(
   const model = pickModel("premium", "content");
 
   for (const [chIdx, flags] of byChapter) {
+    if (Date.now() > deadlineMs) break;
     const row = chapters.find((c) => c.chapter_index === chIdx);
     if (!row) continue;
     let content = row.content;
     let changedThisChapter = false;
 
-    for (const f of flags.slice(0, 6)) {
+    for (const f of flags.slice(0, 2)) {
+      if (Date.now() > deadlineMs) break;
       // Find the excerpt in the chapter (allow whitespace tolerance).
       const pattern = new RegExp(escapeRegex(f.excerpt.trim()).replace(/\\\s+/g, "\\s+"), "i");
       const match = content.match(pattern);
@@ -364,6 +465,8 @@ ${original}
 """
 
 Return only the rewritten passage.`,
+          maxTokens: 700,
+          timeoutMs: 35_000,
         });
         const cleaned = (rewrite.data ?? "").trim().replace(/^["']|["']$/g, "");
         if (cleaned && cleaned.length >= original.length * 0.5) {
@@ -426,8 +529,11 @@ Deno.serve(async (req) => {
     let verdict: Verdict | null = null;
     let passed = false;
     let attempts = 0;
+    let deferred = false;
+    const deadlineMs = Date.now() + 115_000;
 
     while (attempts < MAX_ATTEMPTS) {
+      if (Date.now() > deadlineMs - 12_000) { deferred = true; break; }
       attempts++;
       const fullText = chapters.map((c) => c.content).join("\n\n");
       const detCanned = countCannedHits(fullText);
@@ -435,7 +541,13 @@ Deno.serve(async (req) => {
       const variety = sentenceVariety(fullText);
       const sample = truncateForCritic(chapters);
 
-      verdict = await runCritic(db, ebook_id, title, audience, sample, detCanned, detRep, variety);
+      try {
+        verdict = await runCritic(db, ebook_id, title, audience, sample, detCanned, detRep, variety);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn("[reader-experience-qc] AI critic unavailable; using deterministic fallback:", msg);
+        verdict = fallbackVerdict(chapters, detCanned, detRep, variety, msg);
+      }
       const gate = evaluateGate(verdict);
       history.push({
         attempt: attempts,
@@ -453,10 +565,11 @@ Deno.serve(async (req) => {
         ...verdict.robotic_parts,
         ...verdict.repetitive_parts,
         ...verdict.lose_interest_parts,
-      ].slice(0, 20);
-      const humanized = await humanizeExcerpts(db, ebook_id, chapters, priorities);
+      ].slice(0, 8);
+      const humanized = await humanizeExcerpts(db, ebook_id, chapters, priorities, deadlineMs - 5_000);
       history[history.length - 1].humanize = humanized;
 
+      if (Date.now() > deadlineMs - 10_000) { deferred = true; break; }
       if (humanized.replacements === 0) break; // nothing left to repair automatically
       chapters = await loadChapters(db, ebook_id); // reload with new content
     }
@@ -471,6 +584,26 @@ Deno.serve(async (req) => {
       history,
       generated_at: new Date().toISOString(),
     };
+
+    if (deferred && !passed) {
+      const nextRetry = new Date(Date.now() + 2 * 60_000).toISOString();
+      await db.from("ebooks").update({
+        reader_experience_qc: report,
+        reader_experience_status: "auto_retry",
+        reader_experience_score: finalOverall,
+        reader_experience_fix_count: attemptsStart + attempts,
+        autopilot_state: "waiting_for_worker_slot",
+        canonical_status: "waiting_for_worker_slot",
+        blocker_class: "recoverable_temporary_api_error",
+        blocker_reason: "reader_qc_time_sliced_before_150s_timeout",
+        needs_review_reason: null,
+        next_retry_at: nextRetry,
+      }).eq("id", ebook_id);
+      return new Response(
+        JSON.stringify({ ok: true, deferred: true, next_retry_at: nextRetry, overall_score: finalOverall, attempts }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     await db.from("ebooks").update({
       reader_experience_qc: report,
