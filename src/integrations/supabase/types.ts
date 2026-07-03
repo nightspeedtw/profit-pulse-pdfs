@@ -853,9 +853,14 @@ export type Database = {
           progress_pct: number | null
           progress_percent: number | null
           qc: Json
+          qc_gates_json: Json | null
+          qc_ready_for_shopify: boolean
           qc_status: string | null
           queue_position: number | null
           queued_at: string | null
+          re_render_count: number
+          re_render_last_at: string | null
+          re_render_reason: string | null
           reader_experience_attempted_at: string | null
           reader_experience_fix_count: number
           reader_experience_qc: Json | null
@@ -1005,9 +1010,14 @@ export type Database = {
           progress_pct?: number | null
           progress_percent?: number | null
           qc?: Json
+          qc_gates_json?: Json | null
+          qc_ready_for_shopify?: boolean
           qc_status?: string | null
           queue_position?: number | null
           queued_at?: string | null
+          re_render_count?: number
+          re_render_last_at?: string | null
+          re_render_reason?: string | null
           reader_experience_attempted_at?: string | null
           reader_experience_fix_count?: number
           reader_experience_qc?: Json | null
@@ -1157,9 +1167,14 @@ export type Database = {
           progress_pct?: number | null
           progress_percent?: number | null
           qc?: Json
+          qc_gates_json?: Json | null
+          qc_ready_for_shopify?: boolean
           qc_status?: string | null
           queue_position?: number | null
           queued_at?: string | null
+          re_render_count?: number
+          re_render_last_at?: string | null
+          re_render_reason?: string | null
           reader_experience_attempted_at?: string | null
           reader_experience_fix_count?: number
           reader_experience_qc?: Json | null

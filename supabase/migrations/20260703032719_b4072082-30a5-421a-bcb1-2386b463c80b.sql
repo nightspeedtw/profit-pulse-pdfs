@@ -1,0 +1,6 @@
+ALTER TABLE public.ebooks
+  ADD COLUMN IF NOT EXISTS re_render_reason TEXT,
+  ADD COLUMN IF NOT EXISTS re_render_count INT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS re_render_last_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS qc_ready_for_shopify BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS qc_gates_json JSONB;
