@@ -44,6 +44,7 @@ function ago(iso?: string | null): string {
 export function SystemHeartbeatCard() {
   const [live, setLive] = useState<Live | null>(null);
   const [kicking, setKicking] = useState(false);
+  const [lastAutoKickAt, setLastAutoKickAt] = useState<number>(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,18 +63,37 @@ export function SystemHeartbeatCard() {
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, []);
 
-  const kick = async () => {
+  const kick = async (opts: { silent?: boolean } = {}) => {
     setKicking(true);
     try {
       const { error } = await supabase.functions.invoke("autopilot-recovery-worker", { body: {} });
       if (error) throw error;
-      toast.success("Recovery worker started — เล่มถัดไปจะเริ่มใน <10 วินาที");
+      if (!opts.silent) toast.success("Recovery worker started — เล่มถัดไปจะเริ่มใน <10 วินาที");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Kick failed");
+      if (!opts.silent) toast.error(e instanceof Error ? e.message : "Kick failed");
     } finally {
       setKicking(false);
     }
   };
+
+  // Auto-Kick: whenever no book is actively producing but work exists
+  // (queued / waiting-retry / auto-fixing / ready-to-publish), fire the
+  // recovery worker automatically. Debounced to once per 45s so we never
+  // hammer the edge function.
+  useEffect(() => {
+    if (!live) return;
+    const running = live.currently_working_on.length > 0;
+    const workAvailable =
+      live.queued.length +
+      live.waiting.length +
+      live.auto_fixing.length +
+      live.ready_to_publish.length > 0;
+    if (running || !workAvailable) return;
+    const now = Date.now();
+    if (now - lastAutoKickAt < 45_000) return;
+    setLastAutoKickAt(now);
+    kick({ silent: true });
+  }, [live, lastAutoKickAt]);
 
   if (!live) {
     return (
