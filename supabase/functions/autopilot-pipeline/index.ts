@@ -293,6 +293,7 @@ Deno.serve(async (req) => {
             const holder = await getLockHolder(db, LOCK_HEAVY);
             await db.from("ebooks").update({
               autopilot_state: "queued_for_production",
+              canonical_status: "queued_for_production",
               blocker_class: "recoverable_dependency_error",
               blocker_reason: "waiting_for_production_slot",
               needs_review_reason: null,
@@ -312,9 +313,15 @@ Deno.serve(async (req) => {
         }
 
         if (ebook.autopilot_state === "failed" || ebook.autopilot_state === "queued_for_production") {
-          await db.from("ebooks").update({ autopilot_state: "production_running", needs_review_reason: null, blocker_class: null, blocker_reason: null }).eq("id", ebook.id);
+          await db.from("ebooks").update({
+            autopilot_state: "production_running",
+            canonical_status: "production_running",
+            needs_review_reason: null,
+            blocker_class: null,
+            blocker_reason: null,
+          }).eq("id", ebook.id);
         } else {
-          await db.from("ebooks").update({ autopilot_mode: mode, autopilot_state: "production_running" }).eq("id", ebook.id);
+          await db.from("ebooks").update({ autopilot_mode: mode, autopilot_state: "production_running", canonical_status: "production_running" }).eq("id", ebook.id);
         }
 
         // ---- ebook-scoped guards ----
@@ -543,11 +550,25 @@ Deno.serve(async (req) => {
             ["manuscript_qc"],
             "Running manuscript QC…",
             async () => {
-              await runStep("8_final_manuscript_qc", "final-manuscript-qc", { ebook_id: ebook.id, run_id });
+              const r = await runStep("8_final_manuscript_qc", "final-manuscript-qc", { ebook_id: ebook.id, run_id });
               await refreshEbook();
+              if (r.body?.deferred === true || ebook.autopilot_state === "waiting_for_worker_slot" || ebook.manuscript_qc_status === "auto_retry") {
+                await tracker.heartbeat("manuscript_qc", {
+                  message: "Manuscript QC auto-repair is continuing in the next worker slice.",
+                  subtask: `Self-healing retry at ${new Date(ebook.next_retry_at ?? r.body?.next_retry_at ?? Date.now()).toLocaleTimeString()}`,
+                });
+              }
             },
             "Checking structure, depth, and repeated passages across chapters",
           );
+
+          if (ebook.autopilot_state === "waiting_for_worker_slot" || ebook.manuscript_qc_status === "auto_retry") {
+            await db.from("autopilot_pipeline_runs").update({
+              status: "waiting",
+              current_action_message: "Manuscript QC auto-repair is continuing in the next worker slice.",
+            }).eq("id", run_id);
+            return;
+          }
 
           if (ebook.manuscript_qc_status === "needs_review") {
             const qc = (ebook.final_manuscript_qc as any) ?? {};
