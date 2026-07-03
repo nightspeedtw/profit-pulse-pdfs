@@ -15,6 +15,14 @@ export interface PdfQcReport {
   visual_fatigue_score: number;             // >=90
   inside_illustration_relevance_score: number; // >=90
   compliance_safety_score: number;          // >=90
+  // Premium book-design v3 metrics (formatter/typography contract)
+  formatting_score: number;                 // >=90
+  reading_comfort_score: number;            // >=90
+  typography_score: number;                 // >=90
+  table_render_score: number;               // >=90
+  worksheet_layout_score: number;           // >=90
+  premium_layout_score: number;             // >=90
+  cover_full_a4_score: number;              // =100
   final_pdf_premium_score: number;
   checks: {
     premium_typography: boolean;
