@@ -25,6 +25,7 @@ import EbookCover from "./pages/admin/EbookCover.tsx";
 import EbookPDF from "./pages/admin/EbookPDF.tsx";
 import EbookShopify from "./pages/admin/EbookShopify.tsx";
 import AutopilotRun from "./pages/admin/AutopilotRun.tsx";
+import ReadyShopify from "./pages/admin/ReadyShopify.tsx";
 
 const queryClient = new QueryClient();
 
