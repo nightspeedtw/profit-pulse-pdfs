@@ -400,25 +400,48 @@ export function buildPdfHtml(data: PdfData): string {
     padding-bottom: 6pt; border-bottom: 0.5pt solid var(--rule); margin-bottom: 18pt;
   }
 
-  /* ---------- Cover (hard full-bleed) ---------- */
+  /* ---------- Cover A4 (hard full-bleed, always page 1) ---------- */
+  .cover-a4 { page: cover-a4; width: 210mm; height: 297mm; position: relative;
+    overflow: hidden; background: var(--bg-divider); color: #fff;
+    margin: 0; padding: 0; page-break-after: always; break-after: page; }
+  .cover-a4 .cover__img { position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; object-position: center; display: block; z-index: 0; }
+  .cover-a4 .cover__fallback { position: absolute; inset: 0; z-index: 0;
+    background: radial-gradient(120% 70% at 50% 0%, #1f2937 0%, #0b0f17 100%); }
+  .cover-a4 .cover__veil { position: absolute; inset: 0; z-index: 1;
+    background: linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.55) 65%, rgba(0,0,0,0.85) 100%); }
+  .cover-a4 .cover__inner { position: absolute; inset: 0; padding: 22mm 20mm;
+    display: flex; flex-direction: column; justify-content: space-between; z-index: 2; }
+  .cover-a4 .cover__brand { font-family: "Inter", sans-serif; font-size: 10pt;
+    letter-spacing: 0.36em; text-transform: uppercase; color: #f4ead8; }
+  .cover-a4 .cover__title { font-family: "Inter", sans-serif; font-weight: 800;
+    font-size: 46pt; line-height: 1.04; text-transform: uppercase; margin: 0; }
+  .cover-a4 .cover__subtitle { font-family: "Inter", sans-serif; font-weight: 400;
+    font-size: 15pt; line-height: 1.35; color: #f4ead8; margin-top: 14pt; max-width: 150mm; }
+  .cover-a4 .cover__badge { display: inline-block; padding: 5pt 11pt;
+    border: 1pt solid #f4ead8; font-family: "Inter", sans-serif; font-size: 8.5pt;
+    letter-spacing: 0.28em; text-transform: uppercase; align-self: flex-start;
+    margin-bottom: 14pt; }
+
+  /* Legacy 6x9 cover kept for backward compat */
   .cover { page: cover; height: 9in; width: 6in; position: relative; overflow: hidden;
     background: var(--bg-divider); color: #fff; margin: 0; padding: 0;
     page-break-after: always; break-after: page; }
-  .cover__img { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  .cover .cover__img { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     object-fit: cover; object-position: center; display: block; }
-  .cover__fallback { position: absolute; inset: 0;
+  .cover .cover__fallback { position: absolute; inset: 0;
     background: radial-gradient(120% 70% at 50% 0%, #1f2937 0%, #0b0f17 100%); }
-  .cover__veil { position: absolute; inset: 0;
+  .cover .cover__veil { position: absolute; inset: 0;
     background: linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.6) 70%, rgba(0,0,0,0.85) 100%); }
-  .cover__inner { position: absolute; inset: 0; padding: 0.55in 0.6in;
+  .cover .cover__inner { position: absolute; inset: 0; padding: 0.55in 0.6in;
     display: flex; flex-direction: column; justify-content: space-between; z-index: 2; }
-  .cover__brand { font-family: "Inter", sans-serif; font-size: 9pt; letter-spacing: 0.34em;
+  .cover .cover__brand { font-family: "Inter", sans-serif; font-size: 9pt; letter-spacing: 0.34em;
     text-transform: uppercase; color: #f4ead8; }
-  .cover__title { font-family: "Inter", sans-serif; font-weight: 800; font-size: 34pt;
+  .cover .cover__title { font-family: "Inter", sans-serif; font-weight: 800; font-size: 34pt;
     line-height: 1.05; text-transform: uppercase; }
-  .cover__subtitle { font-family: "Inter", sans-serif; font-weight: 400; font-size: 13pt;
+  .cover .cover__subtitle { font-family: "Inter", sans-serif; font-weight: 400; font-size: 13pt;
     line-height: 1.35; color: #f4ead8; margin-top: 10pt; max-width: 4.6in; }
-  .cover__badge { display: inline-block; padding: 4pt 9pt; border: 1pt solid #f4ead8;
+  .cover .cover__badge { display: inline-block; padding: 4pt 9pt; border: 1pt solid #f4ead8;
     font-family: "Inter", sans-serif; font-size: 8pt; letter-spacing: 0.25em;
     text-transform: uppercase; align-self: flex-start; }
 
