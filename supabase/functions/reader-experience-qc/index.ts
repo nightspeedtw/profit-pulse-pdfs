@@ -258,12 +258,12 @@ function cleanupChapterContent(content: string, title: string, seenSalaryPhrase:
   }
 
   // Vary common AI/cliché metaphors that appeared in this failed book.
-  const clichéRewrites: [RegExp, string, string][] = [
+  const clicheRewrites: [RegExp, string, string][] = [
     [/\bbucket with a dozen small holes\b/gi, "paycheck that keeps thinning out before it can protect you", "cliche_metaphor_softened"],
     [/\bhigh-speed train with no brakes\b/gi, "monthly life that is moving faster than your cash buffer", "cliche_metaphor_softened"],
     [/\binvisible erosion\b/gi, "quiet monthly drain", "cliche_metaphor_softened"],
   ];
-  for (const [re, replacement, issue] of clichéRewrites) {
+  for (const [re, replacement, issue] of clicheRewrites) {
     if (re.test(out)) {
       out = out.replace(re, replacement);
       replacements++;
