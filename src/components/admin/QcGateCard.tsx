@@ -2,8 +2,8 @@
 // Shows Formatter QC / Reader QC / Cover PDF / Cover Thumbnail scores
 // against the required pass targets so the admin knows at a glance
 // whether an ebook is ready for Shopify upload.
-import { useState } from "react";
-import { CheckCircle2, XCircle, MinusCircle, RotateCw, Wand2, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, XCircle, MinusCircle, RotateCw, Wand2, Loader2, AlertOctagon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
