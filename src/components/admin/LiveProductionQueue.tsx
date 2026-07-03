@@ -397,14 +397,55 @@ function SectionE({
   fixes: SystemFix[];
   needsCode: QueueEbook[];
 }) {
-  const count = fixes.length + needsCode.length;
+  const [sortOrder, setSortOrder] = useState<"oldest" | "newest">("oldest");
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const visibleFixes = fixes.filter((f) => !dismissed.has(f.id));
+  const sortedFixes = [...visibleFixes].sort((a, b) => {
+    const ta = new Date(a.first_seen_at ?? 0).getTime();
+    const tb = new Date(b.first_seen_at ?? 0).getTime();
+    return sortOrder === "oldest" ? ta - tb : tb - ta;
+  });
+  const count = sortedFixes.length + needsCode.length;
+
+  const dismiss = async (id: string) => {
+    setBusy(id);
+    setDismissed((prev) => new Set(prev).add(id));
+    try {
+      await fetchAdminData("dismiss_fix", { fix_id: id });
+      toast.success("Bug ปิดแล้ว — จะไม่แสดงอีก");
+    } catch (e) {
+      toast.error(`ปิดไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+      setDismissed((prev) => {
+        const n = new Set(prev);
+        n.delete(id);
+        return n;
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const dismissAll = async () => {
+    if (sortedFixes.length === 0) return;
+    if (!confirm(`ปิดบั๊กทั้งหมด ${sortedFixes.length} รายการ?`)) return;
+    setDismissed(new Set(sortedFixes.map((f) => f.id)));
+    try {
+      await fetchAdminData("dismiss_all_fixes");
+      toast.success(`ปิดบั๊กทั้งหมด ${sortedFixes.length} รายการแล้ว`);
+    } catch (e) {
+      toast.error(`ปิดไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+      setDismissed(new Set());
+    }
+  };
 
   const fixAll = async () => {
-    if (fixes.length === 0) return;
-    const combined = fixes
+    if (sortedFixes.length === 0) return;
+    const combined = sortedFixes
       .map(
         (f, i) =>
-          `# Fix ${i + 1}/${fixes.length}: ${f.title}\n\n` +
+          `# Fix ${i + 1}/${sortedFixes.length}: ${f.title}\n\n` +
           `**Detected problem:** ${f.detected_problem}\n` +
           (f.root_cause ? `**Root cause:** ${f.root_cause}\n` : "") +
           (f.affected_files?.length
@@ -414,9 +455,9 @@ function SectionE({
       )
       .join("\n---\n\n");
     await navigator.clipboard.writeText(
-      `Please fix the following ${fixes.length} Autopilot bug(s) detected by the self-debugging classifier:\n\n${combined}`,
+      `Please fix the following ${sortedFixes.length} Autopilot bug(s) detected by the self-debugging classifier:\n\n${combined}`,
     );
-    toast.success(`Copied ${fixes.length} Lovable fix prompts — paste into Lovable chat`);
+    toast.success(`Copied ${sortedFixes.length} Lovable fix prompts — paste into Lovable chat`);
   };
 
   return (
@@ -427,15 +468,64 @@ function SectionE({
       empty="ไม่พบบั๊กระดับโค้ด — Autopilot ทำงานปกติ"
     >
       <div className="space-y-3">
-        {fixes.length > 1 && (
-          <div className="flex justify-end">
-            <Button size="sm" variant="destructive" onClick={fixAll} className="gap-2">
-              <Copy className="h-4 w-4" /> Fix All ({fixes.length}) → Lovable
-            </Button>
+        {sortedFixes.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 p-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">เรียงลำดับ:</span>
+              <Button
+                size="sm"
+                variant={sortOrder === "oldest" ? "default" : "outline"}
+                className="h-7 px-2 text-xs"
+                onClick={() => setSortOrder("oldest")}
+              >
+                เจอก่อน (เก่าสุด)
+              </Button>
+              <Button
+                size="sm"
+                variant={sortOrder === "newest" ? "default" : "outline"}
+                className="h-7 px-2 text-xs"
+                onClick={() => setSortOrder("newest")}
+              >
+                เจอหลัง (ใหม่สุด)
+              </Button>
+            </div>
+            <div className="flex gap-2">
+              {sortedFixes.length > 1 && (
+                <Button size="sm" variant="destructive" onClick={fixAll} className="h-7 gap-1 text-xs">
+                  <Copy className="h-3 w-3" /> Fix All ({sortedFixes.length})
+                </Button>
+              )}
+              <Button size="sm" variant="outline" onClick={dismissAll} className="h-7 gap-1 text-xs">
+                <CheckCircle2 className="h-3 w-3" /> ปิดทั้งหมด
+              </Button>
+            </div>
           </div>
         )}
-        {fixes.map((f) => (
-          <SystemFixCard key={f.id} fix={f} />
+        {sortedFixes.map((f, idx) => (
+          <div key={f.id} className="relative">
+            <div className="absolute -left-1 -top-1 z-10 flex items-center gap-2">
+              <Badge variant="outline" className="bg-background font-mono">
+                #{idx + 1}
+              </Badge>
+              <span className="text-[10px] text-muted-foreground">
+                {f.first_seen_at ? new Date(f.first_seen_at).toLocaleString() : ""}
+              </span>
+            </div>
+            <div className="pt-4">
+              <SystemFixCard fix={f} />
+              <div className="mt-2 flex justify-end">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground"
+                  disabled={busy === f.id}
+                  onClick={() => dismiss(f.id)}
+                >
+                  <CheckCircle2 className="h-3 w-3" /> แก้แล้ว / ปิดบั๊กนี้
+                </Button>
+              </div>
+            </div>
+          </div>
         ))}
         {needsCode.map((e) => (
           <div key={e.id} className="rounded-md border p-2 text-sm">
@@ -465,6 +555,7 @@ function SectionE({
     </SectionShell>
   );
 }
+
 
 function SectionF({ needsAdmin }: { needsAdmin: QueueEbook[] }) {
   return (
