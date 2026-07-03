@@ -25,6 +25,7 @@ import EbookCover from "./pages/admin/EbookCover.tsx";
 import EbookPDF from "./pages/admin/EbookPDF.tsx";
 import EbookShopify from "./pages/admin/EbookShopify.tsx";
 import AutopilotRun from "./pages/admin/AutopilotRun.tsx";
+import ReadyShopify from "./pages/admin/ReadyShopify.tsx";
 
 const queryClient = new QueryClient();
 
@@ -49,6 +50,7 @@ const App = () => (
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<CommandCenter />} />
             <Route path="production" element={<Production />} />
+            <Route path="ready-shopify" element={<ReadyShopify />} />
             <Route path="products" element={<Products />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="ebook/:id" element={<EbookReview />} />

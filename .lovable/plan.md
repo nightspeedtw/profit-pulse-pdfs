@@ -1,127 +1,109 @@
-Do I know what the issue is? Yes.
+# Ready to Shopify — Sidebar Page
 
-ปัญหาหลักไม่ใช่แค่ PDF renderer ตัวเดียว แต่คือ Autopilot ยังไม่มี “backend self-healing supervisor” ที่ถือเป็นแหล่งตัดสินใจเดียว ระบบบางจุดยังหยุดที่ `needs_review`/`needs_admin_attention`, บาง auto-fix ต้องรอให้หน้า UI render ก่อนถึงจะยิงเอง, และบาง error ไม่ถูกแปลงเป็น “กำลังแก้เอง / รอลองใหม่ / ต้องแก้โค้ดพร้อม prompt” ทำให้ผู้ใช้เห็นเหมือนระบบนิ่งและไม่รู้ต้องทำอะไรต่อ
+Add a new dedicated admin page that shows every ebook that has finished production (PDF + QC gates passed) but is not yet uploaded to Shopify, with the full product package (thumbnail, title, price, hook, description) rendered per the Shopify Product Expert master skill, and a one-click **Add to Shopify** button.
 
-Plan to fix permanently
+## 1. Sidebar entry
 
-1. Create a single Autopilot Recovery Contract
-- ทุก step ต้องจบด้วยสถานะเดียวใน 5 แบบเท่านั้น:
-  - `working` = กำลังทำเล่มนี้อยู่
-  - `queued` = รอคิว เพราะ Sequential Safe Mode
-  - `waiting_retry` = รอ slot/quota/worker แล้วจะกลับมาทำเอง
-  - `auto_fixing` = เจอ QC/dependency issue และกำลังซ่อมเอง
-  - `needs_code_fix` = auto-fix ครบ 3 ครั้งแล้วยังไม่ผ่าน พร้อม Lovable prompt
-- ห้ามใช้สถานะเงียบ ๆ เช่น failed/needs_review โดยไม่มี `blocker_reason`, `structured_error`, `next_action`, และ `lovable_prompt` เมื่อจำเป็น
+Edit `src/pages/admin/AdminLayout.tsx` — add nav item between Production and Products:
 
-2. Move auto-fix trigger from UI to backend worker
-- ตอนนี้ `QcGateCard` ช่วย auto-fix เมื่อหน้า dashboard เปิดอยู่ ซึ่งไม่พอ
-- เพิ่ม logic ใน recovery worker ให้ scan ebook ที่ QC gate ไม่ผ่าน:
-  - formatter
-  - reader
-  - cover_pdf
-  - cover_thumb
-- ถ้ายังไม่ครบ 3 ครั้ง ให้เรียก targeted auto-fix เองทันที
-- ถ้าครบ 3 ครั้งแล้วยังไม่ผ่าน ให้สร้าง `system_fix_instructions` พร้อม prompt แก้ Lovable โดยอัตโนมัติ
-- UI จะเป็นแค่ตัวแสดงผล ไม่ใช่ตัวที่ทำให้ระบบเดินต่อ
+```
+{ to: "/admin/ready-shopify", label: "Ready to Shopify", icon: Rocket }
+```
 
-3. Fix PDF pipeline state machine so it cannot stall
-- PDF step ต้องมี strict decision tree:
-  - missing manuscript/chapters → route back to writing/manuscript build
-  - missing cover → route back to cover generation
-  - Browserless 429/lock busy → `waiting_for_browserless_slot` + retry time
-  - PDF rendered but QC failed → `auto_fixing` + rerender reason + attempt count
-  - PDF still fails after attempts → `needs_code_fix` + prompt naming exact gate and producer
-- ลบพฤติกรรม “soft-pass แล้วค่อยมาติดท้าย pipeline” เพราะทำให้ดูเหมือนผ่านแต่สุดท้ายโดนบล็อก
+Register route in `src/App.tsx` → `/admin/ready-shopify` → new `ReadyShopify` page.
 
-4. Make every blocker visible and actionable
-- ทุก ebook/run ต้องเขียนข้อมูลต่อไปนี้เสมอเมื่อมีปัญหา:
-  - `canonical_status`
-  - `blocker_class`
-  - `blocker_reason`
-  - `structured_error`
-  - `next_retry_at`
-  - `current_step`
-  - `current_subtask`
-  - `progress_pct`
-  - `last_heartbeat_at`
-  - `auto_fix_attempt_count`
-  - `next_recommended_action`
-- ถ้าเกิด bug ใหม่ที่ classifier ไม่รู้จัก ให้ default เป็น “Needs Code Fix” พร้อม prompt ไม่ใช่ failed เฉย ๆ
+## 2. Data source
 
-5. Expand the error classifier
-- เพิ่ม signatures สำหรับปัญหาที่เจอบ่อยและยังอาจหลุดเป็น error เงียบ:
-  - PDF no file / storage upload failed
-  - cover_pdf never reaches 100
-  - thumbnail mockup below 90
-  - reader QC stuck after repairs
-  - Shopify draft guard blocked by QC
-  - worker wait expired but not resumed
-  - stale lock / stale heartbeat / lock holder mismatch
-  - unknown function 4xx/5xx after retries
-- ทุก signature ต้องระบุ:
-  - root cause
-  - affected producer function
-  - automatic recovery action
-  - whether code fix is needed
-  - Lovable prompt with acceptance test
+Reuse existing `admin-data` edge function `live_queue` resource — it already returns a `ready_to_publish` array (100% complete, PDF ready, `shopify_status !== 'published'`), enriched with `qc`, `cover_url`, `final_quality_score`, `word_count`.
 
-6. Strengthen the recovery worker loop
-- Worker ต้องทำงานเป็น tick model:
-  1. release truly stale locks
-  2. resume waiting retry jobs whose time arrived
-  3. dispatch exactly one queued production ebook
-  4. auto-fix QC-blocked ebooks
-  5. escalate stuck retries to Needs Code Fix
-  6. resume Shopify upload queue when ready
-- ต้องไม่เริ่มหลายเล่มพร้อมกัน: heavy production lock remains concurrency 1
-- ถ้า current book รอ Browserless/worker slot ให้เล่มอื่นยัง pause/queue ตามกฎ “ทำทีละเล่มให้เสร็จ”
+Extend the `cols` select in `supabase/functions/admin-data/index.ts` (live_queue ready branch only) to also include product-copy / pricing fields already stored on `ebooks`:
 
-7. Enforce final readiness before Shopify draft
-- ก่อน upload Shopify draft ต้องผ่านทุก gate:
-  - manuscript built and Reader QC pass
-  - formatter QC >= 90
-  - cover PDF full A4 = 100
-  - thumbnail mockup/readability/premium/click appeal >= 90
-  - PDF URL exists and downloadable
-  - cover/thumbnail URL exists
-  - product copy and pricing ready
-- ถ้า gate ใดไม่ผ่าน: ไม่ upload, แต่ auto-fix ทันทีและแสดงว่า “ติด gate ไหน / กำลังแก้ครั้งที่เท่าไหร่”
+- `thumbnail_url` (premium book mockup, falls back to `cover_url`)
+- `shopify_title`, `shopify_subtitle`, `short_hook`, `body_html`
+- `benefit_bullets`, `whats_inside`, `who_its_for`, `who_its_not_for`
+- `price`, `compare_at_price`, `launch_price`, `price_tier`
+- `seo_title`, `meta_description`, `url_slug`, `tags`
+- `pricing_confidence_score`, `product_page_qc_score`, `thumbnail_qc_score`
+- `shopify_product_id`, `shopify_status`
 
-8. Make Shopify draft the Phase 1 finish line
-- เปิดเส้นทาง pipeline ให้ไปถึง `shopify_draft` และ `shopify_verify` ตามเป้าหมาย Phase 1
-- ถ้า setting ปิด auto-upload อยู่ ให้ระบบแสดงชัดว่า “ผลิตเสร็จแล้ว แต่ upload ถูกปิดโดย setting” ไม่ใช่เหมือนค้าง
-- ถ้าเปิด auto-upload: ใช้ Shopify Upload Queue และ verify draft หลัง upload
+If any of those columns don't yet exist on `ebooks`, add a migration that adds them as nullable (JSONB for arrays, text/numeric for scalars) — no destructive changes.
 
-9. Improve Command Center / Production visibility
-- เพิ่ม/ปรับ sections ให้ชัดเจน:
-  - Working On: เล่มที่ lock ถืออยู่ตอนนี้ พร้อม heartbeat age
-  - Queued Next: เล่มรอคิวพร้อม position
-  - Waiting / Auto Retry: รอ slot/quota/worker พร้อมเวลาลองใหม่
-  - Auto-Fixing: gate ที่กำลังแก้, attempt x/3, reason
-  - Needs Code Fix: prompt ที่ copy ได้ทันที
-  - Ready for Shopify Draft: ผ่าน gate ทั้งหมดและรอ upload/verify
-- แสดง “ทำต่อเองเมื่อไหร่” และ “ถ้าซ่อมเองไม่ได้ จะส่ง prompt อะไรให้ Lovable”
+## 3. New page: `src/pages/admin/ReadyShopify.tsx`
 
-10. Add acceptance tests after implementation
-- Start 2 ebooks at once → exactly one Working On, one Queued
-- Force missing outline → routes back to outline, then writes chapters
-- Force PDF QC fail → auto-fix without dashboard click
-- Force 3 failed cover_pdf repairs → creates Needs Code Fix prompt
-- Force Browserless 429 → waits and resumes, no red failed state
-- Force reader timeout → waiting worker slot, then resumes
-- Complete passing ebook → reaches Shopify draft/verify or clearly reports upload setting disabled
+Layout: header + grid of product cards, one per ready ebook.
 
-Expected result
-- ระบบจะไม่ค้างเงียบ
-- ถ้าซ่อมเองได้ ระบบซ่อมเอง
-- ถ้าซ่อมเองไม่ได้ ระบบสร้าง prompt ให้ Lovable พร้อมไฟล์/สาเหตุ/acceptance test
-- ผู้ใช้เห็นตลอดว่าเล่มไหนกำลังทำอยู่, ติดอะไร, จะลองใหม่เมื่อไหร่, และต้องแก้อะไร
-- Autopilot จะพยายามไปให้ถึง Shopify draft แบบทีละเล่มตาม Sequential Safe Mode
+Each card shows:
 
-<presentation-actions>
-  <presentation-open-history>View History</presentation-open-history>
-</presentation-actions>
+- Large thumbnail (`thumbnail_url` → book-mockup, fall back to `cover_url`), aspect 3:4
+- Product title (`shopify_title` or fallback ebook title)
+- Subtitle / short hook
+- Price display: `price` bold + `compare_at_price` strikethrough if present + tier chip
+- QC chip row via existing `QcGateCard` — must show green for: `thumbnail_qc_score`, `product_page_qc_score`, `pricing_confidence_score`, plus premium gates already there
+- Collapsible "Product Copy Preview" panel:
+  - Hook paragraph
+  - Benefits bullet list
+  - What's Inside bullet list
+  - Who it's for / Who it's not for
+  - SEO title + meta description + slug
+  - Tags row
+- Action row:
+  - **Add to Shopify** (primary) — disabled unless all required gates pass and `shopify_product_id` is null
+  - **Regenerate Copy** (secondary) — calls `autofix-action` with `action: "regenerate_product_copy"`
+  - **Regenerate Thumbnail** (secondary) — calls `autofix-action` with `action: "regenerate_thumbnail"`
+  - **Download PDF** (ghost) — existing `downloadAdminPdf` helper
+  - **Open Detail** → `/admin/ebook/:id/shopify`
 
-<presentation-actions>
-<presentation-link url="https://docs.lovable.dev/tips-tricks/troubleshooting">Troubleshooting docs</presentation-link>
-</presentation-actions>
+Filters at top: All / Ready (all gates ≥ target) / Blocked (missing copy or failing gate) / Already uploaded (draft exists).
+
+## 4. Add to Shopify button
+
+Invokes existing `shopify-draft-upload` edge function:
+
+```ts
+supabase.functions.invoke("shopify-draft-upload", { body: { ebook_id } })
+```
+
+Optimistic UI: mark card as "Uploading…", poll `admin-data` on success, show toast with returned `shopify_draft_url`. On failure surface structured error and offer retry.
+
+Guardrail (client-side mirror of server rule from Product Expert skill): button is disabled until all of the following are true:
+- `pdf_url` present
+- `thumbnail_qc_score ≥ 90`
+- `product_page_qc_score ≥ 90`
+- `pricing_confidence_score ≥ 85`
+- `compliance_score ≥ 90` (from `qc`)
+- No `needs_admin_attention` / `needs_code_fix` status
+
+If disabled, tooltip explains exactly which gate is blocking, with quick "Auto Fix" button per failing gate (reuse existing `AutoFixChip`).
+
+## 5. Auto-populate missing product copy
+
+If a ready ebook has no `shopify_title` / `body_html` / `price` yet, card shows a "Generate Shopify Package" primary action instead. It calls a new lightweight endpoint (or existing `product-copy` step) to synthesize copy + price using the Shopify Product Expert prompt. Package generation:
+
+- If a `product-copy` edge function already exists, invoke it.
+- Otherwise, add `supabase/functions/generate-shopify-package/index.ts` that calls the AI gateway with the master skill prompt, returns the structured JSON from Part 10 of the skill, writes it back to `ebooks`, and triggers Product Page QC.
+
+Regardless of path, generation runs the same auto-fix loop the pipeline already uses (max 3 attempts per failing bucket).
+
+## 6. Technical details
+
+Files added:
+- `src/pages/admin/ReadyShopify.tsx`
+- `src/components/admin/ReadyShopifyCard.tsx` (card component)
+- (optional) `supabase/functions/generate-shopify-package/index.ts` + config entry
+
+Files modified:
+- `src/pages/admin/AdminLayout.tsx` — new nav entry
+- `src/App.tsx` — new route
+- `supabase/functions/admin-data/index.ts` — extend `cols` for ready branch, no schema break
+
+Files reused (no change):
+- `supabase/functions/shopify-draft-upload/index.ts`
+- `supabase/functions/autofix-action/index.ts`
+- `src/components/admin/QcGateCard.tsx`, `AutoFixChip.tsx`
+- `src/lib/adminData.ts`, `downloadAdminPdf`
+
+## 7. Out of scope
+
+- No changes to pipeline ordering or QC thresholds — this page only surfaces already-produced assets and triggers the existing Shopify upload path.
+- No auto-publish — draft only, matching current Settings toggle.
+- No new tables; only additive nullable columns on `ebooks` if any product-copy fields are still missing.
