@@ -229,20 +229,18 @@ Deno.serve(async (req) => {
     }
 
     if (resource === "diagnostics") {
-      const [ebc, arc, apc, aps, pqc] = await Promise.all([
+      // Phase 1 canonical tables only. autopilot_runs / production_queue are
+      // legacy and intentionally excluded from Command Center diagnostics.
+      const [ebc, apc, aps] = await Promise.all([
         supabase.from("ebooks").select("id", { count: "exact", head: true }),
-        supabase.from("autopilot_runs").select("id", { count: "exact", head: true }),
         supabase.from("autopilot_pipeline_runs").select("id", { count: "exact", head: true }),
         supabase.from("autopilot_pipeline_steps").select("id", { count: "exact", head: true }),
-        supabase.from("production_queue").select("id", { count: "exact", head: true }),
       ]);
       return json({
         counts: {
           ebooks: ebc.count ?? 0,
-          autopilot_runs: arc.count ?? 0,
           autopilot_pipeline_runs: apc.count ?? 0,
           autopilot_pipeline_steps: aps.count ?? 0,
-          production_queue: pqc.count ?? 0,
         },
         fetched_at: new Date().toISOString(),
       });

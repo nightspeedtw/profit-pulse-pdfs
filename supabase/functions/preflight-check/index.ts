@@ -21,6 +21,10 @@ interface Report {
   required_admin_actions: string[];
 }
 
+import { FEATURES } from "../_shared/features.ts";
+
+// Phase 1 canonical tables. Shopify upload queue only required when the
+// Shopify upload feature is enabled (Phase 2+).
 const REQUIRED_TABLES = [
   "ebooks",
   "ebook_chapters",
@@ -28,12 +32,10 @@ const REQUIRED_TABLES = [
   "autopilot_pipeline_steps",
   "production_locks",
   "system_fix_instructions",
-  "shopify_upload_queue",
+  ...(FEATURES.SHOPIFY_UPLOAD ? ["shopify_upload_queue"] : []),
 ];
 
 const REQUIRED_BUCKETS = ["ebook-pdfs", "ebook-covers"];
-
-import { FEATURES } from "../_shared/features.ts";
 
 // Phase 1 = PDF-only. Shopify secrets are opt-in and never block Phase 1.
 const REQUIRED_SECRETS = [
@@ -120,14 +122,16 @@ Deno.serve(async (req) => {
     }
   }
 
-  // --- 5. Shopify token sanity ------------------------------------------
-  const shopToken = Deno.env.get("SHOPIFY_ADMIN_TOKEN") ?? Deno.env.get("SHOPIFY_ACCESS_TOKEN");
-  if (!shopToken) {
-    report.blocking_errors.push({
-      code: "missing_shopify_token",
-      detail: "No Shopify admin/access token configured.",
-      admin_action: "Reconnect Shopify integration in Lovable Cloud.",
-    });
+  // --- 5. Shopify token sanity (Phase 2+ only) --------------------------
+  if (FEATURES.SHOPIFY_UPLOAD) {
+    const shopToken = Deno.env.get("SHOPIFY_ADMIN_TOKEN") ?? Deno.env.get("SHOPIFY_ACCESS_TOKEN");
+    if (!shopToken) {
+      report.blocking_errors.push({
+        code: "missing_shopify_token",
+        detail: "No Shopify admin/access token configured.",
+        admin_action: "Reconnect Shopify integration in Lovable Cloud.",
+      });
+    }
   }
 
   // --- 6. Sequential Safe Mode: ensure heavy_production lock TTL is sane -
