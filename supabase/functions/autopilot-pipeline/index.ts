@@ -995,7 +995,7 @@ Deno.serve(async (req) => {
           canonical_status: nextState,
           qc_status: "qc_passed",
           qc_ready_for_shopify: true,
-          pdf_status: "passed",
+          pdf_status: "approved",
           needs_review_reason: null,
           waiting_reason: ebook.shopify_product_id
             ? null
