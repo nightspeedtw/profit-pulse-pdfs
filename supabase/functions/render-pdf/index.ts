@@ -183,7 +183,7 @@ Deno.serve(async (req) => {
           callouts: meta.callouts ?? c.callouts ?? extractCallouts(c.content ?? ""),
           worksheet,
           checklist: meta.checklist ?? c.checklist ?? extractChecklist(c.content ?? "", c.title ?? ""),
-          diagram: meta.diagram ?? c.diagram ?? null,
+          diagram: meta.diagram ?? c.diagram ?? defaultDiagramFor(safeTitle, chIdx, category),
           illustration: illustrationsByChapter[chIdx] ?? null,
         };
       }),
