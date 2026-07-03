@@ -15,6 +15,7 @@
 // shopify_product_id / handle / status. Auto-publishing is NOT performed.
 import { admin, corsHeaders } from "../_shared/ai.ts";
 import { logRun } from "../_shared/qc.ts";
+import { computeQcGates } from "../_shared/qc-gates.ts";
 
 const SHOP_DOMAIN = Deno.env.get("SHOPIFY_SHOP_DOMAIN")
   ?? "digital-wealth-hub-49qgj.myshopify.com";
