@@ -677,17 +677,29 @@ export function buildPdfHtml(data: PdfData): string {
 
   /* ---------- Callouts ---------- */
   .callout { background: var(--bg-callout); border-left: 3pt solid var(--accent);
-    padding: 10pt 14pt; margin: 12pt 0;
-    /* Allow long callouts to break across pages so text is never cut off. */
-    page-break-inside: auto; break-inside: auto; overflow: visible; }
+    padding: 12pt 16pt 14pt; margin: 14pt 0;
+    /* Allow long callouts to break across pages so text is never cut off.
+       min-height guarantees short callouts have room for title + body without
+       clipping the descenders of the last line. */
+    page-break-inside: auto; break-inside: auto; overflow: visible;
+    min-height: 40pt; }
   .callout__title { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.22em;
-    color: var(--accent); margin-bottom: 4pt; }
+    color: var(--accent); margin-bottom: 6pt; }
+  .callout__body { overflow: visible; }
+  .callout__body p:last-child { margin-bottom: 0; }
   .callout--warning { border-color: #b54a3a; background: #fbecea; }
   .callout--warning .callout__title { color: #b54a3a; }
   .callout--quote { font-style: italic; color: var(--ink-soft); }
 
-  /* ---------- Worksheet ---------- */
-  .worksheet, .checklist, .framework { margin: 18pt 0; page-break-inside: avoid; break-inside: avoid; }
+  /* ---------- Worksheet ----------
+     Fix #4: allow tall worksheets to break across pages instead of being
+     clipped when they don't fit at the bottom of a page. `overflow: visible`
+     ensures descenders on the last row are never cut off. */
+  .worksheet, .checklist, .framework { margin: 20pt 0; overflow: visible;
+    page-break-inside: auto; break-inside: auto; }
+  .worksheet--table, .checklist { page-break-inside: auto; break-inside: auto; }
+  .worksheet--table > table, .worksheet--table tbody tr { page-break-inside: avoid; break-inside: avoid; }
+  .worksheet, .checklist, .framework { padding-bottom: 4pt; }
   .block__heading { font-family: "Inter", sans-serif; font-size: 11pt;
     text-transform: uppercase; letter-spacing: 0.22em; color: var(--accent);
     border-top: 1pt solid var(--accent); padding-top: 6pt; margin: 0 0 10pt; }
