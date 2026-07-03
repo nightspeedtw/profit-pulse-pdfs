@@ -1,62 +1,54 @@
 ## Goal
 
-Make every ebook thumbnail look like the reference you uploaded (dark hardcover, dramatic side light, polished black marble surface, visible spine, premium bookstore hero shot) — but with the **cover artwork itself themed to each book's topic** (not a one-size-fits-all black cover).
+Every time an ebook goes live (auto-list or manual list), automatically:
+1. Regenerate a **thumbnail** in the reference hardcover style (dark, dramatic side light, marble surface, spine visible, `EBOOK` chip, big condensed title with one word highlighted, hairline-ruled subtitle, central hero illustration matched to the book's topic, 4 icon+label feature chips at the bottom) — **style adapts per topic** (palette / hero metaphor / chips), not a fixed template.
+2. Regenerate **selling copy** — a punchy product description with a strong hook, 3–5 benefit bullets, and a short CTA line — tuned to the buyer pain and psychological lever of that specific book.
 
-## What's wrong today
+Both regenerate on every listing event so the listed product always has the newest style + newest copy.
 
-- The current mockup prompt only tweaks the *environment* (marble, moody light). It still just wraps whatever flat cover the pipeline produced onto a book — so the result doesn't match your reference.
-- The reference has a very specific *cover design language* too: solid black field, huge condensed sans title in white with **one word highlighted in yellow**, thin hairline rules around a short subtitle, small "EBOOK" chip top-left, and 4 icon+label feature chips along the bottom. That whole language is missing from our flat-cover generator.
+## What changes
 
-## Plan
+### 1. `supabase/functions/auto-list-ebook/index.ts`
+- Before the Stripe sync + `listed_at` update, always call:
+  - `generate-cover` (force regenerate, not only when `cover_url` is missing) — passes the currently active `cover_style_reference` so the thumbnail mimics the uploaded ref image.
+  - a new `generate-selling-copy` function (see #3) to refresh `product_description` (+ new `selling_hook` and `benefit_bullets` fields).
+- Push refreshed `cover_url`, `product_description`, and `images: [cover_url]` to Stripe in the existing `syncStripe` step so the storefront/Stripe listing reflects the new thumbnail immediately.
+- Log both steps to `pipeline_step_logs`.
 
-### 1. Lock a "Reference Hardcover" cover template
-Add a new deterministic template in `supabase/functions/_shared/cover.ts` that produces the flat 2:3 cover in the reference style:
+### 2. `supabase/functions/generate-cover/index.ts` (already reads active style ref)
+- Confirm it always emits a fresh **photoreal thumbnail** (not just the flat cover) using the reference-style mockup, per book topic. Tighten the mockup prompt so it fails QC when the returned image is a light/studio background or has no visible spine.
+- Accept a `force: true` flag from `auto-list-ebook` so it re-runs even if `cover_url` already exists.
 
-- Solid dark field (default `#0b0b0b`), subtle noise/paper texture.
-- Top-left `EBOOK` chip in the book's accent color.
-- Huge condensed sans title (Anton / Bebas-family), 2–4 lines, one keyword auto-highlighted in the accent color.
-- Two thin hairline rules bracketing a 2-line subtitle.
-- Central hero illustration zone (per-book, see step 2).
-- Bottom row: 4 auto-generated icon+label chips derived from the book's benefits/framework.
-- Spine + back-cover art matched to the same palette.
+### 3. New `supabase/functions/generate-selling-copy/index.ts`
+- Input: `ebook_id`.
+- Loads title, subtitle, category, buyer avatar, psychological lever, top pain, promised transformation from the ebook's `CoverSpec`/metadata.
+- Calls `google/gemini-2.5-pro` (Lovable AI) with a copywriter system prompt that enforces:
+  - 1 strong **selling hook** (≤ 12 words, curiosity + pain + promise).
+  - 3–5 **benefit bullets** (outcome-first, no fluff).
+  - 1 short **product description** paragraph (≤ 60 words) ending in a CTA.
+  - Tone matched to the lever (Control / Pain Relief / Identity / Status / Certainty / Belonging).
+- Writes back to `ebooks`: `product_description`, `selling_hook`, `benefit_bullets` (jsonb).
 
-### 2. Per-book theming (content-aware)
-Each book gets its own palette, hero metaphor, and 4 feature chips derived from its `CoverSpec`:
+### 4. DB migration
+- Add `selling_hook text` and `benefit_bullets jsonb` to `public.ebooks` (nullable, no RLS change).
 
-- **Accent color** — chosen from the psychological lever (finance/debt → gold, productivity → electric blue, health → emerald, identity → magenta, etc.).
-- **Hero illustration** — textless AI image sized to the reserved zone, prompted from the book's core metaphor (e.g. "staircase to a lit doorway" for debt exit, "clean desk at dawn" for focus, "mountain summit" for identity, etc.). Still governed by the `world-class-cover-designer` skill's textless + anti-AI rules.
-- **Feature chips** — 4 short 1–2 word labels + Lucide-style icons, auto-derived from the book's promise (e.g. Clear Plan · 6-Month Framework · Build Momentum · Financial Freedom).
+### 5. Storefront display (`src/pages/Product.tsx` + `src/components/ProductCard.tsx`)
+- Show `selling_hook` above the title on the product page.
+- Show `benefit_bullets` as a checkmark list under the description.
+- No layout redesign — just render the new fields if present, fall back to current behavior if empty.
 
-### 3. Cinematic mockup (already partially done — tightened)
-Keep the moody marble/side-light mockup in `renderPhotorealThumbnail`, but tighten it:
+### 6. Admin UI (`src/components/admin/LiveProductionQueue.tsx`)
+- Rename the existing "Regenerate cover" button to "Regenerate thumbnail + copy" so admins can trigger the same refresh manually.
+- Bulk button already exists — extend it to also refresh copy for all listed ebooks.
 
-- Wider frame so the whole book + spine + marble reflection is visible.
-- Force the specific rim-light direction, spine color match, and long soft reflection from the reference.
-- Fail QC if the mockup returns a light/white studio background.
+## Out of scope
 
-### 4. QC gates raised to enforce this style
-In `_shared/cover.ts` add two hard gates the mockup must pass, else regenerate (max 3):
-
-- `reference_style_match_score` ≥ 90 — dark cinematic marble, hardcover, spine visible, rim light.
-- `content_theming_score` ≥ 90 — accent color + hero metaphor + chips match the book's topic (not generic).
-
-### 5. Apply retroactively to existing 7 listed books
-Add an admin action "Regenerate all thumbnails" on the Live Production Queue that re-runs `generate-cover` for every listed ebook using the new template, then re-uploads the resulting `cover_url`.
-
-### Files touched
-
-- `supabase/functions/_shared/cover.ts` — new `renderReferenceStyleCover()` template + updated QC schema.
-- `supabase/functions/generate-cover/index.ts` — call the new template, tightened mockup prompt, new gates, retry loop.
-- `src/components/admin/LiveProductionQueue.tsx` — "Regenerate all thumbnails" bulk button.
-
-### Out of scope
-
-- Redesigning the PDF interior.
-- Changing pricing / checkout / download flow.
+- PDF interior, pricing, checkout, download flow.
 - Non-ebook product types.
+- Redesigning storefront layout.
 
 ## Questions before I build
 
-1. **Accent color per category** — OK if I auto-pick (finance = gold, productivity = electric blue, health = emerald, mindset = magenta, business = white-on-black only), or do you want to lock **every** book to the black + yellow reference palette?
-2. **Bottom feature chips** — auto-generate 4 chips from each book's content (varied per book), or keep a fixed set like the reference (Clear Plan · Framework · Momentum · Freedom)?
-3. **Retro-apply** — regenerate thumbnails for the 7 already-listed books now, or only apply to new books going forward?
+1. **Copy language** — should selling hook + description + bullets be **Thai** (matching your message), **English** (matching current product data), or **both** (store `_th` and `_en`)?
+2. **Regenerate on every re-list, or only first time?** If an admin manually re-lists a book after editing its title, do you want the copy + thumbnail forcibly refreshed every time, or only when they're empty / older than X days?
+3. **Selling hook placement on the storefront** — above the title as a small yellow "eyebrow" line (matches your reference hardcover accent), or as a large tagline under the title?
