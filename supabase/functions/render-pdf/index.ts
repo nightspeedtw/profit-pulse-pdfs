@@ -149,13 +149,14 @@ Deno.serve(async (req) => {
       chapters: chapters.map((c: any, i: number) => {
         const meta = (c.metadata ?? {}) as any;
         const chIdx = c.chapter_index ?? (i + 1);
+        const outlineCh = Array.isArray(outline?.chapters) ? outline.chapters[i] : null;
         // Sanitize placeholder titles like "Chapter 2" / "Chapter 2. Chapter 2".
-        const safeTitle = sanitizeChapterTitle(c.title, chIdx, c.brief ?? meta.brief);
+        const safeTitle = sanitizeChapterTitle(c.title, chIdx, c.brief ?? meta.brief, outlineCh);
         const rawWs = meta.worksheet ?? c.worksheet ?? extractWorksheet(c.content ?? "", c.title ?? "");
         let wsKind: WorksheetKind = (rawWs?.kind as WorksheetKind | undefined) ?? pickWorksheetKind(safeTitle, chIdx, category);
-        // Enforce category → allowed worksheet kinds. Block e.g. debt_tracker
-        // in a productivity/energy book.
-        if (!isKindAllowed(category, wsKind)) wsKind = "prompts";
+        // Enforce category → allowed worksheet kinds. If disallowed, pick a
+        // category-appropriate default rather than falling back to generic prompts.
+        if (!isKindAllowed(category, wsKind)) wsKind = pickWorksheetKind(safeTitle, chIdx, category);
         const worksheet = rawWs
           ? { ...rawWs, kind: wsKind }
           : defaultWorksheetFor(wsKind, safeTitle, category);
