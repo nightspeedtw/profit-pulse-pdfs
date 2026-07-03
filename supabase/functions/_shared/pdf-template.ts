@@ -425,13 +425,14 @@ export function buildPdfHtml(data: PdfData): string {
 <meta charset="utf-8" />
 <title>${esc(data.title)}</title>
 <style>
-  /* ---------- Page geometry ---------- */
-  @page { size: 6in 9in; margin: 0.7in 0.7in 0.85in 0.7in; }
-  @page :first { margin: 0; }
-  @page cover { margin: 0; }
-  /* Dedicated full-bleed A4 cover — always page 1 */
+  /* ---------- Page geometry ----------
+     Whole document is A4 so the cover ALWAYS fills a true A4 page.
+     Named @page rules kept for full-bleed sections that need zero margin. */
+  @page { size: A4 portrait; margin: 18mm 18mm 22mm 18mm; }
+  @page :first { size: A4 portrait; margin: 0; }
+  @page cover { size: A4 portrait; margin: 0; }
   @page cover-a4 { size: A4 portrait; margin: 0; }
-  @page chapter-open { margin: 0; }
+  @page chapter-open { size: A4 portrait; margin: 0; }
 
   /* ---------- Typography ---------- */
   :root {
