@@ -613,6 +613,7 @@ Deno.serve(async (req) => {
       await db.from("ebooks").update({
         manuscript_qc_status: "auto_retry",
         final_manuscript_qc: { progress, deferred: true, reason, next_retry_at: nextRetry } as any,
+        manuscript_fix_count: Number(extra.attempts_used ?? 0),
         autopilot_state: "waiting_for_worker_slot",
         canonical_status: "waiting_for_worker_slot",
         blocker_class: "recoverable_temporary_api_error",
@@ -663,13 +664,13 @@ Deno.serve(async (req) => {
     const wordsTarget = Math.max(MIN_CHAPTER_WORDS + 600, Math.ceil((minWords * 1.2) / totalChapterTarget));
 
     let totalCost = 0;
-    let attemptsUsed = 0;
+    let attemptsUsed = Number(ebook.manuscript_fix_count ?? (ebook.final_manuscript_qc as any)?.attempts_used ?? 0);
     let aiScores: AiScores | null = null;
     let structured: StructuredQC | null = null;
     let passed = false;
     const repairLog: { attempt: number; action: string; chapter_index?: number }[] = [];
 
-    for (let attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
+    for (let attempt = attemptsUsed; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
       if (Date.now() > deadlineMs) {
         return await deferToWorker("manuscript_qc_time_sliced_before_150s_timeout", { attempt, attempts_used: attemptsUsed });
       }
