@@ -513,10 +513,14 @@ function fallbackRepairSpan(content: string): string {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  let reqEbookId: string | null = null;
+  let reqRunId: string | undefined;
   try {
     await requireAdmin(req);
     const db = admin();
-    const { ebook_id } = await req.json() as { ebook_id: string; run_id?: string };
+    const { ebook_id, run_id } = await req.json() as { ebook_id: string; run_id?: string };
+    reqEbookId = ebook_id;
+    reqRunId = run_id;
     if (!ebook_id) throw new Error("ebook_id required");
 
     const { data: ebook } = await db.from("ebooks").select("*").eq("id", ebook_id).maybeSingle();
@@ -544,16 +548,19 @@ Deno.serve(async (req) => {
     // Supabase Edge Functions can idle-timeout around 150s. Stop well before
     // that and save a healthy `auto_retry` state so the recovery worker can
     // continue automatically instead of surfacing a red Failed state.
-    const deadlineMs = Date.now() + 90_000;
+    const deadlineMs = Date.now() + EDGE_SAFE_DEADLINE_MS;
 
-    while ((attemptsStart + attempts) < MAX_ATTEMPTS) {
-      if (Date.now() > deadlineMs - 12_000) { deferred = true; break; }
+    // One score+repair cycle per invocation. Additional repair cycles are
+    // intentionally resumed by autopilot-recovery-worker to avoid Edge 150s
+    // idle timeouts becoming red failures.
+    while ((attemptsStart + attempts) < MAX_ATTEMPTS && attempts < 1) {
+      if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS) { deferred = true; break; }
       attempts++;
       const fullText = chapters.map((c) => c.content).join("\n\n");
       const detCanned = countCannedHits(fullText);
       const detRep = repeatedSentenceRatio(fullText);
       const variety = sentenceVariety(fullText);
-      const sample = truncateForCritic(chapters);
+      const sample = truncateForCritic(chapters, 16_000);
 
       try {
         verdict = await runCritic(db, ebook_id, title, audience, sample, detCanned, detRep, variety);
@@ -580,10 +587,10 @@ Deno.serve(async (req) => {
         ...verdict.repetitive_parts,
         ...verdict.lose_interest_parts,
       ].slice(0, 8);
-      const humanized = await humanizeExcerpts(db, ebook_id, chapters, priorities, deadlineMs - 5_000);
+      const humanized = await humanizeExcerpts(db, ebook_id, chapters, priorities, deadlineMs);
       history[history.length - 1].humanize = humanized;
 
-      if (Date.now() > deadlineMs - 10_000) { deferred = true; break; }
+      if ((attemptsStart + attempts) < MAX_ATTEMPTS) { deferred = true; break; }
       if (humanized.replacements === 0) break; // nothing left to repair automatically
       chapters = await loadChapters(db, ebook_id); // reload with new content
     }
