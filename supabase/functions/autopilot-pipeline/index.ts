@@ -679,6 +679,7 @@ Deno.serve(async (req) => {
             await needsAdmin("cover", "Budget cap reached before cover.");
             return;
           }
+          let coverDeferred = false;
           await track(
             ["cover", "cover_qc", "thumbnail", "thumbnail_qc"],
             "Generating premium cover…",
@@ -706,16 +707,14 @@ Deno.serve(async (req) => {
                   current_step: "cover",
                   current_action_message: "Cover/thumbnail still generating — will resume automatically.",
                 }).eq("id", run_id);
-                throw new Error("cover_generation_deferred");
+                coverDeferred = true;
+                return;
               }
             },
             "Creating no-text background image",
-          ).catch(async (err) => {
-            if ((err as Error).message === "cover_generation_deferred") return;
-            throw err;
-          });
+          );
           await refreshEbook();
-          if (ebook.autopilot_state === "waiting_for_worker_slot" && !ebook.cover_url) return;
+          if (coverDeferred || (ebook.autopilot_state === "waiting_for_worker_slot" && !ebook.cover_url)) return;
         } else {
           await skip(["cover", "cover_qc", "thumbnail", "thumbnail_qc"], "Cover already present");
         }
