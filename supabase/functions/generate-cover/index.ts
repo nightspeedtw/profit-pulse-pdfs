@@ -100,6 +100,8 @@ Return JSON only:
     "visual_hierarchy": 0-100,
     "buyer_psychology_fit": 0-100,
     "click_appeal": 0-100,
+    "shopify_click_appeal": 0-100,
+    "premium_product_feel": 0-100,
     "sellability": 0-100,
     "anti_ai_look": 0-100
   },
