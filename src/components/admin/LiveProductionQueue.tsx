@@ -663,7 +663,17 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
                   disabled={!pdfReady}
                   className="gap-2"
                 >
-                  <ExternalLink className="h-4 w-4" /> Open
+                  <ExternalLink className="h-4 w-4" /> Open Final PDF
+                </Button>
+                <Button size="sm" variant="outline" asChild className="gap-2">
+                  <Link to={`/admin/ebook/${e.id}/pdf`}>
+                    <FileText className="h-4 w-4" /> Final PDF page
+                  </Link>
+                </Button>
+                <Button size="sm" variant="outline" asChild className="gap-2">
+                  <Link to={`/admin/ebook/${e.id}`}>
+                    <ClipboardCheck className="h-4 w-4" /> Final Report
+                  </Link>
                 </Button>
                 <Button
                   size="sm"
