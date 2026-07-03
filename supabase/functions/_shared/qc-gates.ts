@@ -50,6 +50,14 @@ function avg(vals: (number | null)[]): number | null {
   return Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
 }
 
+function firstNum(...vals: unknown[]): number | null {
+  for (const v of vals) {
+    const n = num(v);
+    if (n != null) return n;
+  }
+  return null;
+}
+
 export function computeQcGates(row: Record<string, unknown>): QcGateReport {
   const pdfQc = pickJson(row.pdf_qc);
   const readerQc = pickJson(row.reader_experience_qc);
@@ -57,20 +65,32 @@ export function computeQcGates(row: Record<string, unknown>): QcGateReport {
 
   // Formatter QC — from pdf_qc breakdown, falls back to pdf_score.
   const fmtBreakdown = {
-    typography: num(pdfQc?.typography_score),
-    reading_comfort: num(pdfQc?.reading_comfort_score),
-    table_render: num(pdfQc?.table_render_score),
-    worksheet_layout: num(pdfQc?.worksheet_layout_score),
-    premium_layout: num(pdfQc?.premium_layout_score),
-    raw_markdown: num(pdfQc?.raw_markdown_score),
+    typography: firstNum(pdfQc?.typography_score, pdfQc?.typography),
+    reading_comfort: firstNum(pdfQc?.reading_comfort_score, pdfQc?.reading_comfort),
+    table_render: firstNum(pdfQc?.table_render_score, pdfQc?.table_render),
+    worksheet_layout: firstNum(pdfQc?.worksheet_layout_score, pdfQc?.worksheet_layout),
+    premium_layout: firstNum(pdfQc?.premium_layout_score, pdfQc?.premium_layout),
+    raw_markdown: firstNum(pdfQc?.raw_markdown_score, pdfQc?.no_raw_markdown_score),
   };
-  const fmtScore = avg(Object.values(fmtBreakdown)) ?? num(row.pdf_score);
-  const fmtHasData = Object.values(fmtBreakdown).some((x) => x != null) ||
-    num(row.pdf_score) != null;
+  const fmtDesignScores = [
+    fmtBreakdown.typography,
+    fmtBreakdown.reading_comfort,
+    fmtBreakdown.table_render,
+    fmtBreakdown.worksheet_layout,
+    fmtBreakdown.premium_layout,
+  ];
+  const fmtCanonicalScore = firstNum(pdfQc?.formatting_score, pdfQc?.formatter_score) ??
+    avg(fmtDesignScores);
+  // pdf_score is the overall PDF premium score, not the formatter contract. Use
+  // it only as a legacy display fallback; do not let it satisfy the formatter
+  // gate when the producer failed to persist formatter fields.
+  const fmtScore = fmtCanonicalScore ?? num(row.pdf_score);
+  const fmtHasData = fmtCanonicalScore != null;
+  const fmtDimsPass = fmtDesignScores.every((v) => v != null && v >= 90);
   const formatter: GateResult = {
     score: fmtScore,
-    pass: fmtScore != null && fmtScore >= 90 &&
-      (fmtBreakdown.raw_markdown == null || fmtBreakdown.raw_markdown === 100),
+    pass: fmtCanonicalScore != null && fmtCanonicalScore >= 90 && fmtDimsPass &&
+      fmtBreakdown.raw_markdown === 100,
     target: 90,
     breakdown: fmtBreakdown,
   };
@@ -79,29 +99,30 @@ export function computeQcGates(row: Record<string, unknown>): QcGateReport {
   const readerVerdict = pickJson(readerQc?.verdict);
   const readerScores = pickJson(readerVerdict?.scores) ?? pickJson(readerQc?.scores) ?? readerQc;
   const readerBreakdown = {
-    natural_language: num(readerScores?.natural_language_score),
-    human_feel: num(readerScores?.human_feel_score) ?? num(readerScores?.human_written_feel_score),
-    emotional_resonance: num(readerScores?.emotional_resonance_score),
-    page_turning: num(readerScores?.page_turning_score) ?? num(readerScores?.reader_engagement_score),
-    sellability: num(readerScores?.sellability_score) ?? num(readerScores?.premium_sellability_score),
-    clarity: num(readerScores?.clarity_score),
-    variety: num(readerScores?.variety_score) ?? num(readerScores?.readability_score),
-    no_ai_patterns: num(readerScores?.no_ai_patterns_score) ?? num(readerScores?.human_written_feel_score),
-    no_repetition: num(readerScores?.no_repetition_score) ?? num(readerScores?.non_repetitive_score),
-    voice_consistency: num(readerScores?.voice_consistency_score) ?? num(readerScores?.voice_quality_score),
-    trust: num(readerScores?.trust_score) ?? num(readerScores?.insight_score),
+    natural_language: firstNum(readerScores?.natural_language_score, readerScores?.natural_language),
+    human_feel: firstNum(readerScores?.human_feel_score, readerScores?.human_feel, readerScores?.human_written_feel_score),
+    emotional_resonance: firstNum(readerScores?.emotional_resonance_score, readerScores?.emotional_resonance),
+    page_turning: firstNum(readerScores?.page_turning_score, readerScores?.page_turning, readerScores?.reader_engagement_score),
+    sellability: firstNum(readerScores?.sellability_score, readerScores?.sellability, readerScores?.premium_sellability_score),
+    clarity: firstNum(readerScores?.clarity_score, readerScores?.clarity),
+    variety: firstNum(readerScores?.variety_score, readerScores?.variety, readerScores?.readability_score),
+    no_ai_patterns: firstNum(readerScores?.no_ai_patterns_score, readerScores?.no_ai_patterns, readerScores?.human_written_feel_score),
+    no_repetition: firstNum(readerScores?.no_repetition_score, readerScores?.no_repetition, readerScores?.non_repetitive_score),
+    voice_consistency: firstNum(readerScores?.voice_consistency_score, readerScores?.voice_consistency, readerScores?.voice_quality_score),
+    trust: firstNum(readerScores?.trust_score, readerScores?.trust, readerScores?.insight_score),
   };
-  const readerScore = num(row.reader_experience_score) ??
-    num(readerQc?.overall_score) ??
-    num(readerVerdict?.overall_score) ??
-    avg(Object.values(readerBreakdown));
+  const readerScore = firstNum(readerQc?.overall_score, readerVerdict?.overall_score) ??
+    avg(Object.values(readerBreakdown)) ??
+    num(row.reader_experience_score);
   const readerStatus = (row.reader_experience_status as string | null) ?? null;
   const readerStatusPassable = readerStatus == null || readerStatus === "pass" || readerStatus === "passed";
-  const readerHasData = readerScore != null ||
-    readerStatus === "pass" || readerStatus === "passed" || readerStatus === "failed";
+  const readerDims = Object.values(readerBreakdown);
+  const readerHasBreakdown = readerDims.every((x) => x != null);
+  const readerDimsPass = readerDims.every((x) => x != null && x >= 90);
+  const readerHasData = readerScore != null && readerHasBreakdown;
   const reader: GateResult = {
     score: readerScore,
-    pass: readerScore != null && readerScore >= 90 && readerStatusPassable,
+    pass: readerScore != null && readerScore >= 90 && readerDimsPass && readerStatusPassable,
     target: 90,
     status: readerStatus,
     attempts: num(row.reader_experience_fix_count),
@@ -139,12 +160,12 @@ export function computeQcGates(row: Record<string, unknown>): QcGateReport {
     num(coverQc?.[`${base}_score`]) ??
     num(coverQc?.[base]);
   const thumbBreakdown = {
-    book_mockup: pickThumb("thumbnail_book_mockup"),
+    book_mockup: pickThumb("thumbnail_book_mockup") ?? pickThumb("book_mockup") ?? pickThumb("thumbnail_is_3d_mockup"),
     readability: pickThumb("thumbnail_readability"),
     click_appeal: pickThumb("shopify_click_appeal") ?? pickThumb("click_appeal"),
     premium_feel: pickThumb("premium_product_feel") ?? pickThumb("premium_feel"),
   };
-  const thumbScore = avg(Object.values(thumbBreakdown)) ?? num(row.cover_score);
+  const thumbScore = avg(Object.values(thumbBreakdown)) ?? num(coverQc?.overall_score) ?? num(row.cover_score);
   const thumbHasData = Object.values(thumbBreakdown).some((x) => x != null) ||
     num(row.cover_score) != null;
   // Gate: every populated dimension must clear 90 OR the aggregate must clear

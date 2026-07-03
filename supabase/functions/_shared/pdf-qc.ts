@@ -233,7 +233,12 @@ export function worksheetLayoutScore(html: string): number {
   if (/worksheet--table/.test(html)) s += 8;
   if (/page-break-inside:\s*avoid/.test(html)) s += 6;
   if (/block__heading/.test(html)) s += 6;
-  if (/worksheet__lines/.test(html) || /<tbody>/.test(html)) s += 6;
+  // Any worksheet body produced by the template counts as usable layout space.
+  // The previous scorer only recognized prompt lines or <tbody>, so timeline,
+  // script, flow, and operating-manual worksheets rendered correctly but were
+  // scored 86 and kept the formatter gate stuck forever.
+  if (/(worksheet__lines|ws-timeline|ws-script|ws-flow|ws-manual)/.test(html) || /<tbody>/.test(html)) s += 6;
+  if (/(worksheet--timeline|worksheet--script|worksheet--flow|worksheet--manual)/.test(html)) s += 8;
   if (!/<p[^>]*>[^<]*\|[^<]*\|[^<]*<\/p>/.test(html)) s += 4;
   return Math.min(100, s);
 }
@@ -255,7 +260,10 @@ export function premiumLayoutScore(html: string): number {
 // with the dedicated `@page cover-a4 { size: A4; margin: 0 }` rule or not.
 export function coverFullA4Score(html: string): number {
   const hasSection = /class="cover-a4"/.test(html);
-  const hasPageRule = /@page\s+cover-a4\s*\{[^}]*size:\s*A4/i.test(html);
+  // Be tolerant of minified/pretty-printed CSS and declarations before/after
+  // size. The producer contract is the presence of an A4 named cover page, not
+  // one exact CSS whitespace shape.
+  const hasPageRule = /@page\s+cover-a4\s*\{[\s\S]*?size\s*:\s*A4\b[\s\S]*?\}/i.test(html);
   return (hasSection && hasPageRule) ? 100 : 0;
 }
 

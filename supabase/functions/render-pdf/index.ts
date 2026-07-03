@@ -400,8 +400,11 @@ Deno.serve(async (req) => {
     const coverFullBleedScore = 100;
 
     (qc as any).raw_markdown_score = rawMarkdownScore;
+    (qc as any).no_raw_markdown_score = rawMarkdownScore;
+    (qc as any).formatter_score = fmtScore;
     (qc as any).chapter_title_quality_score = chapterTitleQualityScore;
     (qc as any).worksheet_relevance_score = worksheetRelevanceScore;
+    (qc as any).pdf_cover_full_a4_score = coverA4;
     (qc as any).cover_full_bleed_score = coverFullBleedScore;
     (qc as any).ebook_category = category;
     if (rawMdLeak) qc.issues.push("raw markdown table syntax leaked into final HTML");

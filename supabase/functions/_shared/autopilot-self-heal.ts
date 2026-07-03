@@ -95,6 +95,18 @@ export async function persistQcSnapshot(db: any, ebook: Record<string, unknown>)
     qc_gates_json: report,
     qc_ready_for_shopify: report.ready_for_shopify,
   }).eq("id", ebook.id);
+  // Once a producer fix makes a gate pass, retire the old Needs Code Fix row so
+  // the dashboard stops showing stale bugs for that ebook. If the gate regresses
+  // later, markGateNeedsCodeFix() will reopen/upsert the instruction.
+  const ebookId = String(ebook.id ?? "");
+  if (ebookId) {
+    const resolvedAt = new Date().toISOString();
+    await Promise.all((["formatter", "reader", "cover_pdf", "cover_thumb"] as GateName[])
+      .filter((gate) => report[gate].pass)
+      .map((gate) => db.from("system_fix_instructions")
+        .update({ status: "resolved", resolved_at: resolvedAt, last_seen_at: resolvedAt })
+        .eq("fingerprint", `autofix_stuck:${gate}:${ebookId}`)));
+  }
   return report;
 }
 

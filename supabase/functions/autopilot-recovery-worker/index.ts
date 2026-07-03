@@ -252,8 +252,8 @@ Deno.serve(async (req) => {
     .select(qcCols)
     .is("shopify_product_id", null)
     .or([
-      "autopilot_state.in.(needs_review,failed_non_recoverable,auto_fixing,ready_to_publish,completed)",
-      "canonical_status.in.(needs_review,failed_non_recoverable,auto_fixing,ready_to_publish,completed)",
+      "autopilot_state.in.(needs_review,failed_non_recoverable,auto_fixing,needs_code_fix,ready_to_publish,completed)",
+      "canonical_status.in.(needs_review,failed_non_recoverable,auto_fixing,needs_code_fix,ready_to_publish,completed)",
       "qc_ready_for_shopify.eq.false",
     ].join(","))
     .order("updated_at", { ascending: false })
@@ -290,7 +290,8 @@ Deno.serve(async (req) => {
     }
     const gate = firstBlockingGate(report);
     if (!gate) continue;
-    const attempts = Number(ebook.auto_fix_attempt_count ?? ebook.autofix_attempt ?? 0);
+    const retryingAfterCodeFix = ebook.autopilot_state === "needs_code_fix" || ebook.canonical_status === "needs_code_fix";
+    const attempts = retryingAfterCodeFix ? 0 : Number(ebook.auto_fix_attempt_count ?? ebook.autofix_attempt ?? 0);
     if (attempts >= MAX_AUTOFIX_ATTEMPTS) {
       qcEscalatedToCodeFix.push({ ebook_id: ebook.id, gate });
       if (!dry) await markGateNeedsCodeFix(db, ebook as Record<string, unknown>, gate, report, attempts);
@@ -316,6 +317,7 @@ Deno.serve(async (req) => {
         attempt: attempts + 1,
         max_attempts: MAX_AUTOFIX_ATTEMPTS,
       },
+      ...(retryingAfterCodeFix ? { auto_fix_attempt_count: 0, autofix_attempt: 0 } : {}),
       last_heartbeat_at: now,
     }).eq("id", ebook.id);
     const r = await invokeAutofix(ebook.id, gate).catch((e) => ({ ok: false, status: 500, error: e } as Response & { error?: unknown }));
