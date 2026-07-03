@@ -1,22 +1,24 @@
 import { useEffect, useState } from "react";
-import { fetchProducts, type ShopifyProduct } from "@/lib/shopify";
+import { fetchStorefront, type StorefrontEbook } from "@/lib/storefront";
 import { ProductCard } from "./ProductCard";
 import { FileText, Loader2 } from "lucide-react";
 
 interface ProductGridProps {
-  query?: string;
+  category?: string;
+  q?: string;
   limit?: number;
   emptyTitle?: string;
   emptyMessage?: string;
 }
 
 export const ProductGrid = ({
-  query,
+  category,
+  q,
   limit = 12,
   emptyTitle = "No products yet",
-  emptyMessage = "New printables drop every week. Check back soon.",
+  emptyMessage = "New PDFs drop every week. Check back soon.",
 }: ProductGridProps) => {
-  const [products, setProducts] = useState<ShopifyProduct[]>([]);
+  const [products, setProducts] = useState<StorefrontEbook[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,14 +26,14 @@ export const ProductGrid = ({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchProducts(limit, query)
+    fetchStorefront({ limit, category, q })
       .then((data) => !cancelled && setProducts(data))
       .catch((e) => !cancelled && setError(e.message))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [query, limit]);
+  }, [category, q, limit]);
 
   if (loading) {
     return (
@@ -40,7 +42,6 @@ export const ProductGrid = ({
       </div>
     );
   }
-
   if (error) {
     return (
       <div className="py-12 border-2 border-destructive bg-destructive/10 p-6 text-center font-mono text-sm">
@@ -48,7 +49,6 @@ export const ProductGrid = ({
       </div>
     );
   }
-
   if (products.length === 0) {
     return (
       <div className="py-16 border-2 border-dashed border-foreground text-center px-6">
@@ -60,12 +60,9 @@ export const ProductGrid = ({
       </div>
     );
   }
-
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-      {products.map((p) => (
-        <ProductCard key={p.node.id} product={p} />
-      ))}
+      {products.map((p) => <ProductCard key={p.id} product={p} />)}
     </div>
   );
 };

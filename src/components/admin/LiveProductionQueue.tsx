@@ -678,16 +678,26 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={!e.qc?.ready_for_shopify}
-                  title={
-                    e.qc?.ready_for_shopify
-                      ? "พร้อมอัพ Shopify"
-                      : "รอ QC ผ่านทุก gate ก่อน"
-                  }
+                  disabled={!pdfReady || busy === e.id}
+                  onClick={async () => {
+                    try {
+                      const { supabase } = await import("@/integrations/supabase/client");
+                      const { error } = await supabase
+                        .from("ebooks")
+                        .update({ listed_at: new Date().toISOString() })
+                        .eq("id", e.id);
+                      if (error) throw error;
+                      toast.success("Listed for sale on the storefront");
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Failed to list");
+                    }
+                  }}
                   className="gap-2"
+                  title="Publish this ebook on the native storefront"
                 >
-                  <ShoppingBag className="h-4 w-4" /> Push to Shopify
+                  <ShoppingBag className="h-4 w-4" /> List for sale
                 </Button>
+
               </div>
             </div>
           );

@@ -12,6 +12,8 @@ import Product from "./pages/Product.tsx";
 import Bundles from "./pages/Bundles.tsx";
 import About from "./pages/About.tsx";
 import Download from "./pages/Download.tsx";
+import Checkout from "./pages/Checkout.tsx";
+import CheckoutReturn from "./pages/CheckoutReturn.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import AdminLogin from "./pages/admin/Login.tsx";
 import AdminLayout from "./pages/admin/AdminLayout.tsx";
@@ -45,7 +47,10 @@ const App = () => (
             <Route path="/bundles" element={<Bundles />} />
             <Route path="/about" element={<About />} />
             <Route path="/download" element={<Download />} />
+            <Route path="/checkout" element={<Checkout />} />
+            <Route path="/checkout/return" element={<CheckoutReturn />} />
           </Route>
+
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<CommandCenter />} />

@@ -6,11 +6,13 @@
 // third-party token can never block PDF generation.
 export const FEATURES = {
   PHASE_1_PDF_ONLY: true,
-  SHOPIFY_UPLOAD: true,
+  SHOPIFY_UPLOAD: false,
+  NATIVE_STOREFRONT: true,
   SEO_AUTOMATION: false,
   BLOG_AUTOMATION: false,
   SOCIAL_POSTING: false,
   ADVANCED_BATCH_MODE: false,
+
   // Legacy pre-Phase-1 pipeline (autopilot-orchestrator, build-pdf,
   // worksheet-preview, generate-interior-visuals, idea-copywriter).
   // Off = Phase 1 uses render-pdf + premium-title-expert. Flip to true
