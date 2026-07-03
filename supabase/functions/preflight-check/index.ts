@@ -33,11 +33,14 @@ const REQUIRED_TABLES = [
 
 const REQUIRED_BUCKETS = ["ebook-pdfs", "ebook-covers"];
 
+import { FEATURES } from "../_shared/features.ts";
+
+// Phase 1 = PDF-only. Shopify secrets are opt-in and never block Phase 1.
 const REQUIRED_SECRETS = [
   "LOVABLE_API_KEY",
   "BROWSERLESS_TOKEN",
-  "SHOPIFY_ADMIN_TOKEN",
   "SUPABASE_SERVICE_ROLE_KEY",
+  ...(FEATURES.SHOPIFY_UPLOAD ? ["SHOPIFY_ADMIN_TOKEN"] : []),
 ];
 
 Deno.serve(async (req) => {

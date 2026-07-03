@@ -81,7 +81,9 @@ Deno.serve(async (req) => {
 
     mode = mode ?? settings.autopilot_mode ?? "safe";
     const autoPublish: boolean = !!settings.auto_publish && mode === "full";
-    const shopifyDraftEnabled: boolean = settings.shopify_draft_upload_enabled !== false;
+    // Phase 1 = PDF-only. Force Shopify off unless FEATURES.SHOPIFY_UPLOAD is enabled.
+    const { FEATURES: _FEATURES } = await import("../_shared/features.ts");
+    const shopifyDraftEnabled: boolean = _FEATURES.SHOPIFY_UPLOAD && settings.shopify_draft_upload_enabled !== false;
     const perEbookBudget = Number(settings.per_ebook_budget_usd ?? 2);
     const maxAiCallsPerEbook = Number(settings.max_ai_calls_per_ebook ?? 60);
     const maxShopifyPerDay = Number(settings.max_shopify_uploads_per_day ?? 20);
