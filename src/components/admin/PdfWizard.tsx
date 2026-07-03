@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Check, Loader2, Circle, ArrowRight } from "lucide-react";
+import { FEATURES } from "@/config/features";
 
 type StepState = "pending" | "ready" | "running" | "done";
 
@@ -26,6 +27,7 @@ const ETA = {
   "generate-cover": 60,
   "generate-interior-visuals": 30,
   "build-pdf": 35,
+  "render-pdf": 45,
 } as const;
 
 function useTick(active: boolean) {
@@ -46,12 +48,58 @@ function fmt(s: number) {
 }
 
 export function PdfWizard({ ebook, busy, onRun }: Props) {
+  const legacy = FEATURES.LEGACY_PIPELINE;
   const runningFn =
     ebook.status === "cover" ? "generate-cover" :
-    ebook.status === "visuals" ? "generate-interior-visuals" :
-    ebook.status === "building_pdf" ? "build-pdf" : null;
+    ebook.status === "visuals" && legacy ? "generate-interior-visuals" :
+    ebook.status === "building_pdf" ? (legacy ? "build-pdf" : "render-pdf") :
+    ebook.status === "rendering" ? "render-pdf" : null;
 
   useTick(!!runningFn);
+
+  const coverStep = {
+    key: "generate-cover" as const,
+    label: "1. Regenerate cover",
+    description: "AI background + code-rendered title/subtitle/badge.",
+    state: (ebook.status === "cover" ? "running" : ebook.cover_url ? "done" : "ready") as StepState,
+    cta: ebook.cover_url ? "Regenerate" : "Generate cover",
+  };
+
+  const visualsStep = {
+    key: "generate-interior-visuals" as const,
+    label: "2. Generate visuals",
+    description: "Framework diagrams + worksheets for the PDF interior.",
+    state: (
+      ebook.status === "visuals" ? "running" :
+      ebook.interior_visuals ? "done" :
+      ebook.cover_url ? "ready" : "pending"
+    ) as StepState,
+    cta: ebook.interior_visuals ? "Regenerate visuals" : "Generate visuals",
+  };
+
+  const buildStep = {
+    key: "build-pdf" as const,
+    label: "3. Build PDF",
+    description: "Compose cover + chapters + visuals into the final PDF.",
+    state: (
+      ebook.status === "building_pdf" ? "running" :
+      ebook.pdf_url ? "done" :
+      ebook.interior_visuals && ebook.cover_url ? "ready" : "pending"
+    ) as StepState,
+    cta: ebook.pdf_url ? "Rebuild PDF" : "Build PDF",
+  };
+
+  const renderStep = {
+    key: "render-pdf" as const,
+    label: "2. Render final PDF",
+    description: "Phase 1 renderer — composes cover, chapters, and worksheets in one pass.",
+    state: (
+      ebook.status === "building_pdf" || ebook.status === "rendering" ? "running" :
+      ebook.pdf_url ? "done" :
+      ebook.cover_url ? "ready" : "pending"
+    ) as StepState,
+    cta: ebook.pdf_url ? "Re-render PDF" : "Render PDF",
+  };
 
   const steps: Array<{
     key: keyof typeof ETA;
@@ -59,35 +107,7 @@ export function PdfWizard({ ebook, busy, onRun }: Props) {
     description: string;
     state: StepState;
     cta: string;
-  }> = [
-    {
-      key: "generate-cover",
-      label: "1. Regenerate cover",
-      description: "AI background + code-rendered title/subtitle/badge.",
-      state: ebook.status === "cover" ? "running" : ebook.cover_url ? "done" : "ready",
-      cta: ebook.cover_url ? "Regenerate" : "Generate cover",
-    },
-    {
-      key: "generate-interior-visuals",
-      label: "2. Generate visuals",
-      description: "Framework diagrams + worksheets for the PDF interior.",
-      state:
-        ebook.status === "visuals" ? "running" :
-        ebook.interior_visuals ? "done" :
-        ebook.cover_url ? "ready" : "pending",
-      cta: ebook.interior_visuals ? "Regenerate visuals" : "Generate visuals",
-    },
-    {
-      key: "build-pdf",
-      label: "3. Build PDF",
-      description: "Compose cover + chapters + visuals into the final PDF.",
-      state:
-        ebook.status === "building_pdf" ? "running" :
-        ebook.pdf_url ? "done" :
-        ebook.interior_visuals && ebook.cover_url ? "ready" : "pending",
-      cta: ebook.pdf_url ? "Rebuild PDF" : "Build PDF",
-    },
-  ];
+  }> = legacy ? [coverStep, visualsStep, buildStep] : [coverStep, renderStep];
 
   const elapsed = runningFn
     ? Math.max(0, (Date.now() - new Date(ebook.updated_at).getTime()) / 1000)
@@ -173,7 +193,7 @@ export function PdfWizard({ ebook, busy, onRun }: Props) {
           })}
         </ol>
 
-        {steps[2].state === "done" && (
+        {steps[steps.length - 1].state === "done" && (
           <p className="text-xs text-muted-foreground pt-1">
             PDF ready — open the Cover & PDF card below to download.
           </p>
