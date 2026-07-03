@@ -14,6 +14,12 @@
 import { admin, corsHeaders } from "../_shared/ai.ts";
 import { nextUtcMidnight, LOCK_HEAVY, getLockHolder } from "../_shared/recovery.ts";
 import { classifyError } from "../_shared/error-classifier.ts";
+import {
+  firstBlockingGate,
+  markGateNeedsCodeFix,
+  persistQcSnapshot,
+  MAX_AUTOFIX_ATTEMPTS,
+} from "../_shared/autopilot-self-heal.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -26,6 +32,17 @@ async function invokePipeline(ebook_id: string) {
       "Authorization": `Bearer ${SERVICE_KEY}`,
     },
     body: JSON.stringify({ ebook_id, mode: "full" }),
+  });
+}
+
+async function invokeAutofix(ebook_id: string, gate: string) {
+  return fetch(`${SUPABASE_URL}/functions/v1/autofix-action`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${SERVICE_KEY}`,
+    },
+    body: JSON.stringify({ ebook_id, action: "autofix_gate", gate }),
   });
 }
 
@@ -53,6 +70,8 @@ Deno.serve(async (req) => {
   const resumed: string[] = [];
   const stillWaiting: string[] = [];
   const reclassifiedRecoverable: string[] = [];
+  const qcAutofixQueued: Array<{ ebook_id: string; gate: string; attempt: number }> = [];
+  const qcEscalatedToCodeFix: Array<{ ebook_id: string; gate: string }> = [];
 
   // 1) Shopify quota queue — resume when we have quota AND next_retry_at passed
   const { data: queued } = await db
@@ -219,6 +238,81 @@ Deno.serve(async (req) => {
     );
   }
 
+  // 4c) Backend-driven QC auto-fix — do NOT rely on the dashboard being open.
+  //     If any premium gate is blocked, trigger the same targeted autofix that
+  //     the UI button used to trigger. After 3 attempts, create a Lovable prompt
+  //     and move the ebook to needs_code_fix instead of silently stalling.
+  const qcCols = [
+    "id,title,autopilot_state,canonical_status,next_retry_at,shopify_product_id,pdf_url,cover_url",
+    "auto_fix_attempt_count,autofix_attempt,qc_ready_for_shopify,qc_gates_json",
+    "pdf_qc,cover_qc,reader_experience_qc,pdf_score,cover_score,reader_experience_score,reader_experience_status,reader_experience_fix_count",
+  ].join(",");
+  const { data: qcCandidates } = await db
+    .from("ebooks")
+    .select(qcCols)
+    .is("shopify_product_id", null)
+    .or([
+      "autopilot_state.in.(needs_review,failed_non_recoverable,auto_fixing,ready_to_publish,completed)",
+      "canonical_status.in.(needs_review,failed_non_recoverable,auto_fixing,ready_to_publish,completed)",
+      "qc_ready_for_shopify.eq.false",
+    ].join(","))
+    .order("updated_at", { ascending: false })
+    .limit(40);
+
+  for (const ebook of qcCandidates ?? []) {
+    if (qcAutofixQueued.length >= 3 && !dry) break;
+    if (ebook.next_retry_at && ebook.next_retry_at > now) continue;
+    const hasStartedAssets = !!(ebook.pdf_url || ebook.cover_url || ebook.reader_experience_status);
+    if (!hasStartedAssets) continue;
+    const report = await persistQcSnapshot(db, ebook as Record<string, unknown>);
+    if (report.ready_for_shopify && ebook.pdf_url) {
+      if (!dry) await db.from("ebooks").update({
+        autopilot_state: "ready_to_publish",
+        canonical_status: "ready_to_publish",
+        qc_status: "qc_passed",
+        blocker_reason: null,
+        blocker_class: null,
+        waiting_reason: null,
+        needs_review_reason: null,
+      }).eq("id", ebook.id);
+      continue;
+    }
+    const gate = firstBlockingGate(report);
+    if (!gate) continue;
+    const attempts = Number(ebook.auto_fix_attempt_count ?? ebook.autofix_attempt ?? 0);
+    if (attempts >= MAX_AUTOFIX_ATTEMPTS) {
+      qcEscalatedToCodeFix.push({ ebook_id: ebook.id, gate });
+      if (!dry) await markGateNeedsCodeFix(db, ebook as Record<string, unknown>, gate, report, attempts);
+      continue;
+    }
+    qcAutofixQueued.push({ ebook_id: ebook.id, gate, attempt: attempts + 1 });
+    if (dry) continue;
+    await db.from("ebooks").update({
+      autopilot_state: "auto_fixing",
+      canonical_status: "auto_fixing",
+      waiting_reason: `Auto-fixing ${gate} automatically — attempt ${attempts + 1}/${MAX_AUTOFIX_ATTEMPTS}`,
+      blocker_class: "qc_repairable",
+      blocker_reason: `autofix_${gate}`,
+      next_recommended_action: `autofix:${gate}`,
+      current_step: gate,
+      current_step_label: `Auto-fix ${gate}`,
+      current_action_message: `Auto-fixing failed QC gate: ${gate}`,
+      current_subtask: `Backend recovery worker triggered targeted repair ${attempts + 1}/${MAX_AUTOFIX_ATTEMPTS}`,
+      structured_error: {
+        error_type: "qc_repairable",
+        gate,
+        auto_recovery_action: `autofix:${gate}`,
+        attempt: attempts + 1,
+        max_attempts: MAX_AUTOFIX_ATTEMPTS,
+      },
+      last_heartbeat_at: now,
+    }).eq("id", ebook.id);
+    const r = await invokeAutofix(ebook.id, gate).catch((e) => ({ ok: false, status: 500, error: e } as Response & { error?: unknown }));
+    if (!(r as Response).ok) {
+      console.warn("[recovery] autofix invoke failed", ebook.id, gate, (r as Response).status);
+    }
+  }
+
   // 5) queued_for_production — dispatch ONE at a time when heavy_production
   //    lock is free (Sequential Safe Mode: heavy_production_concurrency = 1).
   const heavyHolder = await getLockHolder(db, LOCK_HEAVY);
@@ -252,6 +346,8 @@ Deno.serve(async (req) => {
     reclassified_recoverable_failures: reclassifiedRecoverable,
     browserless_waiters_resumed: browserlessResumed,
     worker_waiters_resumed: workerResumed,
+    qc_autofix_queued: qcAutofixQueued,
+    qc_escalated_to_code_fix: qcEscalatedToCodeFix,
     heavy_production_lock: {
       holder: heavyHolder.holder,
       expires_at: heavyHolder.expires_at,
