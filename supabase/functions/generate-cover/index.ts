@@ -124,6 +124,8 @@ Pass gate — ALL must be true:
 - premium_feel >= 90
 - category_fit >= 90
 - click_appeal >= 90
+- shopify_click_appeal >= 90
+- premium_product_feel >= 90
 - sellability >= 90
 - anti_ai_look >= 90
 - no_ai_text_errors == true
