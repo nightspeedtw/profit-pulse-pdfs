@@ -78,8 +78,29 @@ function extractJson<T>(raw: string, opts: { allowTruncated?: boolean } = {}): T
   }
   try { return JSON.parse(candidate) as T; }
   catch {
-    candidate = candidate.replace(/,\s*([}\]])/g, "$1").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
-    return JSON.parse(candidate) as T;
+    // Strip trailing commas and control chars, then retry.
+    let cleaned = candidate.replace(/,\s*([}\]])/g, "$1").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
+    try { return JSON.parse(cleaned) as T; } catch { /* fall through */ }
+    // Escape stray raw newlines/tabs inside string literals (common with
+    // gemini-3.1-pro when a value contains a real \n). Walk the candidate and
+    // only touch characters that appear inside a "..." string.
+    let out = ""; let inStr2 = false; let esc2 = false;
+    for (let i = 0; i < cleaned.length; i++) {
+      const ch = cleaned[i];
+      if (inStr2) {
+        if (esc2) { out += ch; esc2 = false; continue; }
+        if (ch === "\\") { out += ch; esc2 = true; continue; }
+        if (ch === '"') { out += ch; inStr2 = false; continue; }
+        if (ch === "\n") { out += "\\n"; continue; }
+        if (ch === "\r") { out += "\\r"; continue; }
+        if (ch === "\t") { out += "\\t"; continue; }
+        out += ch;
+      } else {
+        out += ch;
+        if (ch === '"') inStr2 = true;
+      }
+    }
+    return JSON.parse(out) as T;
   }
 }
 
