@@ -152,6 +152,8 @@ const HARD_MIN: Record<string, number> = {
   premium_feel: 90,
   category_fit: 90,
   click_appeal: 90,
+  shopify_click_appeal: 90,
+  premium_product_feel: 90,
   sellability: 90,
   anti_ai_look: 90,
 };
