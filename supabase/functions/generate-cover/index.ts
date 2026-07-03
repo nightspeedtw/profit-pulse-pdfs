@@ -529,11 +529,18 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
         spec.brand_text = spec.brand_text || "SECRET PDF";
         spec.title_text = (spec.title_text || ebook.title).slice(0, 60);
         spec.subtitle_text = (spec.subtitle_text || ebook.subtitle || "").slice(0, 120);
+        spec.badge_text = (spec.badge_text || "EBOOK").slice(0, 12);
         spec.color_palette = (spec.color_palette && spec.color_palette.length >= 3)
           ? spec.color_palette
-          : ["#0b1a2b", "#ffffff", "#f5c518"];
-        spec.layout_direction = spec.layout_direction || "bottom";
+          : ["#0b0b0b", "#f4f2ee", "#f5c518"];
+        spec.layout_direction = spec.layout_direction || "center";
+        spec.feature_chips = (spec.feature_chips && spec.feature_chips.length
+          ? spec.feature_chips.filter(Boolean).slice(0, 4)
+          : ["Clear Plan", "Framework", "Momentum", "Freedom"]);
+        while (spec.feature_chips.length < 4) spec.feature_chips.push("");
+        spec.accent_key = (spec.accent_key || "").toLowerCase();
         if (opts.spec_overrides && attempt === 1) spec = { ...spec, ...opts.spec_overrides } as CoverSpec;
+
       }
       if (mode === "compose_qc" && !spec) {
         throw new Error("compose_qc mode requires an existing cover_spec on the ebook.");
