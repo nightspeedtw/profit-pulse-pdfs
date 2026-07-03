@@ -757,7 +757,7 @@ Deno.serve(async (req) => {
           );
           // Waiting for Browserless — keep heavy_production lock, exit; the
           // recovery worker will re-invoke this pipeline after next_retry_at.
-          if (renderOutcome === "wait_browserless") return;
+          if ((renderOutcome as "passed" | "retry_now" | "wait_browserless" | "no_file") === "wait_browserless") return;
 
           // Soft-pass: only stop on truly missing PDF. Low QC scores are
           // logged but do not block Shopify draft upload — admin can fix later.
