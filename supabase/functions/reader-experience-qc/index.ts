@@ -320,8 +320,20 @@ function cleanupChapterContent(content: string, title: string, seenSalaryPhrase:
     [/\bprotocol\b/gi, "rule", "finance_engineering_jargon_softened"],
     [/\bframework\b/gi, "method", "finance_engineering_jargon_softened"],
     [/\bfortification\b/gi, "protection", "finance_engineering_jargon_softened"],
+    [/\bfortress\b/gi, "safety net", "finance_engineering_jargon_softened"],
+    [/\bfortifying\b/gi, "strengthening", "finance_engineering_jargon_softened"],
     [/\bdefensive net\b/gi, "safety net", "finance_engineering_jargon_softened"],
     [/\bhemorrhaging of capital\b/gi, "steady cash leak", "finance_engineering_jargon_softened"],
+    [/\btargeted capital redirection\b/gi, "moving money on purpose", "finance_engineering_jargon_softened"],
+    [/\bcapital redirection\b/gi, "moving money", "finance_engineering_jargon_softened"],
+    [/\bautomated logistics\b/gi, "automatic transfers", "finance_engineering_jargon_softened"],
+    [/\bdebt ceiling\b/gi, "debt limit", "finance_engineering_jargon_softened"],
+    [/\bmaintenance mindset\b/gi, "quarterly check-in habit", "finance_engineering_jargon_softened"],
+    [/\blifestyle leaks\b/gi, "small daily overspends", "finance_engineering_jargon_softened"],
+    [/\bstructural audit\b/gi, "honest money check-up", "finance_engineering_jargon_softened"],
+    [/\bset-and-forget machine\b/gi, "automatic system", "finance_engineering_jargon_softened"],
+    [/\bcommander of this (?:fortress|system)\b/gi, "person in charge here", "finance_engineering_jargon_softened"],
+    [/\byou are the architect\.?\s+you are the engineer\.?\s+you are the commander[^.]*\.\s*/gi, "You're the one running this. ", "finance_engineering_jargon_softened"],
   ];
   for (const [re, replacement, issue] of jargonPairs) {
     let count = 0;
@@ -333,6 +345,17 @@ function cleanupChapterContent(content: string, title: string, seenSalaryPhrase:
       return replacement;
     });
   }
+
+  // Pseudo section headings like "### The Objective: The First Move Protocol"
+  // or lines that are just "The Objective:" / "The Method:" / "Key Move:"
+  // read machine-built. Convert them to natural transition prose so the
+  // repeated structure disappears.
+  out = out.replace(/^\s*(?:The\s+(?:Objective|Method|Move|Rule|System|Approach|Point|Setup|Plan)|Key\s+(?:Move|Point|Idea|Step))\s*:\s*([^\n]*)$/gmi, (_full, tail) => {
+    replacements++;
+    issues.push("pseudo_section_heading_normalized");
+    const clean = String(tail ?? "").trim().replace(/[.:]+$/g, "");
+    return clean ? `Here's the point — ${clean.charAt(0).toLowerCase()}${clean.slice(1)}.` : "";
+  });
 
   // Vary common AI/cliché metaphors that appeared in this failed book.
   const clicheRewrites: [RegExp, string, string][] = [
