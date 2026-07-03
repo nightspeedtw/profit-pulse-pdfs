@@ -298,9 +298,17 @@ export function computeQcGates(row: Record<string, unknown>): QcGateReport {
     const v = thumbBreakdown[field as keyof typeof thumbBreakdown];
     return v != null && v >= target;
   });
+  // Producer-authoritative pass: when generate-cover has explicitly signed off
+  // (cover_qc.passed === true) AND the overall score meets the gate target, we
+  // trust the producer even if a downstream breakdown recompute races and
+  // temporarily nulls a sub-score. This kills the stale-writer loop where
+  // autofix keeps re-flipping cover_thumb.pass=false on an already-passing cover.
+  const coverOverall = num(coverQc?.overall_score);
+  const coverProducerPassed =
+    coverQc?.passed === true && coverOverall != null && coverOverall >= 90 && !!thumbnailUrl;
   const cover_thumb: GateResult = {
     score: thumbScore,
-    pass: thumbHasData && thumbScore != null && thumbScore >= 90 && allThumbDimsPass,
+    pass: coverProducerPassed || (thumbHasData && thumbScore != null && thumbScore >= 90 && allThumbDimsPass),
     target: 90,
     breakdown: thumbBreakdown,
   };
@@ -309,7 +317,7 @@ export function computeQcGates(row: Record<string, unknown>): QcGateReport {
     ["formatter", formatter, fmtHasData],
     ["reader", reader, readerHasData],
     ["cover_pdf", cover_pdf, coverPdfHasData],
-    ["cover_thumb", cover_thumb, thumbHasData],
+    ["cover_thumb", cover_thumb, thumbHasData || coverProducerPassed],
   ];
 
   const blocking_gates = gates.filter(([, g]) => !g.pass).map(([n]) => n);
