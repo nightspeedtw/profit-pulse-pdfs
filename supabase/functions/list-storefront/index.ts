@@ -18,7 +18,7 @@ Deno.serve(async (req) => {
 
     let query = supabase
       .from("ebooks")
-      .select("id, title, price, cover_url, product_description, product_category, seo_title, seo_meta, tags, sales_count, listed_at")
+      .select("id, title, price, cover_url, product_description, product_type, seo_title, seo_meta, tags, sales_count, listed_at")
       .not("listed_at", "is", null)
       .not("pdf_url", "is", null)
       .not("price", "is", null)
@@ -26,7 +26,8 @@ Deno.serve(async (req) => {
       .limit(limit);
 
     if (id) query = query.eq("id", id);
-    if (category) query = query.eq("product_category", category);
+    if (category) query = query.eq("product_type", category);
+
     if (q) query = query.ilike("title", `%${q}%`);
 
     const { data, error } = await query;

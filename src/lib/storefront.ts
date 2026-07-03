@@ -6,13 +6,14 @@ export interface StorefrontEbook {
   price: number | null;
   cover_url: string | null;
   product_description: string | null;
-  product_category: string | null;
+  product_type: string | null;
   seo_title: string | null;
   seo_meta: string | null;
   tags: string[] | null;
   sales_count: number;
   listed_at: string | null;
 }
+
 
 const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/list-storefront`;
 const ANON = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
