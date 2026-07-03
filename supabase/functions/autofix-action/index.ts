@@ -187,6 +187,7 @@ Deno.serve(async (req) => {
       // Kick the exact producer immediately, then kick the pipeline so the
       // canonical state machine continues to Shopify readiness.
       if (action === "autofix_gate" && g === "cover_thumb") {
+        const coverMode = decision?.missingData ? "overlay" : "spec";
         fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-cover`, {
           method: "POST",
           headers: {
@@ -194,7 +195,7 @@ Deno.serve(async (req) => {
             Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
             apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
           },
-          body: JSON.stringify({ ebook_id, mode: "overlay" }),
+          body: JSON.stringify({ ebook_id, mode: coverMode }),
         }).catch((e) => console.warn("generate-cover autofix kickoff failed", e?.message ?? e));
       }
 
