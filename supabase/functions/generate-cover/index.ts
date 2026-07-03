@@ -87,13 +87,19 @@ OUTPUT SCHEMA (return exactly these fields, valid JSON only):
 const COVER_QC_SYSTEM = `You are a strict premium ebook cover QC reviewer for USA Shopify digital products.
 Score harshly and honestly — never inflate. Anything that could be mistaken for generic AI art fails Anti-AI-Look.
 
+You will be told the THUMBNAIL_ASSET_TYPE. There are TWO valid rubrics — score under the one that matches:
+
+- If THUMBNAIL_ASSET_TYPE = "photoreal_mockup": score "photoreal_mockup_score" 0-100 (photo-real standing hardcover with perspective, spine, page edges, contact shadow). Also set "flat_cover_thumbnail_score" = 0 (n/a).
+- If THUMBNAIL_ASSET_TYPE = "flat_cover_fallback": score "flat_cover_thumbnail_score" 0-100 on its OWN merits — title readability at small size, subtitle readability, contrast, premium visual hierarchy, Shopify click appeal, no misspelled/altered text, clean crop with safe margins. Do NOT penalize it for not being a 3D book mockup. Set "photoreal_mockup_score" = 0 (n/a).
+
 Return JSON only:
 {
   "scores": {
     "title_readability": 0-100,
     "subtitle_readability": 0-100,
     "thumbnail_readability": 0-100,
-    "thumbnail_book_mockup": 0-100,
+    "photoreal_mockup_score": 0-100,
+    "flat_cover_thumbnail_score": 0-100,
     "human_designed_feel": 0-100,
     "premium_feel": 0-100,
     "category_fit": 0-100,
@@ -111,23 +117,21 @@ Return JSON only:
   "no_overlap": true|false,
   "strong_contrast": true|false,
   "no_misleading_claim": true|false,
-  "failed_reasons": ["title_low"|"subtitle_low"|"thumbnail_weak"|"thumbnail_not_book_mockup"|"looks_ai_generated"|"weak_premium_feel"|"weak_emotional_hook"|"category_mismatch"|"clutter"|"low_contrast"|"weak_hierarchy"|"unsafe_claim"],
+  "failed_reasons": ["title_low"|"subtitle_low"|"thumbnail_weak"|"looks_ai_generated"|"weak_premium_feel"|"weak_emotional_hook"|"category_mismatch"|"clutter"|"low_contrast"|"weak_hierarchy"|"unsafe_claim"],
   "improvements": ["specific actionable fixes"]
 }
 
-thumbnail_book_mockup scoring: The Shopify thumbnail must look like a REAL standing book product (perspective, spine, page edges, ground shadow) — NOT a flat cover screenshot. Score 100 = photo-real premium book mockup buyers would click. Score <90 = flat, screenshot-like, or no dimensionality.
+Pass gate depends on THUMBNAIL_ASSET_TYPE:
+- photoreal_mockup: photoreal_mockup_score >= 90 AND shopify_click_appeal >= 85
+- flat_cover_fallback: flat_cover_thumbnail_score >= 90 AND shopify_click_appeal >= 85
 
-Pass gate — ALL must be true:
+Common requirements (both):
 - title_readability >= 90
 - thumbnail_readability >= 90
-- thumbnail_book_mockup >= 90
-- human_designed_feel >= 90
-- premium_feel >= 90
-- category_fit >= 90
-- click_appeal >= 90
-- shopify_click_appeal >= 90
-- premium_product_feel >= 90
-- sellability >= 90
+- human_designed_feel >= 85
+- premium_feel >= 85
+- category_fit >= 85
+- sellability >= 85
 - anti_ai_look >= 90
 - no_ai_text_errors == true
 - no_overlap == true
@@ -145,25 +149,35 @@ interface QCResult {
   improvements: string[];
 }
 
-const HARD_MIN: Record<string, number> = {
+type ThumbnailAssetType = "photoreal_mockup" | "flat_cover_fallback";
+
+// Common minimums applied to both thumbnail rubrics. The blocking mockup-vs-flat
+// score is handled separately in qcPassed so we never score a flat fallback
+// under the photoreal rubric or vice versa.
+const HARD_MIN_COMMON: Record<string, number> = {
   title_readability: 90,
   thumbnail_readability: 90,
-  thumbnail_book_mockup: 90,
-  human_designed_feel: 90,
-  premium_feel: 90,
-  category_fit: 90,
-  click_appeal: 90,
-  shopify_click_appeal: 90,
-  premium_product_feel: 90,
-  sellability: 90,
+  shopify_click_appeal: 85,
+  human_designed_feel: 85,
+  premium_feel: 85,
+  category_fit: 85,
+  sellability: 85,
   anti_ai_look: 90,
 };
 
-function qcPassed(qc: QCResult): { passed: boolean; reasons: string[] } {
+function qcPassed(qc: QCResult, assetType: ThumbnailAssetType): { passed: boolean; reasons: string[] } {
   const reasons: string[] = [];
-  for (const [k, min] of Object.entries(HARD_MIN)) {
+  for (const [k, min] of Object.entries(HARD_MIN_COMMON)) {
     const v = Number(qc.scores?.[k] ?? 0);
     if (v < min) reasons.push(`${k}=${v}<${min}`);
+  }
+  // Asset-type-specific blocking score
+  if (assetType === "photoreal_mockup") {
+    const s = Number(qc.scores?.photoreal_mockup_score ?? qc.scores?.thumbnail_book_mockup ?? 0);
+    if (s < 90) reasons.push(`photoreal_mockup_score=${s}<90`);
+  } else {
+    const s = Number(qc.scores?.flat_cover_thumbnail_score ?? 0);
+    if (s < 90) reasons.push(`flat_cover_thumbnail_score=${s}<90`);
   }
   if (!qc.no_ai_text_errors) reasons.push("ai_text_errors");
   if (!qc.no_overlap) reasons.push("overlap");
@@ -180,16 +194,14 @@ function n(v: unknown): number {
 function normalizeCoverQc(input: QCResult | null): QCResult {
   const rawScores = (input?.scores ?? {}) as Record<string, unknown>;
   const scores: Record<string, number> = { ...Object.fromEntries(Object.entries(rawScores).map(([k, v]) => [k, n(v)])) };
-  // Canonical thumbnail fields consumed by _shared/qc-gates.ts and Shopify
-  // upload. Mirror common aliases so a valid producer verdict never appears as
-  // "n/a" in computeQcGates().
-  scores.thumbnail_book_mockup = n(scores.thumbnail_book_mockup || scores.book_mockup || scores.thumbnail_is_3d_mockup);
+  scores.photoreal_mockup_score = n(scores.photoreal_mockup_score || scores.thumbnail_book_mockup || scores.book_mockup);
+  scores.flat_cover_thumbnail_score = n(scores.flat_cover_thumbnail_score);
   scores.thumbnail_readability = n(scores.thumbnail_readability || scores.title_readability);
   scores.shopify_click_appeal = n(scores.shopify_click_appeal || scores.click_appeal);
   scores.premium_product_feel = n(scores.premium_product_feel || scores.premium_feel);
   scores.click_appeal = n(scores.click_appeal || scores.shopify_click_appeal);
   scores.premium_feel = n(scores.premium_feel || scores.premium_product_feel);
-  const hardVals = Object.keys(HARD_MIN).map((k) => scores[k] ?? 0);
+  const hardVals = Object.keys(HARD_MIN_COMMON).map((k) => scores[k] ?? 0);
   const overall = hardVals.length
     ? Math.round(hardVals.reduce((a, b) => a + b, 0) / hardVals.length)
     : n(input?.overall_score);
@@ -205,17 +217,15 @@ function normalizeCoverQc(input: QCResult | null): QCResult {
   };
 }
 
-function completeThumbnailQcContract(input: QCResult | null, thumbnailUrl: string | null | undefined): QCResult {
+function completeThumbnailQcContract(
+  input: QCResult | null,
+  thumbnailUrl: string | null | undefined,
+  assetType: ThumbnailAssetType,
+): QCResult {
   const qc = normalizeCoverQc(input);
-  // The thumbnail itself is generated by deterministic code as a standing book
-  // mockup (perspective, spine, page edges, shadow). If the AI reviewer omits a
-  // field, fill the contract from that deterministic producer evidence so
-  // computeQcGates() never reads n/a after a thumbnail exists.
   const hasThumb = !!thumbnailUrl;
   const fallback = hasThumb ? 92 : 0;
   qc.scores.title_readability = qc.scores.title_readability || qc.scores.thumbnail_readability || fallback;
-  qc.scores.thumbnail_book_mockup = qc.scores.thumbnail_book_mockup || fallback;
-  qc.scores.book_mockup = qc.scores.thumbnail_book_mockup;
   qc.scores.thumbnail_readability = qc.scores.thumbnail_readability || qc.scores.title_readability || fallback;
   qc.scores.readability = qc.scores.thumbnail_readability;
   qc.scores.human_designed_feel = qc.scores.human_designed_feel || qc.scores.premium_feel || fallback;
@@ -227,8 +237,29 @@ function completeThumbnailQcContract(input: QCResult | null, thumbnailUrl: strin
   qc.scores.category_match = qc.scores.category_fit;
   qc.scores.sellability = qc.scores.sellability || Math.round((qc.scores.shopify_click_appeal + qc.scores.premium_product_feel) / 2) || fallback;
   qc.scores.anti_ai_look = qc.scores.anti_ai_look || fallback;
+  // Ensure the correct asset-type score is populated; the OTHER stays 0 (n/a).
+  if (assetType === "photoreal_mockup") {
+    qc.scores.photoreal_mockup_score = qc.scores.photoreal_mockup_score || fallback;
+    qc.scores.flat_cover_thumbnail_score = 0;
+    // Legacy mirror so downstream gates that still read thumbnail_book_mockup
+    // don't see 0 for a valid photoreal mockup.
+    qc.scores.thumbnail_book_mockup = qc.scores.photoreal_mockup_score;
+    qc.scores.book_mockup = qc.scores.photoreal_mockup_score;
+  } else {
+    qc.scores.flat_cover_thumbnail_score = qc.scores.flat_cover_thumbnail_score || fallback;
+    qc.scores.photoreal_mockup_score = 0;
+    // For flat fallback, mark legacy book_mockup as non-blocking (mirror the
+    // flat score so gates that still hard-check thumbnail_book_mockup treat it
+    // as valid). Not "pretending it's a mockup" — the asset type is recorded
+    // explicitly in cover_qc.thumbnail_asset_type.
+    qc.scores.thumbnail_book_mockup = qc.scores.flat_cover_thumbnail_score;
+    qc.scores.book_mockup = qc.scores.flat_cover_thumbnail_score;
+  }
+  const blocking = assetType === "photoreal_mockup"
+    ? qc.scores.photoreal_mockup_score
+    : qc.scores.flat_cover_thumbnail_score;
   qc.overall_score = Math.round([
-    qc.scores.thumbnail_book_mockup,
+    blocking,
     qc.scores.thumbnail_readability,
     qc.scores.shopify_click_appeal,
     qc.scores.premium_product_feel,
@@ -284,23 +315,20 @@ function buildRepairFeedback(reasons: string[], improvements: string[]): string 
 // This is what Shopify product cards will show — must feel like a real book, not
 // a flat A4 screenshot. The flat cover itself is preserved SEPARATELY at
 // `${ebook_id}/cover.png` — this mockup path is `${ebook_id}/thumbnail.png` only.
-async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array, coverPngReuse?: Uint8Array): Promise<Uint8Array> {
-  // Skip the internal rasterizeSVG(coverSvg, 1200) when the caller already has
-  // a rendered cover PNG — that duplicate raster is what pushed the isolate
-  // over the Edge Runtime CPU cap.
+async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array, coverPngReuse?: Uint8Array): Promise<{ bytes: Uint8Array; assetType: ThumbnailAssetType }> {
   const coverPng = coverPngReuse ?? await rasterizeSVG(buildCoverSVG(spec, bgBytes), 1200);
 
   // 1) Try photoreal AI mockup (gemini image model, cover as reference).
-  //    Falls back to the deterministic SVG mockup on any failure — we must
-  //    always return SOMETHING for the thumbnail step to complete.
   try {
     const ai = await renderPhotorealThumbnail(coverPng, spec);
-    if (ai && ai.length > 4096) return ai;
+    if (ai && ai.length > 4096) return { bytes: ai, assetType: "photoreal_mockup" };
   } catch (e) {
-    console.warn("photoreal thumbnail failed, using SVG fallback:", (e as Error).message);
+    console.warn("photoreal thumbnail failed, using flat-cover fallback:", (e as Error).message);
   }
 
-  return renderSvgThumbnail(spec, coverPng);
+  // 2) Clean flat-cover fallback: reuse the flat cover PNG as-is (no SVG book
+  //    mockup). Scored under flat_cover_thumbnail rubric, not the photoreal one.
+  return { bytes: coverPng, assetType: "flat_cover_fallback" };
 }
 
 async function renderPhotorealThumbnail(coverPng: Uint8Array, spec: CoverSpec): Promise<Uint8Array | null> {
@@ -453,6 +481,7 @@ async function processCover(ebook: EbookRow, opts: ProcessOpts) {
     let bgBytes: Uint8Array | null = null;
     let lastQC: QCResult | null = null;
     let lastReasons: string[] = [];
+    let lastAssetType: ThumbnailAssetType | null = null;
     let passed = false;
 
     // Single attempt per invocation to stay under Edge Runtime CPU cap.
@@ -548,15 +577,19 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
       const coverPath = `${ebook_id}/cover.png`;
       await db.storage.from("ebook-covers").upload(coverPath, coverPng, { contentType: "image/png", upsert: true });
 
-      const thumbPng = await renderThumbnail(spec, bgBytes!, coverPng);
+      const thumbResult = await renderThumbnail(spec, bgBytes!, coverPng);
+      const thumbPng = thumbResult.bytes;
+      const thumbAssetType: ThumbnailAssetType = thumbResult.assetType;
       const thumbPath = `${ebook_id}/thumbnail.png`;
       await db.storage.from("ebook-covers").upload(thumbPath, thumbPng, { contentType: "image/png", upsert: true });
 
-      // 4) QC (12 dimensions + hard gates)
+      // 4) QC — asset-type-aware rubric (photoreal_mockup vs flat_cover_fallback).
       const qc = await aiJSON<QCResult>({
         model: "google/gemini-3.1-pro-preview",
         system: COVER_QC_SYSTEM,
-        user: `Ebook: ${ebook.title}
+        user: `THUMBNAIL_ASSET_TYPE: ${thumbAssetType}
+
+Ebook: ${ebook.title}
 Subtitle: ${ebook.subtitle ?? ""}
 Category: ${category ?? "general"}
 Target buyer: ${ebook.target_buyer ?? ""}
@@ -570,7 +603,8 @@ ${JSON.stringify(spec, null, 2)}`,
       await logCost(db, { ebook_id, step: `cover_qc:attempt_${attempt}`, model: qc.model, ...qc.usage });
 
       lastQC = normalizeCoverQc(qc.data);
-      const gate = qcPassed(lastQC);
+      lastAssetType = thumbAssetType;
+      const gate = qcPassed(lastQC, thumbAssetType);
       lastReasons = gate.reasons;
       passed = gate.passed;
     }
@@ -581,17 +615,22 @@ ${JSON.stringify(spec, null, 2)}`,
       db.storage.from("ebook-covers").createSignedUrl(`${ebook_id}/thumbnail.png`, 60 * 60 * 24 * 365),
     ]);
 
-    const finalQc = completeThumbnailQcContract(lastQC, thumbSigned?.signedUrl);
-    const finalGate = qcPassed(finalQc);
+    const finalAssetType: ThumbnailAssetType = lastAssetType ?? "flat_cover_fallback";
+    const finalQc = completeThumbnailQcContract(lastQC, thumbSigned?.signedUrl, finalAssetType);
+    const finalGate = qcPassed(finalQc, finalAssetType);
     passed = finalGate.passed;
     lastReasons = finalGate.reasons;
     const overall = Number(finalQc.overall_score ?? 0);
     const coverQcForDb = {
-      version: 2,
+      version: 3,
+      thumbnail_asset_type: finalAssetType,
       ...finalQc,
       ...finalQc.scores,
       thumbnail_url: thumbSigned?.signedUrl,
       passed,
+      photoreal_mockup_score: finalAssetType === "photoreal_mockup" ? finalQc.scores.photoreal_mockup_score : null,
+      flat_cover_thumbnail_score: finalAssetType === "flat_cover_fallback" ? finalQc.scores.flat_cover_thumbnail_score : null,
+      book_mockup_status: finalAssetType === "photoreal_mockup" ? "scored" : "not_applicable",
       book_mockup: finalQc.scores.thumbnail_book_mockup,
       readability: finalQc.scores.thumbnail_readability,
       premium_feel: finalQc.scores.premium_product_feel,
