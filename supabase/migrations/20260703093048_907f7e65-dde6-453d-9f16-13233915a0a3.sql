@@ -1,0 +1,1 @@
+UPDATE public.ebooks SET reader_experience_status='pending', reader_experience_fix_count=0, auto_fix_attempt_count=0, blocker_class=NULL, blocker_reason=NULL, next_retry_at=NULL WHERE id='f138ad1a-7ff5-48a2-8358-5566979359f5';
