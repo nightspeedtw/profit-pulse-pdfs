@@ -292,6 +292,29 @@ function chapterWorksheet(c: PdfChapter): string {
     return `<section class="worksheet worksheet--manual">${heading("Operating Manual")}${purpose}
       <ol class="ws-manual">${items.map((it) => `<li>${esc(it)}</li>`).join("")}</ol></section>`;
   }
+  // Category-specific table worksheets (productivity, energy, cashflow).
+  const TABLE_KINDS: Record<string, { label: string; cols: string[]; rows: number }> = {
+    focus_audit:         { label: "Focus-to-Friction Audit",       cols: ["Task",           "Depth 1-5", "Interruption Source", "Fix This Week"], rows: 8 },
+    interruption_log:    { label: "Interruption Origin Log",       cols: ["Time",           "Trigger",   "Duration (min)",      "Was It Urgent?"], rows: 10 },
+    deep_work_planner:   { label: "Deep Work Block Planner",       cols: ["Day",            "Block",     "Outcome",             "Blocker Removed"], rows: 7 },
+    calendar_boundary:   { label: "Calendar Boundary Worksheet",   cols: ["Recurring Item", "Purpose",   "Keep / Cut / Shrink", "Replacement Ritual"], rows: 8 },
+    meeting_elimination: { label: "Meeting Elimination Matrix",    cols: ["Meeting",        "Decision?", "Async Possible?",     "Action"],           rows: 8 },
+    energy_audit:        { label: "72-Hour Energy Audit Tracker",  cols: ["Time",           "Energy 1-10", "Trigger",           "Recovery Move"],    rows: 12 },
+    caffeine_log:        { label: "Caffeine Half-Life Log",        cols: ["Time",           "Source",    "mg (est.)",           "Sleep Impact"],     rows: 8 },
+    sleep_anchor:        { label: "Sleep Anchor Planner",          cols: ["Anchor",         "Target Time", "Current Time",       "Adjustment"],       rows: 6 },
+    crash_diagnostic:    { label: "2 PM Crash Pattern Worksheet",  cols: ["Day",            "Last Meal", "Sleep Prior Night",   "Crash Severity"],   rows: 7 },
+    evening_recovery:    { label: "Evening Recovery Tracker",      cols: ["Time",           "Ritual",    "Screen Off?",         "Sleep Quality 1-5"], rows: 7 },
+    cashflow_surplus:    { label: "Cash Flow Surplus Calculator",  cols: ["Month",          "Income",    "Fixed Costs",         "Surplus"],          rows: 6 },
+    fortress_audit:      { label: "Fortress Baseline Audit",       cols: ["Pillar",         "Current",   "Target",              "Next Move"],        rows: 6 },
+    lifestyle_leak:      { label: "Lifestyle Leak Matrix",         cols: ["Category",       "Monthly $", "Value 1-5",           "Cut / Keep"],       rows: 8 },
+    safety_net:          { label: "Safety Net Builder",            cols: ["Layer",          "Target $",  "Current $",           "Timeline"],         rows: 5 },
+    fixed_cost_scan:     { label: "Fixed Cost Fragility Scan",     cols: ["Cost",           "Monthly $", "Fragility 1-5",       "Renegotiate By"],   rows: 8 },
+  };
+  const tk = TABLE_KINDS[kind as string];
+  if (tk) {
+    const headers = w.columns?.length ? w.columns : tk.cols;
+    return `<section class="worksheet worksheet--table">${heading(tk.label)}${purpose}${renderTable(headers, w.rows ?? tk.rows)}</section>`;
+  }
   // default: prompts + writing lines
   if (!w.prompts?.length) return "";
   return `
