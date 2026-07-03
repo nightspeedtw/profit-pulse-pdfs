@@ -454,6 +454,63 @@ export type Database = {
           },
         ]
       }
+      download_grants: {
+        Row: {
+          buyer_email: string
+          buyer_user_id: string | null
+          created_at: string
+          download_count: number
+          ebook_id: string
+          expires_at: string
+          id: string
+          last_downloaded_at: string | null
+          max_downloads: number
+          order_id: string
+          token: string
+        }
+        Insert: {
+          buyer_email: string
+          buyer_user_id?: string | null
+          created_at?: string
+          download_count?: number
+          ebook_id: string
+          expires_at?: string
+          id?: string
+          last_downloaded_at?: string | null
+          max_downloads?: number
+          order_id: string
+          token?: string
+        }
+        Update: {
+          buyer_email?: string
+          buyer_user_id?: string | null
+          created_at?: string
+          download_count?: number
+          ebook_id?: string
+          expires_at?: string
+          id?: string
+          last_downloaded_at?: string | null
+          max_downloads?: number
+          order_id?: string
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "download_grants_ebook_id_fkey"
+            columns: ["ebook_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "download_grants_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ebook_assets: {
         Row: {
           byte_size: number | null
@@ -845,6 +902,7 @@ export type Database = {
           last_auto_fix_action: string | null
           last_heartbeat_at: string | null
           launch_price: number | null
+          listed_at: string | null
           low_price_test: number | null
           manuscript_fix_count: number
           manuscript_qc_status: string | null
@@ -909,6 +967,7 @@ export type Database = {
           rejection_reason: string | null
           required_score: number | null
           resolved_at: string | null
+          sales_count: number
           seo_meta: string | null
           seo_title: string | null
           shopify_draft_url: string | null
@@ -1019,6 +1078,7 @@ export type Database = {
           last_auto_fix_action?: string | null
           last_heartbeat_at?: string | null
           launch_price?: number | null
+          listed_at?: string | null
           low_price_test?: number | null
           manuscript_fix_count?: number
           manuscript_qc_status?: string | null
@@ -1083,6 +1143,7 @@ export type Database = {
           rejection_reason?: string | null
           required_score?: number | null
           resolved_at?: string | null
+          sales_count?: number
           seo_meta?: string | null
           seo_title?: string | null
           shopify_draft_url?: string | null
@@ -1193,6 +1254,7 @@ export type Database = {
           last_auto_fix_action?: string | null
           last_heartbeat_at?: string | null
           launch_price?: number | null
+          listed_at?: string | null
           low_price_test?: number | null
           manuscript_fix_count?: number
           manuscript_qc_status?: string | null
@@ -1257,6 +1319,7 @@ export type Database = {
           rejection_reason?: string | null
           required_score?: number | null
           resolved_at?: string | null
+          sales_count?: number
           seo_meta?: string | null
           seo_title?: string | null
           shopify_draft_url?: string | null
@@ -1519,6 +1582,99 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      order_items: {
+        Row: {
+          cover_snapshot: string | null
+          created_at: string
+          currency: string
+          ebook_id: string
+          id: string
+          order_id: string
+          title_snapshot: string
+          unit_price: number
+        }
+        Insert: {
+          cover_snapshot?: string | null
+          created_at?: string
+          currency?: string
+          ebook_id: string
+          id?: string
+          order_id: string
+          title_snapshot: string
+          unit_price: number
+        }
+        Update: {
+          cover_snapshot?: string | null
+          created_at?: string
+          currency?: string
+          ebook_id?: string
+          id?: string
+          order_id?: string
+          title_snapshot?: string
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_items_ebook_id_fkey"
+            columns: ["ebook_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      orders: {
+        Row: {
+          amount_total: number
+          buyer_email: string
+          buyer_user_id: string | null
+          created_at: string
+          currency: string
+          environment: string
+          id: string
+          paid_at: string | null
+          status: string
+          stripe_payment_intent: string | null
+          stripe_session_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount_total?: number
+          buyer_email: string
+          buyer_user_id?: string | null
+          created_at?: string
+          currency?: string
+          environment?: string
+          id?: string
+          paid_at?: string | null
+          status?: string
+          stripe_payment_intent?: string | null
+          stripe_session_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount_total?: number
+          buyer_email?: string
+          buyer_user_id?: string | null
+          created_at?: string
+          currency?: string
+          environment?: string
+          id?: string
+          paid_at?: string | null
+          status?: string
+          stripe_payment_intent?: string | null
+          stripe_session_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       pipeline_step_logs: {
         Row: {
