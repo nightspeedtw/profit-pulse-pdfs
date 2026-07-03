@@ -1,0 +1,59 @@
+// Free download — returns a short-lived signed PDF URL for any listed ebook,
+// bypassing payment entirely. Intended for the "free access" mode.
+import { createClient } from "npm:@supabase/supabase-js@2";
+import { corsHeaders } from "../_shared/stripe.ts";
+
+const supabase = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+);
+
+const BUCKET = "ebook-pdfs";
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  try {
+    const { ebook_id } = await req.json();
+    if (!ebook_id || typeof ebook_id !== "string") throw new Error("ebook_id required");
+
+    const { data: e, error } = await supabase
+      .from("ebooks")
+      .select("id, title, pdf_url, listed_at")
+      .eq("id", ebook_id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!e) throw new Error("Ebook not found");
+    if (!e.listed_at) throw new Error("Ebook not available");
+    if (!e.pdf_url) throw new Error("PDF not available");
+
+    let signedUrl = e.pdf_url as string;
+    try {
+      const u = new URL(signedUrl);
+      const marker = `/storage/v1/object/`;
+      const idx = u.pathname.indexOf(marker);
+      if (idx >= 0) {
+        const after = u.pathname.slice(idx + marker.length);
+        const parts = after.split("/");
+        if (parts.length >= 3 && parts[1] === BUCKET) {
+          const path = parts.slice(2).join("/");
+          const { data: sd, error: se } = await supabase.storage.from(BUCKET).createSignedUrl(path, 600, {
+            download: `${(e.title ?? "ebook").replace(/[^a-z0-9-_ ]/gi, "").trim() || "ebook"}.pdf`,
+          });
+          if (se) throw se;
+          signedUrl = sd.signedUrl;
+        }
+      }
+    } catch (_) { /* fall through */ }
+
+    // best-effort telemetry
+    await supabase.from("ebooks").update({ sales_count: (undefined as unknown as number) }).eq("id", "___"); // no-op guard
+
+    return new Response(JSON.stringify({ url: signedUrl, title: e.title }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: (e as Error).message }), {
+      status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});
