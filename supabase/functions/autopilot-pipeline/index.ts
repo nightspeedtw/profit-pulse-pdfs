@@ -768,9 +768,25 @@ Deno.serve(async (req) => {
           return ebook.pdf_status === "needs_review" ? "retry_now" : "passed";
         }
 
+        // Legacy pdf_qc rows (pre-v3) lack the formatter contract fields the
+        // premium-ebook-master gate consumes. Treat those as stale and force a
+        // re-render so the current producer can persist typography_score,
+        // reading_comfort_score, table_render_score, worksheet_layout_score,
+        // premium_layout_score, and formatting_score. Without this the
+        // formatter gate stays "missing data" forever.
+        const pdfQcRow = (ebook.pdf_qc ?? null) as Record<string, unknown> | null;
+        const pdfQcIsLegacy = !!pdfQcRow && (
+          pdfQcRow.formatting_score == null ||
+          pdfQcRow.typography_score == null ||
+          pdfQcRow.reading_comfort_score == null ||
+          pdfQcRow.table_render_score == null ||
+          pdfQcRow.worksheet_layout_score == null ||
+          pdfQcRow.premium_layout_score == null
+        );
         const needsPdfRerender =
           !ebook.pdf_url ||
           !ebook.pdf_qc ||
+          pdfQcIsLegacy ||
           ebook.pdf_status === "idle" ||
           ebook.pdf_status === "needs_review" ||
           ebook.pdf_status === "failed";
