@@ -345,6 +345,7 @@ Deno.serve(async (req) => {
       const { data } = await supabase
         .from("system_fix_instructions")
         .select("*")
+        .eq("status", "open")
         .order("first_seen_at", { ascending: true })
         .limit(100);
       return json({ fixes: data ?? [] });
