@@ -102,10 +102,16 @@ export function computeQcGates(row: Record<string, unknown>): QcGateReport {
     breakdown: readerBreakdown,
   };
 
-  // Cover PDF (full A4).
-  const coverPdfScore = num(coverQc?.pdf_cover_full_a4_score) ??
+  // Cover PDF (full A4). The producer is render-pdf, so the canonical score
+  // lives in pdf_qc. cover_qc is kept as a backwards-compatible mirror because
+  // older UI/retry code looked there.
+  const coverPdfScore = num(pdfQc?.pdf_cover_full_a4_score) ??
+    num(pdfQc?.cover_full_a4_score) ??
+    num(pdfQc?.cover_full_bleed_score) ??
+    num(coverQc?.pdf_cover_full_a4_score) ??
+    num(coverQc?.cover_full_a4_score) ??
     num(coverQc?.cover_full_bleed_score);
-  const coverPdfHasData = coverPdfScore != null || num(row.cover_score) != null;
+  const coverPdfHasData = coverPdfScore != null;
   const cover_pdf: GateResult = {
     score: coverPdfScore,
     pass: coverPdfScore === 100,
