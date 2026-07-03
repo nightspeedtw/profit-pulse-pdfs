@@ -656,7 +656,7 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
       const coverPath = `${ebook_id}/cover.png`;
       await db.storage.from("ebook-covers").upload(coverPath, coverPng, { contentType: "image/png", upsert: true });
 
-      const thumbResult = await renderThumbnail(spec, bgBytes!, coverPng);
+      const thumbResult = await renderThumbnail(spec, bgBytes!, coverPng, styleRef);
       const thumbPng = thumbResult.bytes;
       const thumbAssetType: ThumbnailAssetType = thumbResult.assetType;
       const thumbPath = `${ebook_id}/thumbnail.png`;
