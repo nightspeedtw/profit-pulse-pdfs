@@ -530,7 +530,10 @@ Deno.serve(async (req) => {
     let passed = false;
     let attempts = 0;
     let deferred = false;
-    const deadlineMs = Date.now() + 115_000;
+    // Supabase Edge Functions can idle-timeout around 150s. Stop well before
+    // that and save a healthy `auto_retry` state so the recovery worker can
+    // continue automatically instead of surfacing a red Failed state.
+    const deadlineMs = Date.now() + 90_000;
 
     while ((attemptsStart + attempts) < MAX_ATTEMPTS) {
       if (Date.now() > deadlineMs - 12_000) { deferred = true; break; }
