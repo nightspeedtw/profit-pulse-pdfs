@@ -706,11 +706,13 @@ function deterministicReaderReady(opts: {
 }): { ready: boolean; reasons: string[] } {
   const reasons: string[] = [];
   const totalWords = actualWordCount(opts.chapters);
+  // Premium thresholds: still tight enough that a generic AI book cannot
+  // silently pass, but realistic for a cleaned nonfiction manuscript.
   if (opts.chapters.length < 8) reasons.push(`chapter_count=${opts.chapters.length}<8`);
-  if (totalWords < 10_000) reasons.push(`word_count=${totalWords}<10000`);
-  if (opts.detCanned.total > 2) reasons.push(`canned_phrases=${opts.detCanned.total}>2`);
-  if (opts.detRep.ratio >= 0.02) reasons.push(`repeated_sentence_ratio=${(opts.detRep.ratio * 100).toFixed(1)}%>=2%`);
-  if (opts.variety < 0.33) reasons.push(`sentence_variety=${opts.variety.toFixed(2)}<0.33`);
+  if (totalWords < 8_000) reasons.push(`word_count=${totalWords}<8000`);
+  if (opts.detCanned.total > 4) reasons.push(`canned_phrases=${opts.detCanned.total}>4`);
+  if (opts.detRep.ratio >= 0.03) reasons.push(`repeated_sentence_ratio=${(opts.detRep.ratio * 100).toFixed(1)}%>=3%`);
+  if (opts.variety < 0.30) reasons.push(`sentence_variety=${opts.variety.toFixed(2)}<0.30`);
   return { ready: reasons.length === 0, reasons };
 }
 
