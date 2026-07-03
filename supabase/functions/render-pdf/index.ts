@@ -362,27 +362,10 @@ Deno.serve(async (req) => {
     }
 
     const coverScore = Number(ebook.cover_score ?? 0);
-    const layoutScore = Math.round((struct.structure_score * 0.6) + (aiScores.layout_polish_score * 0.4));
-    // Use canonical reader-QC score when hash matches; otherwise fall back to
-    // the in-place AI readability sample. Layout gates stay independent.
-    const contentScoreForFinal = canonicalContentScore ?? aiScores.readability_score;
-    const finalPdfPremium = Math.round(
-      (layoutScore * 0.30) +
-      (contentScoreForFinal * 0.30) +
-      (aiScores.worksheet_score * 0.10) +
-      (aiScores.diagram_score * 0.10) +
-      (coverScore * 0.20),
-    );
-
-    // ---- Premium PDF v2 scores ----
-    const wsOverflow = worksheetOverflowScore(html);
-    const visFatigue = visualFatigueScore(html, chapters.length);
-    const illRelevance = illustrationRelevanceScore(html);
-    const complianceScore = compliance.score;
-    // Worksheet readability blends AI worksheet score with the overflow gate.
-    const worksheetReadability = Math.round((aiScores.worksheet_score * 0.6) + (wsOverflow * 0.4));
 
     // ---- Premium book-design v3 scores (deterministic on rendered HTML) ----
+    // Computed FIRST so pdf_layout_score can derive from them (not from a
+    // fuzzy AI polish estimate).
     const typo = typographyScore(html);
     const comfort = readingComfortScore(html);
     const tableRen = tableRenderScore(html);
@@ -393,6 +376,80 @@ Deno.serve(async (req) => {
       typography: typo, reading_comfort: comfort, table_render: tableRen,
       worksheet_layout: wsLayout, premium_layout: premLayout, cover_full_a4: coverA4,
     });
+
+    // ---- Premium PDF v2 scores ----
+    const wsOverflow = worksheetOverflowScore(html);
+    const visFatigue = visualFatigueScore(html, chapters.length);
+    const illRelevance = illustrationRelevanceScore(html);
+    const complianceScore = compliance.score;
+    const worksheetReadability = Math.round((aiScores.worksheet_score * 0.6) + (wsOverflow * 0.4));
+
+    // ---- Deterministic layout score (canonical) ----
+    // pdf_layout_score derives from deterministic rendered-layout gates only.
+    // AI layout_polish_score is kept as an audit note but no longer feeds the
+    // composite unless every deterministic input is unavailable.
+    const rawMdLeakEarly =
+      /<p[^>]*>[^<]*\|[^<]*\|[^<]*<\/p>/.test(html) ||
+      /<p[^>]*>[^<]*:-{2,}[^<]*<\/p>/.test(html);
+    const rawMarkdownEarly = rawMdLeakEarly ? 0 : 100;
+    const noCutOffEarly = struct.checks.no_cut_off_text ? 100 : 0;
+    const noDupHeadingsEarly = struct.checks.no_duplicated_headings ? 100 : 0;
+    const layoutInputs = [
+      typo, comfort, tableRen, wsLayout, premLayout, coverA4, fmtScore,
+      rawMarkdownEarly, noCutOffEarly, noDupHeadingsEarly, struct.structure_score,
+    ];
+    const layoutScore = Math.round(layoutInputs.reduce((a, b) => a + b, 0) / layoutInputs.length);
+    const layoutScoreSource = "deterministic_layout_gates";
+
+    // ---- Score source + disagreement audit for final composite ----
+    const contentScoreForFinal = canonicalContentScore ?? aiScores.readability_score;
+    const scoreSource: "reader_qc_hash_matched" | "reader_qc_rerun_hash_matched" | "sampled_fallback" =
+      readerQcStatus === "fresh" ? "reader_qc_hash_matched"
+      : readerQcStatus === "stale_rerun_ok" ? "reader_qc_rerun_hash_matched"
+      : "sampled_fallback";
+    const scoringDisagreement = (canonicalContentScore != null
+      && Math.abs(canonicalContentScore - aiScores.readability_score) > 15)
+      ? { canonical: canonicalContentScore, sampled: aiScores.readability_score, delta: Math.abs(canonicalContentScore - aiScores.readability_score), note: "reader_qc canonical vs render-pdf sampled readability disagree >15; canonical (hash-matched) is authoritative" }
+      : null;
+
+    // Worksheet/diagram sub-scores: use DETERMINISTIC rendered-HTML counts
+    // rather than the AI prose sample. The AI resample looks at raw chapter
+    // prose (which contains no worksheet/diagram HTML) and always returns ~15-25
+    // even when the rendered PDF has full worksheet blocks — that is the same
+    // "duplicate rescore" class as readability. AI worksheet/diagram remain in
+    // pdf_qc.* for audit but no longer feed the composite.
+    const worksheetBlockCount =
+      (html.match(/class="[^"]*worksheet[^"]*"/g) ?? []).length +
+      (html.match(/data-block=["']worksheet["']/g) ?? []).length;
+    const diagramBlockCount =
+      (html.match(/<svg/g) ?? []).length +
+      (html.match(/class="[^"]*(diagram|figure|illustration|callout)[^"]*"/g) ?? []).length;
+    const expectedPerChapter = 1;
+    const worksheetPresenceScore = Math.min(
+      100,
+      Math.round((worksheetBlockCount / Math.max(1, chapters.length * expectedPerChapter)) * 100),
+    );
+    const diagramPresenceScore = Math.min(
+      100,
+      Math.round((diagramBlockCount / Math.max(1, chapters.length * expectedPerChapter)) * 100),
+    );
+    // Blend deterministic presence with deterministic worksheet_layout quality.
+    const worksheetScoreDet = Math.round((worksheetPresenceScore * 0.5) + (wsLayout * 0.5));
+    const diagramScoreDet = Math.round((diagramPresenceScore * 0.5) + (illRelevance * 0.5));
+    const worksheetScoreSource = worksheetBlockCount > 0 ? "deterministic_html_blocks" : "sampled_fallback";
+    const diagramScoreSource = diagramBlockCount > 0 ? "deterministic_html_blocks" : "sampled_fallback";
+    const worksheetForFinal = worksheetBlockCount > 0 ? worksheetScoreDet : aiScores.worksheet_score;
+    const diagramForFinal = diagramBlockCount > 0 ? diagramScoreDet : aiScores.diagram_score;
+
+    const finalPdfPremium = Math.round(
+      (layoutScore * 0.30) +
+      (contentScoreForFinal * 0.30) +
+      (worksheetForFinal * 0.10) +
+      (diagramForFinal * 0.10) +
+      (coverScore * 0.20),
+    );
+
+
 
     const qc: PdfQcReport = {
       layout_score: layoutScore,
@@ -514,7 +571,7 @@ Deno.serve(async (req) => {
       pdf_html_url: signedHtml?.signedUrl ?? null,
       pdf_status: passed ? "rendered" : "needs_review",
       pdf_generated_at: new Date().toISOString(),
-      pdf_qc: { ...(qc as any), manuscript_hash: currentHash, reader_qc_status: readerQcStatus, canonical_content_score: canonicalContentScore } as unknown as Record<string, unknown>,
+      pdf_qc: { ...(qc as any), manuscript_hash: currentHash, reader_qc_status: readerQcStatus, canonical_content_score: canonicalContentScore, score_source: scoreSource, layout_score_source: layoutScoreSource, scoring_disagreement: scoringDisagreement, worksheet_score_source: worksheetScoreSource, diagram_score_source: diagramScoreSource, worksheet_score_deterministic: worksheetScoreDet, diagram_score_deterministic: diagramScoreDet, worksheet_block_count: worksheetBlockCount, diagram_block_count: diagramBlockCount } as unknown as Record<string, unknown>,
       cover_qc: coverQcMirror,
       pdf_score: finalPdfPremium,
       pdf_layout_score: layoutScore,
