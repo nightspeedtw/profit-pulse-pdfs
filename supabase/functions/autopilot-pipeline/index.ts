@@ -908,15 +908,14 @@ Deno.serve(async (req) => {
         }
 
         // ---------- STEP 12 — Shopify draft ----------
-        // Phase 1: Autopilot stops BEFORE Shopify upload. The book is marked
-        // ready_to_publish at 100% and the admin pushes it manually via the
-        // "Push to Shopify" button on the ebook Shopify page. Set
-        // settings.autopilot_upload_to_shopify=true to re-enable auto-upload.
-        const autopilotShopifyEnabled = settings.autopilot_upload_to_shopify === true;
-        if (!autopilotShopifyEnabled) {
+        // Phase 1 KPI: run as far as possible automatically, including Shopify
+        // draft upload when the visible Shopify Draft Upload setting is enabled.
+        // Do not rely on a hidden `autopilot_upload_to_shopify` flag; that made
+        // production silently stop at "ready_to_publish" and never reach draft.
+        if (!shopifyDraftEnabled) {
           await skip(
             ["product_copy", "product_qc", "shopify_draft", "shopify_verify"],
-            "Autopilot stops before Shopify — push manually from the ebook page.",
+            "Shopify draft upload disabled in Settings — PDF is ready for manual upload.",
           );
         } else if (shopifyDraftEnabled && !ebook.shopify_product_id) {
           if (await shopifyOverDay()) {
@@ -998,7 +997,7 @@ Deno.serve(async (req) => {
           needs_review_reason: null,
           waiting_reason: autopilotShopifyEnabled
             ? null
-            : "PDF and premium gates passed — ready for Shopify draft upload.",
+            : "PDF and premium gates passed — Shopify draft upload is disabled in Settings.",
           blocker_class: null,
           blocker_reason: null,
           next_recommended_action: ebook.shopify_product_id ? null : "shopify_draft_upload",
