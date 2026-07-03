@@ -337,22 +337,23 @@ async function renderPhotorealThumbnail(coverPng: Uint8Array, spec: CoverSpec): 
   let b64 = ""; const c = 0x8000;
   for (let i = 0; i < coverPng.length; i += c) b64 += String.fromCharCode(...coverPng.subarray(i, i + c));
   const coverData = `data:image/png;base64,${btoa(b64)}`;
-  const prompt = `Create a PHOTOREALISTIC product-photography mockup of a premium hardcover nonfiction book, standing upright on a clean neutral studio surface with soft natural key light from the upper-left and a realistic contact shadow.
+  const prompt = `Create a CINEMATIC, MOODY PHOTOREALISTIC product-photography mockup of a premium hardcover nonfiction book, standing upright on a POLISHED DARK BLACK MARBLE SURFACE with subtle veining and soft reflections. Deep near-black studio background with a soft vignette and a single dramatic warm rim/key light from the upper-right creating rich highlights on the cover edge and a long, soft contact shadow on the marble.
 
 The FRONT COVER of the book must be an EXACT, unmodified reproduction of the reference image I am providing — same layout, same typography, same colors, same title/subtitle/badge/brand positioning. Do NOT redesign, restyle, re-typeset, or add/remove any text. Warp the reference image onto the front-cover surface with correct perspective and gentle page curvature only.
 
 Show:
-- Slight 3/4 perspective (about 12 degrees), front cover clearly readable
-- Visible spine on the left with matching color (${(spec.color_palette?.[0] ?? "#0b1a2b")}), no text on spine
-- Crisp page-edge stack on top and right (thin cream-white pages)
-- Realistic paper/hardcover thickness (about 22mm)
-- Soft grounded contact shadow, subtle floor gradient
-- Neutral warm-gray studio background, no props, no text overlay, no logos, no watermark
-- Sharp focus on the entire cover, physical/tactile hardcover feel, premium bookstore product-shot quality
+- Slight 3/4 perspective (about 12–15 degrees), front cover clearly readable, book centered and dominant in the frame
+- Visible spine on the left, matching cover color (${(spec.color_palette?.[0] ?? "#0b0b0b")}), spine may faintly echo the title but no new text elements
+- Crisp page-edge stack on top and right (thin cream-white pages), realistic hardcover thickness (~22–25mm)
+- Rich specular highlight along the top edge of the cover from the rim light
+- Long, soft, grounded reflection/contact shadow on the polished black marble beneath the book
+- Absolutely no other props, no hands, no additional books, no text overlay, no logos, no watermark
+- Tactile matte hardcover finish, premium bookstore hero-shot quality, editorial dark aesthetic
 
-STRICTLY FORBIDDEN: adding any text/logo/badge that is not on the reference cover, changing the cover artwork, cartoon or 3D-render look, floating book, tilted horizon, multiple books, hands, extra objects.
+STRICTLY FORBIDDEN: adding any text/logo/badge that is not on the reference cover, changing the cover artwork, cartoon or 3D-render look, floating book, tilted horizon, multiple books, hands, extra objects, bright/white studio background.
 
-Output: 1200x1500 vertical composition, book centered.`;
+Output: 1200x1500 vertical composition, dark cinematic mood, book centered.`;
+
 
   const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
     method: "POST",
