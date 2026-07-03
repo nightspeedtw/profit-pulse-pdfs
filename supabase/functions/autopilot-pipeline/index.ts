@@ -555,6 +555,52 @@ Deno.serve(async (req) => {
           await skip(["manuscript_qc"], "Manuscript QC already passed");
         }
 
+        // ---------- STEP 8b — Reader Experience QC ----------
+        // Judges the manuscript like a real emotionally intelligent reader:
+        // natural language, human feel, page-turning momentum, premium
+        // sellability. Up to 3 attempts of targeted humanize-rewrites on
+        // flagged excerpts. Only stops the pipeline if it cannot repair.
+        await refreshEbook();
+        if (ebook.reader_experience_status !== "pass") {
+          if (await overBudget()) {
+            await needsAdmin("reader_experience_qc", "Budget cap reached before reader-experience QC.");
+            return;
+          }
+          await track(
+            ["manuscript_qc"],
+            "Running Reader Experience QC…",
+            async () => {
+              await runStep("8b_reader_experience_qc", "reader-experience-qc", { ebook_id: ebook.id, run_id });
+              await refreshEbook();
+            },
+            "Judging naturalness, emotional pull, page-turning, and premium feel",
+          );
+
+          if (ebook.reader_experience_status === "needs_review") {
+            const rx = (ebook.reader_experience_qc as any) ?? {};
+            const v = rx.verdict ?? {};
+            const scores = v.scores ?? {};
+            const failedList = Object.entries(PASS_HINTS)
+              .filter(([k, min]) => (scores[k] ?? 0) < (min as number))
+              .map(([k, min]) => `• ${k} = ${scores[k] ?? "n/a"} (need ≥ ${min})`)
+              .join("\n");
+            const detail =
+              `Reader Experience QC could not be repaired after ${rx.attempts_used ?? 3}/3 humanize passes.\n` +
+              `Overall score: ${rx.verdict?.overall_score ?? "n/a"}/100 · recommendation: ${v.final_recommendation ?? "unknown"}\n` +
+              `Failing gates:\n${failedList || "• (no gates reported)"}`;
+            await db.from("ebooks").update({
+              autopilot_state: "needs_review",
+              needs_review_reason: detail,
+            }).eq("id", ebook.id);
+            await needsAdmin("reader_experience_qc", detail, "Review flagged excerpts and rerun Reader Experience QC.");
+            return;
+          }
+        } else {
+          await skip(["manuscript_qc"], "Reader Experience QC already passed");
+        }
+
+
+
 
         // ---------- STEP 9 — Cover + thumbnail ----------
         if (!ebook.cover_url) {
