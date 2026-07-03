@@ -800,9 +800,20 @@ Deno.serve(async (req) => {
     }
 
     const finalOverall = verdict?.overall_score ?? 0;
+    const scoreAliases = verdict?.scores ?? {} as Record<string, number>;
     const report = {
       version: 1,
       passed,
+      overall_score: finalOverall,
+      scores: scoreAliases,
+      ...scoreAliases,
+      human_feel_score: scoreAliases.human_written_feel_score,
+      sellability_score: scoreAliases.premium_sellability_score,
+      variety_score: scoreAliases.readability_score,
+      no_ai_patterns_score: scoreAliases.human_written_feel_score,
+      no_repetition_score: scoreAliases.non_repetitive_score,
+      voice_consistency_score: scoreAliases.voice_quality_score,
+      trust_score: scoreAliases.insight_score,
       attempts_used: attemptsStart + attempts,
       pass_targets: PASS,
       verdict,
