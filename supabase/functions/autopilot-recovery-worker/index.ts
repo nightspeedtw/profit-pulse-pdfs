@@ -421,6 +421,7 @@ Deno.serve(async (req) => {
       expires_at: heavyHolder.expires_at,
       free: heavyFree,
     },
+    admin_needed_auto_resumed: adminNeededResumed,
     queued_for_production_dispatched: queuedDispatched,
   }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 });
