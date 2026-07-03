@@ -973,6 +973,42 @@ Deno.serve(async (req) => {
       structured, repair_log: repairLog, total_word_count: totalWords,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (reqEbookId && /truncated json|invalid.*json|no json found|timeout|aborted|ai gateway|fetch failed|504|idle/i.test(msg)) {
+      const db = admin();
+      const nextRetry = nextWorkerRetry(2);
+      await db.from("ebooks").update({
+        manuscript_qc_status: "auto_retry",
+        final_manuscript_qc: {
+          deferred: true,
+          reason: "recoverable_manuscript_qc_provider_error",
+          error: msg.slice(0, 300),
+          next_retry_at: nextRetry,
+          progress: {
+            current_subtask: "provider_error_deferred",
+            message: "Manuscript QC hit a recoverable AI/timeout error — will retry automatically.",
+            last_heartbeat_at: new Date().toISOString(),
+          },
+        } as any,
+        autopilot_state: "waiting_for_worker_slot",
+        canonical_status: "waiting_for_worker_slot",
+        blocker_class: "recoverable_temporary_api_error",
+        blocker_reason: "recoverable_manuscript_qc_provider_error",
+        needs_review_reason: null,
+        next_retry_at: nextRetry,
+      }).eq("id", reqEbookId);
+      if (reqRunId) {
+        await db.from("autopilot_pipeline_runs").update({
+          status: "waiting",
+          error_message: null,
+          current_action_message: "Manuscript QC provider error recovered — auto-retry scheduled.",
+          updated_at: new Date().toISOString(),
+        }).eq("id", reqRunId);
+      }
+      return new Response(JSON.stringify({ ok: true, deferred: true, next_retry_at: nextRetry, reason: "recoverable_manuscript_qc_provider_error" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
