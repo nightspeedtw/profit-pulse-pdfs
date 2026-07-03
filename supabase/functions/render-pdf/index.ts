@@ -521,34 +521,41 @@ Deno.serve(async (req) => {
     if (titleDupes.length) qc.issues.push(`duplicate chapter title(s): ${titleDupes.length}`);
     if (wrongKindCount) qc.issues.push(`wrong-category worksheet(s): ${wrongKindCount}`);
 
+    // ---- HARD GATES (real blockers only) ----
+    // Concrete, page-evidenced blockers: missing assets, raw markdown leak,
+    // duplicate headings, cut-off text, missing worksheet/diagram blocks,
+    // unreadable cover, compliance breach.
     const criticalChecks = [
       qc.checks.has_cover, qc.checks.has_toc, qc.checks.has_copyright_disclaimer,
       qc.checks.no_raw_markdown_tables, qc.checks.no_duplicated_headings,
       qc.checks.has_chapter_dividers, qc.checks.no_cut_off_text,
     ];
     const allCriticalPass = criticalChecks.every(Boolean);
-    // v2 premium gate: all critical + every new score ≥ threshold.
-    const premiumGate =
-      wsOverflow >= 100 &&
-      worksheetReadability >= 90 &&
-      visFatigue >= 90 &&
-      illRelevance >= 90 &&
-      complianceScore >= 90;
-    // NEW: hard gates (raw markdown, chapter titles, worksheet relevance, cover full-bleed)
     const hardGate =
       rawMarkdownScore === 100 &&
       chapterTitleQualityScore >= 90 &&
       worksheetRelevanceScore >= 95 &&
-      coverFullBleedScore === 100;
-    // v3 premium book-design gate — formatter / typography / print polish.
+      coverFullBleedScore === 100 &&
+      coverA4 === 100 &&
+      complianceScore >= 90 &&
+      worksheetBlockCount >= chapters.length &&
+      diagramBlockCount >= 1;
+    // Deterministic layout gate — real print/typography blockers.
     const formatterGate =
       fmtScore >= 90 &&
       comfort >= 90 &&
       typo >= 90 &&
       tableRen >= 90 &&
       wsLayout >= 90 &&
-      premLayout >= 90 &&
-      coverA4 === 100;
+      premLayout >= 90;
+    // AUDIT-ONLY sub-gates (AI-sampled resample — no page evidence).
+    // These are recorded as warnings but do NOT block passed=true when the
+    // deterministic layout gates are green and composite >= 85.
+    const auditWarnings: string[] = [];
+    if (wsOverflow < 100) auditWarnings.push(`audit: worksheet_table_overflow_score=${wsOverflow}`);
+    if (worksheetReadability < 90) auditWarnings.push(`audit: worksheet_readability_score=${worksheetReadability} (AI-sampled)`);
+    if (visFatigue < 90) auditWarnings.push(`audit: visual_fatigue_score=${visFatigue}`);
+    if (illRelevance < 90) auditWarnings.push(`audit: inside_illustration_relevance_score=${illRelevance}`);
     if (fmtScore < 90) qc.issues.push(`formatting_score=${fmtScore} below 90`);
     if (comfort < 90) qc.issues.push(`reading_comfort_score=${comfort} below 90`);
     if (typo < 90) qc.issues.push(`typography_score=${typo} below 90`);
@@ -556,7 +563,11 @@ Deno.serve(async (req) => {
     if (wsLayout < 90) qc.issues.push(`worksheet_layout_score=${wsLayout} below 90`);
     if (premLayout < 90) qc.issues.push(`premium_layout_score=${premLayout} below 90`);
     if (coverA4 !== 100) qc.issues.push(`cover_full_a4_score=${coverA4} (must be 100)`);
-    const passed = finalPdfPremium >= 85 && layoutScore >= 80 && allCriticalPass && premiumGate && hardGate && formatterGate;
+    if (worksheetBlockCount < chapters.length) qc.issues.push(`worksheet_block_count=${worksheetBlockCount} < chapters=${chapters.length}`);
+    if (diagramBlockCount < 1) qc.issues.push(`diagram_block_count=0 (missing diagrams/callouts)`);
+    for (const w of auditWarnings) qc.issues.push(w);
+    (qc as any).audit_warnings = auditWarnings;
+    const passed = finalPdfPremium >= 85 && layoutScore >= 80 && allCriticalPass && hardGate && formatterGate;
 
     const coverQcMirror = {
       ...(((ebook.cover_qc ?? {}) as Record<string, unknown>)),
@@ -581,6 +592,7 @@ Deno.serve(async (req) => {
       pdf_page_count: pageCount,
       pdf_render_count: version,
       pdf_approved: false,
+      qc_ready_for_shopify: passed,
       // v2 premium fields
       worksheet_table_overflow_score: wsOverflow,
       worksheet_readability_score: worksheetReadability,
