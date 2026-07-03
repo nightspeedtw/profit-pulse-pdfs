@@ -995,7 +995,7 @@ Deno.serve(async (req) => {
           qc_ready_for_shopify: true,
           pdf_status: "passed",
           needs_review_reason: null,
-          waiting_reason: autopilotShopifyEnabled
+          waiting_reason: shopifyDraftEnabled
             ? null
             : "PDF and premium gates passed — Shopify draft upload is disabled in Settings.",
           blocker_class: null,
