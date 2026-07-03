@@ -137,6 +137,26 @@ function asHistory(ebook: Record<string, unknown>): Array<Record<string, unknown
   return Array.isArray(ebook.auto_fix_history) ? ebook.auto_fix_history as Array<Record<string, unknown>> : [];
 }
 
+// Phase 1 rule: allow up to 2 attempts where the repair produces no measurable
+// change (same output hash OR failing-field scores did not improve). On the 2nd
+// no-progress attempt, escalate to needs_code_fix instead of looping forever.
+const NO_PROGRESS_ATTEMPTS_ALLOWED = 2;
+
+function scoreImproved(prev: Record<string, unknown> | undefined, next: RepairFingerprint): boolean {
+  if (!prev) return true;
+  const prevScores = (prev.previous_scores ?? {}) as Record<string, number | null>;
+  const failing = next.failing_fields;
+  for (const field of failing) {
+    const before = prevScores[field];
+    const after = next.previous_scores[field];
+    if (typeof after === "number" && (typeof before !== "number" || after > before)) return true;
+  }
+  const beforeOverall = prevScores.overall;
+  const afterOverall = next.previous_scores.overall;
+  if (typeof afterOverall === "number" && (typeof beforeOverall !== "number" || afterOverall > beforeOverall)) return true;
+  return false;
+}
+
 export function decideRepairLoop(
   ebook: Record<string, unknown>,
   gate: GateName,
@@ -180,7 +200,18 @@ export function decideRepairLoop(
       reason: priorMissing ? "producer_persist_bug" : "missing_data_repair",
     };
   }
-  if (sameHashHistory.length >= 1) {
+  // Count "no-progress" attempts: identical output hash OR scores did not improve
+  // vs the immediately preceding attempt on the same gate + repair action.
+  const sameActionHistory = history.filter((h) => h.action === repairAction || h.repair_action === repairAction);
+  const noProgressCount = sameActionHistory.filter((h, idx) => {
+    const prev = idx > 0 ? sameActionHistory[idx - 1] : undefined;
+    const identicalHash = h.output_hash === fingerprint.output_hash || h.repair_fingerprint === fingerprint.output_hash;
+    return identicalHash || !scoreImproved(prev as Record<string, unknown> | undefined, {
+      ...fingerprint,
+      previous_scores: (h.previous_scores ?? {}) as Record<string, number | null>,
+    });
+  }).length;
+  if (noProgressCount >= NO_PROGRESS_ATTEMPTS_ALLOWED || sameHashHistory.length >= NO_PROGRESS_ATTEMPTS_ALLOWED) {
     return { fingerprint, missingData: false, countAttempt: false, alreadyInFlight: false, escalate: true, reason: "repeated_no_improvement" };
   }
   return { fingerprint, missingData: false, countAttempt: true, alreadyInFlight: false, escalate: false, reason: "score_repair" };
