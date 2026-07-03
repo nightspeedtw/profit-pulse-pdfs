@@ -459,22 +459,47 @@ export function classifyError(err: unknown, ctx: ClassifyContext): StructuredErr
   for (const sig of KNOWN_SIGNATURES) if (sig.match(msg, ctx)) return sig.build(msg, ctx);
   for (const sig of CODE_FIX_SIGNATURES) if (sig.match(msg, ctx)) return sig.build(msg, ctx);
 
+  const prompt = lovablePrompt({
+    title: `Unclassified Autopilot failure at ${ctx.step}`,
+    detected: msg,
+    root_cause:
+      "The self-debugging classifier has no permanent rule for this failure yet, so the pipeline cannot confidently auto-repair it.",
+    files: [
+      "supabase/functions/autopilot-pipeline/index.ts",
+      "supabase/functions/autopilot-recovery-worker/index.ts",
+      "supabase/functions/_shared/error-classifier.ts",
+      "supabase/functions/render-pdf/index.ts",
+      "supabase/functions/generate-cover/index.ts",
+    ],
+    fix: [
+      "Identify which producer/step emitted this error and fix the underlying producer output or state transition.",
+      "Add a specific signature to _shared/error-classifier.ts so future occurrences are classified as recoverable, quota-wait, dependency repair, or needs_code_fix with a targeted prompt.",
+      "Persist canonical_status, blocker_reason, structured_error, current_action_message, and next_recommended_action on the ebook so the dashboard never goes silent.",
+      "If the error is recoverable, route it to the correct auto-fix step with backoff; if structural, keep needs_code_fix and include the exact affected files.",
+    ],
+    test:
+      `Replay the failed step for ebook ${ctx.ebook_id ?? "<ebook_id>"}; it must either auto-recover or display a targeted Needs Code Fix prompt with no silent stall.`,
+  });
   return {
     error_type: "non_recoverable",
     severity: "high",
     recoverable: false,
     affected_step: ctx.step,
     user_friendly_message:
-      "Something failed and could not be automatically classified. Admin attention required.",
+      "System code fix required — new Autopilot bug detected and Lovable prompt generated.",
     technical_message: msg,
     detected_root_cause: "Unknown error signature.",
-    auto_recovery_action: "None — retry once, then escalate to admin.",
+    auto_recovery_action: "None — create a permanent classifier + producer fix.",
     next_retry_at: backoff(1),
-    needs_code_fix: false,
-    lovable_fix_instruction: "",
-    affected_files: [],
-    test_to_confirm: "",
-    suggested_status: "needs_admin_attention",
+    needs_code_fix: true,
+    lovable_fix_instruction: prompt,
+    affected_files: [
+      "supabase/functions/autopilot-pipeline/index.ts",
+      "supabase/functions/autopilot-recovery-worker/index.ts",
+      "supabase/functions/_shared/error-classifier.ts",
+    ],
+    test_to_confirm: `Replay failed step for ebook ${ctx.ebook_id ?? "<ebook_id>"}; no silent stall and future error is classified precisely.`,
+    suggested_status: "needs_code_fix",
     fingerprint: `unknown_${ctx.step}_${hash(msg)}`,
   };
 }
