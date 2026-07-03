@@ -674,7 +674,7 @@ Deno.serve(async (req) => {
           return false;
         }
 
-        if (!ebook.cover_url) {
+        if (!ebook.cover_url || !ebook.thumbnail_url) {
           if (await overBudget()) {
             await needsAdmin("cover", "Budget cap reached before cover.");
             return;
@@ -714,7 +714,7 @@ Deno.serve(async (req) => {
             "Creating no-text background image",
           );
           await refreshEbook();
-          if (coverDeferred || (ebook.autopilot_state === "waiting_for_worker_slot" && !ebook.cover_url)) return;
+          if (coverDeferred || (ebook.autopilot_state === "waiting_for_worker_slot" && (!ebook.cover_url || !ebook.thumbnail_url))) return;
         } else {
           await skip(["cover", "cover_qc", "thumbnail", "thumbnail_qc"], "Cover already present");
         }
@@ -768,7 +768,13 @@ Deno.serve(async (req) => {
           return ebook.pdf_status === "needs_review" ? "retry_now" : "passed";
         }
 
-        if (!ebook.pdf_url || ebook.pdf_status === "needs_review" || ebook.pdf_status === "failed") {
+        const needsPdfRerender =
+          !ebook.pdf_url ||
+          !ebook.pdf_qc ||
+          ebook.pdf_status === "idle" ||
+          ebook.pdf_status === "needs_review" ||
+          ebook.pdf_status === "failed";
+        if (needsPdfRerender) {
           if (await overBudget()) {
             await needsAdmin("pdf_render", "Budget cap reached before PDF render.");
             return;
@@ -858,6 +864,7 @@ Deno.serve(async (req) => {
             if (gate === "cover_thumb") {
               patch.pdf_status = "idle";
               patch.cover_url = null;
+              patch.thumbnail_url = null;
             }
             await db.from("ebooks").update(patch).eq("id", ebook.id);
             await db.from("autopilot_pipeline_runs").update({

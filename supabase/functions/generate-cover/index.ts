@@ -171,6 +171,39 @@ function qcPassed(qc: QCResult): { passed: boolean; reasons: string[] } {
   return { passed: reasons.length === 0, reasons };
 }
 
+function n(v: unknown): number {
+  const x = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(x) ? Math.max(0, Math.min(100, Math.round(x))) : 0;
+}
+
+function normalizeCoverQc(input: QCResult | null): QCResult {
+  const rawScores = (input?.scores ?? {}) as Record<string, unknown>;
+  const scores: Record<string, number> = { ...Object.fromEntries(Object.entries(rawScores).map(([k, v]) => [k, n(v)])) };
+  // Canonical thumbnail fields consumed by _shared/qc-gates.ts and Shopify
+  // upload. Mirror common aliases so a valid producer verdict never appears as
+  // "n/a" in computeQcGates().
+  scores.thumbnail_book_mockup = n(scores.thumbnail_book_mockup || scores.book_mockup || scores.thumbnail_is_3d_mockup);
+  scores.thumbnail_readability = n(scores.thumbnail_readability || scores.title_readability);
+  scores.shopify_click_appeal = n(scores.shopify_click_appeal || scores.click_appeal);
+  scores.premium_product_feel = n(scores.premium_product_feel || scores.premium_feel);
+  scores.click_appeal = n(scores.click_appeal || scores.shopify_click_appeal);
+  scores.premium_feel = n(scores.premium_feel || scores.premium_product_feel);
+  const hardVals = Object.keys(HARD_MIN).map((k) => scores[k] ?? 0);
+  const overall = hardVals.length
+    ? Math.round(hardVals.reduce((a, b) => a + b, 0) / hardVals.length)
+    : n(input?.overall_score);
+  return {
+    scores,
+    overall_score: overall,
+    no_ai_text_errors: input?.no_ai_text_errors === true,
+    no_overlap: input?.no_overlap === true,
+    strong_contrast: input?.strong_contrast === true,
+    no_misleading_claim: input?.no_misleading_claim === true,
+    failed_reasons: Array.isArray(input?.failed_reasons) ? input!.failed_reasons : [],
+    improvements: Array.isArray(input?.improvements) ? input!.improvements : [],
+  };
+}
+
 async function generateBackgroundPNG(prompt: string): Promise<{ bytes: Uint8Array; cost: number }> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) throw new Error("LOVABLE_API_KEY not configured");
@@ -394,8 +427,8 @@ ${JSON.stringify(spec, null, 2)}`,
       totalCost += qc.usage.cost_usd;
       await logCost(db, { ebook_id, step: `cover_qc:attempt_${attempt}`, model: qc.model, ...qc.usage });
 
-      lastQC = qc.data;
-      const gate = qcPassed(qc.data);
+      lastQC = normalizeCoverQc(qc.data);
+      const gate = qcPassed(lastQC);
       lastReasons = gate.reasons;
       passed = gate.passed;
     }
@@ -406,14 +439,25 @@ ${JSON.stringify(spec, null, 2)}`,
       db.storage.from("ebook-covers").createSignedUrl(`${ebook_id}/thumbnail.png`, 60 * 60 * 24 * 365),
     ]);
 
-    const overall = Number(lastQC?.overall_score ?? 0);
+    const finalQc = normalizeCoverQc(lastQC);
+    const overall = Number(finalQc.overall_score ?? 0);
+    const coverQcForDb = {
+      ...finalQc,
+      ...finalQc.scores,
+      thumbnail_book_mockup_score: finalQc.scores.thumbnail_book_mockup,
+      thumbnail_readability_score: finalQc.scores.thumbnail_readability,
+      shopify_click_appeal_score: finalQc.scores.shopify_click_appeal,
+      premium_product_feel_score: finalQc.scores.premium_product_feel,
+      click_appeal_score: finalQc.scores.click_appeal,
+      premium_feel_score: finalQc.scores.premium_feel,
+    };
     await db.from("ebooks").update({
       cover_url: coverSigned?.signedUrl,
       cover_bg_url: bgSigned?.signedUrl,
       cover_image_url: coverSigned?.signedUrl,
       thumbnail_url: thumbSigned?.signedUrl,
       cover_spec: spec as unknown as never,
-      cover_qc: lastQC as unknown as never,
+      cover_qc: coverQcForDb as unknown as never,
       cover_score: overall,
       cover_approved: false,
       status: previousStatus === "cover" ? "review" : previousStatus,

@@ -56,7 +56,14 @@ Deno.serve(async (req) => {
         .eq("id", ebook_id).single();
 
       const MAX_ATTEMPTS = MAX_AUTOFIX_ATTEMPTS;
-      const currentAttempts = cur?.auto_fix_attempt_count ?? 0;
+      // If a bug has already been escalated to Needs Code Fix and the code was
+      // subsequently changed, a targeted autofix must be allowed to run once
+      // again. Otherwise old rows with auto_fix_attempt_count >= 3 immediately
+      // re-escalate and can never prove the producer fix works.
+      const rawAttempts = Number(cur?.auto_fix_attempt_count ?? 0);
+      const codeFixRetry = action === "autofix_gate" &&
+        (cur?.autopilot_state === "needs_code_fix" || cur?.canonical_status === "needs_code_fix");
+      const currentAttempts = codeFixRetry ? 0 : rawAttempts;
       const report = computeQcGates(cur ?? {});
       const chosen = gate === "any" || !gate ? firstBlockingGate(report) : gate;
       const g = (chosen ?? "formatter") as AutoFixGate;
@@ -84,7 +91,7 @@ Deno.serve(async (req) => {
         autopilot_state: "auto_fixing",
         canonical_status: "auto_fixing",
         needs_review_reason: null,
-        last_auto_fix_action: action === "autofix_gate" ? `autofix:${g}` : action,
+        last_auto_fix_action: codeFixRetry ? `code_fix_retry_${g}` : action === "autofix_gate" ? `autofix:${g}` : action,
       };
       if (action !== "autofix_gate") {
         patch.auto_fix_attempt_count = 0;
@@ -106,6 +113,7 @@ Deno.serve(async (req) => {
       if (g === "reader") {
         // Route through manuscript QC path so reader-experience-qc reruns.
         patch.reader_experience_status = "pending";
+        patch.reader_experience_fix_count = 0;
         patch.manuscript_qc_status = "pending";
         patch.manuscript_fix_count = 0;
       }
@@ -128,7 +136,7 @@ Deno.serve(async (req) => {
       history.push({
         attempt: history.length + 1,
         gate: g,
-        action: action === "autofix_gate" ? `targeted_${g}` : action,
+        action: codeFixRetry ? `code_fix_retry_${g}` : action === "autofix_gate" ? `targeted_${g}` : action,
         result: "kicked",
         at: new Date().toISOString(),
       });

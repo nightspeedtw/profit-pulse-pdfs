@@ -233,7 +233,12 @@ export function worksheetLayoutScore(html: string): number {
   if (/worksheet--table/.test(html)) s += 8;
   if (/page-break-inside:\s*avoid/.test(html)) s += 6;
   if (/block__heading/.test(html)) s += 6;
-  if (/worksheet__lines/.test(html) || /<tbody>/.test(html)) s += 6;
+  // Any worksheet body produced by the template counts as usable layout space.
+  // The previous scorer only recognized prompt lines or <tbody>, so timeline,
+  // script, flow, and operating-manual worksheets rendered correctly but were
+  // scored 86 and kept the formatter gate stuck forever.
+  if (/(worksheet__lines|ws-timeline|ws-script|ws-flow|ws-manual)/.test(html) || /<tbody>/.test(html)) s += 6;
+  if (/(worksheet--timeline|worksheet--script|worksheet--flow|worksheet--manual)/.test(html)) s += 8;
   if (!/<p[^>]*>[^<]*\|[^<]*\|[^<]*<\/p>/.test(html)) s += 4;
   return Math.min(100, s);
 }
