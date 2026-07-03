@@ -514,7 +514,7 @@ Deno.serve(async (req) => {
       pdf_html_url: signedHtml?.signedUrl ?? null,
       pdf_status: passed ? "rendered" : "needs_review",
       pdf_generated_at: new Date().toISOString(),
-      pdf_qc: qc as unknown as Record<string, unknown>,
+      pdf_qc: { ...(qc as any), manuscript_hash: currentHash, reader_qc_status: readerQcStatus, canonical_content_score: canonicalContentScore } as unknown as Record<string, unknown>,
       cover_qc: coverQcMirror,
       pdf_score: finalPdfPremium,
       pdf_layout_score: layoutScore,
