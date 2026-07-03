@@ -716,11 +716,12 @@ Deno.serve(async (req) => {
     }
 
     const systemicCleanup = await applySystemicCleanup(db, ebook_id, chapters);
-    if (systemicCleanup.replacements > 0 && attemptsStart >= MAX_ATTEMPTS) {
-      // Previous auto-fix attempts were spent before the producer could make a
-      // manuscript-level repair. Give the improved manuscript one fresh scoring
-      // slice instead of immediately failing on stale attempt count.
-      attemptsStart = MAX_ATTEMPTS - 1;
+    if (systemicCleanup.replacements > 0) {
+      // Previous retries may have been spent before the producer had a real
+      // manuscript-level repair path. Start a fresh targeted repair budget for
+      // the cleaned manuscript so the gate can converge instead of staying
+      // blocked on stale attempt counts.
+      attemptsStart = 0;
     }
 
     if (attemptsStart >= MAX_ATTEMPTS && systemicCleanup.replacements === 0) {
