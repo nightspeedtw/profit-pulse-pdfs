@@ -19,6 +19,7 @@ const PASS_COMPLIANCE = 90;
 const DEFAULT_MIN_WORDS = 18000;
 const MIN_CHAPTER_WORDS = 1200;
 const MAX_REPAIR_ATTEMPTS = 3;
+const EDGE_SAFE_DEADLINE_MS = 90_000;
 
 type RepairAction =
   | "expand_chapters"
@@ -118,6 +119,10 @@ const UNSAFE_CLAIM_RE = /\b(guaranteed?|guarantee|100%\s+(?:profit|results?)|ris
 const FINANCE_HEALTH_LEGAL_RE = /\b(finance|financial|invest|investing|trading|stocks?|crypto|money|wealth|tax|legal|law|health|diet|medical|therapy|nutrition|fitness)\b/i;
 
 function wc(text: string) { return text?.trim() ? text.trim().split(/\s+/).length : 0; }
+
+function nextWorkerRetry(minutes = 2): string {
+  return new Date(Date.now() + minutes * 60_000).toISOString();
+}
 
 function hasSection(content: string, keywords: string[]): boolean {
   const lower = (content ?? "").toLowerCase();
