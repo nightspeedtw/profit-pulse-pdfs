@@ -432,12 +432,21 @@ Deno.serve(async (req) => {
     if (coverA4 !== 100) qc.issues.push(`cover_full_a4_score=${coverA4} (must be 100)`);
     const passed = finalPdfPremium >= 85 && layoutScore >= 80 && allCriticalPass && premiumGate && hardGate && formatterGate;
 
+    const coverQcMirror = {
+      ...(((ebook.cover_qc ?? {}) as Record<string, unknown>)),
+      pdf_cover_full_a4_score: coverA4,
+      cover_full_a4_score: coverA4,
+      cover_full_bleed_score: coverFullBleedScore,
+      cover_pdf_checked_at: new Date().toISOString(),
+    };
+
     await db.from("ebooks").update({
       pdf_url: signedPdf?.signedUrl ?? null,
       pdf_html_url: signedHtml?.signedUrl ?? null,
       pdf_status: passed ? "rendered" : "needs_review",
       pdf_generated_at: new Date().toISOString(),
       pdf_qc: qc as unknown as Record<string, unknown>,
+      cover_qc: coverQcMirror,
       pdf_score: finalPdfPremium,
       pdf_layout_score: layoutScore,
       pdf_readability_score: aiScores.readability_score,
