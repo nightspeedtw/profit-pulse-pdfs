@@ -454,6 +454,45 @@ export type Database = {
           },
         ]
       }
+      cover_style_reference: {
+        Row: {
+          created_at: string
+          id: string
+          image_url: string
+          is_active: boolean
+          layout_notes: string | null
+          lighting: string | null
+          name: string
+          palette: Json
+          storage_path: string | null
+          style_summary: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          image_url: string
+          is_active?: boolean
+          layout_notes?: string | null
+          lighting?: string | null
+          name: string
+          palette?: Json
+          storage_path?: string | null
+          style_summary?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          image_url?: string
+          is_active?: boolean
+          layout_notes?: string | null
+          lighting?: string | null
+          name?: string
+          palette?: Json
+          storage_path?: string | null
+          style_summary?: string | null
+        }
+        Relationships: []
+      }
       download_grants: {
         Row: {
           buyer_email: string
