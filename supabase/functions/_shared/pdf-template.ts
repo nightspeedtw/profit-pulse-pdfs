@@ -392,9 +392,9 @@ function chapterChecklist(c: PdfChapter): string {
   if (!cl?.items?.length) return "";
   return `
     <section class="checklist">
-      <h3 class="block__heading">Checklist — ${esc(cl.title)}</h3>
+      <h3 class="block__heading">Checklist — ${cleanLabel(cl.title)}</h3>
       <ul class="checklist__list">
-        ${cl.items.map((it) => `<li><span class="checklist__box"></span>${esc(it)}</li>`).join("")}
+        ${cl.items.map((it) => `<li><span class="checklist__box"></span>${cleanLabel(it)}</li>`).join("")}
       </ul>
     </section>`;
 }
@@ -408,11 +408,11 @@ function chapterDiagram(c: PdfChapter): string {
   const cells = d.steps.map((s, i) => `
     <div class="framework__cell${i < d.steps!.length - 1 ? " framework__cell--connect" : ""}">
       <div class="framework__n">${i + 1}</div>
-      <div class="framework__t">${esc(s)}</div>
+      <div class="framework__t">${cleanLabel(s)}</div>
     </div>`).join("");
   return `
     <section class="framework">
-      <h3 class="block__heading">Framework — ${esc(d.title)}</h3>
+      <h3 class="block__heading">Framework — ${cleanLabel(d.title)}</h3>
       <div class="framework__grid">${cells}</div>
     </section>`;
 }
@@ -421,22 +421,31 @@ export function buildPdfHtml(data: PdfData): string {
   const year = data.copyright_year ?? new Date().getFullYear();
   const brand = data.brand ?? "SECRET PDF";
 
+  // Canonical title normalizer used for EVERY chapter label (TOC, divider,
+  // running header on body pages). Guarantees identical, markdown-free text
+  // wherever a chapter title appears in the PDF.
+  const chTitle = (c: PdfChapter) => sanitizeChapterTitle(c.title);
+
   const tocItems = data.chapters.map((c) =>
-    `<li class="toc__row"><span class="toc__title">Chapter ${c.index}. ${esc(stripInlineMd(c.title))}</span><span class="toc__dots"></span><span class="toc__page">—</span></li>`,
+    `<li class="toc__row"><span class="toc__title">Chapter ${c.index}. ${esc(chTitle(c))}</span><span class="toc__dots"></span><span class="toc__page">—</span></li>`,
   ).join("");
 
+  // NOTE (Fix #2 — Remove duplicate H2/chapter-title rendering):
+  // The chapter divider page already shows "Chapter N" + full title as an H1.
+  // The body page must NOT repeat the same title as an H2 immediately below.
+  // We keep the running header (brand · ebook title) for orientation and let
+  // the body page start directly with the prose. `stripDuplicateLeadingHeading`
+  // additionally removes any leading markdown H1/H2 in the body content itself.
   const chapterPages = data.chapters.map((c) => `
     <section class="page chapter-divider" id="chapter-${c.index}-divider">
       <div class="chapter-divider__inner">
         <div class="chapter-divider__eyebrow">Chapter ${c.index}</div>
-        <h1 class="chapter-divider__title">${esc(c.title)}</h1>
-        ${c.brief ? `<p class="chapter-divider__brief">${esc(c.brief)}</p>` : ""}
+        <h1 class="chapter-divider__title">${esc(chTitle(c))}</h1>
+        ${c.brief ? `<p class="chapter-divider__brief">${cleanLabel(c.brief)}</p>` : ""}
       </div>
     </section>
     <section class="page chapter-body" id="chapter-${c.index}">
-      <header class="page__head"><span>${esc(brand)}</span><span>${esc(data.title)}</span></header>
-      <div class="chapter-body__eyebrow">Chapter ${c.index}</div>
-      <h2 class="chapter-body__title">${esc(stripInlineMd(c.title))}</h2>
+      <header class="page__head"><span>${esc(brand)}</span><span>Chapter ${c.index} · ${esc(chTitle(c))}</span></header>
       <div class="chapter-body__prose">
         ${splitLongParagraphs(renderMd(stripDuplicateLeadingHeading(c.content, c.title)))}
       </div>
