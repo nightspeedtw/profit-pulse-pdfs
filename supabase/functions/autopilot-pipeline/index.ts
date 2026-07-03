@@ -1112,10 +1112,7 @@ Deno.serve(async (req) => {
         } catch { /* ignore */ }
       } finally {
         // -------- Release heavy_production lock (Sequential Safe Mode) --------
-        // Per spec, release the lock when the ebook is truly done, blocked on
-        // Shopify quota, needs admin, failed non-recoverably, or paused.
-        // Keep it held only for `waiting_for_browserless_slot` so no other
-        // ebook (or PDF render) can start until this one resumes.
+        let lockReleased = false;
         try {
           if (ebook?.id) {
             const { data: fresh } = await db.from("ebooks").select("autopilot_state").eq("id", ebook.id).maybeSingle();
@@ -1123,10 +1120,33 @@ Deno.serve(async (req) => {
             const HOLD_STATES = new Set(["waiting_for_browserless_slot", "waiting_for_worker_slot", "waiting_for_ai_budget"]);
             if (!HOLD_STATES.has(state)) {
               await releaseLock(db, LOCK_HEAVY, ebook.id);
+              lockReleased = true;
             }
           }
         } catch (err) {
           console.warn("[autopilot] failed to release heavy_production lock:", (err as Error).message);
+        }
+
+        // -------- Auto-Continuous Mode: kick recovery worker immediately --------
+        // Wake the recovery worker the moment the lock is free so the next
+        // queued ebook starts within seconds instead of waiting for the next
+        // pg_cron tick. Fire-and-forget — never blocks this response.
+        if (lockReleased) {
+          try {
+            const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/autopilot-recovery-worker`;
+            const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+            fetch(url, {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "Authorization": `Bearer ${key}`,
+                "apikey": key,
+              },
+              body: JSON.stringify({ source: "post_run_kick" }),
+            }).catch((e) => console.warn("[autopilot] post-run kick failed:", e?.message ?? e));
+          } catch (e) {
+            console.warn("[autopilot] post-run kick error:", (e as Error).message);
+          }
         }
       }
     })();
