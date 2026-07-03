@@ -20,14 +20,32 @@ export interface PdfChapter {
 }
 
 export type WorksheetKind =
-  | "prompts"           // default: numbered prompts with writing lines
-  | "debt_tracker"      // table with safe short-form headers
-  | "negotiation_script"// call-log format
-  | "sprint_timeline"   // hour-by-hour timeline
-  | "velocity_calculator" // calculator rows
-  | "automation_flow"   // stepped checkboxes
-  | "resilience_scorecard" // 1-5 scale grid
-  | "operating_manual"; // long checklist with headers
+  | "prompts"
+  | "debt_tracker"
+  | "negotiation_script"
+  | "sprint_timeline"
+  | "velocity_calculator"
+  | "automation_flow"
+  | "resilience_scorecard"
+  | "operating_manual"
+  // Productivity
+  | "focus_audit"
+  | "interruption_log"
+  | "deep_work_planner"
+  | "calendar_boundary"
+  | "meeting_elimination"
+  // Energy / health
+  | "energy_audit"
+  | "caffeine_log"
+  | "sleep_anchor"
+  | "crash_diagnostic"
+  | "evening_recovery"
+  // Cashflow / fortress
+  | "cashflow_surplus"
+  | "fortress_audit"
+  | "lifestyle_leak"
+  | "safety_net"
+  | "fixed_cost_scan";
 
 export interface PdfData {
   title: string;
@@ -65,18 +83,24 @@ function renderMd(md: string): string {
   while (i < lines.length) {
     const ln = lines[i];
     if (!ln.trim()) { i++; continue; }
-    // markdown table: header row `| a | b |` followed by `| :--- | :--- |`
-    if (/^\s*\|.+\|\s*$/.test(ln) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(lines[i + 1])) {
+    // markdown table: header row `| a | b |` optionally followed by `| :--- | :--- |`.
+    // We also accept a header row followed directly by another `| ... |` body row
+    // (AI often omits the separator), so raw pipe tables never leak into prose.
+    const isPipeRow = (s: string) => /^\s*\|.+\|\s*$/.test(s);
+    const isSepRow = (s: string) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(s);
+    if (isPipeRow(ln) && i + 1 < lines.length && (isSepRow(lines[i + 1]) || isPipeRow(lines[i + 1]))) {
       const parseRow = (row: string) => row.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
       const headers = parseRow(ln);
-      i += 2; // skip header + separator
+      i += isSepRow(lines[i + 1]) ? 2 : 1;
       const bodyRows: string[][] = [];
-      while (i < lines.length && /^\s*\|.+\|\s*$/.test(lines[i])) { bodyRows.push(parseRow(lines[i])); i++; }
+      while (i < lines.length && isPipeRow(lines[i]) && !isSepRow(lines[i])) { bodyRows.push(parseRow(lines[i])); i++; }
       const thead = `<thead><tr>${headers.map((h) => `<th>${inline(h)}</th>`).join("")}</tr></thead>`;
       const tbody = `<tbody>${bodyRows.map((r) => `<tr>${headers.map((_, idx) => `<td>${inline(r[idx] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody>`;
       out.push(`<table class="md-table">${thead}${tbody}</table>`);
       continue;
     }
+    // Orphaned single pipe-row (no adjacent table) — strip so it doesn't leak as raw text.
+    if (isPipeRow(ln) && (i + 1 >= lines.length || !isPipeRow(lines[i + 1]))) { i++; continue; }
     // headings
     const h = ln.match(/^(#{1,4})\s+(.*)$/);
     if (h) { const lvl = h[1].length + 1; out.push(`<h${lvl}>${inline(h[2])}</h${lvl}>`); i++; continue; }
@@ -267,6 +291,29 @@ function chapterWorksheet(c: PdfChapter): string {
     const items = w.prompts ?? [];
     return `<section class="worksheet worksheet--manual">${heading("Operating Manual")}${purpose}
       <ol class="ws-manual">${items.map((it) => `<li>${esc(it)}</li>`).join("")}</ol></section>`;
+  }
+  // Category-specific table worksheets (productivity, energy, cashflow).
+  const TABLE_KINDS: Record<string, { label: string; cols: string[]; rows: number }> = {
+    focus_audit:         { label: "Focus-to-Friction Audit",       cols: ["Task",           "Depth 1-5", "Interruption Source", "Fix This Week"], rows: 8 },
+    interruption_log:    { label: "Interruption Origin Log",       cols: ["Time",           "Trigger",   "Duration (min)",      "Was It Urgent?"], rows: 10 },
+    deep_work_planner:   { label: "Deep Work Block Planner",       cols: ["Day",            "Block",     "Outcome",             "Blocker Removed"], rows: 7 },
+    calendar_boundary:   { label: "Calendar Boundary Worksheet",   cols: ["Recurring Item", "Purpose",   "Keep / Cut / Shrink", "Replacement Ritual"], rows: 8 },
+    meeting_elimination: { label: "Meeting Elimination Matrix",    cols: ["Meeting",        "Decision?", "Async Possible?",     "Action"],           rows: 8 },
+    energy_audit:        { label: "72-Hour Energy Audit Tracker",  cols: ["Time",           "Energy 1-10", "Trigger",           "Recovery Move"],    rows: 12 },
+    caffeine_log:        { label: "Caffeine Half-Life Log",        cols: ["Time",           "Source",    "mg (est.)",           "Sleep Impact"],     rows: 8 },
+    sleep_anchor:        { label: "Sleep Anchor Planner",          cols: ["Anchor",         "Target Time", "Current Time",       "Adjustment"],       rows: 6 },
+    crash_diagnostic:    { label: "2 PM Crash Pattern Worksheet",  cols: ["Day",            "Last Meal", "Sleep Prior Night",   "Crash Severity"],   rows: 7 },
+    evening_recovery:    { label: "Evening Recovery Tracker",      cols: ["Time",           "Ritual",    "Screen Off?",         "Sleep Quality 1-5"], rows: 7 },
+    cashflow_surplus:    { label: "Cash Flow Surplus Calculator",  cols: ["Month",          "Income",    "Fixed Costs",         "Surplus"],          rows: 6 },
+    fortress_audit:      { label: "Fortress Baseline Audit",       cols: ["Pillar",         "Current",   "Target",              "Next Move"],        rows: 6 },
+    lifestyle_leak:      { label: "Lifestyle Leak Matrix",         cols: ["Category",       "Monthly $", "Value 1-5",           "Cut / Keep"],       rows: 8 },
+    safety_net:          { label: "Safety Net Builder",            cols: ["Layer",          "Target $",  "Current $",           "Timeline"],         rows: 5 },
+    fixed_cost_scan:     { label: "Fixed Cost Fragility Scan",     cols: ["Cost",           "Monthly $", "Fragility 1-5",       "Renegotiate By"],   rows: 8 },
+  };
+  const tk = TABLE_KINDS[kind as string];
+  if (tk) {
+    const headers = w.columns?.length ? w.columns : tk.cols;
+    return `<section class="worksheet worksheet--table">${heading(tk.label)}${purpose}${renderTable(headers, w.rows ?? tk.rows)}</section>`;
   }
   // default: prompts + writing lines
   if (!w.prompts?.length) return "";

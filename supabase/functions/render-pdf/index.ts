@@ -149,13 +149,14 @@ Deno.serve(async (req) => {
       chapters: chapters.map((c: any, i: number) => {
         const meta = (c.metadata ?? {}) as any;
         const chIdx = c.chapter_index ?? (i + 1);
+        const outlineCh = Array.isArray(outline?.chapters) ? outline.chapters[i] : null;
         // Sanitize placeholder titles like "Chapter 2" / "Chapter 2. Chapter 2".
-        const safeTitle = sanitizeChapterTitle(c.title, chIdx, c.brief ?? meta.brief);
+        const safeTitle = sanitizeChapterTitle(c.title, chIdx, c.brief ?? meta.brief, outlineCh);
         const rawWs = meta.worksheet ?? c.worksheet ?? extractWorksheet(c.content ?? "", c.title ?? "");
         let wsKind: WorksheetKind = (rawWs?.kind as WorksheetKind | undefined) ?? pickWorksheetKind(safeTitle, chIdx, category);
-        // Enforce category → allowed worksheet kinds. Block e.g. debt_tracker
-        // in a productivity/energy book.
-        if (!isKindAllowed(category, wsKind)) wsKind = "prompts";
+        // Enforce category → allowed worksheet kinds. If disallowed, pick a
+        // category-appropriate default rather than falling back to generic prompts.
+        if (!isKindAllowed(category, wsKind)) wsKind = pickWorksheetKind(safeTitle, chIdx, category);
         const worksheet = rawWs
           ? { ...rawWs, kind: wsKind }
           : defaultWorksheetFor(wsKind, safeTitle, category);
@@ -516,13 +517,30 @@ function defaultBonusSection(bonuses: Record<string, string> | null | undefined)
 
 // Replace obvious placeholder chapter titles ("Chapter 2", "Chapter 2. Chapter 2")
 // with something derived from the chapter brief, or a safe "Section N" label.
-function sanitizeChapterTitle(raw: string | null | undefined, index: number, brief?: string | null): string {
+function sanitizeChapterTitle(
+  raw: string | null | undefined,
+  index: number,
+  brief?: string | null,
+  outlineCh?: any,
+): string {
   const s = (raw ?? "").trim();
   const placeholder = !s
     || /^chapter\s*\d+\.?$/i.test(s)
     || /^chapter\s*\d+\.\s*chapter\s*\d+/i.test(s)
     || /^section\s*\d+\.?$/i.test(s);
   if (!placeholder) return s;
+  // 1) Prefer a non-placeholder outline title
+  const outlineTitle = String(outlineCh?.chapter_title ?? outlineCh?.title ?? "").trim();
+  if (outlineTitle && !/^chapter\s*\d+\.?$/i.test(outlineTitle)) return outlineTitle;
+  // 2) Framework/promise-derived title
+  const framework = String(outlineCh?.framework?.title ?? "").trim();
+  if (framework) return framework;
+  const promise = String(outlineCh?.chapter_promise ?? outlineCh?.promise ?? "").trim();
+  if (promise) {
+    const first = promise.split(/[.!?\n]/)[0].trim();
+    if (first && first.length <= 90) return first;
+  }
+  // 3) Brief-derived
   const b = (brief ?? "").trim();
   if (b) {
     const first = b.split(/[.!?\n]/)[0].trim();
@@ -531,17 +549,49 @@ function sanitizeChapterTitle(raw: string | null | undefined, index: number, bri
   return `Section ${index}`;
 }
 
-// Chapter-title + category picker. If category disallows a heavy-finance kind,
-// we fall back to `prompts` (safe generic reflection worksheet).
-function pickWorksheetKind(chapterTitle: string, chapterIndex: number, category?: EbookCategory): WorksheetKind {
+function pickWorksheetKind(chapterTitle: string, _chapterIndex: number, category?: EbookCategory): WorksheetKind {
   const t = (chapterTitle ?? "").toLowerCase();
-  const isFinance = category === "finance_debt" || category === "finance_cashflow";
-  if (isFinance && /\bdebt|balance|creditor|forensic\b/.test(t)) return "debt_tracker";
-  if (isFinance && /\bnegotiat|hardship|arbitrage\b/.test(t)) return "negotiation_script";
-  if (isFinance && /\bvelocity|payoff|snowball|avalanche|calculator|stacking\b/.test(t)) return "velocity_calculator";
+  const isFinanceDebt = category === "finance_debt";
+  const isFinanceCash = category === "finance_cashflow";
+  // Debt tracker only in debt-specific books/chapters
+  if (isFinanceDebt && /\bdebt|balance|creditor|forensic\b/.test(t)) return "debt_tracker";
+  if (isFinanceDebt && /\bnegotiat|hardship|arbitrage\b/.test(t)) return "negotiation_script";
+  if ((isFinanceDebt || isFinanceCash) && /\bvelocity|payoff|snowball|avalanche|stacking\b/.test(t)) return "velocity_calculator";
+  // Cashflow / fortress category
+  if (isFinanceCash) {
+    if (/\bcash\s*flow|surplus|budget|income\b/.test(t)) return "cashflow_surplus";
+    if (/\bbaseline|fortress|foundation|pillar\b/.test(t)) return "fortress_audit";
+    if (/\bleak|lifestyle|expense|spending\b/.test(t)) return "lifestyle_leak";
+    if (/\bsafety\s*net|buffer|emergency\b/.test(t)) return "safety_net";
+    if (/\bfixed\s*cost|fragility|contract|subscription\b/.test(t)) return "fixed_cost_scan";
+    if (/\bautomat|guardrail|defense|system\b/.test(t)) return "automation_flow";
+  }
+  // Productivity
+  if (category === "productivity") {
+    if (/\baudit|diagnos|friction|fake\s*busy|value\b/.test(t)) return "focus_audit";
+    if (/\binterrupt|notif|distract|context\s*switch\b/.test(t)) return "interruption_log";
+    if (/\bdeep\s*work|prime\s*time|block|energy\b/.test(t)) return "deep_work_planner";
+    if (/\bcalendar|boundary|schedul|office\s*hours\b/.test(t)) return "calendar_boundary";
+    if (/\bmeeting|async|standup\b/.test(t)) return "meeting_elimination";
+    if (/\bsprint|day\s?1|72[-\s]?hour\b/.test(t)) return "sprint_timeline";
+    if (/\bautomat|system|guardrail\b/.test(t)) return "automation_flow";
+    if (/\boperating|manual|permanent|long[-\s]?term|checklist\b/.test(t)) return "operating_manual";
+    return "focus_audit";
+  }
+  // Energy / health
+  if (category === "energy_health" || category === "wellness") {
+    if (/\baudit|diagnos|72[-\s]?hour|leak\b/.test(t)) return "energy_audit";
+    if (/\bcaffeine|coffee|stimulant\b/.test(t)) return "caffeine_log";
+    if (/\bsleep|circadian|wake|bedtime|anchor\b/.test(t)) return "sleep_anchor";
+    if (/\bcrash|2\s?pm|slump|afternoon\b/.test(t)) return "crash_diagnostic";
+    if (/\bevening|recovery|wind[-\s]?down|night\b/.test(t)) return "evening_recovery";
+    if (/\boperating|manual|permanent|long[-\s]?term|checklist\b/.test(t)) return "operating_manual";
+    return "energy_audit";
+  }
+  // Generic finance defaults (kept for backward compat when category not matched above)
   if (/\bsprint|72[-\s]?hour|liquidity|day\s?1\b/.test(t)) return "sprint_timeline";
   if (/\bautomat|defense|guardrail|system\b/.test(t)) return "automation_flow";
-  if (/\bresilience|habit|mindset|motivation|milestone|energy|recovery\b/.test(t)) return "resilience_scorecard";
+  if (/\bresilience|habit|mindset|motivation|milestone\b/.test(t)) return "resilience_scorecard";
   if (/\boperating|manual|permanent|long[-\s]?term|checklist\b/.test(t)) return "operating_manual";
   return "prompts";
 }
@@ -630,6 +680,24 @@ function defaultWorksheetFor(kind: WorksheetKind, chapterTitle: string, category
             "Annually: refresh your rules",
           ],
     };
+    // Category-specific table worksheets — render as titled tables; the template
+    // supplies the columns/rows if we don't override here.
+    case "focus_audit":
+    case "interruption_log":
+    case "deep_work_planner":
+    case "calendar_boundary":
+    case "meeting_elimination":
+    case "energy_audit":
+    case "caffeine_log":
+    case "sleep_anchor":
+    case "crash_diagnostic":
+    case "evening_recovery":
+    case "cashflow_surplus":
+    case "fortress_audit":
+    case "lifestyle_leak":
+    case "safety_net":
+    case "fixed_cost_scan":
+      return { title: chapterTitle, kind };
     case "prompts":
     default: return {
       title: chapterTitle, kind: "prompts" as WorksheetKind,
