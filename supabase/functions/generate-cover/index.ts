@@ -619,7 +619,7 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
           r.includes("category_fit") || r.includes("ai_text_errors") ||
           r.includes("premium_feel"));
         if (bgFailure || !bgBytes) {
-          const bg = await generateBackgroundPNG(spec.background_image_prompt_no_text || ebook.cover_prompt || `Premium editorial cover for "${ebook.title}"`);
+          const bg = await generateBackgroundPNG(spec.background_image_prompt_no_text || ebook.cover_prompt || `Premium editorial cover for "${ebook.title}"`, styleRef);
           totalCost += bg.cost;
           bgBytes = bg.bytes;
           const { error } = await db.storage.from("ebook-covers").upload(bgPath, bgBytes, { contentType: "image/png", upsert: true });
