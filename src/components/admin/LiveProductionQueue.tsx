@@ -244,6 +244,7 @@ function SectionA({ items }: { items: QueueEbook[] }) {
                   <span>Auto-fix {e.autofix_attempt}/{e.autofix_max ?? 3}</span>
                 )}
               </div>
+              <QcGateCard qc={e.qc} reRender={e.re_render} />
             </div>
           );
         })}
