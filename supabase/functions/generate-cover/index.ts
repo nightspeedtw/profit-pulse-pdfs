@@ -198,12 +198,84 @@ function buildRepairFeedback(reasons: string[], improvements: string[]): string 
   return `PREVIOUS COVER FAILED QC — targeted fixes required:\n- ${fixes.join("\n- ")}\n${extra ? "\nReviewer notes:\n" + extra : ""}`;
 }
 
-// Crop the cover PNG into a Shopify-thumbnail-safe rasterization.
-// The composition preserves the top-heavy title zone; we render the same SVG
-// at thumbnail resolution so text stays crisp.
+// Premium book-mockup thumbnail: renders the flat cover as a standing, slightly
+// angled hardcover with soft ground shadow, page-edge highlight, and spine.
+// This is what Shopify product cards will show — must feel like a real book, not
+// a flat A4 screenshot.
 async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array): Promise<Uint8Array> {
-  const svg = buildCoverSVG(spec, bgBytes);
-  return await rasterizeSVG(svg, 800);
+  const coverSvg = buildCoverSVG(spec, bgBytes);
+  const coverPng = await rasterizeSVG(coverSvg, 1200);
+  const coverB64 = (() => {
+    let s = ""; const c = 0x8000;
+    for (let i = 0; i < coverPng.length; i += c) s += String.fromCharCode(...coverPng.subarray(i, i + c));
+    return btoa(s);
+  })();
+  const coverData = `data:image/png;base64,${coverB64}`;
+  const palette = (spec.color_palette ?? []).filter(Boolean);
+  const spineColor = palette[0] ?? "#0b1a2b";
+  const accent = palette[2] ?? "#f5c518";
+
+  // Canvas 1200x1500 (Shopify square-ish product card). Book stands slightly
+  // rotated with foreshortened front cover, visible spine and ground shadow.
+  const mockup = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1500" viewBox="0 0 1200 1500">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f5f2ec"/>
+      <stop offset="1" stop-color="#dcd6c8"/>
+    </linearGradient>
+    <linearGradient id="spineGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="${spineColor}" stop-opacity="1"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.55"/>
+    </linearGradient>
+    <linearGradient id="pageEdge" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.5" stop-color="#e8e2d1"/>
+      <stop offset="1" stop-color="#c9c1ab"/>
+    </linearGradient>
+    <linearGradient id="coverSheen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="0.35" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.22"/>
+    </linearGradient>
+    <radialGradient id="floorShadow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#000" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="coverClip">
+      <polygon points="330,170 990,210 970,1310 330,1280"/>
+    </clipPath>
+  </defs>
+
+  <!-- Studio background -->
+  <rect width="1200" height="1500" fill="url(#bgGrad)"/>
+
+  <!-- Ground shadow beneath the book -->
+  <ellipse cx="640" cy="1360" rx="470" ry="42" fill="url(#floorShadow)"/>
+
+  <!-- Spine (left side, receding) -->
+  <polygon points="230,215 330,170 330,1280 230,1330" fill="url(#spineGrad)"/>
+  <!-- Spine top highlight -->
+  <polygon points="230,215 330,170 335,180 235,225" fill="#ffffff" opacity="0.18"/>
+
+  <!-- Page edges (top + right, thin) -->
+  <polygon points="330,170 990,210 985,225 330,185" fill="url(#pageEdge)"/>
+  <polygon points="990,210 970,1310 958,1300 985,225" fill="url(#pageEdge)"/>
+
+  <!-- Front cover artwork, clipped into the book quadrilateral -->
+  <g clip-path="url(#coverClip)">
+    <image href="${coverData}" x="300" y="150" width="720" height="1180" preserveAspectRatio="xMidYMid slice"/>
+    <!-- Realistic light sheen across the cover -->
+    <polygon points="330,170 990,210 970,1310 330,1280" fill="url(#coverSheen)"/>
+  </g>
+
+  <!-- Cover outline for a crisp edge -->
+  <polygon points="330,170 990,210 970,1310 330,1280" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="2"/>
+
+  <!-- Subtle accent glow near spine top (premium detail) -->
+  <rect x="330" y="170" width="6" height="1110" fill="${accent}" opacity="0.35"/>
+</svg>`;
+  return await rasterizeSVG(mockup, 1200);
 }
 
 type CoverMode = "full" | "spec" | "background" | "overlay";
