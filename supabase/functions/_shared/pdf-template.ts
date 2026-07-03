@@ -617,8 +617,8 @@ export function buildPdfHtml(data: PdfData): string {
 </style>
 </head>
 <body>
-  <!-- COVER -->
-  <section class="page cover">
+  <!-- COVER — full-bleed A4, always page 1 -->
+  <section class="cover-a4">
     ${data.cover_url
       ? `<img class="cover__img" src="${esc(data.cover_url)}" alt="" />`
       : `<div class="cover__fallback"></div>`}
