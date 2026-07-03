@@ -214,18 +214,20 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     } else if (action === "rebuild_pdf") {
-      // Invoke build-pdf inline.
-      const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/build-pdf`;
+      // Phase 1: route to render-pdf. Legacy build-pdf only fires when LEGACY_PIPELINE is on.
+      const { FEATURES } = await import("../_shared/features.ts");
+      const fn = FEATURES.LEGACY_PIPELINE ? "build-pdf" : "render-pdf";
+      const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/${fn}`;
       const r = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
-        body: JSON.stringify({ ebook_id }),
+        body: JSON.stringify({ ebook_id, force: true }),
       });
       const body = await r.json().catch(() => ({}));
-      return new Response(JSON.stringify({ ok: r.ok, rebuilt: body }), {
+      return new Response(JSON.stringify({ ok: r.ok, rebuilt: body, via: fn }), {
         status: r.ok ? 200 : 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
