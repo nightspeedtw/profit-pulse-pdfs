@@ -961,23 +961,47 @@ Deno.serve(async (req) => {
           await runStep("13_publish", "shopify-publish", { ebook_id: ebook.id });
         }
 
-        // Hard-gate: block ready_to_publish if any critical PDF QC gate failed.
-        // pdf_status === 'needs_review' means render-pdf already flagged one of:
-        // raw_markdown, chapter titles, worksheet relevance, cover full-bleed,
-        // worksheet overflow, visual fatigue, illustration relevance, compliance.
-        const pdfBlocked = ebook.pdf_status === "needs_review";
-        const nextState = autoPublish
-          ? "done"
-          : pdfBlocked
-            ? "needs_review"
-            : "ready_to_publish";
-        const qcJson = (ebook.pdf_qc ?? {}) as Record<string, unknown>;
-        const reviewReason = pdfBlocked
-          ? `PDF QC gate failed — issues: ${(qcJson.issues as string[] | undefined)?.slice(0, 4).join("; ") ?? "see pdf_qc"}`
-          : null;
+        await refreshEbook();
+        const finalGateReport = await persistQcSnapshot(db, ebook);
+        const finalGate = firstBlockingGate(finalGateReport);
+        if (finalGate) {
+          const attempts = Number(ebook.auto_fix_attempt_count ?? ebook.autofix_attempt ?? 0);
+          if (attempts >= MAX_AUTOFIX_ATTEMPTS) {
+            await markGateNeedsCodeFix(db, ebook, finalGate, finalGateReport, attempts);
+          } else {
+            await markGateAutoFixing(db, ebook, finalGate, finalGateReport, attempts + 1);
+          }
+          await db.from("autopilot_pipeline_runs").update({
+            status: attempts >= MAX_AUTOFIX_ATTEMPTS ? "needs_code_fix" : "auto_fixing",
+            current_step: stepForGate(finalGate),
+            current_action_message: attempts >= MAX_AUTOFIX_ATTEMPTS
+              ? `Needs Code Fix — ${finalGate} producer is not converging`
+              : `Auto-fixing failed QC gate: ${finalGate}`,
+            current_subtask: describeGateFailure(finalGateReport, finalGate),
+            error_message: attempts >= MAX_AUTOFIX_ATTEMPTS
+              ? `QC gate ${finalGate} stuck after ${attempts} auto-fix attempts.`
+              : null,
+          }).eq("id", run_id);
+          if (attempts < MAX_AUTOFIX_ATTEMPTS) {
+            await invokeFn("autofix-action", { ebook_id: ebook.id, action: "autofix_gate", gate: finalGate });
+          }
+          return;
+        }
+
+        const nextState = autoPublish ? "done" : "ready_to_publish";
         await db.from("ebooks").update({
           autopilot_state: nextState,
-          needs_review_reason: reviewReason,
+          canonical_status: nextState,
+          qc_status: "qc_passed",
+          qc_ready_for_shopify: true,
+          pdf_status: "passed",
+          needs_review_reason: null,
+          waiting_reason: autopilotShopifyEnabled
+            ? null
+            : "PDF and premium gates passed — ready for Shopify draft upload.",
+          blocker_class: null,
+          blocker_reason: null,
+          next_recommended_action: ebook.shopify_product_id ? null : "shopify_draft_upload",
         }).eq("id", ebook.id);
 
         await logRun(db, {
