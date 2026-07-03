@@ -1,63 +1,53 @@
+# Auto-list ready ebooks + world-class covers (native only)
+
 ## Goal
-Kill the Shopify dependency entirely. Replace it with a native storefront on this app: product listings pulled from the `ebooks` table, cart, Stripe Checkout for payment, order records, and secure signed-URL PDF delivery to the buyer. No more Shopify tokens, no more push-to-Shopify, no more "invalid_config" errors blocking the pipeline.
+Drop Shopify from the pipeline for good. When an ebook is "ready", the platform auto-lists it as a product with category and a properly generated thumbnail cover following the `world-class-cover-designer` skill.
 
-## What we keep from what already exists
-- All ebook generation, cover, PDF render, QC, autofix — untouched.
-- `ebooks` table already has `title`, `product_description`, `price`, `cover_url`, `pdf_url`, `seo_title`, `seo_meta`, `tags`, `shopify_title`, `body_html`. We reuse these as native product fields.
-- Existing pages: `Index`, `Category`, `Product`, `Bundles`, `Download`, `Library`, `CartDrawer`, `ProductCard`, `cartStore` (Zustand). Wire them to `ebooks` instead of Shopify.
-- Storage bucket `ebook-pdfs` (private) is already used for secure download.
+## What "ready" means (please confirm)
+Current `ebooks.status` values in your DB: `needs_review`, `cover`, `review`, `ready_for_qc`, `published`. I'll treat **`ready_for_qc` (or manual "Approve")** as the trigger to auto-list. Confirm or tell me which status should trigger listing.
 
-## New pieces
+## Changes
 
-### 1. Feature flag flip
-- `src/config/features.ts` + `supabase/functions/_shared/features.ts`: `SHOPIFY_UPLOAD = false`, add `NATIVE_STOREFRONT = true`.
-- Preflight stops requiring `SHOPIFY_ADMIN_TOKEN`.
-- Autopilot pipeline final step becomes `mark_listed_for_sale` (flips `ebooks.status = 'published'` + `listed_at = now()`) instead of Shopify push.
+### 1. Activate the cover skill
+- Apply `.agents/skills/world-class-cover-designer` as an active workspace skill so the pipeline uses it as the enforced creative director.
+- `supabase/functions/generate-cover` is updated to follow it verbatim:
+  - Build a `CoverSpec` first (avatar, pain, lever, metaphor, palette, layout).
+  - Prompt image model for a **textless** background only.
+  - Overlay title/subtitle/brand server-side via SVG → PNG (using Fraunces / GT-style serif for finance/authority; geometric sans for systems).
+  - Run QC gates (thumbnail legibility ≥90, anti-AI ≥90, textless =100). Regenerate up to 2 times on gate failure.
+  - Write final `cover_url` + a 400px `thumbnail_url` to `ebook-covers` bucket.
 
-### 2. Database (single migration)
-- `orders` — id, buyer_email, buyer_user_id (nullable), stripe_session_id, stripe_payment_intent, amount_total, currency, status (`pending|paid|refunded|failed`), created_at, paid_at.
-- `order_items` — id, order_id, ebook_id, unit_price, title_snapshot, cover_snapshot.
-- `download_grants` — id, order_id, ebook_id, buyer_email, token (uuid), expires_at, download_count, max_downloads (default 5), last_downloaded_at.
-- Add to `ebooks`: `listed_at timestamptz`, `sales_count int default 0`.
-- RLS + GRANTs per house rules. Buyers read only their own orders/grants (by `auth.uid()` or by signed token for guest checkout).
+### 2. New auto-list edge function `auto-list-ebook`
+Given an `ebook_id`:
+1. Verify the ebook has: PDF asset, `cover_url`, `price > 0`, `category_id`, `title`.
+2. If cover missing or flagged low-quality → call `generate-cover` first.
+3. Create/refresh Stripe Product + Price via lookup_key `ebook_<uuid>_price` (tax_code `txcd_10504003`, e-books). Managed payments already on at checkout.
+4. Set `ebooks.listed_at = now()`, `status = 'published'`.
+5. Log to `pipeline_step_logs`.
 
-### 3. Edge functions (new)
-- `create-checkout` — body `{ ebook_ids: string[], buyer_email? }`. Loads ebooks, builds Stripe Checkout line items from `title` + `price` + `cover_url`, `mode: 'payment'`, returns `{ url }`. Guest checkout allowed.
-- `stripe-webhook` — verifies signature, on `checkout.session.completed` creates `order` + `order_items` + one `download_grant` per item (7-day expiry, 5 downloads), then calls Resend/Lovable email to send the download links. `verify_jwt = false` in config.toml.
-- `download-ebook` — body `{ token }`. Validates grant (not expired, count < max), increments counter, returns signed URL from `ebook-pdfs` bucket (10-min TTL).
+### 3. Auto-trigger
+- Database trigger on `ebooks` update: when `status` transitions to the ready value AND `listed_at IS NULL`, enqueue a call to `auto-list-ebook` via `pg_net`.
+- Manual "List for sale" button in `LiveProductionQueue` keeps working (calls same function).
 
-### 4. Payments
-- Use Stripe via the `stripe--enable_stripe` connector (public key in code, secret key auto-provisioned in edge env). No manual token juggling. If user prefers Paddle, we can swap — Stripe is default because digital-goods checkout + tax handling is turnkey.
+### 4. Categories
+- Every ebook already has a `category_id`. `list-storefront` already joins categories. No schema change needed — just surface the category on the product card and product page if not already.
 
-### 5. Emails
-- `SendReceipt` transactional email via the seamless-email flow: subject "Your download is ready", body with per-item download link `/download?token=…`. Falls back to on-screen success page with same links if email fails.
+### 5. Kill Shopify from the live path
+- Remove Shopify buttons/links from admin UI render tree (files kept in `_archive/`).
+- `SHOPIFY_UPLOAD` feature flag stays `false`; remove any code path that still calls `push-to-shopify` or `generate-shopify-package`.
 
-### 6. Frontend
-- `Index` + `Category` + `Bundles`: fetch published ebooks (`status='published'` OR `listed_at IS NOT NULL`) from Supabase, render existing `ProductCard`.
-- `Product` (`/product/:handle`): resolve by `url_slug` or `id`, show cover, title, price, `body_html`, "Add to cart" button. No fake reviews.
-- `CartDrawer`: existing Zustand cart; "Checkout" button posts cart to `create-checkout` and redirects to Stripe URL.
-- `Download` (`/download?token=…` and `?session_id=…`): shows per-item download buttons that call `download-ebook` and open the signed URL.
-- `Library` (authenticated users): lists their past orders + still-valid download grants.
-- `Header`: cart icon with count, sign-in link.
+## Files touched
+- `supabase/functions/generate-cover/index.ts` — rewrite to skill contract
+- `supabase/functions/_shared/cover.ts` — CoverSpec builder + typography overlay
+- `supabase/functions/auto-list-ebook/index.ts` — **new**
+- `supabase/migrations/…_auto_list_trigger.sql` — status→listing trigger
+- `src/components/admin/LiveProductionQueue.tsx` — wire "List for sale" to `auto-list-ebook`; hide Shopify controls
+- `.workspace/skills/world-class-cover-designer/` — activate via `skills--apply_draft`
 
-### 7. Admin
-- `/admin/production` "Ready to Publish" section: replace "Push to Shopify" button with **"List for sale"** (flips `listed_at`) and **"Unlist"**. Remove `ReadyShopify` route + `ShopifyStatus` + `EbookShopify` page from nav (keep files archived under `src/_archive/` so nothing else breaks).
-- `/admin/orders` (new small page): list of paid orders, buyer email, item, amount, refund link (calls Stripe refund via new edge function `refund-order`).
+## Out of scope
+- Rewriting existing published covers (only regenerated on demand or when status flips fresh).
+- Subscriptions, coupons, bundles.
 
-### 8. Cleanup
-- Guard all `push-to-shopify`, `shopify-publish`, `shopify-draft-upload`, `shopify-test-connection`, `generate-shopify-package` edge functions with `if (!FEATURES.SHOPIFY_UPLOAD) return 410 Gone`. Do NOT delete — leave for a possible future re-enable.
-- Remove `ShopifyStatus`, `ReadyShopifyCard`, Shopify nav link, Shopify buttons in `LiveProductionQueue`/`FinalApproval` from the render tree.
-
-## Out of scope for this pass
-- No coupons/discount codes (add later).
-- No subscriptions — one-off digital purchases only.
-- No affiliate tracking, no reviews, no wishlist.
-- No physical shipping (digital only).
-- No multi-currency beyond Stripe's built-in presentment.
-
-## What I need from you before I start building
-1. **Payment provider** — go with **Stripe** (default, easiest for digital goods)? Or Paddle (better if you want them to handle sales tax/VAT as merchant of record)?
-2. **Guest checkout** — allow buying without an account (email-only, download link mailed), or require sign-in first?
-3. **Store brand** — keep the current site brand (SecretPDF / Printly is referenced in code) or change the vendor name shown on the storefront?
-
-Once you answer those three, I'll execute this plan in build mode: migration → Stripe connector → 3 edge functions → storefront rewrite → admin cleanup → end-to-end test with one of the two ready books.
+## Confirm before I build
+1. Trigger status = **`ready_for_qc`** (auto) with a manual override button — OK?
+2. Regenerate covers for the ebooks that already have `cover_url` set (e.g. the 3 currently listed / in review), or only for new ones?
