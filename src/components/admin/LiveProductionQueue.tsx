@@ -9,6 +9,7 @@ import { fetchAdminData } from "@/lib/adminData";
 import { statusView, elapsedSince, untilRetry } from "@/lib/canonicalStatus";
 import { downloadAdminPdf } from "@/lib/pdf";
 import { SystemFixCard, type SystemFix } from "./SystemFixCard";
+import { QcGateCard, type QcGateReport, type ReRenderInfo } from "./QcGateCard";
 
 interface QueueEbook {
   id: string;
@@ -30,6 +31,8 @@ interface QueueEbook {
   word_count?: number | null;
   shopify_status?: string | null;
   updated_at: string | null;
+  qc?: QcGateReport | null;
+  re_render?: ReRenderInfo | null;
 }
 
 interface LiveQueue {
