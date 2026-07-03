@@ -221,7 +221,8 @@ Deno.serve(async (req) => {
     .from("ebooks")
     .select("id, next_retry_at")
     .in("autopilot_state", ["waiting_for_worker_slot", "waiting_for_ai_budget"])
-    .lte("next_retry_at", now)
+    // Include rows with NULL next_retry_at — otherwise they get stuck forever.
+    .or(`next_retry_at.is.null,next_retry_at.lte.${now}`)
     .limit(5);
   const workerResumed: string[] = [];
   for (const w of workerWaiters ?? []) {
@@ -232,10 +233,39 @@ Deno.serve(async (req) => {
       canonical_status: "queued_for_production",
       blocker_reason: null,
       blocker_class: null,
+      next_retry_at: null,
     }).eq("id", w.id);
     invokePipeline(w.id).catch((e) =>
       console.warn("[recovery] worker-wait resume failed", w.id, e?.message ?? e)
     );
+  }
+
+  // 4d) needs_admin_attention / needs_admin / needs_action — auto-retry once
+  //     with fresh attempt counters. If the book still fails downstream, the
+  //     pipeline will land it back in needs_review with a clean error, but the
+  //     user's expectation is "system should keep trying automatically."
+  const { data: adminNeeded } = await db
+    .from("ebooks")
+    .select("id, updated_at, auto_fix_attempt_count")
+    .in("autopilot_state", ["needs_admin_attention", "needs_admin", "needs_action"])
+    .is("shopify_product_id", null)
+    .lt("updated_at", new Date(Date.now() - 5 * 60 * 1000).toISOString())
+    .limit(10);
+  const adminNeededResumed: string[] = [];
+  for (const a of adminNeeded ?? []) {
+    adminNeededResumed.push(a.id);
+    if (dry) continue;
+    await db.from("ebooks").update({
+      autopilot_state: "queued_for_production",
+      canonical_status: "queued_for_production",
+      auto_fix_attempt_count: 0,
+      autofix_attempt: 0,
+      blocker_class: null,
+      blocker_reason: null,
+      needs_review_reason: null,
+      waiting_reason: "Auto-resumed by recovery worker after admin_attention timeout.",
+      next_retry_at: null,
+    }).eq("id", a.id);
   }
 
   // 4c) Backend-driven QC auto-fix — do NOT rely on the dashboard being open.
@@ -391,6 +421,7 @@ Deno.serve(async (req) => {
       expires_at: heavyHolder.expires_at,
       free: heavyFree,
     },
+    admin_needed_auto_resumed: adminNeededResumed,
     queued_for_production_dispatched: queuedDispatched,
   }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 });

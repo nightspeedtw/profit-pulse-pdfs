@@ -344,7 +344,11 @@ async function processCover(ebook: EbookRow, opts: ProcessOpts) {
     let lastReasons: string[] = [];
     let passed = false;
 
-    const MAX_ATTEMPTS = 3;
+    // Single attempt per invocation to stay under Edge Runtime CPU cap.
+    // The autopilot-recovery-worker + autofix-action loop retries externally
+    // (up to MAX_AUTOFIX_ATTEMPTS = 3), so we still get 3 attempts total —
+    // just spread across separate function invocations.
+    const MAX_ATTEMPTS = 1;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS && !passed; attempt++) {
       // 1) STRATEGY
       const needNewSpec = !spec || mode === "full" || mode === "spec" || attempt > 1;
