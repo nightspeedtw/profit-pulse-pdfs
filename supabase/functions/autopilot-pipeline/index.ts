@@ -91,6 +91,34 @@ Deno.serve(async (req) => {
       return json({ skipped: `cost_limit_reached ($${guard.spent.toFixed(2)} ≥ $${guard.budget.toFixed(2)})` });
     }
 
+    // ---- Preflight Check (Phase 1 Self-Healing Autopilot) ----
+    // Refuse to start unless database/storage/secrets/Browserless/Shopify all check out.
+    // Recoverable config is auto-fixed silently by the preflight function itself.
+    if (body?.skip_preflight !== true) {
+      try {
+        const pf = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/preflight-check`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: "{}",
+        });
+        const pfr = await pf.json().catch(() => ({}));
+        if (!pfr?.ready) {
+          return json({
+            skipped: "preflight_blocked",
+            preflight: pfr,
+            required_admin_actions: pfr?.required_admin_actions ?? [],
+          }, 200);
+        }
+      } catch (e) {
+        // Preflight itself failed — record warning but let the pipeline still try;
+        // the individual steps will surface any real config errors.
+        console.warn("[autopilot-pipeline] preflight probe failed:", (e as Error).message);
+      }
+    }
+
     // ---- Live run tracker (visible to admin UI via Realtime) ----
     const tracker = await RunTracker.start(db, {
       ebook_id: ebook_id ?? null,
