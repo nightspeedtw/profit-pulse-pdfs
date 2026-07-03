@@ -937,7 +937,7 @@ Deno.serve(async (req) => {
           if (ebook?.id) {
             const { data: fresh } = await db.from("ebooks").select("autopilot_state").eq("id", ebook.id).maybeSingle();
             const state = fresh?.autopilot_state ?? "";
-            const HOLD_STATES = new Set(["waiting_for_browserless_slot"]);
+            const HOLD_STATES = new Set(["waiting_for_browserless_slot", "waiting_for_worker_slot", "waiting_for_ai_budget"]);
             if (!HOLD_STATES.has(state)) {
               await releaseLock(db, LOCK_HEAVY, ebook.id);
             }
