@@ -45,8 +45,6 @@ Deno.serve(async (req) => {
       }
     } catch (_) { /* fall through */ }
 
-    // best-effort telemetry
-    await supabase.from("ebooks").update({ sales_count: (undefined as unknown as number) }).eq("id", "___"); // no-op guard
 
     return new Response(JSON.stringify({ url: signedUrl, title: e.title }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
