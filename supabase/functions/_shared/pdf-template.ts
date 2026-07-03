@@ -118,11 +118,34 @@ function renderMd(md: string): string {
   return out.join("\n");
 }
 
+function stripInlineMd(s: string): string {
+  return (s ?? "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/(^|[^*])\*([^*]+)\*/g, "$1$2")
+    .replace(/`([^`]+)`/g, "$1")
+    .trim();
+}
+
+// Remove a leading H1/H2 whose text duplicates the chapter title, so the PDF
+// doesn't render "Chapter 2. Focus" AND then a second "# Focus" H2 right below.
+function stripDuplicateLeadingHeading(md: string, chapterTitle: string): string {
+  const src = (md ?? "").replace(/\r\n/g, "\n").replace(/^\s+/, "");
+  const m = src.match(/^(#{1,3})\s+([^\n]+)\n+/);
+  if (!m) return src;
+  const heading = stripInlineMd(m[2]);
+  const title = stripInlineMd(chapterTitle ?? "");
+  const norm = (s: string) => s.toLowerCase().replace(/^chapter\s*\d+[:.\-\s]*/i, "").replace(/[^a-z0-9]/g, "");
+  if (norm(heading) && norm(title) && (norm(heading) === norm(title) || norm(heading).includes(norm(title)) || norm(title).includes(norm(heading)))) {
+    return src.slice(m[0].length);
+  }
+  return src;
+}
+
 function chapterCallouts(c: PdfChapter): string {
   if (!c.callouts?.length) return "";
   return c.callouts.map((co) => `
     <aside class="callout callout--${esc(co.kind ?? "tip")}">
-      ${co.title ? `<div class="callout__title">${esc(co.title)}</div>` : ""}
+      ${co.title ? `<div class="callout__title">${esc(stripInlineMd(co.title))}</div>` : ""}
       <div class="callout__body">${renderMd(co.body)}</div>
     </aside>`).join("\n");
 }
