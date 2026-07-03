@@ -551,11 +551,15 @@ async function loadChapters(db: ReturnType<typeof admin>, ebook_id: string): Pro
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  let reqEbookId: string | null = null;
+  let reqRunId: string | undefined;
   try {
     await requireAdmin(req);
     const db = admin();
     const body = await req.json();
     const { ebook_id, run_id } = body as { ebook_id: string; run_id?: string };
+    reqEbookId = ebook_id;
+    reqRunId = run_id;
     if (!ebook_id) throw new Error("ebook_id required");
 
     // ---- Subtask heartbeat helper ----
@@ -563,6 +567,7 @@ Deno.serve(async (req) => {
     // can see live progress. Also writes to ebooks.final_manuscript_qc.progress
     // so a details panel can render subtask + last_heartbeat_at.
     const startedAt = Date.now();
+    const deadlineMs = startedAt + EDGE_SAFE_DEADLINE_MS;
     let subtaskSeq = 0;
     async function emit(subtask: string, message: string, extra: Record<string, unknown> = {}) {
       subtaskSeq++;
