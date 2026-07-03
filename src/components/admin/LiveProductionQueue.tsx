@@ -11,6 +11,7 @@ import { statusView, elapsedSince, untilRetry } from "@/lib/canonicalStatus";
 import { downloadAdminPdf } from "@/lib/pdf";
 import { SystemFixCard, type SystemFix } from "./SystemFixCard";
 import { QcGateCard, type QcGateReport, type ReRenderInfo } from "./QcGateCard";
+import { CoverStyleReferenceCard } from "./CoverStyleReferenceCard";
 
 interface QueueEbook {
   id: string;
@@ -637,6 +638,9 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
       count={items.length}
       empty="ยังไม่มีเล่มที่ผลิตเสร็จ 100%"
     >
+      <div className="mb-4">
+        <CoverStyleReferenceCard />
+      </div>
       {items.length > 0 && (
         <div className="flex justify-end mb-3">
           <Button size="sm" variant="outline" onClick={onRegenerateAllCovers} className="gap-2">

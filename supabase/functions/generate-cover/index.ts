@@ -284,16 +284,59 @@ function completeThumbnailQcContract(
   return qc;
 }
 
-async function generateBackgroundPNG(prompt: string): Promise<{ bytes: Uint8Array; cost: number }> {
+type StyleRef = {
+  image_url: string;
+  image_data_url: string | null;
+  palette: string[];
+  lighting: string;
+  layout_notes: string;
+  style_summary: string;
+} | null;
+
+async function loadActiveStyleReference(db: ReturnType<typeof admin>): Promise<StyleRef> {
+  const { data: row } = await db.from("cover_style_reference").select("*").eq("is_active", true).maybeSingle();
+  if (!row) return null;
+  let dataUrl: string | null = null;
+  try {
+    if (row.storage_path) {
+      const { data } = await db.storage.from("cover-style-refs").download(row.storage_path);
+      if (data) {
+        const buf = new Uint8Array(await data.arrayBuffer());
+        let b64 = ""; const c = 0x8000;
+        for (let i = 0; i < buf.length; i += c) b64 += String.fromCharCode(...buf.subarray(i, i + c));
+        const mime = row.storage_path.endsWith(".png") ? "image/png" : row.storage_path.endsWith(".webp") ? "image/webp" : "image/jpeg";
+        dataUrl = `data:${mime};base64,${btoa(b64)}`;
+      }
+    }
+  } catch (e) { console.warn("style ref download failed", e); }
+  return {
+    image_url: row.image_url,
+    image_data_url: dataUrl,
+    palette: Array.isArray(row.palette) ? row.palette as string[] : [],
+    lighting: row.lighting ?? "",
+    layout_notes: row.layout_notes ?? "",
+    style_summary: row.style_summary ?? "",
+  };
+}
+
+function styleRefInstruction(ref: StyleRef): string {
+  if (!ref) return "";
+  return `\n\n=== MASTER STYLE REFERENCE (MANDATORY) ===\nAn approved reference cover image is provided. Every cover you produce MUST match its:\n- overall mood, lighting direction and shadow quality\n- background surface + finish\n- product-photography framing and perspective\n- typographic scale and layout rhythm\nAdapt only the metaphor/illustration/wording to fit this specific book.\nPalette to reuse (dominant→accent): ${ref.palette.join(", ") || "n/a"}\nLighting: ${ref.lighting || "n/a"}\nLayout: ${ref.layout_notes || "n/a"}\nStyle summary: ${ref.style_summary || "n/a"}\n=== END REFERENCE ===`;
+}
+
+async function generateBackgroundPNG(prompt: string, ref: StyleRef): Promise<{ bytes: Uint8Array; cost: number }> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) throw new Error("LOVABLE_API_KEY not configured");
-  const cleanPrompt = `${prompt}\n\nABSOLUTELY NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS, NO SIGNAGE, NO TYPOGRAPHY anywhere in the image. Vertical 2:3 book-cover composition, premium editorial nonfiction quality, human-designed restraint, one strong visual metaphor, clean negative space for text overlay, no generic AI clichés, no over-rendered glossy surfaces, no random surreal objects.`;
+  const styleClause = ref ? `\n\nMATCH THE ATTACHED REFERENCE IMAGE'S lighting, mood, background surface finish, palette (${ref.palette.join(", ")}), and overall aesthetic exactly. Adapt only the central metaphor/illustration to this book.` : "";
+  const cleanPrompt = `${prompt}${styleClause}\n\nABSOLUTELY NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS, NO SIGNAGE, NO TYPOGRAPHY anywhere in the image. Vertical 2:3 book-cover composition, premium editorial nonfiction quality, human-designed restraint, one strong visual metaphor, clean negative space for text overlay, no generic AI clichés, no over-rendered glossy surfaces, no random surreal objects.`;
+  const content: unknown[] = [{ type: "text", text: cleanPrompt }];
+  if (ref?.image_data_url) content.push({ type: "image_url", image_url: { url: ref.image_data_url } });
   const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "google/gemini-3-pro-image",
-      messages: [{ role: "user", content: cleanPrompt }],
+      messages: [{ role: "user", content }],
       modalities: ["image", "text"],
     }),
   });
@@ -328,12 +371,12 @@ function buildRepairFeedback(reasons: string[], improvements: string[]): string 
 // This is what Shopify product cards will show — must feel like a real book, not
 // a flat A4 screenshot. The flat cover itself is preserved SEPARATELY at
 // `${ebook_id}/cover.png` — this mockup path is `${ebook_id}/thumbnail.png` only.
-async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array, coverPngReuse?: Uint8Array): Promise<{ bytes: Uint8Array; assetType: ThumbnailAssetType }> {
+async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array, coverPngReuse: Uint8Array | undefined, ref: StyleRef): Promise<{ bytes: Uint8Array; assetType: ThumbnailAssetType }> {
   const coverPng = coverPngReuse ?? await rasterizeSVG(buildCoverSVG(spec, bgBytes), 1200);
 
   // 1) Try photoreal AI mockup (gemini image model, cover as reference).
   try {
-    const ai = await renderPhotorealThumbnail(coverPng, spec);
+    const ai = await renderPhotorealThumbnail(coverPng, spec, ref);
     if (ai && ai.length > 4096) return { bytes: ai, assetType: "photoreal_mockup" };
   } catch (e) {
     console.warn("photoreal thumbnail failed, using flat-cover fallback:", (e as Error).message);
@@ -344,45 +387,58 @@ async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array, coverPngReu
   return { bytes: coverPng, assetType: "flat_cover_fallback" };
 }
 
-async function renderPhotorealThumbnail(coverPng: Uint8Array, spec: CoverSpec): Promise<Uint8Array | null> {
+async function renderPhotorealThumbnail(coverPng: Uint8Array, spec: CoverSpec, ref: StyleRef): Promise<Uint8Array | null> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) return null;
   let b64 = ""; const c = 0x8000;
   for (let i = 0; i < coverPng.length; i += c) b64 += String.fromCharCode(...coverPng.subarray(i, i + c));
   const coverData = `data:image/png;base64,${btoa(b64)}`;
-  const prompt = `Create a CINEMATIC, MOODY PHOTOREALISTIC product-photography mockup of a premium hardcover nonfiction book, standing upright on a POLISHED DARK BLACK MARBLE SURFACE with subtle veining and soft reflections. Deep near-black studio background with a soft vignette and a single dramatic warm rim/key light from the upper-right creating rich highlights on the cover edge and a long, soft contact shadow on the marble.
 
-The FRONT COVER of the book must be an EXACT, unmodified reproduction of the reference image I am providing — same layout, same typography, same colors, same title/subtitle/badge/brand positioning. Do NOT redesign, restyle, re-typeset, or add/remove any text. Warp the reference image onto the front-cover surface with correct perspective and gentle page curvature only.
+  const refClause = ref
+    ? `\n\n=== SECOND IMAGE = MASTER STYLE REFERENCE ===\nReplicate the SECOND image's lighting direction, shadow quality, background surface finish, camera framing, perspective angle, mood and color grade EXACTLY. Palette: ${ref.palette.join(", ") || "n/a"}. Lighting: ${ref.lighting || "n/a"}. Layout: ${ref.layout_notes || "n/a"}. The FIRST image is only the front-cover artwork to wrap onto the book — do NOT copy its lighting/background, ONLY its artwork.`
+    : "";
+
+  const prompt = `Create a CINEMATIC PHOTOREALISTIC product-photography mockup of a premium hardcover nonfiction book, standing upright.${refClause}
+
+The FRONT COVER of the book must be an EXACT, unmodified reproduction of the FIRST image (the cover artwork) — same layout, same typography, same colors, same title/subtitle/badge/brand positioning. Do NOT redesign, restyle, re-typeset, or add/remove any text. Warp the first image onto the front-cover surface with correct perspective and gentle page curvature only.
 
 Show:
 - Slight 3/4 perspective (about 12–15 degrees), front cover clearly readable, book centered and dominant in the frame
-- Visible spine on the left, matching cover color (${(spec.color_palette?.[0] ?? "#0b0b0b")}), spine may faintly echo the title but no new text elements
+- Visible spine on the left, matching cover color (${(spec.color_palette?.[0] ?? "#0b0b0b")}), no new text elements
 - Crisp page-edge stack on top and right (thin cream-white pages), realistic hardcover thickness (~22–25mm)
-- Rich specular highlight along the top edge of the cover from the rim light
-- Long, soft, grounded reflection/contact shadow on the polished black marble beneath the book
+- Rich specular highlight along the top edge from the key light
+- Long, soft, grounded reflection/contact shadow beneath the book
 - Absolutely no other props, no hands, no additional books, no text overlay, no logos, no watermark
-- Tactile matte hardcover finish, premium bookstore hero-shot quality, editorial dark aesthetic
+- Tactile matte hardcover finish, premium bookstore hero-shot quality
 
-STRICTLY FORBIDDEN: adding any text/logo/badge that is not on the reference cover, changing the cover artwork, cartoon or 3D-render look, floating book, tilted horizon, multiple books, hands, extra objects, bright/white studio background.
+STRICTLY FORBIDDEN: adding any text/logo/badge that is not on the reference cover, changing the cover artwork, cartoon or 3D-render look, floating book, tilted horizon, multiple books, hands, extra objects.
 
-Output: 1200x1500 vertical composition, dark cinematic mood, book centered.`;
+Output: 1200x1500 vertical composition, book centered.`;
 
+  const content: unknown[] = [
+    { type: "text", text: prompt },
+    { type: "image_url", image_url: { url: coverData } },
+  ];
+  if (ref?.image_data_url) content.push({ type: "image_url", image_url: { url: ref.image_data_url } });
 
   const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "google/gemini-3-pro-image",
-      messages: [{
-        role: "user",
-        content: [
-          { type: "text", text: prompt },
-          { type: "image_url", image_url: { url: coverData } },
-        ],
-      }],
+      messages: [{ role: "user", content }],
       modalities: ["image", "text"],
     }),
   });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`photoreal mockup ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const j = await res.json();
+  const outB64: string | undefined = j.data?.[0]?.b64_json;
+  if (!outB64) return null;
+  return Uint8Array.from(atob(outB64), (ch) => ch.charCodeAt(0));
+}
   if (!res.ok) {
     const t = await res.text();
     throw new Error(`photoreal mockup ${res.status}: ${t.slice(0, 200)}`);
@@ -491,6 +547,8 @@ async function processCover(ebook: EbookRow, opts: ProcessOpts) {
       ? (await db.from("categories").select("name").eq("id", ebook.category_id).maybeSingle()).data?.name
       : null;
 
+    const styleRef = await loadActiveStyleReference(db);
+
     let spec: CoverSpec = ebook.cover_spec as CoverSpec;
     let bgBytes: Uint8Array | null = null;
     let lastQC: QCResult | null = null;
@@ -512,7 +570,7 @@ async function processCover(ebook: EbookRow, opts: ProcessOpts) {
           : "";
         const ai = await aiJSON<CoverSpec>({
           model: "google/gemini-3.1-pro-preview",
-          system: COVER_DESIGNER_SYSTEM,
+          system: COVER_DESIGNER_SYSTEM + styleRefInstruction(styleRef),
           user: `Ebook Title: ${ebook.title}
 Subtitle: ${ebook.subtitle ?? ""}
 Category: ${category ?? "general"}
@@ -561,7 +619,7 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
           r.includes("category_fit") || r.includes("ai_text_errors") ||
           r.includes("premium_feel"));
         if (bgFailure || !bgBytes) {
-          const bg = await generateBackgroundPNG(spec.background_image_prompt_no_text || ebook.cover_prompt || `Premium editorial cover for "${ebook.title}"`);
+          const bg = await generateBackgroundPNG(spec.background_image_prompt_no_text || ebook.cover_prompt || `Premium editorial cover for "${ebook.title}"`, styleRef);
           totalCost += bg.cost;
           bgBytes = bg.bytes;
           const { error } = await db.storage.from("ebook-covers").upload(bgPath, bgBytes, { contentType: "image/png", upsert: true });
@@ -598,7 +656,7 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
       const coverPath = `${ebook_id}/cover.png`;
       await db.storage.from("ebook-covers").upload(coverPath, coverPng, { contentType: "image/png", upsert: true });
 
-      const thumbResult = await renderThumbnail(spec, bgBytes!, coverPng);
+      const thumbResult = await renderThumbnail(spec, bgBytes!, coverPng, styleRef);
       const thumbPng = thumbResult.bytes;
       const thumbAssetType: ThumbnailAssetType = thumbResult.assetType;
       const thumbPath = `${ebook_id}/thumbnail.png`;
