@@ -317,8 +317,9 @@ Deno.serve(async (req) => {
         .from("system_fix_instructions")
         .select("*")
         .eq("status", "open")
-        .order("last_seen_at", { ascending: false })
+        .order("first_seen_at", { ascending: true })
         .limit(50);
+
 
       const { data: lock } = await supabase
         .from("production_locks")
