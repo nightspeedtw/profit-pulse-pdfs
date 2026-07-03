@@ -547,6 +547,8 @@ async function processCover(ebook: EbookRow, opts: ProcessOpts) {
       ? (await db.from("categories").select("name").eq("id", ebook.category_id).maybeSingle()).data?.name
       : null;
 
+    const styleRef = await loadActiveStyleReference(db);
+
     let spec: CoverSpec = ebook.cover_spec as CoverSpec;
     let bgBytes: Uint8Array | null = null;
     let lastQC: QCResult | null = null;
