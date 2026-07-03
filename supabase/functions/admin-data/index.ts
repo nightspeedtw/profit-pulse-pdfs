@@ -345,10 +345,31 @@ Deno.serve(async (req) => {
       const { data } = await supabase
         .from("system_fix_instructions")
         .select("*")
-        .order("last_seen_at", { ascending: false })
+        .order("first_seen_at", { ascending: true })
         .limit(100);
       return json({ fixes: data ?? [] });
     }
+
+    if (resource === "dismiss_fix") {
+      const fixId = (body as { fix_id?: string }).fix_id;
+      if (!fixId) return json({ error: "fix_id required" }, 400);
+      const { error } = await supabase
+        .from("system_fix_instructions")
+        .update({ status: "resolved", resolved_at: new Date().toISOString() })
+        .eq("id", fixId);
+      if (error) return json({ error: error.message }, 500);
+      return json({ ok: true });
+    }
+
+    if (resource === "dismiss_all_fixes") {
+      const { error } = await supabase
+        .from("system_fix_instructions")
+        .update({ status: "resolved", resolved_at: new Date().toISOString() })
+        .eq("status", "open");
+      if (error) return json({ error: error.message }, 500);
+      return json({ ok: true });
+    }
+
 
     if (resource === "run_doctor") {
       // Invoke the doctor via internal call; return its report.
