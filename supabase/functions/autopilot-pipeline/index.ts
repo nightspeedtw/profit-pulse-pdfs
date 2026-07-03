@@ -222,7 +222,12 @@ Deno.serve(async (req) => {
               ["title_and_hook"],
               "Writing baseline title, subtitle, and hard-sell hook…",
               async () => {
-                await runStep("2_best_title_qc", "idea-copywriter", { mode: "generate_one_best_concept", category_id: idea.category_id });
+                if (_FEATURES.LEGACY_PIPELINE) {
+                  await runStep("2_best_title_qc", "idea-copywriter", { mode: "generate_one_best_concept", category_id: idea.category_id });
+                } else {
+                  // Phase 1: skip legacy idea-copywriter — premium-title-expert (next gate) writes the concept.
+                  await logRun(db, { idea_id, step: "2_best_title_qc", status: "ok", payload: { skipped: "legacy_pipeline_disabled" } });
+                }
                 const { data: i2 } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
                 idea = i2;
               },
