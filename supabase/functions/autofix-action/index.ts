@@ -43,8 +43,65 @@ Deno.serve(async (req) => {
       // Clear QC blockers AND re-arm pipeline stages so retry actually
       // re-runs diagnose + targeted repair (not just clears flags).
       const { data: cur } = await db.from("ebooks")
-        .select("manuscript_qc_status, pdf_status, autopilot_state, reader_qc_status, cover_status, auto_fix_attempt_count")
+        .select("title, manuscript_qc_status, pdf_status, autopilot_state, auto_fix_attempt_count, qc_gates_json")
         .eq("id", ebook_id).single();
+
+      const MAX_ATTEMPTS = 3;
+      const currentAttempts = cur?.auto_fix_attempt_count ?? 0;
+      const g = gate ?? "any";
+
+      // ESCALATION: if we've already tried MAX times, stop looping and
+      // hand off to the "Needs Code Fix" queue with a Lovable prompt so
+      // the agent can fix the underlying bug instead of retrying forever.
+      if (action === "autofix_gate" && currentAttempts >= MAX_ATTEMPTS) {
+        const gates = (cur?.qc_gates_json ?? {}) as Record<string, { score?: number; target?: number; pass?: boolean }>;
+        const failed = Object.entries(gates)
+          .filter(([, v]) => v && typeof v === "object" && v.pass === false)
+          .map(([k, v]) => `- ${k}: score ${v.score ?? "n/a"} / target ${v.target ?? "n/a"}`)
+          .join("\n") || `- ${g}`;
+
+        const fingerprint = `autofix_stuck:${g}:${ebook_id}`;
+        const lovable_prompt = [
+          `Autopilot ran auto-fix ${MAX_ATTEMPTS}+ times on ebook "${cur?.title ?? ebook_id}"`,
+          `but the following QC gate(s) still fail:`,
+          failed,
+          ``,
+          `Blocked gate: ${g}`,
+          ``,
+          `Please:`,
+          `1. Read supabase/functions/_shared/qc-gates.ts and the gate's producer function.`,
+          `2. Diagnose why the score never reaches the target after retries.`,
+          `3. Fix the underlying producer (render-pdf, generate-cover, reader-experience-qc, or _shared/pdf-template.ts) so the score converges.`,
+          `4. Do NOT just lower the threshold — the premium-ebook-master contract requires the target.`,
+        ].join("\n");
+
+        await db.from("system_fix_instructions").upsert({
+          fingerprint,
+          title: `Auto-Fix stuck on ${g} — ${cur?.title ?? ebook_id}`,
+          detected_problem: `Ebook ${ebook_id} blocked at gate "${g}" after ${currentAttempts} auto-fix attempts.`,
+          root_cause: `Producer for gate ${g} does not converge to target score.`,
+          error_type: "qc_gate_stuck",
+          severity: "high",
+          affected_ebook_id: ebook_id,
+          required_fix: `Fix producer for gate ${g} so it consistently passes.`,
+          acceptance_test: `Re-run auto-fix on this ebook; gate ${g} passes on first attempt.`,
+          lovable_prompt,
+          status: "open",
+          occurrences: 1,
+          last_seen_at: new Date().toISOString(),
+        }, { onConflict: "fingerprint" });
+
+        await db.from("ebooks").update({
+          qc_status: "needs_code_fix",
+          needs_review_reason: `Auto-fix stuck on ${g} after ${currentAttempts} attempts — escalated to Lovable.`,
+          admin_review_reason: `Auto-fix stuck on ${g} after ${currentAttempts} attempts — escalated to Lovable.`,
+          next_recommended_action: "code_fix",
+        }).eq("id", ebook_id);
+
+        return new Response(JSON.stringify({ ok: true, escalated: true, gate: g, attempts: currentAttempts }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       const patch: Record<string, unknown> = {
         qc_status: "auto_fixing",
@@ -57,12 +114,12 @@ Deno.serve(async (req) => {
         blocked_at: null,
         autopilot_state: "running",
         needs_review_reason: null,
-        last_auto_fix_action: action === "autofix_gate" ? `autofix:${gate ?? "any"}` : action,
+        last_auto_fix_action: action === "autofix_gate" ? `autofix:${g}` : action,
       };
       if (action !== "autofix_gate") {
         patch.auto_fix_attempt_count = 0;
       } else {
-        patch.auto_fix_attempt_count = (cur?.auto_fix_attempt_count ?? 0) + 1;
+        patch.auto_fix_attempt_count = currentAttempts + 1;
       }
 
       // Targeted gate resets — re-arm ONLY the failing stage so the
