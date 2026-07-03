@@ -328,9 +328,34 @@ Deno.serve(async (req) => {
 
   // 5) queued_for_production — dispatch ONE at a time when heavy_production
   //    lock is free (Sequential Safe Mode: heavy_production_concurrency = 1).
-  const heavyHolder = await getLockHolder(db, LOCK_HEAVY);
-  const heavyFree = !heavyHolder.holder ||
+  let heavyHolder = await getLockHolder(db, LOCK_HEAVY);
+  let heavyFree = !heavyHolder.holder ||
     (heavyHolder.expires_at ? heavyHolder.expires_at < now : true);
+
+  // 5a) Stale-lock auto-release — if the holder ebook has no fresh heartbeat
+  //     in the last 10 minutes, force-release the lock so the queue can move.
+  //     This prevents "system doing nothing" when a run silently dies.
+  if (!heavyFree && heavyHolder.holder) {
+    const { data: holderEbook } = await db
+      .from("ebooks")
+      .select("id,last_heartbeat_at,autopilot_state")
+      .eq("id", heavyHolder.holder)
+      .maybeSingle();
+    const hbAge = holderEbook?.last_heartbeat_at
+      ? Date.now() - new Date(holderEbook.last_heartbeat_at).getTime()
+      : Infinity;
+    const state = holderEbook?.autopilot_state ?? "";
+    const isActiveWait = ["waiting_for_browserless_slot", "waiting_for_worker_slot", "waiting_for_ai_budget"].includes(state);
+    if (hbAge > 10 * 60 * 1000 && !isActiveWait) {
+      console.warn("[recovery] force-releasing stale heavy_production lock", heavyHolder.holder, "hb_age_ms=", hbAge);
+      if (!dry) {
+        await db.from("production_locks").delete().eq("name", LOCK_HEAVY);
+      }
+      heavyHolder = { holder: null, expires_at: null };
+      heavyFree = true;
+    }
+  }
+
   const queuedDispatched: string[] = [];
   if (heavyFree) {
     const { data: nextQueued } = await db
