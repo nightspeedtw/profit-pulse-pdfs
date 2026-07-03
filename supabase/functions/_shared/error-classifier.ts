@@ -189,6 +189,50 @@ const KNOWN_SIGNATURES: Array<{
       fingerprint: "missing_chapters",
     }),
   },
+  // AI JSON truncation / invalid structured response — recoverable by retrying
+  // with compact prompts or deterministic fallback inside the QC function.
+  {
+    match: (m) => /truncated json|no json found|invalid.*json|json.*model response|finish_reason.*length/i.test(m),
+    build: (m, ctx) => ({
+      error_type: "qc_repairable",
+      severity: "medium",
+      recoverable: true,
+      affected_step: ctx.step,
+      user_friendly_message: "Auto-fixing AI JSON issue — retrying with compact QC / fallback scoring.",
+      technical_message: m,
+      detected_root_cause: "The AI returned malformed or truncated JSON during a QC step.",
+      auto_recovery_action: "Retry the QC with smaller JSON output; if still invalid, use deterministic fallback scoring and continue repairs.",
+      next_retry_at: backoff(1),
+      needs_code_fix: false,
+      lovable_fix_instruction: "",
+      affected_files: [],
+      test_to_confirm: "QC no longer returns HTTP 400 for truncated JSON; ebook moves to auto_fixing or next step.",
+      suggested_status: "auto_fixing",
+      fingerprint: "ai_json_truncated_qc",
+    }),
+  },
+  // Edge-function idle timeout — recoverable by time-slicing the worker and
+  // resuming from next_retry_at.
+  {
+    match: (m) => /idle_timeout|request idle timeout|150s|timeout limit/i.test(m),
+    build: (m, ctx) => ({
+      error_type: "temporary_api_error",
+      severity: "medium",
+      recoverable: true,
+      affected_step: ctx.step,
+      user_friendly_message: "Reader/QC worker timed out — continuing automatically in the next worker slice.",
+      technical_message: m,
+      detected_root_cause: "A long QC repair pass exceeded the edge worker idle timeout.",
+      auto_recovery_action: "Mark waiting_for_worker_slot, preserve progress, and resume from the same ebook after a short backoff.",
+      next_retry_at: backoff(2),
+      needs_code_fix: false,
+      lovable_fix_instruction: "",
+      affected_files: [],
+      test_to_confirm: "Reader QC returns a deferred/waiting status before 150s and the recovery worker resumes it.",
+      suggested_status: "waiting_for_worker_slot",
+      fingerprint: "edge_idle_timeout_qc",
+    }),
+  },
   // Worksheet overflow
   {
     match: (m) => /worksheet.*overflow|table.*overflow|column.*overflow/i.test(m),
