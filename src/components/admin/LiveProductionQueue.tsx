@@ -18,6 +18,8 @@ interface QueueEbook {
   queue_position: number | null;
   waiting_reason: string | null;
   current_step: string | null;
+  current_step_label?: string | null;
+  current_action_message?: string | null;
   current_subtask: string | null;
   progress_pct: number | null;
   last_heartbeat_at: string | null;
@@ -25,6 +27,22 @@ interface QueueEbook {
   autofix_attempt: number | null;
   autofix_max: number | null;
   next_retry_at: string | null;
+  blocker_class?: string | null;
+  blocker_reason?: string | null;
+  needs_review_reason?: string | null;
+  next_recommended_action?: string | null;
+  failed_gate?: string | null;
+  failed_score?: number | null;
+  required_score?: number | null;
+  structured_error?: {
+    error_type?: string;
+    gate?: string;
+    detail?: string;
+    auto_recovery_action?: string;
+    attempt?: number;
+    max_attempts?: number;
+    lovable_prompt?: string;
+  } | null;
   cover_url: string | null;
   pdf_url: string | null;
   final_quality_score?: number | null;
@@ -197,6 +215,39 @@ function SectionShell({
   );
 }
 
+function BlockerSummary({ e }: { e: QueueEbook }) {
+  const gate = e.failed_gate ?? e.structured_error?.gate;
+  const reason =
+    e.waiting_reason ??
+    e.current_action_message ??
+    e.needs_review_reason ??
+    e.blocker_reason ??
+    e.structured_error?.detail;
+  const action = e.structured_error?.auto_recovery_action ?? e.next_recommended_action;
+  const hasContent = reason || gate || action || e.blocker_class;
+  if (!hasContent) return null;
+
+  return (
+    <div className="rounded-md border border-amber-500/30 bg-amber-50/50 p-2 text-xs text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
+      <div className="font-medium">ติดตรงไหน / Current blocker</div>
+      <div className="mt-1 space-y-0.5">
+        {gate && (
+          <div>
+            Gate: <span className="font-semibold">{gate}</span>
+            {e.failed_score != null && e.required_score != null
+              ? ` — ${Math.round(e.failed_score)}/${Math.round(e.required_score)}`
+              : ""}
+          </div>
+        )}
+        {reason && <div>{reason}</div>}
+        {e.blocker_class && <div>Type: {e.blocker_class}</div>}
+        {action && <div>Auto action: {action}</div>}
+        {e.next_retry_at && <div>ลองใหม่: {untilRetry(e.next_retry_at)}</div>}
+      </div>
+    </div>
+  );
+}
+
 function SectionA({ items }: { items: QueueEbook[] }) {
   return (
     <SectionShell
@@ -244,6 +295,7 @@ function SectionA({ items }: { items: QueueEbook[] }) {
                   <span>Auto-fix {e.autofix_attempt}/{e.autofix_max ?? 3}</span>
                 )}
               </div>
+              <BlockerSummary e={e} />
               <QcGateCard qc={e.qc} reRender={e.re_render} ebookId={e.id} />
             </div>
           );
@@ -301,6 +353,9 @@ function SectionC({ items }: { items: QueueEbook[] }) {
               <div className="text-xs text-muted-foreground">
                 {v.helper ?? "ระบบจะลองใหม่ให้อัตโนมัติ"} — ลองใหม่ {untilRetry(e.next_retry_at)}
               </div>
+              <div className="mt-2">
+                <BlockerSummary e={e} />
+              </div>
             </li>
           );
         })}
@@ -322,8 +377,11 @@ function SectionD({ items }: { items: QueueEbook[] }) {
           <li key={e.id} className="rounded-md border p-2 text-sm">
             <div className="font-medium">{e.title ?? `Ebook ${e.id.slice(0, 8)}`}</div>
             <div className="text-xs text-muted-foreground">
-              {e.current_subtask ?? "กำลังแก้ปัญหา"} — ครั้งที่ {e.autofix_attempt ?? 1}/
+              {e.current_subtask ?? e.current_action_message ?? "กำลังแก้ปัญหา"} — ครั้งที่ {e.autofix_attempt ?? e.structured_error?.attempt ?? 1}/
               {e.autofix_max ?? 3}
+            </div>
+            <div className="mt-2">
+              <BlockerSummary e={e} />
             </div>
           </li>
         ))}
@@ -385,6 +443,22 @@ function SectionE({
             <div className="text-xs text-muted-foreground">
               {e.waiting_reason ?? "รอ Lovable แก้โค้ด"}
             </div>
+            <div className="mt-2">
+              <BlockerSummary e={e} />
+            </div>
+            {e.structured_error?.lovable_prompt && (
+              <Button
+                size="sm"
+                variant="destructive"
+                className="mt-2 gap-2"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(e.structured_error?.lovable_prompt ?? "");
+                  toast.success("Copied Lovable fix prompt");
+                }}
+              >
+                <Copy className="h-4 w-4" /> Copy Fix Prompt
+              </Button>
+            )}
           </div>
         ))}
       </div>
@@ -406,6 +480,9 @@ function SectionF({ needsAdmin }: { needsAdmin: QueueEbook[] }) {
             <div className="font-medium">{e.title ?? e.id}</div>
             <div className="text-xs text-muted-foreground">
               {e.waiting_reason ?? "ระบบแก้เองไม่ได้ ต้องให้แอดมินตัดสินใจ"}
+            </div>
+            <div className="mt-2">
+              <BlockerSummary e={e} />
             </div>
           </li>
         ))}

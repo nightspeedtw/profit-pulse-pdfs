@@ -255,6 +255,69 @@ const KNOWN_SIGNATURES: Array<{
       fingerprint: "worksheet_overflow",
     }),
   },
+  // PDF producer returned success path but no file URL was persisted.
+  {
+    match: (m) => /pdf.*no file|no pdf_url|produced no file|pdf render failed.*no/i.test(m),
+    build: (m, ctx) => ({
+      error_type: "pdf_quality_bug",
+      severity: "high",
+      recoverable: true,
+      affected_step: ctx.step,
+      user_friendly_message: "Auto-fixing PDF render — no PDF file was produced.",
+      technical_message: m,
+      detected_root_cause: "render-pdf did not persist pdf_url after rendering/upload.",
+      auto_recovery_action: "Reset pdf_status to idle, rerender once, and verify pdf_url before Shopify readiness.",
+      next_retry_at: backoff(1),
+      needs_code_fix: false,
+      lovable_fix_instruction: "",
+      affected_files: [],
+      test_to_confirm: "render-pdf writes pdf_url and pipeline continues only after the URL exists.",
+      suggested_status: "auto_fixing",
+      fingerprint: "pdf_no_file",
+    }),
+  },
+  // Thumbnail mockup hard gate — recoverable by regenerate-cover first.
+  {
+    match: (m) => /thumbnail.*(below|weak|flat|mockup|readability)|thumbnail_book_mockup|cover_thumb/i.test(m),
+    build: (m, ctx) => ({
+      error_type: "qc_repairable",
+      severity: "medium",
+      recoverable: true,
+      affected_step: ctx.step,
+      user_friendly_message: "Auto-fixing Shopify thumbnail mockup — regenerating realistic book thumbnail.",
+      technical_message: m,
+      detected_root_cause: "Cover thumbnail does not meet 3D premium book mockup gate.",
+      auto_recovery_action: "Run generate-cover in full mode, rebuild thumbnail_url, rerun cover QC, then resume pipeline.",
+      next_retry_at: backoff(1),
+      needs_code_fix: false,
+      lovable_fix_instruction: "",
+      affected_files: [],
+      test_to_confirm: "cover_qc thumbnail_book_mockup_score, thumbnail_readability_score, premium_product_feel_score, shopify_click_appeal_score all >= 90.",
+      suggested_status: "auto_fixing",
+      fingerprint: "thumbnail_mockup_gate",
+    }),
+  },
+  // Cover A4/full bleed hard gate — recoverable by PDF rerender first.
+  {
+    match: (m) => /cover.*(a4|full[-\s]?bleed|full_a4)|pdf_cover_full_a4|cover_pdf/i.test(m),
+    build: (m, ctx) => ({
+      error_type: "pdf_quality_bug",
+      severity: "medium",
+      recoverable: true,
+      affected_step: ctx.step,
+      user_friendly_message: "Auto-fixing PDF cover page — rerendering true full A4 cover.",
+      technical_message: m,
+      detected_root_cause: "PDF cover page full-A4 score is below the hard target.",
+      auto_recovery_action: "Reset pdf_status to idle, rerender PDF with CSS page-size A4 cover, mirror score into cover_qc.",
+      next_retry_at: backoff(1),
+      needs_code_fix: false,
+      lovable_fix_instruction: "",
+      affected_files: [],
+      test_to_confirm: "computeQcGates(row).cover_pdf.pass is true with score 100.",
+      suggested_status: "auto_fixing",
+      fingerprint: "cover_pdf_a4_gate",
+    }),
+  },
 ];
 
 const CODE_FIX_SIGNATURES: Array<{
@@ -396,22 +459,47 @@ export function classifyError(err: unknown, ctx: ClassifyContext): StructuredErr
   for (const sig of KNOWN_SIGNATURES) if (sig.match(msg, ctx)) return sig.build(msg, ctx);
   for (const sig of CODE_FIX_SIGNATURES) if (sig.match(msg, ctx)) return sig.build(msg, ctx);
 
+  const prompt = lovablePrompt({
+    title: `Unclassified Autopilot failure at ${ctx.step}`,
+    detected: msg,
+    root_cause:
+      "The self-debugging classifier has no permanent rule for this failure yet, so the pipeline cannot confidently auto-repair it.",
+    files: [
+      "supabase/functions/autopilot-pipeline/index.ts",
+      "supabase/functions/autopilot-recovery-worker/index.ts",
+      "supabase/functions/_shared/error-classifier.ts",
+      "supabase/functions/render-pdf/index.ts",
+      "supabase/functions/generate-cover/index.ts",
+    ],
+    fix: [
+      "Identify which producer/step emitted this error and fix the underlying producer output or state transition.",
+      "Add a specific signature to _shared/error-classifier.ts so future occurrences are classified as recoverable, quota-wait, dependency repair, or needs_code_fix with a targeted prompt.",
+      "Persist canonical_status, blocker_reason, structured_error, current_action_message, and next_recommended_action on the ebook so the dashboard never goes silent.",
+      "If the error is recoverable, route it to the correct auto-fix step with backoff; if structural, keep needs_code_fix and include the exact affected files.",
+    ],
+    test:
+      `Replay the failed step for ebook ${ctx.ebook_id ?? "<ebook_id>"}; it must either auto-recover or display a targeted Needs Code Fix prompt with no silent stall.`,
+  });
   return {
     error_type: "non_recoverable",
     severity: "high",
     recoverable: false,
     affected_step: ctx.step,
     user_friendly_message:
-      "Something failed and could not be automatically classified. Admin attention required.",
+      "System code fix required — new Autopilot bug detected and Lovable prompt generated.",
     technical_message: msg,
     detected_root_cause: "Unknown error signature.",
-    auto_recovery_action: "None — retry once, then escalate to admin.",
+    auto_recovery_action: "None — create a permanent classifier + producer fix.",
     next_retry_at: backoff(1),
-    needs_code_fix: false,
-    lovable_fix_instruction: "",
-    affected_files: [],
-    test_to_confirm: "",
-    suggested_status: "needs_admin_attention",
+    needs_code_fix: true,
+    lovable_fix_instruction: prompt,
+    affected_files: [
+      "supabase/functions/autopilot-pipeline/index.ts",
+      "supabase/functions/autopilot-recovery-worker/index.ts",
+      "supabase/functions/_shared/error-classifier.ts",
+    ],
+    test_to_confirm: `Replay failed step for ebook ${ctx.ebook_id ?? "<ebook_id>"}; no silent stall and future error is classified precisely.`,
+    suggested_status: "needs_code_fix",
     fingerprint: `unknown_${ctx.step}_${hash(msg)}`,
   };
 }
@@ -452,14 +540,8 @@ export function lovablePrompt(input: {
 
 // Convenience upsert (service role client is passed in to avoid duplicating env plumbing).
 export async function recordSystemFix(
-  supabase: {
-    from: (t: string) => {
-      upsert: (
-        row: Record<string, unknown>,
-        opts: { onConflict: string },
-      ) => Promise<{ error: unknown }>;
-    };
-  },
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
   s: StructuredError,
   ctx: ClassifyContext,
 ): Promise<void> {

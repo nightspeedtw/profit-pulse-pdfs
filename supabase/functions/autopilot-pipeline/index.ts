@@ -29,6 +29,15 @@ import {
   enqueueShopifyUpload, nextUtcMidnight, browserlessBackoffAt,
 } from "../_shared/recovery.ts";
 import { classifyError, recordSystemFix } from "../_shared/error-classifier.ts";
+import {
+  firstBlockingGate,
+  markGateAutoFixing,
+  markGateNeedsCodeFix,
+  persistQcSnapshot,
+  MAX_AUTOFIX_ATTEMPTS,
+  stepForGate,
+  describeGateFailure,
+} from "../_shared/autopilot-self-heal.ts";
 
 interface InvokeResult { ok: boolean; status: number; body: any; }
 
@@ -651,11 +660,26 @@ Deno.serve(async (req) => {
 
 
         // ---------- STEP 9 — Cover + thumbnail ----------
+        async function waitForCoverReady(maxMs = 90_000): Promise<boolean> {
+          const start = Date.now();
+          while (Date.now() - start < maxMs) {
+            await refreshEbook();
+            if (ebook.cover_url && ebook.thumbnail_url) return true;
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            await tracker.heartbeat("cover", {
+              message: "Waiting for cover renderer…",
+              subtask: "Cover/thumbnail generation is still running in the background.",
+            });
+          }
+          return false;
+        }
+
         if (!ebook.cover_url) {
           if (await overBudget()) {
             await needsAdmin("cover", "Budget cap reached before cover.");
             return;
           }
+          let coverDeferred = false;
           await track(
             ["cover", "cover_qc", "thumbnail", "thumbnail_qc"],
             "Generating premium cover…",
@@ -663,10 +687,34 @@ Deno.serve(async (req) => {
               await tracker.heartbeat("cover", { message: "Generating premium cover…", subtask: "Creating no-text background image" });
               await runStep("9_cover", "generate-cover", { ebook_id: ebook.id, mode: "full" });
               await tracker.heartbeat("thumbnail_qc", { message: "Running thumbnail QC…", subtask: "Checking mobile readability" });
-              await refreshEbook();
+              const ready = await waitForCoverReady();
+              if (!ready) {
+                const retryAt = browserlessBackoffAt(1);
+                await db.from("ebooks").update({
+                  autopilot_state: "waiting_for_worker_slot",
+                  canonical_status: "waiting_for_worker_slot",
+                  blocker_class: "temporary_api_error",
+                  blocker_reason: "cover_generation_still_running",
+                  waiting_reason: "Cover/thumbnail is still generating — pipeline will resume automatically.",
+                  next_retry_at: retryAt,
+                  current_step: "cover",
+                  current_step_label: "Generating cover",
+                  current_action_message: "Waiting for cover renderer to finish",
+                  current_subtask: "Auto-resume scheduled; no user action needed.",
+                }).eq("id", ebook.id);
+                await db.from("autopilot_pipeline_runs").update({
+                  status: "waiting",
+                  current_step: "cover",
+                  current_action_message: "Cover/thumbnail still generating — will resume automatically.",
+                }).eq("id", run_id);
+                coverDeferred = true;
+                return;
+              }
             },
             "Creating no-text background image",
           );
+          await refreshEbook();
+          if (coverDeferred || (ebook.autopilot_state === "waiting_for_worker_slot" && !ebook.cover_url)) return;
         } else {
           await skip(["cover", "cover_qc", "thumbnail", "thumbnail_qc"], "Cover already present");
         }
@@ -748,7 +796,7 @@ Deno.serve(async (req) => {
           );
           // Waiting for Browserless — keep heavy_production lock, exit; the
           // recovery worker will re-invoke this pipeline after next_retry_at.
-          if (renderOutcome === "wait_browserless") return;
+          if ((renderOutcome as "passed" | "retry_now" | "wait_browserless" | "no_file") === "wait_browserless") return;
 
           // Soft-pass: only stop on truly missing PDF. Low QC scores are
           // logged but do not block Shopify draft upload — admin can fix later.
@@ -763,6 +811,76 @@ Deno.serve(async (req) => {
 
         } else {
           await skip(["pdf_layout", "pdf_render", "pdf_qc"], "PDF already rendered");
+        }
+
+        // ---------- Premium gate before pricing / Shopify ----------
+        // The system's job is to produce a premium PDF and get it ready for
+        // Shopify. Do not silently continue with broken Reader/Cover/PDF gates;
+        // trigger targeted auto-fix up to 3 times, then generate a Lovable code
+        // prompt that tells exactly which producer must be fixed.
+        await refreshEbook();
+        {
+          const report = await persistQcSnapshot(db, ebook);
+          const gate = firstBlockingGate(report);
+          if (gate) {
+            const attempts = Number(ebook.auto_fix_attempt_count ?? ebook.autofix_attempt ?? 0);
+            if (attempts >= MAX_AUTOFIX_ATTEMPTS) {
+              await markGateNeedsCodeFix(db, ebook, gate, report, attempts);
+              await db.from("autopilot_pipeline_runs").update({
+                status: "needs_code_fix",
+                current_step: stepForGate(gate),
+                current_action_message: `Needs Code Fix — ${gate} producer is not converging`,
+                current_subtask: describeGateFailure(report, gate),
+                error_message: `QC gate ${gate} stuck after ${attempts} auto-fix attempts.`,
+              }).eq("id", run_id);
+              return;
+            }
+            // Reset the exact producer stage so autofix-action performs a real
+            // repair instead of reusing stale failed output. autofix-action is
+            // the single owner of incrementing attempt counters to avoid double
+            // counting pipeline + worker kicks.
+            const patch: Record<string, unknown> = {
+              autopilot_state: "auto_fixing",
+              canonical_status: "auto_fixing",
+              qc_status: "auto_fixing",
+              blocker_class: "qc_repairable",
+              blocker_reason: `autofix_${gate}`,
+              waiting_reason: `Auto-fixing ${gate}: ${describeGateFailure(report, gate)}`,
+              next_retry_at: browserlessBackoffAt(1),
+            };
+            if (gate === "reader") {
+              patch.reader_experience_status = "pending";
+              patch.manuscript_qc_status = "pending";
+            }
+            if (gate === "formatter" || gate === "cover_pdf") {
+              patch.pdf_status = "idle";
+            }
+            if (gate === "cover_thumb") {
+              patch.pdf_status = "idle";
+              patch.cover_url = null;
+            }
+            await db.from("ebooks").update(patch).eq("id", ebook.id);
+            await db.from("autopilot_pipeline_runs").update({
+              status: "auto_fixing",
+              current_step: stepForGate(gate),
+              current_action_message: `Auto-fixing failed QC gate: ${gate}`,
+              current_subtask: `Attempt ${attempts + 1}/${MAX_AUTOFIX_ATTEMPTS} — ${describeGateFailure(report, gate)}`,
+            }).eq("id", run_id);
+            await invokeFn("autofix-action", { ebook_id: ebook.id, action: "autofix_gate", gate });
+            return;
+          }
+          if (!ebook.pdf_url) {
+            const report2 = await persistQcSnapshot(db, ebook);
+            await markGateAutoFixing(db, ebook, "formatter", report2, Number(ebook.auto_fix_attempt_count ?? 0) + 1);
+            await db.from("ebooks").update({ pdf_status: "idle" }).eq("id", ebook.id);
+            await db.from("autopilot_pipeline_runs").update({
+              status: "auto_fixing",
+              current_step: "render-pdf",
+              current_action_message: "Auto-fixing PDF — no file was produced",
+              current_subtask: "Re-rendering PDF before Shopify readiness.",
+            }).eq("id", run_id);
+            return;
+          }
         }
 
         // ---------- STEP 11b — Automatic Psychological Pricing ----------
@@ -790,15 +908,14 @@ Deno.serve(async (req) => {
         }
 
         // ---------- STEP 12 — Shopify draft ----------
-        // Phase 1: Autopilot stops BEFORE Shopify upload. The book is marked
-        // ready_to_publish at 100% and the admin pushes it manually via the
-        // "Push to Shopify" button on the ebook Shopify page. Set
-        // settings.autopilot_upload_to_shopify=true to re-enable auto-upload.
-        const autopilotShopifyEnabled = settings.autopilot_upload_to_shopify === true;
-        if (!autopilotShopifyEnabled) {
+        // Phase 1 KPI: run as far as possible automatically, including Shopify
+        // draft upload when the visible Shopify Draft Upload setting is enabled.
+        // Do not rely on a hidden `autopilot_upload_to_shopify` flag; that made
+        // production silently stop at "ready_to_publish" and never reach draft.
+        if (!shopifyDraftEnabled) {
           await skip(
             ["product_copy", "product_qc", "shopify_draft", "shopify_verify"],
-            "Autopilot stops before Shopify — push manually from the ebook page.",
+            "Shopify draft upload disabled in Settings — PDF is ready for manual upload.",
           );
         } else if (shopifyDraftEnabled && !ebook.shopify_product_id) {
           if (await shopifyOverDay()) {
@@ -843,23 +960,51 @@ Deno.serve(async (req) => {
           await runStep("13_publish", "shopify-publish", { ebook_id: ebook.id });
         }
 
-        // Hard-gate: block ready_to_publish if any critical PDF QC gate failed.
-        // pdf_status === 'needs_review' means render-pdf already flagged one of:
-        // raw_markdown, chapter titles, worksheet relevance, cover full-bleed,
-        // worksheet overflow, visual fatigue, illustration relevance, compliance.
-        const pdfBlocked = ebook.pdf_status === "needs_review";
-        const nextState = autoPublish
-          ? "done"
-          : pdfBlocked
-            ? "needs_review"
-            : "ready_to_publish";
-        const qcJson = (ebook.pdf_qc ?? {}) as Record<string, unknown>;
-        const reviewReason = pdfBlocked
-          ? `PDF QC gate failed — issues: ${(qcJson.issues as string[] | undefined)?.slice(0, 4).join("; ") ?? "see pdf_qc"}`
-          : null;
+        await refreshEbook();
+        const finalGateReport = await persistQcSnapshot(db, ebook);
+        const finalGate = firstBlockingGate(finalGateReport);
+        if (finalGate) {
+          const attempts = Number(ebook.auto_fix_attempt_count ?? ebook.autofix_attempt ?? 0);
+          if (attempts >= MAX_AUTOFIX_ATTEMPTS) {
+            await markGateNeedsCodeFix(db, ebook, finalGate, finalGateReport, attempts);
+          } else {
+            await markGateAutoFixing(db, ebook, finalGate, finalGateReport, attempts + 1);
+          }
+          await db.from("autopilot_pipeline_runs").update({
+            status: attempts >= MAX_AUTOFIX_ATTEMPTS ? "needs_code_fix" : "auto_fixing",
+            current_step: stepForGate(finalGate),
+            current_action_message: attempts >= MAX_AUTOFIX_ATTEMPTS
+              ? `Needs Code Fix — ${finalGate} producer is not converging`
+              : `Auto-fixing failed QC gate: ${finalGate}`,
+            current_subtask: describeGateFailure(finalGateReport, finalGate),
+            error_message: attempts >= MAX_AUTOFIX_ATTEMPTS
+              ? `QC gate ${finalGate} stuck after ${attempts} auto-fix attempts.`
+              : null,
+          }).eq("id", run_id);
+          if (attempts < MAX_AUTOFIX_ATTEMPTS) {
+            await invokeFn("autofix-action", { ebook_id: ebook.id, action: "autofix_gate", gate: finalGate });
+          }
+          return;
+        }
+
+        const nextState = ebook.shopify_product_id
+          ? (autoPublish && ebook.shopify_status !== "draft" ? "completed" : "draft_uploaded")
+          : "ready_to_publish";
         await db.from("ebooks").update({
           autopilot_state: nextState,
-          needs_review_reason: reviewReason,
+          canonical_status: nextState,
+          qc_status: "qc_passed",
+          qc_ready_for_shopify: true,
+          pdf_status: "approved",
+          needs_review_reason: null,
+          waiting_reason: ebook.shopify_product_id
+            ? null
+            : shopifyDraftEnabled
+              ? "PDF and premium gates passed, but no Shopify draft ID was returned — recovery worker will retry upload."
+              : "PDF and premium gates passed — Shopify draft upload is disabled in Settings.",
+          blocker_class: null,
+          blocker_reason: null,
+          next_recommended_action: ebook.shopify_product_id ? null : "shopify_draft_upload",
         }).eq("id", ebook.id);
 
         await logRun(db, {
@@ -913,7 +1058,7 @@ Deno.serve(async (req) => {
         const shouldWait = !!classified?.recoverable && !classified.needs_code_fix;
         const recoveryState = shouldWait
           ? (String(recoverableStatus).startsWith("waiting_") ? recoverableStatus : "queued_for_production")
-          : "failed";
+          : (classified?.needs_code_fix ? "needs_code_fix" : "failed_non_recoverable");
 
         if (ebook?.id) {
           await db.from("ebooks").update({
@@ -922,6 +1067,13 @@ Deno.serve(async (req) => {
             needs_review_reason: shouldWait ? null : (classified?.user_friendly_message ?? msg).slice(0, 400),
             blocker_reason: (classified?.detected_root_cause ?? msg).slice(0, 200),
             blocker_class: classified?.error_type ?? "non_recoverable",
+            waiting_reason: classified?.needs_code_fix
+              ? "Needs Code Fix — Lovable prompt generated in the Needs Code Fix panel."
+              : shouldWait
+                ? null
+                : "Pipeline stopped on a non-recoverable error; see blocker details.",
+            structured_error: classified ?? { error_type: "non_recoverable", technical_message: msg },
+            next_recommended_action: classified?.needs_code_fix ? "copy_lovable_prompt" : (shouldWait ? "auto_retry" : "review_error"),
             next_retry_at: shouldWait ? (classified?.next_retry_at ?? new Date(Date.now() + 60_000).toISOString()) : null,
           }).eq("id", ebook.id);
           if (!shouldWait) await markQueueFailed(db, ebook.id, "pipeline", msg);
