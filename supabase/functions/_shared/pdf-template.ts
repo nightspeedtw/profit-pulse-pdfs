@@ -693,7 +693,7 @@ export function buildPdfHtml(data: PdfData): string {
 
   /* ---------- Worksheet ----------
      Fix #4: allow tall worksheets to break across pages instead of being
-     clipped when they don't fit at the bottom of a page. `overflow: visible`
+     clipped when they do not fit at the bottom of a page. overflow visible
      ensures descenders on the last row are never cut off. */
   .worksheet, .checklist, .framework { margin: 20pt 0; overflow: visible;
     page-break-inside: auto; break-inside: auto; }
