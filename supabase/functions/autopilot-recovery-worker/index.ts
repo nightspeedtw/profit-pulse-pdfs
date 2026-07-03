@@ -355,8 +355,7 @@ Deno.serve(async (req) => {
         attempt: nextAttempt,
         max_attempts: MAX_AUTOFIX_ATTEMPTS,
       },
-      auto_fix_attempt_count: retryingAfterCodeFix ? 0 : nextAttempt,
-      autofix_attempt: retryingAfterCodeFix ? 0 : nextAttempt,
+      ...(retryingAfterCodeFix ? { auto_fix_attempt_count: 0, autofix_attempt: 0 } : {}),
       last_heartbeat_at: now,
     }).eq("id", ebook.id);
     const r = await invokeAutofix(ebook.id, gate).catch((e) => ({ ok: false, status: 500, error: e } as Response & { error?: unknown }));
