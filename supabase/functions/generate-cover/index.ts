@@ -143,6 +143,7 @@ interface QCResult {
 const HARD_MIN: Record<string, number> = {
   title_readability: 90,
   thumbnail_readability: 90,
+  thumbnail_book_mockup: 90,
   human_designed_feel: 90,
   premium_feel: 90,
   category_fit: 90,
