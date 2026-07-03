@@ -1238,6 +1238,7 @@ Deno.serve(async (req) => {
       verdict,
       history,
       systemic_cleanup: systemicCleanup,
+      manuscript_hash: await computeManuscriptHash(chapters as any),
       generated_at: new Date().toISOString(),
     };
 
