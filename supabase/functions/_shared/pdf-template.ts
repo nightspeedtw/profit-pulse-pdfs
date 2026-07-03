@@ -318,7 +318,7 @@ export function buildPdfHtml(data: PdfData): string {
   const brand = data.brand ?? "SECRET PDF";
 
   const tocItems = data.chapters.map((c) =>
-    `<li class="toc__row"><span class="toc__title">Chapter ${c.index}. ${esc(c.title)}</span><span class="toc__dots"></span><span class="toc__page">—</span></li>`,
+    `<li class="toc__row"><span class="toc__title">Chapter ${c.index}. ${esc(stripInlineMd(c.title))}</span><span class="toc__dots"></span><span class="toc__page">—</span></li>`,
   ).join("");
 
   const chapterPages = data.chapters.map((c) => `
