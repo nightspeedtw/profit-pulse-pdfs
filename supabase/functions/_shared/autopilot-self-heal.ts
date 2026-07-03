@@ -1,6 +1,8 @@
 import { computeQcGates, type GateName, type QcGateReport } from "./qc-gates.ts";
 import { lovablePrompt } from "./error-classifier.ts";
 
+export type { GateName } from "./qc-gates.ts";
+
 export type AutoFixGate = GateName | "any";
 
 export const MAX_AUTOFIX_ATTEMPTS = 3;
