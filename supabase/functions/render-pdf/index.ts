@@ -18,8 +18,10 @@
 import { admin, corsHeaders, pickModel } from "../_shared/ai.ts";
 import { buildPdfHtml, buildHeaderTemplate, buildFooterTemplate, type PdfData, type WorksheetKind } from "../_shared/pdf-template.ts";
 import {
-  structuralChecks, scorePdfReadability,
-  worksheetOverflowScore, visualFatigueScore, illustrationRelevanceScore,
+ structuralChecks, scorePdfReadability,
+ worksheetOverflowScore, visualFatigueScore, illustrationRelevanceScore,
+ typographyScore, readingComfortScore, tableRenderScore,
+ worksheetLayoutScore, premiumLayoutScore, coverFullA4Score, formattingScore,
   type PdfQcReport,
 } from "../_shared/pdf-qc.ts";
 import { lintChapters } from "../_shared/compliance.ts";
