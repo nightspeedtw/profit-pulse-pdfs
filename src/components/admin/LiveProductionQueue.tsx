@@ -18,6 +18,8 @@ interface QueueEbook {
   queue_position: number | null;
   waiting_reason: string | null;
   current_step: string | null;
+  current_step_label?: string | null;
+  current_action_message?: string | null;
   current_subtask: string | null;
   progress_pct: number | null;
   last_heartbeat_at: string | null;
@@ -25,6 +27,22 @@ interface QueueEbook {
   autofix_attempt: number | null;
   autofix_max: number | null;
   next_retry_at: string | null;
+  blocker_class?: string | null;
+  blocker_reason?: string | null;
+  needs_review_reason?: string | null;
+  next_recommended_action?: string | null;
+  failed_gate?: string | null;
+  failed_score?: number | null;
+  required_score?: number | null;
+  structured_error?: {
+    error_type?: string;
+    gate?: string;
+    detail?: string;
+    auto_recovery_action?: string;
+    attempt?: number;
+    max_attempts?: number;
+    lovable_prompt?: string;
+  } | null;
   cover_url: string | null;
   pdf_url: string | null;
   final_quality_score?: number | null;
