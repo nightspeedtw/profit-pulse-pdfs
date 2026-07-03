@@ -1055,7 +1055,7 @@ Deno.serve(async (req) => {
         const shouldWait = !!classified?.recoverable && !classified.needs_code_fix;
         const recoveryState = shouldWait
           ? (String(recoverableStatus).startsWith("waiting_") ? recoverableStatus : "queued_for_production")
-          : "failed";
+          : (classified?.needs_code_fix ? "needs_code_fix" : "failed_non_recoverable");
 
         if (ebook?.id) {
           await db.from("ebooks").update({
@@ -1064,6 +1064,13 @@ Deno.serve(async (req) => {
             needs_review_reason: shouldWait ? null : (classified?.user_friendly_message ?? msg).slice(0, 400),
             blocker_reason: (classified?.detected_root_cause ?? msg).slice(0, 200),
             blocker_class: classified?.error_type ?? "non_recoverable",
+            waiting_reason: classified?.needs_code_fix
+              ? "Needs Code Fix — Lovable prompt generated in the Needs Code Fix panel."
+              : shouldWait
+                ? null
+                : "Pipeline stopped on a non-recoverable error; see blocker details.",
+            structured_error: classified ?? { error_type: "non_recoverable", technical_message: msg },
+            next_recommended_action: classified?.needs_code_fix ? "copy_lovable_prompt" : (shouldWait ? "auto_retry" : "review_error"),
             next_retry_at: shouldWait ? (classified?.next_retry_at ?? new Date(Date.now() + 60_000).toISOString()) : null,
           }).eq("id", ebook.id);
           if (!shouldWait) await markQueueFailed(db, ebook.id, "pipeline", msg);
