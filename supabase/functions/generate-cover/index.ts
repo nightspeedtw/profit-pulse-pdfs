@@ -282,12 +282,78 @@ function buildRepairFeedback(reasons: string[], improvements: string[]): string 
 // Premium book-mockup thumbnail: renders the flat cover as a standing, slightly
 // angled hardcover with soft ground shadow, page-edge highlight, and spine.
 // This is what Shopify product cards will show — must feel like a real book, not
-// a flat A4 screenshot.
+// a flat A4 screenshot. The flat cover itself is preserved SEPARATELY at
+// `${ebook_id}/cover.png` — this mockup path is `${ebook_id}/thumbnail.png` only.
 async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array, coverPngReuse?: Uint8Array): Promise<Uint8Array> {
   // Skip the internal rasterizeSVG(coverSvg, 1200) when the caller already has
   // a rendered cover PNG — that duplicate raster is what pushed the isolate
   // over the Edge Runtime CPU cap.
   const coverPng = coverPngReuse ?? await rasterizeSVG(buildCoverSVG(spec, bgBytes), 1200);
+
+  // 1) Try photoreal AI mockup (gemini image model, cover as reference).
+  //    Falls back to the deterministic SVG mockup on any failure — we must
+  //    always return SOMETHING for the thumbnail step to complete.
+  try {
+    const ai = await renderPhotorealThumbnail(coverPng, spec);
+    if (ai && ai.length > 4096) return ai;
+  } catch (e) {
+    console.warn("photoreal thumbnail failed, using SVG fallback:", (e as Error).message);
+  }
+
+  return renderSvgThumbnail(spec, coverPng);
+}
+
+async function renderPhotorealThumbnail(coverPng: Uint8Array, spec: CoverSpec): Promise<Uint8Array | null> {
+  const key = Deno.env.get("LOVABLE_API_KEY");
+  if (!key) return null;
+  let b64 = ""; const c = 0x8000;
+  for (let i = 0; i < coverPng.length; i += c) b64 += String.fromCharCode(...coverPng.subarray(i, i + c));
+  const coverData = `data:image/png;base64,${btoa(b64)}`;
+  const prompt = `Create a PHOTOREALISTIC product-photography mockup of a premium hardcover nonfiction book, standing upright on a clean neutral studio surface with soft natural key light from the upper-left and a realistic contact shadow.
+
+The FRONT COVER of the book must be an EXACT, unmodified reproduction of the reference image I am providing — same layout, same typography, same colors, same title/subtitle/badge/brand positioning. Do NOT redesign, restyle, re-typeset, or add/remove any text. Warp the reference image onto the front-cover surface with correct perspective and gentle page curvature only.
+
+Show:
+- Slight 3/4 perspective (about 12 degrees), front cover clearly readable
+- Visible spine on the left with matching color (${(spec.color_palette?.[0] ?? "#0b1a2b")}), no text on spine
+- Crisp page-edge stack on top and right (thin cream-white pages)
+- Realistic paper/hardcover thickness (about 22mm)
+- Soft grounded contact shadow, subtle floor gradient
+- Neutral warm-gray studio background, no props, no text overlay, no logos, no watermark
+- Sharp focus on the entire cover, physical/tactile hardcover feel, premium bookstore product-shot quality
+
+STRICTLY FORBIDDEN: adding any text/logo/badge that is not on the reference cover, changing the cover artwork, cartoon or 3D-render look, floating book, tilted horizon, multiple books, hands, extra objects.
+
+Output: 1200x1500 vertical composition, book centered.`;
+
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "google/gemini-3-pro-image",
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          { type: "image_url", image_url: { url: coverData } },
+        ],
+      }],
+      modalities: ["image", "text"],
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`photoreal mockup ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const j = await res.json();
+  const outB64: string | undefined = j.data?.[0]?.b64_json;
+  if (!outB64) return null;
+  return Uint8Array.from(atob(outB64), (ch) => ch.charCodeAt(0));
+}
+
+// Deterministic SVG fallback mockup — used only when the photoreal producer
+// fails. Not counted as premium quality but keeps the pipeline unblocked.
+function renderSvgThumbnail(spec: CoverSpec, coverPng: Uint8Array): Promise<Uint8Array> {
   const coverB64 = (() => {
     let s = ""; const c = 0x8000;
     for (let i = 0; i < coverPng.length; i += c) s += String.fromCharCode(...coverPng.subarray(i, i + c));
@@ -298,8 +364,6 @@ async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array, coverPngReu
   const spineColor = palette[0] ?? "#0b1a2b";
   const accent = palette[2] ?? "#f5c518";
 
-  // Canvas 1200x1500 (Shopify square-ish product card). Book stands slightly
-  // rotated with foreshortened front cover, visible spine and ground shadow.
   const mockup = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1500" viewBox="0 0 1200 1500">
   <defs>
@@ -329,36 +393,20 @@ async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array, coverPngReu
       <polygon points="330,170 990,210 970,1310 330,1280"/>
     </clipPath>
   </defs>
-
-  <!-- Studio background -->
   <rect width="1200" height="1500" fill="url(#bgGrad)"/>
-
-  <!-- Ground shadow beneath the book -->
   <ellipse cx="640" cy="1360" rx="470" ry="42" fill="url(#floorShadow)"/>
-
-  <!-- Spine (left side, receding) -->
   <polygon points="230,215 330,170 330,1280 230,1330" fill="url(#spineGrad)"/>
-  <!-- Spine top highlight -->
   <polygon points="230,215 330,170 335,180 235,225" fill="#ffffff" opacity="0.18"/>
-
-  <!-- Page edges (top + right, thin) -->
   <polygon points="330,170 990,210 985,225 330,185" fill="url(#pageEdge)"/>
   <polygon points="990,210 970,1310 958,1300 985,225" fill="url(#pageEdge)"/>
-
-  <!-- Front cover artwork, clipped into the book quadrilateral -->
   <g clip-path="url(#coverClip)">
     <image href="${coverData}" x="300" y="150" width="720" height="1180" preserveAspectRatio="xMidYMid slice"/>
-    <!-- Realistic light sheen across the cover -->
     <polygon points="330,170 990,210 970,1310 330,1280" fill="url(#coverSheen)"/>
   </g>
-
-  <!-- Cover outline for a crisp edge -->
   <polygon points="330,170 990,210 970,1310 330,1280" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="2"/>
-
-  <!-- Subtle accent glow near spine top (premium detail) -->
   <rect x="330" y="170" width="6" height="1110" fill="${accent}" opacity="0.35"/>
 </svg>`;
-  return await rasterizeSVG(mockup, 1200);
+  return rasterizeSVG(mockup, 1200);
 }
 
 type CoverMode = "full" | "spec" | "background" | "overlay" | "compose_qc";
