@@ -316,6 +316,18 @@ Deno.serve(async (req) => {
     // Worksheet readability blends AI worksheet score with the overflow gate.
     const worksheetReadability = Math.round((aiScores.worksheet_score * 0.6) + (wsOverflow * 0.4));
 
+    // ---- Premium book-design v3 scores (deterministic on rendered HTML) ----
+    const typo = typographyScore(html);
+    const comfort = readingComfortScore(html);
+    const tableRen = tableRenderScore(html);
+    const wsLayout = worksheetLayoutScore(html);
+    const premLayout = premiumLayoutScore(html);
+    const coverA4 = coverFullA4Score(html);
+    const fmtScore = formattingScore({
+      typography: typo, reading_comfort: comfort, table_render: tableRen,
+      worksheet_layout: wsLayout, premium_layout: premLayout, cover_full_a4: coverA4,
+    });
+
     const qc: PdfQcReport = {
       layout_score: layoutScore,
       readability_score: aiScores.readability_score,
@@ -327,6 +339,13 @@ Deno.serve(async (req) => {
       visual_fatigue_score: visFatigue,
       inside_illustration_relevance_score: illRelevance,
       compliance_safety_score: complianceScore,
+      formatting_score: fmtScore,
+      reading_comfort_score: comfort,
+      typography_score: typo,
+      table_render_score: tableRen,
+      worksheet_layout_score: wsLayout,
+      premium_layout_score: premLayout,
+      cover_full_a4_score: coverA4,
       final_pdf_premium_score: finalPdfPremium,
       checks: struct.checks,
       issues: [...struct.issues, ...(aiScores.issues ?? [])].slice(0, 12),
