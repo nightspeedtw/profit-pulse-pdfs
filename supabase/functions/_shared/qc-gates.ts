@@ -96,11 +96,12 @@ export function computeQcGates(row: Record<string, unknown>): QcGateReport {
     num(readerVerdict?.overall_score) ??
     avg(Object.values(readerBreakdown));
   const readerStatus = (row.reader_experience_status as string | null) ?? null;
+  const readerStatusPassable = readerStatus == null || readerStatus === "pass" || readerStatus === "passed";
   const readerHasData = readerScore != null ||
     readerStatus === "pass" || readerStatus === "passed" || readerStatus === "failed";
   const reader: GateResult = {
     score: readerScore,
-    pass: readerScore != null && readerScore >= 90 && readerStatus !== "failed",
+    pass: readerScore != null && readerScore >= 90 && readerStatusPassable,
     target: 90,
     status: readerStatus,
     attempts: num(row.reader_experience_fix_count),
