@@ -29,6 +29,15 @@ import {
   enqueueShopifyUpload, nextUtcMidnight, browserlessBackoffAt,
 } from "../_shared/recovery.ts";
 import { classifyError, recordSystemFix } from "../_shared/error-classifier.ts";
+import {
+  firstBlockingGate,
+  markGateAutoFixing,
+  markGateNeedsCodeFix,
+  persistQcSnapshot,
+  MAX_AUTOFIX_ATTEMPTS,
+  stepForGate,
+  describeGateFailure,
+} from "../_shared/autopilot-self-heal.ts";
 
 interface InvokeResult { ok: boolean; status: number; body: any; }
 
@@ -763,6 +772,74 @@ Deno.serve(async (req) => {
 
         } else {
           await skip(["pdf_layout", "pdf_render", "pdf_qc"], "PDF already rendered");
+        }
+
+        // ---------- Premium gate before pricing / Shopify ----------
+        // The system's job is to produce a premium PDF and get it ready for
+        // Shopify. Do not silently continue with broken Reader/Cover/PDF gates;
+        // trigger targeted auto-fix up to 3 times, then generate a Lovable code
+        // prompt that tells exactly which producer must be fixed.
+        await refreshEbook();
+        {
+          const report = await persistQcSnapshot(db, ebook);
+          const gate = firstBlockingGate(report);
+          if (gate) {
+            const attempts = Number(ebook.auto_fix_attempt_count ?? ebook.autofix_attempt ?? 0);
+            if (attempts >= MAX_AUTOFIX_ATTEMPTS) {
+              await markGateNeedsCodeFix(db, ebook, gate, report, attempts);
+              await db.from("autopilot_pipeline_runs").update({
+                status: "needs_code_fix",
+                current_step: stepForGate(gate),
+                current_action_message: `Needs Code Fix — ${gate} producer is not converging`,
+                current_subtask: describeGateFailure(report, gate),
+                error_message: `QC gate ${gate} stuck after ${attempts} auto-fix attempts.`,
+              }).eq("id", run_id);
+              return;
+            }
+            await markGateAutoFixing(db, ebook, gate, report, attempts + 1);
+            // Reset the exact producer stage so the next invocation performs a
+            // real repair instead of reusing stale failed output.
+            const patch: Record<string, unknown> = {
+              auto_fix_attempt_count: attempts + 1,
+              autofix_attempt: attempts + 1,
+              autofix_max: MAX_AUTOFIX_ATTEMPTS,
+              next_retry_at: browserlessBackoffAt(1),
+            };
+            if (gate === "reader") {
+              patch.reader_experience_status = "pending";
+              patch.manuscript_qc_status = "pending";
+            }
+            if (gate === "formatter" || gate === "cover_pdf") {
+              patch.pdf_status = "idle";
+            }
+            if (gate === "cover_thumb") {
+              patch.pdf_status = "idle";
+              patch.cover_url = null;
+            }
+            await db.from("ebooks").update(patch).eq("id", ebook.id);
+            await db.from("autopilot_pipeline_runs").update({
+              status: "auto_fixing",
+              current_step: stepForGate(gate),
+              current_action_message: `Auto-fixing failed QC gate: ${gate}`,
+              current_subtask: `Attempt ${attempts + 1}/${MAX_AUTOFIX_ATTEMPTS} — ${describeGateFailure(report, gate)}`,
+            }).eq("id", run_id);
+            invokeFn("autofix-action", { ebook_id: ebook.id, action: "autofix_gate", gate }).catch((err) =>
+              console.warn("[autopilot] autofix kickoff failed", (err as Error).message)
+            );
+            return;
+          }
+          if (!ebook.pdf_url) {
+            const report2 = await persistQcSnapshot(db, ebook);
+            await markGateAutoFixing(db, ebook, "formatter", report2, Number(ebook.auto_fix_attempt_count ?? 0) + 1);
+            await db.from("ebooks").update({ pdf_status: "idle" }).eq("id", ebook.id);
+            await db.from("autopilot_pipeline_runs").update({
+              status: "auto_fixing",
+              current_step: "render-pdf",
+              current_action_message: "Auto-fixing PDF — no file was produced",
+              current_subtask: "Re-rendering PDF before Shopify readiness.",
+            }).eq("id", run_id);
+            return;
+          }
         }
 
         // ---------- STEP 11b — Automatic Psychological Pricing ----------
