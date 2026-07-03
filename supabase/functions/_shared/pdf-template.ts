@@ -331,9 +331,9 @@ export function buildPdfHtml(data: PdfData): string {
     </section>
     <section class="page chapter-body" id="chapter-${c.index}">
       <header class="page__head"><span>${esc(brand)}</span><span>${esc(data.title)}</span></header>
-      <h2 class="chapter-body__title">Chapter ${c.index}. ${esc(c.title)}</h2>
+      <h2 class="chapter-body__title">Chapter ${c.index}. ${esc(stripInlineMd(c.title))}</h2>
       <div class="chapter-body__prose">
-        ${renderMd(c.content)}
+        ${renderMd(stripDuplicateLeadingHeading(c.content, c.title))}
       </div>
       ${chapterCallouts(c)}
       ${chapterIllustration(c)}
