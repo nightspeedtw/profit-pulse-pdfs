@@ -165,6 +165,41 @@ function stripDuplicateLeadingHeading(md: string, chapterTitle: string): string 
   return src;
 }
 
+// Break any <p>...</p> whose text runs longer than ~140 words into 2–3 smaller
+// paragraphs, splitting on the nearest sentence boundary. This preserves the
+// "premium nonfiction" reading rhythm and avoids giant walls of text at the
+// top of a chapter page. Only operates on plain <p> paragraphs; leaves
+// headings, lists, callouts, tables, and other block markup untouched.
+function splitLongParagraphs(html: string, wordLimit = 140): string {
+  return html.replace(/<p>([\s\S]*?)<\/p>/g, (full, inner: string) => {
+    const text = inner.trim();
+    if (!text) return full;
+    const words = text.split(/\s+/);
+    if (words.length <= wordLimit) return full;
+    // Split into sentences, keeping terminators.
+    const sentences = text.match(/[^.!?]+[.!?]+["'”’)]*\s*|[^.!?]+$/g) ?? [text];
+    const chunks: string[] = [];
+    let buf = "";
+    let bufWords = 0;
+    const target = Math.max(45, Math.min(90, Math.ceil(words.length / Math.ceil(words.length / 100))));
+    for (const s of sentences) {
+      const sw = s.trim().split(/\s+/).length;
+      if (bufWords + sw > target && buf) {
+        chunks.push(buf.trim());
+        buf = s;
+        bufWords = sw;
+      } else {
+        buf += s;
+        bufWords += sw;
+      }
+    }
+    if (buf.trim()) chunks.push(buf.trim());
+    if (chunks.length < 2) return full;
+    return chunks.map((c) => `<p>${c}</p>`).join("\n");
+  });
+}
+
+
 function chapterCallouts(c: PdfChapter): string {
   if (!c.callouts?.length) return "";
   return c.callouts.map((co) => `
