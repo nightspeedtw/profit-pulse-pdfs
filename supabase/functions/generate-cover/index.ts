@@ -283,9 +283,11 @@ function buildRepairFeedback(reasons: string[], improvements: string[]): string 
 // angled hardcover with soft ground shadow, page-edge highlight, and spine.
 // This is what Shopify product cards will show — must feel like a real book, not
 // a flat A4 screenshot.
-async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array): Promise<Uint8Array> {
-  const coverSvg = buildCoverSVG(spec, bgBytes);
-  const coverPng = await rasterizeSVG(coverSvg, 1200);
+async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array, coverPngReuse?: Uint8Array): Promise<Uint8Array> {
+  // Skip the internal rasterizeSVG(coverSvg, 1200) when the caller already has
+  // a rendered cover PNG — that duplicate raster is what pushed the isolate
+  // over the Edge Runtime CPU cap.
+  const coverPng = coverPngReuse ?? await rasterizeSVG(buildCoverSVG(spec, bgBytes), 1200);
   const coverB64 = (() => {
     let s = ""; const c = 0x8000;
     for (let i = 0; i < coverPng.length; i += c) s += String.fromCharCode(...coverPng.subarray(i, i + c));
@@ -359,10 +361,35 @@ async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array): Promise<Ui
   return await rasterizeSVG(mockup, 1200);
 }
 
-type CoverMode = "full" | "spec" | "background" | "overlay";
+type CoverMode = "full" | "spec" | "background" | "overlay" | "compose_qc";
 interface ProcessOpts { mode: CoverMode; spec_overrides?: Partial<CoverSpec>; }
 
+// Fire-and-forget self-invocation used by the stage-1 -> stage-2 hand-off so
+// the CPU-heavy compose+QC work runs in a fresh isolate.
+async function triggerComposeQc(ebook_id: string): Promise<void> {
+  const base = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!base || !key) {
+    console.error("triggerComposeQc: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+    return;
+  }
+  try {
+    await fetch(`${base}/functions/v1/generate-cover`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "authorization": `Bearer ${key}`,
+        "apikey": key,
+      },
+      body: JSON.stringify({ ebook_id, mode: "compose_qc" }),
+    });
+  } catch (e) {
+    console.error("triggerComposeQc failed", e instanceof Error ? e.message : String(e));
+  }
+}
+
 async function processCover(ebook: EbookRow, opts: ProcessOpts) {
+
   const db = admin();
   const ebook_id = ebook.id;
   const previousStatus = ebook.status ?? "review";
@@ -387,7 +414,7 @@ async function processCover(ebook: EbookRow, opts: ProcessOpts) {
     const MAX_ATTEMPTS = 1;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS && !passed; attempt++) {
       // 1) STRATEGY
-      const needNewSpec = !spec || mode === "full" || mode === "spec" || attempt > 1;
+      const needNewSpec = mode !== "compose_qc" && (!spec || mode === "full" || mode === "spec" || attempt > 1);
       if (needNewSpec) {
         const feedback = lastReasons.length && lastQC
           ? "\n\n" + buildRepairFeedback(lastReasons, lastQC.improvements ?? [])
@@ -417,16 +444,19 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
         spec.layout_direction = spec.layout_direction || "bottom";
         if (opts.spec_overrides && attempt === 1) spec = { ...spec, ...opts.spec_overrides } as CoverSpec;
       }
+      if (mode === "compose_qc" && !spec) {
+        throw new Error("compose_qc mode requires an existing cover_spec on the ebook.");
+      }
 
       // 2) BACKGROUND
       const bgPath = `${ebook_id}/bg.png`;
-      const shouldRegenerateBg = attempt > 1 || mode === "full" || mode === "background";
+      const shouldRegenerateBg = mode !== "compose_qc" && (attempt > 1 || mode === "full" || mode === "background");
       if (!bgBytes && !shouldRegenerateBg) {
         const { data } = await db.storage.from("ebook-covers").download(bgPath);
         if (data) bgBytes = new Uint8Array(await data.arrayBuffer());
       }
       const needNewBg = shouldRegenerateBg || !bgBytes;
-      if (needNewBg) {
+      if (needNewBg && mode !== "compose_qc") {
         // Regenerate on retry only if the previous failure implicates the image.
         const bgFailure = attempt === 1 || lastReasons.some((r) =>
           r.includes("anti_ai_look") || r.includes("human_designed_feel") ||
@@ -445,13 +475,32 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
         bgBytes = new Uint8Array(await data.arrayBuffer());
       }
 
+      // STAGE-1 HAND-OFF: rasterize+QC burns significant CPU (SVG->PNG at 1600px
+      // + thumbnail render + vision QC). If we ran everything in one isolate the
+      // Supabase Edge Runtime hits "CPU Time exceeded". So after the spec + bg
+      // are persisted we fire a self-invocation with mode="compose_qc" and let a
+      // fresh isolate do the heavy compositing. Total attempts are unchanged —
+      // each still counts as one attempt, spread across two invocations.
+      if (mode !== "compose_qc") {
+        await db.from("ebooks").update({
+          cover_spec: spec as unknown as never,
+          cost_usd: Number(ebook.cost_usd ?? 0) + totalCost,
+        }).eq("id", ebook_id);
+        await triggerComposeQc(ebook_id);
+        return;
+      }
+
+
       // 3) COMPOSE COVER + THUMBNAIL
+      // Rasterize the flat cover ONCE at 1200px (lowered from 1600 to stay
+      // under the Edge Runtime CPU cap) and reuse the same PNG bytes inside the
+      // book-mockup thumbnail so we don't pay for the same raster twice.
       const svg = buildCoverSVG(spec, bgBytes!);
-      const coverPng = await rasterizeSVG(svg, 1600);
+      const coverPng = await rasterizeSVG(svg, 1200);
       const coverPath = `${ebook_id}/cover.png`;
       await db.storage.from("ebook-covers").upload(coverPath, coverPng, { contentType: "image/png", upsert: true });
 
-      const thumbPng = await renderThumbnail(spec, bgBytes!);
+      const thumbPng = await renderThumbnail(spec, bgBytes!, coverPng);
       const thumbPath = `${ebook_id}/thumbnail.png`;
       await db.storage.from("ebook-covers").upload(thumbPath, thumbPng, { contentType: "image/png", upsert: true });
 
