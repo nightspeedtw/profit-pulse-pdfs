@@ -637,6 +637,9 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
       count={items.length}
       empty="ยังไม่มีเล่มที่ผลิตเสร็จ 100%"
     >
+      <div className="mb-4">
+        <CoverStyleReferenceCard />
+      </div>
       {items.length > 0 && (
         <div className="flex justify-end mb-3">
           <Button size="sm" variant="outline" onClick={onRegenerateAllCovers} className="gap-2">
