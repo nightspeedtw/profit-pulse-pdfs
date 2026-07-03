@@ -796,13 +796,17 @@ Deno.serve(async (req) => {
               }).eq("id", run_id);
               return;
             }
-            await markGateAutoFixing(db, ebook, gate, report, attempts + 1);
-            // Reset the exact producer stage so the next invocation performs a
-            // real repair instead of reusing stale failed output.
+            // Reset the exact producer stage so autofix-action performs a real
+            // repair instead of reusing stale failed output. autofix-action is
+            // the single owner of incrementing attempt counters to avoid double
+            // counting pipeline + worker kicks.
             const patch: Record<string, unknown> = {
-              auto_fix_attempt_count: attempts + 1,
-              autofix_attempt: attempts + 1,
-              autofix_max: MAX_AUTOFIX_ATTEMPTS,
+              autopilot_state: "auto_fixing",
+              canonical_status: "auto_fixing",
+              qc_status: "auto_fixing",
+              blocker_class: "qc_repairable",
+              blocker_reason: `autofix_${gate}`,
+              waiting_reason: `Auto-fixing ${gate}: ${describeGateFailure(report, gate)}`,
               next_retry_at: browserlessBackoffAt(1),
             };
             if (gate === "reader") {
@@ -823,9 +827,7 @@ Deno.serve(async (req) => {
               current_action_message: `Auto-fixing failed QC gate: ${gate}`,
               current_subtask: `Attempt ${attempts + 1}/${MAX_AUTOFIX_ATTEMPTS} — ${describeGateFailure(report, gate)}`,
             }).eq("id", run_id);
-            invokeFn("autofix-action", { ebook_id: ebook.id, action: "autofix_gate", gate }).catch((err) =>
-              console.warn("[autopilot] autofix kickoff failed", (err as Error).message)
-            );
+            await invokeFn("autofix-action", { ebook_id: ebook.id, action: "autofix_gate", gate });
             return;
           }
           if (!ebook.pdf_url) {
