@@ -15,6 +15,7 @@
 // shopify_product_id / handle / status. Auto-publishing is NOT performed.
 import { admin, corsHeaders } from "../_shared/ai.ts";
 import { logRun } from "../_shared/qc.ts";
+import { computeQcGates } from "../_shared/qc-gates.ts";
 
 const SHOP_DOMAIN = Deno.env.get("SHOPIFY_SHOP_DOMAIN")
   ?? "digital-wealth-hub-49qgj.myshopify.com";
@@ -39,6 +40,30 @@ Deno.serve(async (req) => {
     // Hard guards: must have PDF + cover before any Shopify call.
     if (!ebook.pdf_url) return json({ error: "ebook has no pdf_url — render PDF first" }, 400);
     if (!ebook.cover_url) return json({ error: "ebook has no cover_url — generate cover first" }, 400);
+    if (!ebook.thumbnail_url) {
+      return json({ error: "ebook has no thumbnail_url — generate premium book mockup thumbnail first", blocker: "thumbnail_missing", retryable: true }, 400);
+    }
+
+    // Permanent Thumbnail QC hard gate — never upload a book without a
+    // premium, readable, book-mockup thumbnail. All four thumbnail scores
+    // must be >= 90 (see qc-gates.ts / premium-ebook-master skill).
+    const gates = computeQcGates(ebook);
+    if (!gates.cover_thumb.pass) {
+      const bd = gates.cover_thumb.breakdown ?? {};
+      const reason = `thumbnail_qc_failed: book_mockup=${bd.book_mockup ?? "?"} readability=${bd.readability ?? "?"} click_appeal=${bd.click_appeal ?? "?"} premium_feel=${bd.premium_feel ?? "?"} (all must be >= 90)`;
+      await db.from("ebooks").update({
+        shopify_status: "blocked",
+        shopify_last_error: reason,
+        blocker_class: "recoverable_qc_failure",
+        blocker_reason: "thumbnail_qc_below_90",
+      }).eq("id", ebookId);
+      // Trigger auto-regeneration of the mockup thumbnail.
+      db.functions.invoke("generate-cover", { body: { ebook_id: ebookId, mode: "overlay" } }).catch(() => {});
+      return json({ error: reason, blocker: "thumbnail_qc", auto_fix: "regenerating_thumbnail", retryable: true }, 409);
+    }
+    if (!gates.cover_pdf.pass) {
+      return json({ error: "cover_pdf_full_a4_below_100 — regenerate cover before upload", blocker: "cover_pdf", retryable: true }, 409);
+    }
 
     // Prior log → retry counter
     const { data: prior } = await db.from("shopify_sync_logs")

@@ -52,10 +52,19 @@ export default function EbookShopify() {
 
   if (!ebook) return <div className="p-6"><Loader2 className="animate-spin" /></div>;
 
-  const ready = !!ebook.pdf_url && !!ebook.cover_url;
+  const ready = !!ebook.pdf_url && !!ebook.cover_url && !!ebook.thumbnail_url;
+  const coverQc = (ebook.cover_qc ?? {}) as any;
+  const thumbBookMockup = Number(coverQc.thumbnail_book_mockup_score ?? 0);
+  const thumbReadability = Number(coverQc.thumbnail_readability_score ?? 0);
+  const thumbPremium = Number(coverQc.premium_product_feel_score ?? coverQc.premium_product_feel ?? 0);
+  const thumbClick = Number(coverQc.shopify_click_appeal_score ?? coverQc.shopify_click_appeal ?? 0);
+  const thumbnailQcPassed =
+    thumbBookMockup >= 90 && thumbReadability >= 90 && thumbPremium >= 90 && thumbClick >= 90;
   const readinessChecks: [string, boolean][] = [
     ["PDF rendered", !!ebook.pdf_url],
     ["Cover image present", !!ebook.cover_url],
+    ["Premium book-mockup thumbnail", !!ebook.thumbnail_url],
+    [`Thumbnail QC ≥ 90 (mockup ${thumbBookMockup} · read ${thumbReadability} · premium ${thumbPremium} · click ${thumbClick})`, thumbnailQcPassed],
     ["Cover approved", !!ebook.cover_approved],
     ["PDF approved", !!ebook.pdf_approved],
     ["Product description", !!ebook.product_description],
