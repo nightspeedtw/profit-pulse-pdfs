@@ -577,14 +577,14 @@ async function humanizeExcerpts(
   const model = pickModel("premium", "content");
 
   for (const [chIdx, flags] of byChapter) {
-    if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS || aiCalls >= 2) break;
+    if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS || aiCalls >= 4) break;
     const row = chapters.find((c) => c.chapter_index === chIdx);
     if (!row) continue;
     let content = row.content;
     let changedThisChapter = false;
 
-    for (const f of flags.slice(0, 1)) {
-      if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS || aiCalls >= 2) break;
+    for (const f of flags.slice(0, 2)) {
+      if (Date.now() > deadlineMs - MIN_AI_CALL_BUDGET_MS || aiCalls >= 4) break;
       // Find the excerpt in the chapter (allow whitespace tolerance).
       const pattern = new RegExp(escapeRegex(f.excerpt.trim()).replace(/\s+/g, "\\s+"), "i");
       const match = content.match(pattern);
@@ -610,8 +610,11 @@ Return only the rewritten passage.`,
           timeoutMs: 18_000,
         });
         const cleaned = (rewrite.data ?? "").trim().replace(/^["']|["']$/g, "");
-        if (cleaned && cleaned.length >= original.length * 0.5) {
-          content = content.replace(original, cleaned);
+        const finalText = (cleaned && cleaned.length >= original.length * 0.5)
+          ? cleaned
+          : deterministicHumanize(original);
+        if (finalText && finalText !== original && finalText.length >= original.length * 0.45) {
+          content = content.replace(original, finalText);
           replacements++;
           changedThisChapter = true;
           await logCost(db, {
@@ -619,7 +622,14 @@ Return only the rewritten passage.`,
             model: rewrite.model, ...rewrite.usage,
           });
         }
-      } catch (_e) { /* skip this excerpt, continue */ }
+      } catch (_e) {
+        const fallback = deterministicHumanize(original);
+        if (fallback && fallback !== original && fallback.length >= original.length * 0.45) {
+          content = content.replace(original, fallback);
+          replacements++;
+          changedThisChapter = true;
+        }
+      }
     }
 
     if (changedThisChapter) {
@@ -644,6 +654,34 @@ function fallbackRepairSpan(content: string): string {
   if (!clean) return "";
   const sentences = clean.split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, 5).join(" ");
   return (sentences.length >= 120 ? sentences : clean.slice(0, 900)).trim();
+}
+
+function deterministicHumanize(text: string): string {
+  let out = (text ?? "").trim();
+  const replacements: [RegExp, string][] = [
+    [/\bIn today'?s (?:fast[- ]paced |modern |digital )?world,?\s*/gi, ""],
+    [/\bIt is important to note that\s*/gi, ""],
+    [/\bWhen it comes to\b/gi, "For"],
+    [/\bnavigating the complexities of\b/gi, "dealing with"],
+    [/\bdelve into\b/gi, "look closely at"],
+    [/\bharness the power of\b/gi, "use"],
+    [/\bplays a crucial role in\b/gi, "helps"],
+    [/\bfinancial architecture\b/gi, "money system"],
+    [/\bfinancial infrastructure\b/gi, "day-to-day money setup"],
+    [/\binfrastructure\b/gi, "setup"],
+    [/\bprotocol\b/gi, "rule"],
+    [/\bframework\b/gi, "method"],
+    [/\bfortification\b/gi, "protection"],
+    [/\bhemorrhaging of capital\b/gi, "steady cash leak"],
+    [/\bdefensive net\b/gi, "safety net"],
+    [/\bbucket with a dozen small holes\b/gi, "paycheck that keeps thinning out before it can protect you"],
+  ];
+  for (const [re, rep] of replacements) out = out.replace(re, rep);
+  out = out.replace(/\s{2,}/g, " ").replace(/\s+([,.!?])/g, "$1").trim();
+  if (out === text.trim()) {
+    out = out.replace(/^([^.!?]{80,}?[.!?])\s+/, (_m, first) => `${first} `);
+  }
+  return out;
 }
 
 // ---------- Entry ----------
