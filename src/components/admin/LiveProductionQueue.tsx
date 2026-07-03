@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Activity, Clock, Loader2, PauseCircle, Wrench, AlertTriangle, ShieldCheck, Lock, Copy, CheckCircle2, Download, ExternalLink, ShoppingBag } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Activity, Clock, Loader2, PauseCircle, Wrench, AlertTriangle, ShieldCheck, Lock, Copy, CheckCircle2, Download, ExternalLink, ShoppingBag, FileText, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -662,7 +663,17 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
                   disabled={!pdfReady}
                   className="gap-2"
                 >
-                  <ExternalLink className="h-4 w-4" /> Open
+                  <ExternalLink className="h-4 w-4" /> Open Final PDF
+                </Button>
+                <Button size="sm" variant="outline" asChild className="gap-2">
+                  <Link to={`/admin/ebook/${e.id}/pdf`}>
+                    <FileText className="h-4 w-4" /> Final PDF page
+                  </Link>
+                </Button>
+                <Button size="sm" variant="outline" asChild className="gap-2">
+                  <Link to={`/admin/ebook/${e.id}`}>
+                    <ClipboardCheck className="h-4 w-4" /> Final Report
+                  </Link>
                 </Button>
                 <Button
                   size="sm"
