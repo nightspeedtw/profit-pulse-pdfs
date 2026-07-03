@@ -650,10 +650,20 @@ Deno.serve(async (req) => {
       let scoreVal = 0;
       if (meaningful) {
         await emit("ai_score", "Calculating final manuscript score (AI reviewer)…", { attempt });
-        const s = await scoreManuscript(scoreModel, ebook, chapters);
-        totalCost += s.usage.cost_usd;
-        aiScores = s.data;
-        await logCost(db, { ebook_id: ebook.id, step: `manuscript_qc${attempt ? `:fix${attempt}` : ""}`, model: s.model, ...s.usage });
+        try {
+          const s = await scoreManuscript(scoreModel, ebook, chapters);
+          totalCost += s.usage.cost_usd;
+          aiScores = s.data;
+          await logCost(db, { ebook_id: ebook.id, step: `manuscript_qc${attempt ? `:fix${attempt}` : ""}`, model: s.model, ...s.usage });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn("[final-manuscript-qc] AI score failed; using deterministic fallback:", msg);
+          await emit("ai_score_fallback", "AI reviewer returned invalid/truncated JSON — using deterministic fallback and continuing auto-repair…", {
+            attempt,
+            error: msg.slice(0, 240),
+          });
+          aiScores = fallbackAiScores(chapters, totalWords, minWords, deterministic, msg);
+        }
         scoreVal = aiScores.final_manuscript_score ?? 0;
         await emit("ai_score_done", `AI score: ${scoreVal}/100 (compliance ${aiScores.compliance_safety_score ?? 0}/100)`, {
           attempt, score: scoreVal, compliance: aiScores.compliance_safety_score,
