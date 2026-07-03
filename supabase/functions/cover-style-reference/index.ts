@@ -1,48 +1,32 @@
 // Manages the "master style reference" image the cover generator mimics.
 // GET  -> return the active reference (palette/lighting/layout) + all rows
 // POST -> upload a new image, extract style tokens via Gemini vision, activate
-import { corsHeaders, admin, requireAdmin, aiJSON } from "../_shared/ai.ts";
+import { corsHeaders, admin, requireAdmin } from "../_shared/ai.ts";
 
 const BUCKET = "cover-style-refs";
 
 async function extractStyle(imageDataUrl: string) {
-  const schema = {
-    palette: [] as string[],
-    lighting: "",
-    layout_notes: "",
-    style_summary: "",
-  };
-  const { data } = await aiJSON<typeof schema>({
-    system: "You are an elite art director. Analyze the given book-cover image and extract the exact visual style so another AI can reproduce covers in the SAME look. Return valid JSON only.",
-    user: [
-      { type: "text", text: "Extract: (1) palette = 4-6 hex colors sampled from the image ordered from dominant to accent. (2) lighting = one detailed sentence about light direction, mood, shadow quality, background finish. (3) layout_notes = one paragraph describing composition, hierarchy, badge/title/subtitle/icon placement, spine visibility, ground surface. (4) style_summary = one crisp paragraph another designer could follow to reproduce the aesthetic across different books." },
-      { type: "image_url", image_url: { url: imageDataUrl } },
-    ] as unknown as string,
-    model: "google/gemini-2.5-pro",
-    schemaHint: JSON.stringify(schema),
-  } as any).catch(async () => {
-    // Fallback simple call
-    const key = Deno.env.get("LOVABLE_API_KEY")!;
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
-        messages: [
-          { role: "system", content: "Return valid JSON with keys palette (array of 4-6 hex), lighting, layout_notes, style_summary. No prose." },
-          { role: "user", content: [
-            { type: "text", text: "Analyze this book cover reference and extract the style so another AI can reproduce this look on different books." },
-            { type: "image_url", image_url: { url: imageDataUrl } },
-          ] },
-        ],
-        response_format: { type: "json_object" },
-      }),
-    });
-    const j = await res.json();
-    const text = j.choices?.[0]?.message?.content ?? "{}";
-    return { data: JSON.parse(text) };
+  const key = Deno.env.get("LOVABLE_API_KEY");
+  if (!key) return {};
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-pro",
+      messages: [
+        { role: "system", content: "You are an elite art director. Return VALID JSON ONLY with keys: palette (array of 4-6 hex colors, dominant→accent), lighting (one detailed sentence: direction, mood, shadow quality, background finish), layout_notes (one paragraph: composition, badge/title/subtitle/icons/spine/ground surface), style_summary (one paragraph that another designer could follow to reproduce the aesthetic on different books). No prose outside JSON." },
+        { role: "user", content: [
+          { type: "text", text: "Analyze this book cover reference and extract the style so another AI can reproduce this look on different books." },
+          { type: "image_url", image_url: { url: imageDataUrl } },
+        ] },
+      ],
+      response_format: { type: "json_object" },
+    }),
   });
-  return data;
+  if (!res.ok) throw new Error(`style extract ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const j = await res.json();
+  const text = j.choices?.[0]?.message?.content ?? "{}";
+  try { return JSON.parse(text); } catch { return {}; }
 }
 
 Deno.serve(async (req) => {
