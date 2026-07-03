@@ -92,6 +92,7 @@ Return JSON only:
     "title_readability": 0-100,
     "subtitle_readability": 0-100,
     "thumbnail_readability": 0-100,
+    "thumbnail_book_mockup": 0-100,
     "human_designed_feel": 0-100,
     "premium_feel": 0-100,
     "category_fit": 0-100,
@@ -107,13 +108,16 @@ Return JSON only:
   "no_overlap": true|false,
   "strong_contrast": true|false,
   "no_misleading_claim": true|false,
-  "failed_reasons": ["title_low"|"subtitle_low"|"thumbnail_weak"|"looks_ai_generated"|"weak_premium_feel"|"weak_emotional_hook"|"category_mismatch"|"clutter"|"low_contrast"|"weak_hierarchy"|"unsafe_claim"],
+  "failed_reasons": ["title_low"|"subtitle_low"|"thumbnail_weak"|"thumbnail_not_book_mockup"|"looks_ai_generated"|"weak_premium_feel"|"weak_emotional_hook"|"category_mismatch"|"clutter"|"low_contrast"|"weak_hierarchy"|"unsafe_claim"],
   "improvements": ["specific actionable fixes"]
 }
+
+thumbnail_book_mockup scoring: The Shopify thumbnail must look like a REAL standing book product (perspective, spine, page edges, ground shadow) — NOT a flat cover screenshot. Score 100 = photo-real premium book mockup buyers would click. Score <90 = flat, screenshot-like, or no dimensionality.
 
 Pass gate — ALL must be true:
 - title_readability >= 90
 - thumbnail_readability >= 90
+- thumbnail_book_mockup >= 90
 - human_designed_feel >= 90
 - premium_feel >= 90
 - category_fit >= 90
@@ -139,6 +143,7 @@ interface QCResult {
 const HARD_MIN: Record<string, number> = {
   title_readability: 90,
   thumbnail_readability: 90,
+  thumbnail_book_mockup: 90,
   human_designed_feel: 90,
   premium_feel: 90,
   category_fit: 90,
@@ -185,6 +190,7 @@ function buildRepairFeedback(reasons: string[], improvements: string[]): string 
   const fixes: string[] = [];
   if (reasons.some((r) => r.includes("title_readability"))) fixes.push("Enlarge the title, tighten line breaks, boost contrast, and simplify the region behind the title.");
   if (reasons.some((r) => r.includes("subtitle_readability"))) fixes.push("Shorten subtitle, increase line-height, move it away from busy areas.");
+  if (reasons.some((r) => r.includes("thumbnail_book_mockup") || r.includes("thumbnail_not_book_mockup"))) fixes.push("Thumbnail MUST be a realistic standing-book mockup (perspective, spine, page edges, soft ground shadow) — never a flat A4 screenshot. Rebuild the mockup composition.");
   if (reasons.some((r) => r.includes("thumbnail_readability"))) fixes.push("Simplify focal point, kill tiny text, thicken title weight, ensure the thumbnail communicates at 200px wide.");
   if (reasons.some((r) => r.includes("human_designed_feel") || r.includes("anti_ai_look"))) fixes.push("Remove any generic AI clichés (glossy renders, surreal clutter, neon sci-fi, over-decoration). Use restrained editorial composition. Choose ONE strong human-crafted metaphor.");
   if (reasons.some((r) => r.includes("premium_feel"))) fixes.push("Refine typography, discipline the palette to 3 tones max, add negative space, remove cheap decorative effects.");
