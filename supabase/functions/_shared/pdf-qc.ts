@@ -260,7 +260,10 @@ export function premiumLayoutScore(html: string): number {
 // with the dedicated `@page cover-a4 { size: A4; margin: 0 }` rule or not.
 export function coverFullA4Score(html: string): number {
   const hasSection = /class="cover-a4"/.test(html);
-  const hasPageRule = /@page\s+cover-a4\s*\{[^}]*size:\s*A4/i.test(html);
+  // Be tolerant of minified/pretty-printed CSS and declarations before/after
+  // size. The producer contract is the presence of an A4 named cover page, not
+  // one exact CSS whitespace shape.
+  const hasPageRule = /@page\s+cover-a4\s*\{[\s\S]*?size\s*:\s*A4\b[\s\S]*?\}/i.test(html);
   return (hasSection && hasPageRule) ? 100 : 0;
 }
 
