@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { StatusBadge, resolveEbookBadge } from "@/components/admin/StatusBadge";
 import { AutoFixChip } from "@/components/admin/AutoFixChip";
 import { AutopilotStatusCenter } from "@/components/admin/AutopilotStatusCenter";
+import { OneClickAutopilotButton } from "@/components/admin/OneClickAutopilotButton";
 import { LiveProductionQueue } from "@/components/admin/LiveProductionQueue";
 
 type Ebook = {
@@ -270,6 +271,9 @@ export default function CommandCenter() {
           </div>
         </CardContent>
       </Card>
+
+      {/* One-Click Autopilot — Phase 1 Self-Healing entry point */}
+      <OneClickAutopilotButton />
 
       {/* Live Autopilot run — only renders when a run is active */}
       <AutopilotStatusCenter />

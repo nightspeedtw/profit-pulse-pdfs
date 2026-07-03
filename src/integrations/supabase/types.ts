@@ -138,13 +138,17 @@ export type Database = {
           ebook_id: string | null
           error_message: string | null
           failed_at: string | null
+          final_report_json: Json
           id: string
           idea_id: string | null
           last_heartbeat_at: string | null
           mode: string | null
           next_retry_at: string | null
           pause_requested: boolean
+          preflight_json: Json
           progress_percent: number
+          queue_position: number | null
+          resume_from_step: string | null
           started_at: string
           status: string
           summary_json: Json
@@ -164,13 +168,17 @@ export type Database = {
           ebook_id?: string | null
           error_message?: string | null
           failed_at?: string | null
+          final_report_json?: Json
           id?: string
           idea_id?: string | null
           last_heartbeat_at?: string | null
           mode?: string | null
           next_retry_at?: string | null
           pause_requested?: boolean
+          preflight_json?: Json
           progress_percent?: number
+          queue_position?: number | null
+          resume_from_step?: string | null
           started_at?: string
           status?: string
           summary_json?: Json
@@ -190,13 +198,17 @@ export type Database = {
           ebook_id?: string | null
           error_message?: string | null
           failed_at?: string | null
+          final_report_json?: Json
           id?: string
           idea_id?: string | null
           last_heartbeat_at?: string | null
           mode?: string | null
           next_retry_at?: string | null
           pause_requested?: boolean
+          preflight_json?: Json
           progress_percent?: number
+          queue_position?: number | null
+          resume_from_step?: string | null
           started_at?: string
           status?: string
           summary_json?: Json
@@ -213,11 +225,17 @@ export type Database = {
           created_at: string
           duration_ms: number | null
           ebook_id: string | null
+          error_json: Json
           error_message: string | null
           id: string
           max_auto_fix_attempts: number
           message: string | null
           metadata_json: Json
+          next_step: string | null
+          output_json: Json
+          output_valid: boolean
+          qc_score: number | null
+          repair_action: string | null
           required_score: number | null
           run_id: string
           score: number | null
@@ -233,11 +251,17 @@ export type Database = {
           created_at?: string
           duration_ms?: number | null
           ebook_id?: string | null
+          error_json?: Json
           error_message?: string | null
           id?: string
           max_auto_fix_attempts?: number
           message?: string | null
           metadata_json?: Json
+          next_step?: string | null
+          output_json?: Json
+          output_valid?: boolean
+          qc_score?: number | null
+          repair_action?: string | null
           required_score?: number | null
           run_id: string
           score?: number | null
@@ -253,11 +277,17 @@ export type Database = {
           created_at?: string
           duration_ms?: number | null
           ebook_id?: string | null
+          error_json?: Json
           error_message?: string | null
           id?: string
           max_auto_fix_attempts?: number
           message?: string | null
           metadata_json?: Json
+          next_step?: string | null
+          output_json?: Json
+          output_valid?: boolean
+          qc_score?: number | null
+          repair_action?: string | null
           required_score?: number | null
           run_id?: string
           score?: number | null
