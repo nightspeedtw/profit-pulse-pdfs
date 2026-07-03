@@ -83,18 +83,24 @@ function renderMd(md: string): string {
   while (i < lines.length) {
     const ln = lines[i];
     if (!ln.trim()) { i++; continue; }
-    // markdown table: header row `| a | b |` followed by `| :--- | :--- |`
-    if (/^\s*\|.+\|\s*$/.test(ln) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(lines[i + 1])) {
+    // markdown table: header row `| a | b |` optionally followed by `| :--- | :--- |`.
+    // We also accept a header row followed directly by another `| ... |` body row
+    // (AI often omits the separator), so raw pipe tables never leak into prose.
+    const isPipeRow = (s: string) => /^\s*\|.+\|\s*$/.test(s);
+    const isSepRow = (s: string) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(s);
+    if (isPipeRow(ln) && i + 1 < lines.length && (isSepRow(lines[i + 1]) || isPipeRow(lines[i + 1]))) {
       const parseRow = (row: string) => row.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
       const headers = parseRow(ln);
-      i += 2; // skip header + separator
+      i += isSepRow(lines[i + 1]) ? 2 : 1;
       const bodyRows: string[][] = [];
-      while (i < lines.length && /^\s*\|.+\|\s*$/.test(lines[i])) { bodyRows.push(parseRow(lines[i])); i++; }
+      while (i < lines.length && isPipeRow(lines[i]) && !isSepRow(lines[i])) { bodyRows.push(parseRow(lines[i])); i++; }
       const thead = `<thead><tr>${headers.map((h) => `<th>${inline(h)}</th>`).join("")}</tr></thead>`;
       const tbody = `<tbody>${bodyRows.map((r) => `<tr>${headers.map((_, idx) => `<td>${inline(r[idx] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody>`;
       out.push(`<table class="md-table">${thead}${tbody}</table>`);
       continue;
     }
+    // Orphaned single pipe-row (no adjacent table) — strip so it doesn't leak as raw text.
+    if (isPipeRow(ln) && (i + 1 >= lines.length || !isPipeRow(lines[i + 1]))) { i++; continue; }
     // headings
     const h = ln.match(/^(#{1,4})\s+(.*)$/);
     if (h) { const lvl = h[1].length + 1; out.push(`<h${lvl}>${inline(h[2])}</h${lvl}>`); i++; continue; }
