@@ -259,7 +259,8 @@ Deno.serve(async (req) => {
     .order("updated_at", { ascending: false })
     .limit(40);
 
-  for (const ebook of qcCandidates ?? []) {
+  for (const raw of qcCandidates ?? []) {
+    const ebook = raw as unknown as Record<string, any>;
     if (qcAutofixQueued.length >= 3 && !dry) break;
     if (ebook.next_retry_at && ebook.next_retry_at > now) continue;
     const hasStartedAssets = !!(ebook.pdf_url || ebook.cover_url || ebook.reader_experience_status);
