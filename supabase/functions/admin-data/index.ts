@@ -284,11 +284,15 @@ Deno.serve(async (req) => {
         supabase.from("ebooks").select(cols).or(eqEither("needs_code_fix"))
           .order("updated_at", { ascending: false }).limit(20),
         // Ready to Publish — 100% complete, PDF ready, not yet pushed to Shopify.
+        // NOTE: chaining `.or().or()` in PostgREST produces two `or=` query
+        // params that don't compose the way supabase-js implies (result was
+        // always empty). Fetch by state only and filter out published rows
+        // in JS below.
         supabase.from("ebooks")
           .select(cols + ",final_quality_score,word_count")
           .or("canonical_status.in.(ready_to_publish,completed),autopilot_state.in.(done,ready_to_publish)")
-          .or("shopify_status.is.null,shopify_status.neq.published")
           .order("updated_at", { ascending: false }).limit(20),
+
       ]);
 
       // Coalesce canonical_status ← autopilot_state so the UI's badges and
