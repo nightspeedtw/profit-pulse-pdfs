@@ -16,6 +16,7 @@
 // publishGate (qc.ts) already blocks Shopify publish unless cover_approved
 // and cover_score >= 85; we additionally require pdf_approved before publish.
 import { admin, corsHeaders, pickModel } from "../_shared/ai.ts";
+import { computeManuscriptHash } from "../_shared/manuscript-hash.ts";
 import { buildPdfHtml, buildHeaderTemplate, buildFooterTemplate, type PdfData, type WorksheetKind } from "../_shared/pdf-template.ts";
 import {
  structuralChecks, scorePdfReadability,
@@ -312,11 +313,62 @@ Deno.serve(async (req) => {
       console.warn("PDF readability AI scoring failed:", (e as Error).message);
     }
 
+    // ---- Canonical content score (reader-QC), hash-gated ----
+    // The premium content sub-score must come from reader-experience-qc when it
+    // was scored against the CURRENT manuscript. If the stored reader-QC
+    // manuscript_hash doesn't match, treat it as stale and rerun reader-QC
+    // synchronously before trusting the score. NEVER lower QC thresholds to
+    // paper over a stale score.
+    const currentHash = await computeManuscriptHash(chapters as any);
+    let canonicalContentScore: number | null = null;
+    let readerQcStatus: "fresh" | "stale_rerun_ok" | "stale_rerun_failed" | "missing" = "missing";
+    const readerQc = (ebook.reader_experience_qc && typeof ebook.reader_experience_qc === "object")
+      ? ebook.reader_experience_qc as Record<string, any>
+      : null;
+    const storedHash = readerQc?.manuscript_hash;
+    const storedScore = Number(ebook.reader_experience_score ?? 0);
+    if (readerQc && storedHash === currentHash && storedScore > 0) {
+      canonicalContentScore = storedScore;
+      readerQcStatus = "fresh";
+    } else {
+      try {
+        const invokeRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/reader-experience-qc`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ebook_id: ebookId }),
+        });
+        if (invokeRes.ok) {
+          const { data: reloaded } = await db.from("ebooks")
+            .select("reader_experience_qc,reader_experience_score").eq("id", ebookId).maybeSingle();
+          const rqc = (reloaded?.reader_experience_qc && typeof reloaded.reader_experience_qc === "object")
+            ? reloaded.reader_experience_qc as Record<string, any>
+            : null;
+          if (rqc?.manuscript_hash === currentHash && Number(reloaded?.reader_experience_score ?? 0) > 0) {
+            canonicalContentScore = Number(reloaded!.reader_experience_score);
+            readerQcStatus = "stale_rerun_ok";
+          } else {
+            readerQcStatus = "stale_rerun_failed";
+          }
+        } else {
+          readerQcStatus = "stale_rerun_failed";
+        }
+      } catch (e) {
+        console.warn("reader-QC rerun for canonical content score failed:", (e as Error).message);
+        readerQcStatus = "stale_rerun_failed";
+      }
+    }
+
     const coverScore = Number(ebook.cover_score ?? 0);
     const layoutScore = Math.round((struct.structure_score * 0.6) + (aiScores.layout_polish_score * 0.4));
+    // Use canonical reader-QC score when hash matches; otherwise fall back to
+    // the in-place AI readability sample. Layout gates stay independent.
+    const contentScoreForFinal = canonicalContentScore ?? aiScores.readability_score;
     const finalPdfPremium = Math.round(
       (layoutScore * 0.30) +
-      (aiScores.readability_score * 0.30) +
+      (contentScoreForFinal * 0.30) +
       (aiScores.worksheet_score * 0.10) +
       (aiScores.diagram_score * 0.10) +
       (coverScore * 0.20),
@@ -462,7 +514,7 @@ Deno.serve(async (req) => {
       pdf_html_url: signedHtml?.signedUrl ?? null,
       pdf_status: passed ? "rendered" : "needs_review",
       pdf_generated_at: new Date().toISOString(),
-      pdf_qc: qc as unknown as Record<string, unknown>,
+      pdf_qc: { ...(qc as any), manuscript_hash: currentHash, reader_qc_status: readerQcStatus, canonical_content_score: canonicalContentScore } as unknown as Record<string, unknown>,
       cover_qc: coverQcMirror,
       pdf_score: finalPdfPremium,
       pdf_layout_score: layoutScore,

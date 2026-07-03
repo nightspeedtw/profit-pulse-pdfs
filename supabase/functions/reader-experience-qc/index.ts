@@ -16,6 +16,7 @@
 //      rewrite_priorities so the admin UI can render them.
 import { corsHeaders, admin, aiJSON, aiText, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 import { computeQcGates } from "../_shared/qc-gates.ts";
+import { computeManuscriptHash } from "../_shared/manuscript-hash.ts";
 
 const MAX_ATTEMPTS = 3;
 const EDGE_SAFE_DEADLINE_MS = 70_000;
@@ -1237,6 +1238,7 @@ Deno.serve(async (req) => {
       verdict,
       history,
       systemic_cleanup: systemicCleanup,
+      manuscript_hash: await computeManuscriptHash(chapters as any),
       generated_at: new Date().toISOString(),
     };
 
