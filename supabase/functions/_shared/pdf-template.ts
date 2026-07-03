@@ -165,6 +165,41 @@ function stripDuplicateLeadingHeading(md: string, chapterTitle: string): string 
   return src;
 }
 
+// Break any <p>...</p> whose text runs longer than ~140 words into 2–3 smaller
+// paragraphs, splitting on the nearest sentence boundary. This preserves the
+// "premium nonfiction" reading rhythm and avoids giant walls of text at the
+// top of a chapter page. Only operates on plain <p> paragraphs; leaves
+// headings, lists, callouts, tables, and other block markup untouched.
+function splitLongParagraphs(html: string, wordLimit = 140): string {
+  return html.replace(/<p>([\s\S]*?)<\/p>/g, (full, inner: string) => {
+    const text = inner.trim();
+    if (!text) return full;
+    const words = text.split(/\s+/);
+    if (words.length <= wordLimit) return full;
+    // Split into sentences, keeping terminators.
+    const sentences = text.match(/[^.!?]+[.!?]+["'”’)]*\s*|[^.!?]+$/g) ?? [text];
+    const chunks: string[] = [];
+    let buf = "";
+    let bufWords = 0;
+    const target = Math.max(45, Math.min(90, Math.ceil(words.length / Math.ceil(words.length / 100))));
+    for (const s of sentences) {
+      const sw = s.trim().split(/\s+/).length;
+      if (bufWords + sw > target && buf) {
+        chunks.push(buf.trim());
+        buf = s;
+        bufWords = sw;
+      } else {
+        buf += s;
+        bufWords += sw;
+      }
+    }
+    if (buf.trim()) chunks.push(buf.trim());
+    if (chunks.length < 2) return full;
+    return chunks.map((c) => `<p>${c}</p>`).join("\n");
+  });
+}
+
+
 function chapterCallouts(c: PdfChapter): string {
   if (!c.callouts?.length) return "";
   return c.callouts.map((co) => `
@@ -381,7 +416,7 @@ export function buildPdfHtml(data: PdfData): string {
       <div class="chapter-body__eyebrow">Chapter ${c.index}</div>
       <h2 class="chapter-body__title">${esc(stripInlineMd(c.title))}</h2>
       <div class="chapter-body__prose">
-        ${renderMd(stripDuplicateLeadingHeading(c.content, c.title))}
+        ${splitLongParagraphs(renderMd(stripDuplicateLeadingHeading(c.content, c.title)))}
       </div>
       ${chapterCallouts(c)}
       ${chapterIllustration(c)}
@@ -578,26 +613,36 @@ export function buildPdfHtml(data: PdfData): string {
     margin-top: 14pt; max-width: 4.6in; }
 
   /* ---------- Chapter body ---------- */
+  .chapter-body { padding-top: 0.55in; }
   .chapter-body__eyebrow { font-family: "Inter", sans-serif; font-size: 9pt;
     letter-spacing: 0.32em; text-transform: uppercase; color: var(--accent);
-    margin: 0 0 8pt; }
+    margin: 0 0 10pt; text-align: left; }
   .chapter-body__title { font-family: "Inter", sans-serif; font-weight: 800;
-    font-size: 20pt; margin: 0 0 20pt; line-height: 1.18; letter-spacing: -0.012em;
-    border-bottom: 1pt solid var(--rule); padding-bottom: 14pt; }
+    font-size: 22pt; margin: 0 0 26pt; line-height: 1.18; letter-spacing: -0.012em;
+    text-align: left; max-width: 5.2in; hyphens: manual;
+    /* Keep heading with the first paragraph — never orphan a title */
+    page-break-after: avoid; break-after: avoid; }
   .chapter-body__prose { text-align: justify; text-justify: inter-word;
     hyphens: auto; -webkit-hyphens: auto; hyphenate-limit-chars: 6 3 3;
+    line-height: 1.6; max-width: 5.4in;
     orphans: 3; widows: 3; }
-  .chapter-body__prose h2 { font-size: 14pt; margin: 18pt 0 6pt; text-align: left; hyphens: manual; }
-  .chapter-body__prose h3 { font-size: 12pt; margin: 14pt 0 4pt; text-align: left; hyphens: manual; }
-  .chapter-body__prose h4 { font-size: 10.5pt; margin: 10pt 0 4pt; text-align: left;
+  .chapter-body__prose p { margin: 0 0 10pt; }
+  .chapter-body__prose p + p { text-indent: 0; }
+  .chapter-body__prose h2 { font-size: 14pt; margin: 22pt 0 8pt; text-align: left; hyphens: manual;
+    page-break-after: avoid; break-after: avoid; }
+  .chapter-body__prose h3 { font-size: 12pt; margin: 16pt 0 6pt; text-align: left; hyphens: manual;
+    page-break-after: avoid; break-after: avoid; }
+  .chapter-body__prose h4 { font-size: 10.5pt; margin: 12pt 0 4pt; text-align: left;
     text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); hyphens: manual; }
   /* Drop cap on the first paragraph of every chapter body */
   .chapter-body__prose > p:first-of-type::first-letter {
     font-family: "Inter", sans-serif; font-weight: 800;
-    float: left; font-size: 40pt; line-height: 0.88; padding: 4pt 6pt 0 0;
+    float: left; font-size: 42pt; line-height: 0.88; padding: 4pt 8pt 0 0;
     color: var(--accent); }
   /* Never leave dangling headings or short lists at the bottom of a page */
-  .chapter-body__prose ul, .chapter-body__prose ol { text-align: left; hyphens: manual; }
+  .chapter-body__prose ul, .chapter-body__prose ol { text-align: left; hyphens: manual;
+    max-width: 5.4in; }
+
 
   /* ---------- Callouts ---------- */
   .callout { background: var(--bg-callout); border-left: 3pt solid var(--accent);
