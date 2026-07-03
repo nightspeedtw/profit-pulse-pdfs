@@ -11,6 +11,11 @@ export const FEATURES = {
   BLOG_AUTOMATION: false,
   SOCIAL_POSTING: false,
   ADVANCED_BATCH_MODE: false,
+  // Legacy pre-Phase-1 pipeline (autopilot-orchestrator, build-pdf,
+  // worksheet-preview, generate-interior-visuals, idea-copywriter).
+  // Off = Phase 1 uses render-pdf + premium-title-expert. Flip to true
+  // to reactivate the legacy path without redeploying.
+  LEGACY_PIPELINE: false,
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;
