@@ -39,7 +39,7 @@ export type AIResult<T> = { data: T; usage: { input_tokens: number; output_token
 // Robust JSON extractor: strips fences, finds the first {...} or [...] block by
 // brace-matching (respecting strings/escapes), and parses it. Tolerates trailing
 // text from the model after the JSON payload.
-function extractJson<T>(raw: string): T {
+function extractJson<T>(raw: string, opts: { allowTruncated?: boolean } = {}): T {
   let s = raw.replace(/^\uFEFF/, "").trim();
   s = s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
   const startIdx = s.search(/[\{\[]/);
@@ -47,6 +47,7 @@ function extractJson<T>(raw: string): T {
   const open = s[startIdx];
   const close = open === "{" ? "}" : "]";
   let depth = 0, inStr = false, esc = false, end = -1;
+  const stack: string[] = [];
   for (let i = startIdx; i < s.length; i++) {
     const ch = s[i];
     if (inStr) {
@@ -56,11 +57,25 @@ function extractJson<T>(raw: string): T {
       continue;
     }
     if (ch === '"') { inStr = true; continue; }
-    if (ch === open) depth++;
-    else if (ch === close) { depth--; if (depth === 0) { end = i; break; } }
+    if (ch === "{") { depth++; stack.push("}"); }
+    else if (ch === "[") { depth++; stack.push("]"); }
+    else if (ch === "}" || ch === "]") { depth--; stack.pop(); if (depth === 0 && ch === close) { end = i; break; } }
   }
-  if (end === -1) throw new Error("Truncated JSON in model response");
-  let candidate = s.slice(startIdx, end + 1);
+  let candidate: string;
+  if (end !== -1) {
+    candidate = s.slice(startIdx, end + 1);
+  } else if (opts.allowTruncated) {
+    // Best-effort repair: drop trailing partial token, close open string,
+    // then close remaining brackets in reverse. Handles finish_reason=length.
+    let tail = s.slice(startIdx);
+    if (inStr) tail += '"';
+    // Trim trailing incomplete key/value like `,"foo` or `: 12`
+    tail = tail.replace(/,\s*"[^"]*$/,'').replace(/,\s*[\d.\-eE+]*$/, '').replace(/:\s*[^,\}\]]*$/, ': null');
+    while (stack.length) tail += stack.pop();
+    candidate = tail;
+  } else {
+    throw new Error("Truncated JSON in model response");
+  }
   try { return JSON.parse(candidate) as T; }
   catch {
     candidate = candidate.replace(/,\s*([}\]])/g, "$1").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
@@ -69,38 +84,59 @@ function extractJson<T>(raw: string): T {
 }
 
 export async function aiJSON<T>(opts: {
-  system: string; user: string; model: string; schemaHint?: string;
+  system: string; user: string; model: string; schemaHint?: string; maxTokens?: number;
 }): Promise<AIResult<T>> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) throw new Error("LOVABLE_API_KEY not configured");
 
-  const body = {
-    model: opts.model,
-    messages: [
-      { role: "system", content: opts.system + "\nRespond with valid JSON only. No markdown fences." },
-      { role: "user", content: opts.user + (opts.schemaHint ? `\n\nJSON schema:\n${opts.schemaHint}` : "") },
-    ],
-    response_format: { type: "json_object" },
-  };
-
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`AI gateway ${res.status}: ${text.slice(0, 500)}`);
+  async function call(maxTokens: number) {
+    const body: Record<string, unknown> = {
+      model: opts.model,
+      messages: [
+        { role: "system", content: opts.system + "\nRespond with valid JSON only. No markdown fences." },
+        { role: "user", content: opts.user + (opts.schemaHint ? `\n\nJSON schema:\n${opts.schemaHint}` : "") },
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: maxTokens,
+    };
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`AI gateway ${res.status}: ${text.slice(0, 500)}`);
+    }
+    return await res.json();
   }
-  const j = await res.json();
-  const text = j.choices?.[0]?.message?.content ?? "{}";
+
+  const initial = opts.maxTokens ?? 8192;
+  let j = await call(initial);
+  let finish: string = j.choices?.[0]?.finish_reason ?? "stop";
+  let text: string = j.choices?.[0]?.message?.content ?? "{}";
+  // If truncated by length, retry once with a much larger cap before falling
+  // back to best-effort repair.
+  if (finish === "length" && initial < 16000) {
+    try {
+      const j2 = await call(Math.min(initial * 2, 16000));
+      finish = j2.choices?.[0]?.finish_reason ?? finish;
+      text = j2.choices?.[0]?.message?.content ?? text;
+      j = j2;
+    } catch { /* keep first response */ }
+  }
   const usage = j.usage ?? { prompt_tokens: 0, completion_tokens: 0 };
   const rate = RATES[opts.model] ?? { in: 0.1, out: 0.4 };
   const cost = (usage.prompt_tokens / 1_000_000) * rate.in + (usage.completion_tokens / 1_000_000) * rate.out;
   let parsed: T;
   try { parsed = JSON.parse(text); }
   catch {
-    parsed = extractJson<T>(text);
+    try { parsed = extractJson<T>(text); }
+    catch {
+      // Last resort: allow truncated repair so the pipeline gets something
+      // usable instead of a hard 400.
+      parsed = extractJson<T>(text, { allowTruncated: true });
+    }
   }
   return {
     data: parsed,
