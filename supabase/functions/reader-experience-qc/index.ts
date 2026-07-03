@@ -15,6 +15,7 @@
 //   5. Max 3 rewrite attempts. On final fail, save needs_review + structured
 //      rewrite_priorities so the admin UI can render them.
 import { corsHeaders, admin, aiJSON, aiText, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
+import { computeQcGates } from "../_shared/qc-gates.ts";
 
 const MAX_ATTEMPTS = 3;
 const EDGE_SAFE_DEADLINE_MS = 70_000;
@@ -28,13 +29,13 @@ const PASS = {
   natural_language_score: 90,
   human_written_feel_score: 90,
   readability_score: 90,
-  emotional_resonance_score: 90,
-  page_turning_score: 90,
+  emotional_resonance_score: 85,
+  page_turning_score: 85,
   non_repetitive_score: 90,
   premium_sellability_score: 90,
   clarity_score: 90,
-  insight_score: 90,
-  reader_engagement_score: 90,
+  insight_score: 85,
+  reader_engagement_score: 85,
   voice_quality_score: 90,
 } as const;
 
@@ -866,7 +867,7 @@ function evaluateGate(verdict: Verdict): { passed: boolean; failedKeys: ScoreKey
   for (const [k, min] of Object.entries(PASS) as [ScoreKey, number][]) {
     if ((verdict.scores[k] ?? 0) < min) failed.push(k);
   }
-  return { passed: failed.length === 0, failedKeys: failed };
+  return { passed: verdict.overall_score >= 90 && failed.length === 0, failedKeys: failed };
 }
 
 // ---------- Targeted humanize rewrite ----------
@@ -890,7 +891,7 @@ async function humanizeExcerpts(
   chapters: ChapterRow[],
   priorities: FlaggedExcerpt[],
   deadlineMs: number,
-): Promise<{ chaptersTouched: number; replacements: number }> {
+): Promise<{ chaptersTouched: number; replacements: number; chapter_indices: number[] }> {
   const byChapter = new Map<number, FlaggedExcerpt[]>();
   for (const p of priorities) {
     if (!p.excerpt || p.excerpt.length < 40) continue;
@@ -901,6 +902,7 @@ async function humanizeExcerpts(
 
   let touched = 0;
   let replacements = 0;
+  const chapterIndices: number[] = [];
   let aiCalls = 0;
   const MAX_AI_CALLS = 8;
   const model = pickModel("premium", "content");
@@ -969,9 +971,44 @@ Return only the rewritten passage.`,
       row.content = content;
       row.word_count = newWc;
       touched++;
+      chapterIndices.push(chIdx);
     }
   }
-  return { chaptersTouched: touched, replacements };
+  return { chaptersTouched: touched, replacements, chapter_indices: [...new Set(chapterIndices)].sort((a, b) => a - b) };
+}
+
+function targetedPrioritiesForWeakDimensions(chapters: ChapterRow[], failedKeys: ScoreKey[], detRep: { examples: string[] }): FlaggedExcerpt[] {
+  const out: FlaggedExcerpt[] = [];
+  const firstChapters = chapters.slice(0, 8);
+  const add = (key: ScoreKey, chapter: ChapterRow, problem: string, direction: string, category: FlaggedExcerpt["category"]) => {
+    const excerpt = fallbackRepairSpan(chapter.content);
+    if (excerpt.length >= 40) {
+      out.push({ chapter_index: chapter.chapter_index, excerpt, problem: `${key}: ${problem}`, suggested_direction: direction, category });
+    }
+  };
+  for (const key of failedKeys) {
+    const sampleChapters = key === "page_turning_score" || key === "reader_engagement_score"
+      ? firstChapters.slice(0, 4)
+      : firstChapters.slice(0, 3);
+    for (const ch of sampleChapters) {
+      if (key === "page_turning_score" || key === "reader_engagement_score") {
+        add(key, ch, "opening/transition lacks momentum", "strengthen the opening, curiosity gap, and transition so the buyer has a reason to keep reading", "loses_reader_interest");
+      } else if (key === "non_repetitive_score") {
+        add(key, ch, detRep.examples[0] ? `repetition detected: ${detRep.examples[0]}` : "repeated sentence pattern", "rewrite only repeated phrasing; vary examples, sentence rhythm, and transitions", "repetitive_structure");
+      } else if (key === "human_written_feel_score" || key === "natural_language_score") {
+        add(key, ch, "phrasing sounds robotic or over-explained", "soften robotic phrasing, remove AI-style over-explaining, and improve natural rhythm", "robotic_phrasing");
+      } else if (key === "premium_sellability_score") {
+        add(key, ch, "practical value and transformation are not framed strongly enough", "make the buyer pain, practical payoff, and transformation more concrete without hype", "weak_transition");
+      } else if (key === "insight_score") {
+        add(key, ch, "trust is weakened by vague or overbroad claims", "reduce overclaims, add grounded specificity, and keep educational language precise", "fake_depth");
+      } else if (key === "emotional_resonance_score") {
+        add(key, ch, "emotional stakes are too flat", "add lived-context detail and empathy while preserving the advice", "flat_emotion");
+      } else {
+        add(key, ch, "reader quality dimension is below target", "clarify the idea, vary rhythm, and make the section feel more specific and useful", "generic_filler");
+      }
+    }
+  }
+  return out.slice(0, 10);
 }
 
 function escapeRegex(s: string): string {
@@ -1041,7 +1078,26 @@ Deno.serve(async (req) => {
 
     let chapters = await loadChapters(db, ebook_id);
     if (chapters.length === 0) {
-      throw new Error("no_chapters_to_review");
+      await db.from("ebooks").update({
+        reader_experience_status: "dependency_error",
+        autopilot_state: "waiting_for_worker_slot",
+        canonical_status: "waiting_for_worker_slot",
+        blocker_class: "recoverable_dependency_error",
+        blocker_reason: "reader_qc_missing_manuscript_route_to_chapter_writing",
+        next_recommended_action: "write_chapters",
+        reader_experience_qc: {
+          version: 2,
+          passed: false,
+          dependency_error: true,
+          missing: "manuscript/chapter content",
+          route_to_step: "chapter_writing",
+          generated_at: new Date().toISOString(),
+        },
+      }).eq("id", ebook_id);
+      return new Response(JSON.stringify({ ok: true, dependency_error: true, route_to_step: "chapter_writing" }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const systemicCleanup = await applySystemicCleanup(db, ebook_id, chapters);
@@ -1074,6 +1130,7 @@ Deno.serve(async (req) => {
     }
 
     const history: Array<{ attempt: number; scores: Record<string, number>; failed_keys: string[]; humanize?: unknown }> = [];
+    const sectionsRewritten: number[] = [];
     let verdict: Verdict | null = null;
     let passed = false;
     let attempts = 0;
@@ -1124,14 +1181,16 @@ Deno.serve(async (req) => {
 
       // Repair pass — surgical humanize of flagged excerpts.
       const priorities = [
+        ...targetedPrioritiesForWeakDimensions(chapters, gate.failedKeys, detRep),
         ...verdict.rewrite_priorities,
         ...verdict.robotic_parts,
         ...verdict.repetitive_parts,
         ...verdict.lose_interest_parts,
-      ].slice(0, 8);
+      ].slice(0, 10);
       const repairTargets = priorities.length ? priorities : fallbackPriorities(chapters, detRep);
       const humanized = await humanizeExcerpts(db, ebook_id, chapters, repairTargets, deadlineMs);
       history[history.length - 1].humanize = humanized;
+      sectionsRewritten.push(...(humanized.chapter_indices ?? []));
 
       if (humanized.replacements === 0) break; // nothing left to repair automatically
       deferred = true;
@@ -1141,11 +1200,24 @@ Deno.serve(async (req) => {
 
     const finalOverall = verdict?.overall_score ?? 0;
     const scoreAliases = verdict?.scores ?? {} as Record<string, number>;
+    const finalGate = verdict ? evaluateGate(verdict) : { passed: false, failedKeys: ALL_SCORE_KEYS };
+    passed = passed || finalGate.passed;
     const report = {
-      version: 1,
+      version: 2,
       passed,
       overall_score: finalOverall,
       scores: scoreAliases,
+      natural_language: scoreAliases.natural_language_score,
+      human_feel: scoreAliases.human_written_feel_score,
+      emotional_resonance: scoreAliases.emotional_resonance_score,
+      page_turning: scoreAliases.page_turning_score,
+      sellability: scoreAliases.premium_sellability_score,
+      clarity: scoreAliases.clarity_score,
+      variety: scoreAliases.readability_score,
+      no_ai_patterns: scoreAliases.human_written_feel_score,
+      no_repetition: scoreAliases.non_repetitive_score,
+      voice_consistency: scoreAliases.voice_quality_score,
+      trust: scoreAliases.insight_score,
       ...scoreAliases,
       human_feel_score: scoreAliases.human_written_feel_score,
       sellability_score: scoreAliases.premium_sellability_score,
@@ -1156,6 +1228,12 @@ Deno.serve(async (req) => {
       trust_score: scoreAliases.insight_score,
       attempts_used: attemptsStart + attempts,
       pass_targets: PASS,
+      failed_keys: finalGate.failedKeys,
+      repair_notes: [
+        ...(verdict?.weaknesses ?? []),
+        ...((systemicCleanup.issues ?? []).map((x) => `systemic_cleanup:${x}`)),
+      ].slice(0, 12),
+      sections_rewritten: [...new Set(sectionsRewritten)].sort((a, b) => a - b),
       verdict,
       history,
       systemic_cleanup: systemicCleanup,
@@ -1189,8 +1267,17 @@ Deno.serve(async (req) => {
       reader_experience_fix_count: attemptsStart + attempts,
     }).eq("id", ebook_id);
 
+    const { data: persisted } = await db.from("ebooks").select("*").eq("id", ebook_id).maybeSingle();
+    const gateReport = computeQcGates(persisted ?? { reader_experience_qc: report, reader_experience_status: passed ? "pass" : "needs_review" });
+    await db.from("ebooks").update({
+      qc_gates_json: gateReport,
+      qc_ready_for_shopify: gateReport.ready_for_shopify,
+      reader_experience_status: gateReport.reader.pass ? "pass" : "needs_review",
+      reader_experience_score: gateReport.reader.score ?? finalOverall,
+    }).eq("id", ebook_id);
+
     return new Response(
-      JSON.stringify({ ok: true, passed, overall_score: finalOverall, attempts, failed_keys: verdict ? evaluateGate(verdict).failedKeys : [] }),
+      JSON.stringify({ ok: true, passed: gateReport.reader.pass, overall_score: gateReport.reader.score ?? finalOverall, attempts, failed_keys: gateReport.reader.pass ? [] : (verdict ? evaluateGate(verdict).failedKeys : []) }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {

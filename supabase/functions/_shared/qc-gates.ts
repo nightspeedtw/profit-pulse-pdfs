@@ -31,6 +31,90 @@ export interface QcGateReport {
   missing_gates: GateName[]; // gates that have no data yet (legacy books)
 }
 
+export interface GateContract {
+  gate: GateName;
+  target: number;
+  required_fields: string[];
+  source_paths: string[];
+  producer_function: string;
+  persist_target: string;
+  pass_rule: string;
+}
+
+export const READER_FIELD_TARGETS: Record<string, number> = {
+  natural_language: 90,
+  human_feel: 90,
+  emotional_resonance: 85,
+  page_turning: 85,
+  sellability: 90,
+  clarity: 90,
+  variety: 90,
+  no_ai_patterns: 90,
+  no_repetition: 90,
+  voice_consistency: 90,
+  trust: 85,
+};
+
+export const COVER_THUMB_FIELD_TARGETS: Record<string, number> = {
+  book_mockup: 90,
+  readability: 90,
+  click_appeal: 90,
+  premium_feel: 90,
+};
+
+export const GATE_CONTRACTS: Record<"reader" | "cover_thumb", GateContract> = {
+  reader: {
+    gate: "reader",
+    target: 90,
+    required_fields: [
+      "overall_score",
+      "natural_language",
+      "human_feel",
+      "emotional_resonance",
+      "page_turning",
+      "sellability",
+      "clarity",
+      "variety",
+      "no_ai_patterns",
+      "no_repetition",
+      "voice_consistency",
+      "trust",
+    ],
+    source_paths: [
+      "ebooks.reader_experience_qc.overall_score",
+      "ebooks.reader_experience_qc.scores.*",
+      "ebooks.reader_experience_qc.verdict.scores.*",
+      "ebooks.reader_experience_score (legacy display fallback only)",
+    ],
+    producer_function: "reader-experience-qc",
+    persist_target: "ebooks.reader_experience_qc, ebooks.reader_experience_score, ebooks.reader_experience_status",
+    pass_rule: "overall_score >= 90; natural_language/human_feel/sellability/clarity/variety/no_ai_patterns/no_repetition/voice_consistency >= 90; emotional_resonance/page_turning/trust >= 85; status passable",
+  },
+  cover_thumb: {
+    gate: "cover_thumb",
+    target: 90,
+    required_fields: [
+      "overall_score",
+      "book_mockup",
+      "readability",
+      "click_appeal",
+      "premium_feel",
+      "thumbnail_url",
+    ],
+    source_paths: [
+      "ebooks.cover_qc.scores.thumbnail_book_mockup | thumbnail_book_mockup_score | book_mockup",
+      "ebooks.cover_qc.scores.thumbnail_readability | thumbnail_readability_score",
+      "ebooks.cover_qc.scores.shopify_click_appeal | click_appeal",
+      "ebooks.cover_qc.scores.premium_product_feel | premium_feel",
+      "ebooks.cover_score (legacy display fallback only)",
+      "ebooks.thumbnail_url",
+    ],
+    producer_function: "generate-cover",
+    persist_target: "ebooks.cover_qc, ebooks.cover_score, ebooks.thumbnail_url",
+    pass_rule: "thumbnail_url exists; overall_score >= 90; book_mockup/readability/click_appeal/premium_feel all exist and are >= 90",
+  },
+};
+
 type Json = Record<string, unknown> | null | undefined;
 
 function num(v: unknown): number | null {
@@ -118,7 +202,10 @@ export function computeQcGates(row: Record<string, unknown>): QcGateReport {
   const readerStatusPassable = readerStatus == null || readerStatus === "pass" || readerStatus === "passed";
   const readerDims = Object.values(readerBreakdown);
   const readerHasBreakdown = readerDims.every((x) => x != null);
-  const readerDimsPass = readerDims.every((x) => x != null && x >= 90);
+  const readerDimsPass = Object.entries(READER_FIELD_TARGETS).every(([field, target]) => {
+    const v = readerBreakdown[field as keyof typeof readerBreakdown];
+    return v != null && v >= target;
+  });
   const readerHasData = readerScore != null && readerHasBreakdown;
   const reader: GateResult = {
     score: readerScore,
@@ -165,17 +252,18 @@ export function computeQcGates(row: Record<string, unknown>): QcGateReport {
     click_appeal: pickThumb("shopify_click_appeal") ?? pickThumb("click_appeal"),
     premium_feel: pickThumb("premium_product_feel") ?? pickThumb("premium_feel"),
   };
-  const thumbScore = avg(Object.values(thumbBreakdown)) ?? num(coverQc?.overall_score) ?? num(row.cover_score);
-  const thumbHasData = Object.values(thumbBreakdown).some((x) => x != null) ||
-    num(row.cover_score) != null;
-  // Gate: every populated dimension must clear 90 OR the aggregate must clear
-  // 90 when individual dimensions weren't captured (legacy runs / partial QC).
-  const dimsPresent = Object.values(thumbBreakdown).filter((x): x is number => x != null);
-  const allDimsPass = dimsPresent.length > 0 && dimsPresent.every((v) => v >= 90);
-  const aggregatePass = dimsPresent.length === 0 && thumbScore != null && thumbScore >= 90;
+  const thumbScore = num(coverQc?.overall_score) ?? avg(Object.values(thumbBreakdown)) ?? num(row.cover_score);
+  const thumbnailUrl = typeof row.thumbnail_url === "string" && row.thumbnail_url.trim().length > 0
+    ? row.thumbnail_url
+    : null;
+  const thumbHasData = !!thumbnailUrl && Object.values(thumbBreakdown).every((x) => x != null);
+  const allThumbDimsPass = Object.entries(COVER_THUMB_FIELD_TARGETS).every(([field, target]) => {
+    const v = thumbBreakdown[field as keyof typeof thumbBreakdown];
+    return v != null && v >= target;
+  });
   const cover_thumb: GateResult = {
     score: thumbScore,
-    pass: thumbHasData && (allDimsPass || aggregatePass),
+    pass: thumbHasData && thumbScore != null && thumbScore >= 90 && allThumbDimsPass,
     target: 90,
     breakdown: thumbBreakdown,
   };

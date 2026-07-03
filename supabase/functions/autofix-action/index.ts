@@ -2,6 +2,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { computeQcGates } from "../_shared/qc-gates.ts";
 import {
+  appendRepairHistory,
+  decideRepairLoop,
   firstBlockingGate,
   markGateAutoFixing,
   markGateNeedsCodeFix,
@@ -66,15 +68,44 @@ Deno.serve(async (req) => {
       const currentAttempts = codeFixRetry ? 0 : rawAttempts;
       const report = computeQcGates(cur ?? {});
       const chosen = gate === "any" || !gate ? firstBlockingGate(report) : gate;
+      if (action === "autofix_gate" && !chosen) {
+        await db.from("ebooks").update({
+          qc_gates_json: report,
+          qc_ready_for_shopify: report.ready_for_shopify,
+          qc_status: report.ready_for_shopify ? "qc_passed" : "pending",
+          autopilot_state: report.ready_for_shopify ? "ready_to_publish" : cur?.autopilot_state,
+          canonical_status: report.ready_for_shopify ? "ready_to_publish" : cur?.canonical_status,
+        }).eq("id", ebook_id);
+        return new Response(JSON.stringify({ ok: true, skipped: true, reason: "no_blocking_gate", report }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       const g = (chosen ?? "formatter") as AutoFixGate;
+      const gateName = g as GateName;
+      const decision = action === "autofix_gate"
+        ? decideRepairLoop(cur ?? {}, gateName, report, `targeted_${g}`)
+        : null;
 
       // ESCALATION: if we've already tried MAX times, stop looping and
       // hand off to the "Needs Code Fix" queue with a Lovable prompt so
       // the agent can fix the underlying bug instead of retrying forever.
-      if (action === "autofix_gate" && currentAttempts >= MAX_ATTEMPTS) {
-        await markGateNeedsCodeFix(db, cur, g as GateName, report, currentAttempts);
+      if (action === "autofix_gate" && decision?.alreadyInFlight) {
+        return new Response(JSON.stringify({ ok: true, skipped: true, reason: decision.reason, gate: g }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (action === "autofix_gate" && (decision?.escalate || currentAttempts >= MAX_ATTEMPTS)) {
+        await appendRepairHistory(db, cur, decision!, currentAttempts, "escalated");
+        await markGateNeedsCodeFix(
+          db,
+          cur,
+          gateName,
+          report,
+          currentAttempts,
+          decision?.reason ?? "max_attempts_exhausted",
+        );
 
-        return new Response(JSON.stringify({ ok: true, escalated: true, gate: g, attempts: currentAttempts }), {
+        return new Response(JSON.stringify({ ok: true, escalated: true, gate: g, attempts: currentAttempts, reason: decision?.reason ?? "max_attempts_exhausted" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -95,6 +126,8 @@ Deno.serve(async (req) => {
       };
       if (action !== "autofix_gate") {
         patch.auto_fix_attempt_count = 0;
+      } else if (decision?.countAttempt === false) {
+        patch.auto_fix_attempt_count = currentAttempts;
       } else {
         patch.auto_fix_attempt_count = currentAttempts + 1;
       }
@@ -118,29 +151,38 @@ Deno.serve(async (req) => {
         patch.manuscript_fix_count = 0;
       }
       if (g === "cover_thumb") {
-        // Regenerate the actual cover/thumbnail producer; PDF render alone
-        // cannot improve thumbnail mockup QC because the gate reads cover_qc.
-        patch.cover_url = null;
-        patch.thumbnail_url = null;
+        // Regenerate only the missing/weak thumbnail mockup when possible. Keep
+        // approved cover assets intact; generate-cover can build the 3D mockup
+        // from the existing cover and then persist cover_qc thumbnail fields.
         patch.pdf_status = "idle";
       }
       patch.next_recommended_action = `autofix:${g}`;
       await db.from("ebooks").update(patch).eq("id", ebook_id);
       if (action === "autofix_gate") {
-        await markGateAutoFixing(db, cur, g as GateName, report, currentAttempts + 1);
+        await markGateAutoFixing(db, cur, gateName, report, decision?.countAttempt === false ? currentAttempts : currentAttempts + 1);
       }
 
-      // Log to auto_fix_history for visibility.
-      const { data: hcur } = await db.from("ebooks").select("auto_fix_history").eq("id", ebook_id).single();
-      const history = Array.isArray(hcur?.auto_fix_history) ? hcur!.auto_fix_history : [];
-      history.push({
-        attempt: history.length + 1,
-        gate: g,
-        action: codeFixRetry ? `code_fix_retry_${g}` : action === "autofix_gate" ? `targeted_${g}` : action,
-        result: "kicked",
-        at: new Date().toISOString(),
-      });
-      await db.from("ebooks").update({ auto_fix_history: history }).eq("id", ebook_id);
+      if (action === "autofix_gate" && decision) {
+        await appendRepairHistory(
+          db,
+          cur,
+          decision,
+          decision.countAttempt === false ? currentAttempts : currentAttempts + 1,
+          "started",
+        );
+      } else {
+        // Log to auto_fix_history for visibility.
+        const { data: hcur } = await db.from("ebooks").select("auto_fix_history").eq("id", ebook_id).single();
+        const history = Array.isArray(hcur?.auto_fix_history) ? hcur!.auto_fix_history : [];
+        history.push({
+          attempt: history.length + 1,
+          gate: g,
+          action: codeFixRetry ? `code_fix_retry_${g}` : action === "autofix_gate" ? `targeted_${g}` : action,
+          result: "kicked",
+          at: new Date().toISOString(),
+        });
+        await db.from("ebooks").update({ auto_fix_history: history }).eq("id", ebook_id);
+      }
 
       // Kick the exact producer immediately, then kick the pipeline so the
       // canonical state machine continues to Shopify readiness.
@@ -152,7 +194,7 @@ Deno.serve(async (req) => {
             Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
             apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
           },
-          body: JSON.stringify({ ebook_id, mode: "full" }),
+          body: JSON.stringify({ ebook_id, mode: "overlay" }),
         }).catch((e) => console.warn("generate-cover autofix kickoff failed", e?.message ?? e));
       }
 

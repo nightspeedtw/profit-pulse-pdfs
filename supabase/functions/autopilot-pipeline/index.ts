@@ -37,6 +37,7 @@ import {
   MAX_AUTOFIX_ATTEMPTS,
   stepForGate,
   describeGateFailure,
+  decideRepairLoop,
 } from "../_shared/autopilot-self-heal.ts";
 
 interface InvokeResult { ok: boolean; status: number; body: any; }
@@ -874,14 +875,24 @@ Deno.serve(async (req) => {
           const gate = firstBlockingGate(report);
           if (gate) {
             const attempts = Number(ebook.auto_fix_attempt_count ?? ebook.autofix_attempt ?? 0);
-            if (attempts >= MAX_AUTOFIX_ATTEMPTS) {
-              await markGateNeedsCodeFix(db, ebook, gate, report, attempts);
+            const decision = decideRepairLoop(ebook, gate, report, `targeted_${gate}`);
+            if (decision.alreadyInFlight) {
+              await db.from("autopilot_pipeline_runs").update({
+                status: "auto_fixing",
+                current_step: stepForGate(gate),
+                current_action_message: `Auto-fix already in flight: ${gate}`,
+                current_subtask: describeGateFailure(report, gate),
+              }).eq("id", run_id);
+              return;
+            }
+            if (decision.escalate || (decision.countAttempt && attempts >= MAX_AUTOFIX_ATTEMPTS)) {
+              await markGateNeedsCodeFix(db, ebook, gate, report, attempts, decision.reason);
               await db.from("autopilot_pipeline_runs").update({
                 status: "needs_code_fix",
                 current_step: stepForGate(gate),
                 current_action_message: `Needs Code Fix — ${gate} producer is not converging`,
                 current_subtask: describeGateFailure(report, gate),
-                error_message: `QC gate ${gate} stuck after ${attempts} auto-fix attempts.`,
+                error_message: `QC gate ${gate} stopped auto-fixing: ${decision.reason}.`,
               }).eq("id", run_id);
               return;
             }
@@ -900,22 +911,19 @@ Deno.serve(async (req) => {
             };
             if (gate === "reader") {
               patch.reader_experience_status = "pending";
-              patch.manuscript_qc_status = "pending";
             }
             if (gate === "formatter" || gate === "cover_pdf") {
               patch.pdf_status = "idle";
             }
             if (gate === "cover_thumb") {
               patch.pdf_status = "idle";
-              patch.cover_url = null;
-              patch.thumbnail_url = null;
             }
             await db.from("ebooks").update(patch).eq("id", ebook.id);
             await db.from("autopilot_pipeline_runs").update({
               status: "auto_fixing",
               current_step: stepForGate(gate),
               current_action_message: `Auto-fixing failed QC gate: ${gate}`,
-              current_subtask: `Attempt ${attempts + 1}/${MAX_AUTOFIX_ATTEMPTS} — ${describeGateFailure(report, gate)}`,
+              current_subtask: `${decision.countAttempt ? `Attempt ${attempts + 1}/${MAX_AUTOFIX_ATTEMPTS}` : "Missing-data producer repair (not counted)"} — ${describeGateFailure(report, gate)}`,
             }).eq("id", run_id);
             await invokeFn("autofix-action", { ebook_id: ebook.id, action: "autofix_gate", gate });
             return;
@@ -1016,23 +1024,33 @@ Deno.serve(async (req) => {
         const finalGate = firstBlockingGate(finalGateReport);
         if (finalGate) {
           const attempts = Number(ebook.auto_fix_attempt_count ?? ebook.autofix_attempt ?? 0);
-          if (attempts >= MAX_AUTOFIX_ATTEMPTS) {
-            await markGateNeedsCodeFix(db, ebook, finalGate, finalGateReport, attempts);
+          const decision = decideRepairLoop(ebook, finalGate, finalGateReport, `targeted_${finalGate}`);
+          if (decision.alreadyInFlight) {
+            await db.from("autopilot_pipeline_runs").update({
+              status: "auto_fixing",
+              current_step: stepForGate(finalGate),
+              current_action_message: `Auto-fix already in flight: ${finalGate}`,
+              current_subtask: describeGateFailure(finalGateReport, finalGate),
+            }).eq("id", run_id);
+            return;
+          }
+          if (decision.escalate || (decision.countAttempt && attempts >= MAX_AUTOFIX_ATTEMPTS)) {
+            await markGateNeedsCodeFix(db, ebook, finalGate, finalGateReport, attempts, decision.reason);
           } else {
-            await markGateAutoFixing(db, ebook, finalGate, finalGateReport, attempts + 1);
+            await markGateAutoFixing(db, ebook, finalGate, finalGateReport, decision.countAttempt ? attempts + 1 : attempts);
           }
           await db.from("autopilot_pipeline_runs").update({
-            status: attempts >= MAX_AUTOFIX_ATTEMPTS ? "needs_code_fix" : "auto_fixing",
+            status: (decision.escalate || (decision.countAttempt && attempts >= MAX_AUTOFIX_ATTEMPTS)) ? "needs_code_fix" : "auto_fixing",
             current_step: stepForGate(finalGate),
-            current_action_message: attempts >= MAX_AUTOFIX_ATTEMPTS
+            current_action_message: (decision.escalate || (decision.countAttempt && attempts >= MAX_AUTOFIX_ATTEMPTS))
               ? `Needs Code Fix — ${finalGate} producer is not converging`
               : `Auto-fixing failed QC gate: ${finalGate}`,
             current_subtask: describeGateFailure(finalGateReport, finalGate),
-            error_message: attempts >= MAX_AUTOFIX_ATTEMPTS
-              ? `QC gate ${finalGate} stuck after ${attempts} auto-fix attempts.`
+            error_message: (decision.escalate || (decision.countAttempt && attempts >= MAX_AUTOFIX_ATTEMPTS))
+              ? `QC gate ${finalGate} stopped auto-fixing: ${decision.reason}.`
               : null,
           }).eq("id", run_id);
-          if (attempts < MAX_AUTOFIX_ATTEMPTS) {
+          if (!(decision.escalate || (decision.countAttempt && attempts >= MAX_AUTOFIX_ATTEMPTS))) {
             await invokeFn("autofix-action", { ebook_id: ebook.id, action: "autofix_gate", gate: finalGate });
           }
           return;
