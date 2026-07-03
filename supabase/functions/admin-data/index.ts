@@ -3,6 +3,7 @@
 // the admin panel uses passcode auth (no Supabase session), so direct
 // RLS-protected reads from the client return empty.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { computeQcGates } from "../_shared/qc-gates.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -263,7 +264,7 @@ Deno.serve(async (req) => {
         "waiting_for_ai_budget", "waiting_for_worker_slot",
       ];
       const cols =
-        "id,title,canonical_status,autopilot_state,queue_position,queued_at,estimated_start_after_run_id,waiting_reason,current_step,current_subtask,progress_pct,last_heartbeat_at,current_qc_score,autofix_attempt,autofix_max,structured_error,next_retry_at,cover_url,pdf_url,shopify_status,updated_at";
+        "id,title,canonical_status,autopilot_state,queue_position,queued_at,estimated_start_after_run_id,waiting_reason,current_step,current_subtask,progress_pct,last_heartbeat_at,current_qc_score,autofix_attempt,autofix_max,structured_error,next_retry_at,cover_url,pdf_url,shopify_status,updated_at,pdf_qc,cover_qc,reader_experience_qc,pdf_score,cover_score,reader_experience_score,reader_experience_status,reader_experience_fix_count,re_render_reason,re_render_count,re_render_last_at,qc_ready_for_shopify,final_quality_score,word_count";
 
       const inList = (v: string[]) =>
         `canonical_status.in.(${v.join(",")}),autopilot_state.in.(${v.join(",")})`;
@@ -293,12 +294,24 @@ Deno.serve(async (req) => {
       ]);
 
       // Coalesce canonical_status ← autopilot_state so the UI's badges and
-      // queue-position logic work even when the newer column is null.
-      const coalesce = (rows: any[] | null | undefined) =>
-        (rows ?? []).map((r) => ({
-          ...r,
-          canonical_status: r.canonical_status ?? r.autopilot_state ?? null,
-        }));
+      // queue-position logic work even when the newer column is null, and
+      // attach a normalized `qc` snapshot + `re_render` info so the UI can
+      // show every premium gate score without recomputing.
+      const enrich = (rows: any[] | null | undefined) =>
+        (rows ?? []).map((r) => {
+          const qc = computeQcGates(r);
+          return {
+            ...r,
+            canonical_status: r.canonical_status ?? r.autopilot_state ?? null,
+            qc,
+            re_render: {
+              count: r.re_render_count ?? 0,
+              reason: r.re_render_reason ?? null,
+              last_at: r.re_render_last_at ?? null,
+            },
+          };
+        });
+      const coalesce = enrich; // back-compat alias
 
       const { data: fixes } = await supabase
         .from("system_fix_instructions")
