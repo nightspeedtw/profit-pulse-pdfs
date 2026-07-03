@@ -264,7 +264,7 @@ Deno.serve(async (req) => {
         "waiting_for_ai_budget", "waiting_for_worker_slot",
       ];
       const cols =
-        "id,title,canonical_status,autopilot_state,queue_position,queued_at,estimated_start_after_run_id,waiting_reason,current_step,current_subtask,progress_pct,last_heartbeat_at,current_qc_score,autofix_attempt,autofix_max,structured_error,next_retry_at,cover_url,pdf_url,shopify_status,updated_at,pdf_qc,cover_qc,reader_experience_qc,pdf_score,cover_score,reader_experience_score,reader_experience_status,reader_experience_fix_count,re_render_reason,re_render_count,re_render_last_at,qc_ready_for_shopify,final_quality_score,word_count";
+        "id,title,canonical_status,autopilot_state,queue_position,queued_at,estimated_start_after_run_id,waiting_reason,current_step,current_step_label,current_action_message,current_subtask,progress_pct,last_heartbeat_at,current_qc_score,autofix_attempt,autofix_max,auto_fix_attempt_count,structured_error,blocker_class,blocker_reason,needs_review_reason,next_recommended_action,failed_gate,failed_score,required_score,next_retry_at,cover_url,pdf_url,shopify_status,shopify_product_id,updated_at,pdf_qc,cover_qc,reader_experience_qc,pdf_score,cover_score,reader_experience_score,reader_experience_status,reader_experience_fix_count,re_render_reason,re_render_count,re_render_last_at,qc_ready_for_shopify,final_quality_score,word_count";
 
       const inList = (v: string[]) =>
         `canonical_status.in.(${v.join(",")}),autopilot_state.in.(${v.join(",")})`;
@@ -281,7 +281,7 @@ Deno.serve(async (req) => {
           .order("next_retry_at", { ascending: true, nullsFirst: false }).limit(50),
         supabase.from("ebooks").select(cols).or(eqEither("auto_fixing"))
           .order("updated_at", { ascending: false }).limit(20),
-        supabase.from("ebooks").select(cols).or(`${eqEither("needs_admin_attention")},${eqEither("needs_review")}`)
+        supabase.from("ebooks").select(cols).or(`${eqEither("needs_admin_attention")},${eqEither("needs_review")},${eqEither("failed_non_recoverable")}`)
           .order("updated_at", { ascending: false }).limit(20),
         supabase.from("ebooks").select(cols).or(eqEither("needs_code_fix"))
           .order("updated_at", { ascending: false }).limit(20),
