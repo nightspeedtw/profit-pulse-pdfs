@@ -647,7 +647,7 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
       {items.length > 0 && (
         <div className="flex justify-end mb-3">
           <Button size="sm" variant="outline" onClick={onRegenerateAllCovers} className="gap-2">
-            <Sparkles className="h-4 w-4" /> Regenerate all covers (new style)
+            <Sparkles className="h-4 w-4" /> Regenerate all thumbnails + copy
           </Button>
         </div>
       )}
