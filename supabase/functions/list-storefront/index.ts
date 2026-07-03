@@ -18,7 +18,7 @@ Deno.serve(async (req) => {
 
     let query = supabase
       .from("ebooks")
-      .select("id, title, price, cover_url, product_description, product_type, seo_title, seo_meta, tags, sales_count, listed_at")
+      .select("id, title, price, cover_url, product_description, selling_hook, benefit_bullets, product_type, seo_title, seo_meta, tags, sales_count, listed_at")
       .not("listed_at", "is", null)
       .not("pdf_url", "is", null)
       .not("price", "is", null)
