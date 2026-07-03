@@ -874,7 +874,8 @@ Deno.serve(async (req) => {
           const report = await persistQcSnapshot(db, ebook);
           const gate = firstBlockingGate(report);
           if (gate) {
-            const attempts = Number(ebook.auto_fix_attempt_count ?? ebook.autofix_attempt ?? 0);
+            const retryingAfterCodeFix = ebook.autopilot_state === "needs_code_fix" || ebook.canonical_status === "needs_code_fix";
+            const attempts = retryingAfterCodeFix ? 0 : Number(ebook.auto_fix_attempt_count ?? ebook.autofix_attempt ?? 0);
             const decision = decideRepairLoop(ebook, gate, report, `targeted_${gate}`);
             if (decision.alreadyInFlight) {
               await db.from("autopilot_pipeline_runs").update({
