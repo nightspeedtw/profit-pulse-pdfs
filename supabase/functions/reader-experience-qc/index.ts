@@ -17,6 +17,8 @@
 import { corsHeaders, admin, aiJSON, aiText, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 
 const MAX_ATTEMPTS = 3;
+const EDGE_SAFE_DEADLINE_MS = 70_000;
+const MIN_AI_CALL_BUDGET_MS = 22_000;
 
 // Pass targets from the spec.
 const PASS = {
@@ -346,8 +348,8 @@ MANUSCRIPT SAMPLES (opening / middle / closing per chapter):
 ${manuscriptSample}
 
 Return the JSON verdict per the schema. Flag EVERY excerpt verbatim from the samples above.`,
-    maxTokens: 2048,
-    timeoutMs: 55_000,
+    maxTokens: 1200,
+    timeoutMs: 30_000,
   });
   await logCost(db, {
     ebook_id, step: "reader_experience_qc.critic",
