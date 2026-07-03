@@ -11,6 +11,7 @@ import { statusView, elapsedSince, untilRetry } from "@/lib/canonicalStatus";
 import { downloadAdminPdf } from "@/lib/pdf";
 import { SystemFixCard, type SystemFix } from "./SystemFixCard";
 import { QcGateCard, type QcGateReport, type ReRenderInfo } from "./QcGateCard";
+import { CoverStyleReferenceCard } from "./CoverStyleReferenceCard";
 
 interface QueueEbook {
   id: string;
