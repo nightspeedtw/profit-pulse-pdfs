@@ -18,8 +18,10 @@
 import { admin, corsHeaders, pickModel } from "../_shared/ai.ts";
 import { buildPdfHtml, buildHeaderTemplate, buildFooterTemplate, type PdfData, type WorksheetKind } from "../_shared/pdf-template.ts";
 import {
-  structuralChecks, scorePdfReadability,
-  worksheetOverflowScore, visualFatigueScore, illustrationRelevanceScore,
+ structuralChecks, scorePdfReadability,
+ worksheetOverflowScore, visualFatigueScore, illustrationRelevanceScore,
+ typographyScore, readingComfortScore, tableRenderScore,
+ worksheetLayoutScore, premiumLayoutScore, coverFullA4Score, formattingScore,
   type PdfQcReport,
 } from "../_shared/pdf-qc.ts";
 import { lintChapters } from "../_shared/compliance.ts";
@@ -314,6 +316,18 @@ Deno.serve(async (req) => {
     // Worksheet readability blends AI worksheet score with the overflow gate.
     const worksheetReadability = Math.round((aiScores.worksheet_score * 0.6) + (wsOverflow * 0.4));
 
+    // ---- Premium book-design v3 scores (deterministic on rendered HTML) ----
+    const typo = typographyScore(html);
+    const comfort = readingComfortScore(html);
+    const tableRen = tableRenderScore(html);
+    const wsLayout = worksheetLayoutScore(html);
+    const premLayout = premiumLayoutScore(html);
+    const coverA4 = coverFullA4Score(html);
+    const fmtScore = formattingScore({
+      typography: typo, reading_comfort: comfort, table_render: tableRen,
+      worksheet_layout: wsLayout, premium_layout: premLayout, cover_full_a4: coverA4,
+    });
+
     const qc: PdfQcReport = {
       layout_score: layoutScore,
       readability_score: aiScores.readability_score,
@@ -325,6 +339,13 @@ Deno.serve(async (req) => {
       visual_fatigue_score: visFatigue,
       inside_illustration_relevance_score: illRelevance,
       compliance_safety_score: complianceScore,
+      formatting_score: fmtScore,
+      reading_comfort_score: comfort,
+      typography_score: typo,
+      table_render_score: tableRen,
+      worksheet_layout_score: wsLayout,
+      premium_layout_score: premLayout,
+      cover_full_a4_score: coverA4,
       final_pdf_premium_score: finalPdfPremium,
       checks: struct.checks,
       issues: [...struct.issues, ...(aiScores.issues ?? [])].slice(0, 12),
@@ -393,7 +414,23 @@ Deno.serve(async (req) => {
       chapterTitleQualityScore >= 90 &&
       worksheetRelevanceScore >= 95 &&
       coverFullBleedScore === 100;
-    const passed = finalPdfPremium >= 85 && layoutScore >= 80 && allCriticalPass && premiumGate && hardGate;
+    // v3 premium book-design gate — formatter / typography / print polish.
+    const formatterGate =
+      fmtScore >= 90 &&
+      comfort >= 90 &&
+      typo >= 90 &&
+      tableRen >= 90 &&
+      wsLayout >= 90 &&
+      premLayout >= 90 &&
+      coverA4 === 100;
+    if (fmtScore < 90) qc.issues.push(`formatting_score=${fmtScore} below 90`);
+    if (comfort < 90) qc.issues.push(`reading_comfort_score=${comfort} below 90`);
+    if (typo < 90) qc.issues.push(`typography_score=${typo} below 90`);
+    if (tableRen < 90) qc.issues.push(`table_render_score=${tableRen} below 90`);
+    if (wsLayout < 90) qc.issues.push(`worksheet_layout_score=${wsLayout} below 90`);
+    if (premLayout < 90) qc.issues.push(`premium_layout_score=${premLayout} below 90`);
+    if (coverA4 !== 100) qc.issues.push(`cover_full_a4_score=${coverA4} (must be 100)`);
+    const passed = finalPdfPremium >= 85 && layoutScore >= 80 && allCriticalPass && premiumGate && hardGate && formatterGate;
 
     await db.from("ebooks").update({
       pdf_url: signedPdf?.signedUrl ?? null,

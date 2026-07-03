@@ -15,6 +15,14 @@ export interface PdfQcReport {
   visual_fatigue_score: number;             // >=90
   inside_illustration_relevance_score: number; // >=90
   compliance_safety_score: number;          // >=90
+  // Premium book-design v3 metrics (formatter/typography contract)
+  formatting_score: number;                 // >=90
+  reading_comfort_score: number;            // >=90
+  typography_score: number;                 // >=90
+  table_render_score: number;               // >=90
+  worksheet_layout_score: number;           // >=90
+  premium_layout_score: number;             // >=90
+  cover_full_a4_score: number;              // =100
   final_pdf_premium_score: number;
   checks: {
     premium_typography: boolean;
@@ -178,3 +186,93 @@ export function illustrationRelevanceScore(html: string): number {
   for (const _ of figures) relevant++; // template only emits captions from planner, so treat all as relevant.
   return Math.round((relevant / figures.length) * 100);
 }
+
+// ---------- Premium book-design v3 scoring helpers ----------
+// Deterministic scores derived from the HTML the template emits. They reward
+// the CSS contracts we actually shipped (justified prose, hyphens, repeating
+// table headers, drop caps, A4 cover) rather than asking an AI to guess.
+
+export function typographyScore(html: string): number {
+  let s = 60;
+  if (/font-family:\s*"Inter"/.test(html)) s += 8;
+  if (/Source Serif/.test(html)) s += 8;
+  if (/font-feature-settings:\s*"kern"/.test(html)) s += 6;
+  if (/text-rendering:\s*optimizeLegibility/.test(html)) s += 6;
+  if (/letter-spacing:\s*-0\.0/.test(html)) s += 4;
+  if (/chapter-body__eyebrow/.test(html)) s += 4;
+  if (/chapter-body__title/.test(html)) s += 4;
+  return Math.min(100, s);
+}
+
+export function readingComfortScore(html: string): number {
+  let s = 60;
+  if (/text-align:\s*justify/.test(html)) s += 10;
+  if (/hyphens:\s*auto/.test(html)) s += 8;
+  if (/line-height:\s*1\.58/.test(html)) s += 6;
+  if (/orphans:\s*3/.test(html) && /widows:\s*3/.test(html)) s += 8;
+  if (/first-of-type::first-letter/.test(html)) s += 4;
+  if (/break-after:\s*avoid/.test(html)) s += 4;
+  return Math.min(100, s);
+}
+
+export function tableRenderScore(html: string): number {
+  const hasTables = /class="md-table"/.test(html);
+  if (!hasTables) return 100;
+  let s = 70;
+  if (/display:\s*table-header-group/.test(html)) s += 12;
+  if (/table-layout:\s*fixed/.test(html)) s += 6;
+  if (/hyphens:\s*auto/.test(html)) s += 6;
+  if (!/<p[^>]*>[^<]*\|[^<]*\|[^<]*<\/p>/.test(html)) s += 6;
+  return Math.min(100, s);
+}
+
+export function worksheetLayoutScore(html: string): number {
+  const wsCount = (html.match(/class="worksheet/g) ?? []).length;
+  if (wsCount === 0) return 80;
+  let s = 70;
+  if (/worksheet--table/.test(html)) s += 8;
+  if (/page-break-inside:\s*avoid/.test(html)) s += 6;
+  if (/block__heading/.test(html)) s += 6;
+  if (/worksheet__lines/.test(html) || /<tbody>/.test(html)) s += 6;
+  if (!/<p[^>]*>[^<]*\|[^<]*\|[^<]*<\/p>/.test(html)) s += 4;
+  return Math.min(100, s);
+}
+
+export function premiumLayoutScore(html: string): number {
+  let s = 55;
+  if (/class="cover-a4"/.test(html)) s += 12;
+  if (/class="page title-page"/.test(html)) s += 6;
+  if (/class="page toc"/.test(html)) s += 6;
+  if (/class="page chapter-divider"/.test(html)) s += 8;
+  if (/class="callout/.test(html)) s += 4;
+  if (/class="framework/.test(html)) s += 4;
+  if (/class="worksheet/.test(html)) s += 4;
+  if (/inside-illus/.test(html)) s += 3;
+  return Math.min(100, s);
+}
+
+// A4 cover check is binary — either the template emits a `.cover-a4` section
+// with the dedicated `@page cover-a4 { size: A4; margin: 0 }` rule or not.
+export function coverFullA4Score(html: string): number {
+  const hasSection = /class="cover-a4"/.test(html);
+  const hasPageRule = /@page\s+cover-a4\s*\{[^}]*size:\s*A4/i.test(html);
+  return (hasSection && hasPageRule) ? 100 : 0;
+}
+
+// Aggregate formatting score = weighted mean of the six v3 sub-scores.
+export function formattingScore(parts: {
+  typography: number; reading_comfort: number; table_render: number;
+  worksheet_layout: number; premium_layout: number; cover_full_a4: number;
+}): number {
+  const w = { typography: 0.20, reading_comfort: 0.22, table_render: 0.14,
+              worksheet_layout: 0.14, premium_layout: 0.15, cover_full_a4: 0.15 };
+  const sum =
+    parts.typography * w.typography +
+    parts.reading_comfort * w.reading_comfort +
+    parts.table_render * w.table_render +
+    parts.worksheet_layout * w.worksheet_layout +
+    parts.premium_layout * w.premium_layout +
+    parts.cover_full_a4 * w.cover_full_a4;
+  return Math.round(sum);
+}
+

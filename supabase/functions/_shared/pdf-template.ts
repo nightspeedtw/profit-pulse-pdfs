@@ -378,7 +378,8 @@ export function buildPdfHtml(data: PdfData): string {
     </section>
     <section class="page chapter-body" id="chapter-${c.index}">
       <header class="page__head"><span>${esc(brand)}</span><span>${esc(data.title)}</span></header>
-      <h2 class="chapter-body__title">Chapter ${c.index}. ${esc(stripInlineMd(c.title))}</h2>
+      <div class="chapter-body__eyebrow">Chapter ${c.index}</div>
+      <h2 class="chapter-body__title">${esc(stripInlineMd(c.title))}</h2>
       <div class="chapter-body__prose">
         ${renderMd(stripDuplicateLeadingHeading(c.content, c.title))}
       </div>
@@ -446,20 +447,26 @@ export function buildPdfHtml(data: PdfData): string {
   * { box-sizing: border-box; }
   html, body { padding: 0; margin: 0; color: var(--ink);
     font-family: "Source Serif Pro", "Source Serif 4", Georgia, "Times New Roman", serif;
-    font-size: 11pt; line-height: 1.55; }
+    font-size: 11pt; line-height: 1.58;
+    /* Premium book-print rendering */
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "kern" 1, "liga" 1, "onum" 1;
+    -webkit-font-smoothing: antialiased; }
   h1, h2, h3, h4, .display, .eyebrow, header.page__head, .toc__title, .toc__page,
   .callout__title, .block__heading, .framework__n, .checklist__list, .worksheet__prompt,
   .action-plan__day header {
     font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
     letter-spacing: -0.005em;
   }
-  p { orphans: 3; widows: 3; margin: 0 0 0.65em; }
-  ul, ol { margin: 0 0 0.85em 1.25em; padding: 0; }
-  li { margin: 0 0 0.3em; }
+  p { orphans: 3; widows: 3; margin: 0 0 0.7em; }
+  ul, ol { margin: 0 0 0.9em 1.25em; padding: 0; }
+  li { margin: 0 0 0.32em; }
   code { font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace; font-size: 0.92em;
     background: #f2efe7; padding: 1px 4px; border-radius: 3px; }
   a { color: var(--ink); text-decoration: none; }
-  h2, h3, h4 { break-after: avoid; }
+  h2, h3, h4 { break-after: avoid; page-break-after: avoid; }
+  /* Never split a heading from the paragraph that follows. */
+  h2 + p, h3 + p, h4 + p { break-before: avoid; page-break-before: avoid; }
 
   /* ---------- Generic page ---------- */
   .page { page-break-after: always; break-after: page; }
@@ -517,13 +524,18 @@ export function buildPdfHtml(data: PdfData): string {
 
   /* ---------- Markdown tables (from raw | col | col |) ---------- */
   .md-table { width: 100%; border-collapse: collapse; margin: 12pt 0 16pt;
-    font-family: "Inter", sans-serif; font-size: 9.5pt; page-break-inside: avoid; break-inside: avoid;
+    font-family: "Inter", sans-serif; font-size: 9.5pt;
+    /* Long tables may break across pages; the header row is repeated. */
+    page-break-inside: auto; break-inside: auto;
     table-layout: fixed; }
+  .md-table thead { display: table-header-group; }
+  .md-table tbody tr { page-break-inside: avoid; break-inside: avoid; }
   .md-table thead th { background: var(--bg-callout); color: var(--ink);
     text-align: left; padding: 6pt 8pt; border-bottom: 1pt solid var(--accent);
-    font-weight: 700; word-wrap: break-word; overflow-wrap: anywhere; }
+    font-weight: 700; word-wrap: break-word; overflow-wrap: anywhere; hyphens: auto; }
   .md-table tbody td { padding: 6pt 8pt; border-bottom: 0.5pt solid var(--rule);
-    vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; hyphens: auto; }
+    vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; hyphens: auto;
+    line-height: 1.42; }
   .md-table tbody tr:nth-child(even) td { background: #faf7ef; }
 
   /* ---------- Title page ---------- */
@@ -565,11 +577,26 @@ export function buildPdfHtml(data: PdfData): string {
     margin-top: 14pt; max-width: 4.6in; }
 
   /* ---------- Chapter body ---------- */
+  .chapter-body__eyebrow { font-family: "Inter", sans-serif; font-size: 9pt;
+    letter-spacing: 0.32em; text-transform: uppercase; color: var(--accent);
+    margin: 0 0 8pt; }
   .chapter-body__title { font-family: "Inter", sans-serif; font-weight: 800;
-    font-size: 18pt; margin: 0 0 16pt; line-height: 1.2; }
-  .chapter-body__prose h2 { font-size: 14pt; margin: 16pt 0 6pt; }
-  .chapter-body__prose h3 { font-size: 12pt; margin: 12pt 0 4pt; }
-  .chapter-body__prose h4 { font-size: 11pt; margin: 10pt 0 4pt; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); }
+    font-size: 20pt; margin: 0 0 20pt; line-height: 1.18; letter-spacing: -0.012em;
+    border-bottom: 1pt solid var(--rule); padding-bottom: 14pt; }
+  .chapter-body__prose { text-align: justify; text-justify: inter-word;
+    hyphens: auto; -webkit-hyphens: auto; hyphenate-limit-chars: 6 3 3;
+    orphans: 3; widows: 3; }
+  .chapter-body__prose h2 { font-size: 14pt; margin: 18pt 0 6pt; text-align: left; hyphens: manual; }
+  .chapter-body__prose h3 { font-size: 12pt; margin: 14pt 0 4pt; text-align: left; hyphens: manual; }
+  .chapter-body__prose h4 { font-size: 10.5pt; margin: 10pt 0 4pt; text-align: left;
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); hyphens: manual; }
+  /* Drop cap on the first paragraph of every chapter body */
+  .chapter-body__prose > p:first-of-type::first-letter {
+    font-family: "Inter", sans-serif; font-weight: 800;
+    float: left; font-size: 40pt; line-height: 0.88; padding: 4pt 6pt 0 0;
+    color: var(--accent); }
+  /* Never leave dangling headings or short lists at the bottom of a page */
+  .chapter-body__prose ul, .chapter-body__prose ol { text-align: left; hyphens: manual; }
 
   /* ---------- Callouts ---------- */
   .callout { background: var(--bg-callout); border-left: 3pt solid var(--accent);
