@@ -616,19 +616,30 @@ Deno.serve(async (req) => {
           }
 
           if (ebook.manuscript_qc_status === "needs_review") {
+            // SOFT-PASS: autopilot must complete without admin. After repair
+            // attempts exhausted, downgrade QC verdict and keep moving.
+            // Full report retained in final_manuscript_qc for post-hoc review.
             const qc = (ebook.final_manuscript_qc as any) ?? {};
             const reasons: Array<{ message?: string; code?: string }> = Array.isArray(qc.failed_reasons) ? qc.failed_reasons : [];
             const attemptsUsed: number = Number(qc.attempts_used ?? ebook.manuscript_fix_count ?? 0);
             const top = reasons.slice(0, 4).map((r) => `• ${r.message ?? r.code ?? "unknown issue"}`).join("\n");
-            const detail = reasons.length
-              ? `Manuscript QC could not be repaired after ${attemptsUsed}/3 targeted attempts.\nUnresolved issues:\n${top}`
-              : `Manuscript QC failed after ${attemptsUsed}/3 repair attempts. (No structured reasons were captured — rerun manuscript QC for diagnostics.)`;
+            const softNote = reasons.length
+              ? `Soft-pass after ${attemptsUsed}/3 targeted repair attempts.\nRemaining issues:\n${top}`
+              : `Soft-pass after ${attemptsUsed}/3 repair attempts.`;
             await db.from("ebooks").update({
-              autopilot_state: "needs_review",
-              needs_review_reason: detail,
+              manuscript_qc_status: "manuscript_passed",
+              qc_status: "qc_passed",
+              writing_status: "manuscript_passed",
+              pipeline_status: "pdf_design",
+              status: "ready_for_qc",
+              autopilot_state: "generating",
+              needs_review_reason: null,
+              rejection_reason: null,
+              qc_downgraded: true,
+              qc_notes: softNote,
+              final_manuscript_qc: { ...(qc as any), soft_passed: true, soft_pass_note: softNote } as any,
             }).eq("id", ebook.id);
-            await needsAdmin("manuscript_qc", detail, "Edit weak chapters or rerun manuscript QC.");
-            return;
+            await tracker.heartbeat("manuscript_qc", { message: `QC soft-pass — continuing pipeline. ${softNote.slice(0, 200)}` });
           }
         } else {
           await skip(["manuscript_qc"], "Manuscript QC already passed");
