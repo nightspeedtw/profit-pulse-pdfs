@@ -1,102 +1,201 @@
-// Auto pricing engine — computes a recommended USD price for an ebook based on
-// category, size, quality, and product format. Returns a numeric price plus a
-// structured rationale that the admin UI can display and override.
+// Pricing engine.
+//
+// Two APIs live here:
+//   1) computePricing(PricingInputs) → PricingReport  — the full pricing report
+//      used by the compute-pricing edge function (launch / standard / bundle
+//      etc.). Keep this signature stable; compute-pricing/index.ts depends on it.
+//   2) computeListingPrice(ListingPricingInputs) → ListingPricingResult — the
+//      simpler category-aware auto-price used by auto-list-ebook for the new
+//      internal store, backed by the category style profile's price band.
 import { resolveStyleProfile, type StyleProfile } from "./thumbnail-style-system.ts";
 
+// ---------- 1) Full pricing report (existing consumer contract) ----------
+
 export interface PricingInputs {
+  title?: string | null;
   category_slug?: string | null;
   category_name?: string | null;
-  title?: string | null;
-  subtitle?: string | null;
+  target_buyer?: string | null;
+  buyer_pain_level?: number | null;
+  buyer_urgency?: number | null;
+  buyer_ability_to_pay?: number | null;
+  topic_demand?: number | null;
+  market_competition?: number | null;
   word_count?: number | null;
-  illustration_count?: number | null;
+  page_count?: number | null;
+  chapter_count?: number | null;
   worksheet_count?: number | null;
-  final_quality_score?: number | null;
-  product_format?: string | null;      // "ebook" | "toolkit" | "bundle" | "mini"
-  compliance_sensitive?: boolean;
+  template_count?: number | null;
+  diagram_count?: number | null;
+  bonus_asset_count?: number | null;
+  premium_score?: number | null;
+  conversion_score?: number | null;
+  cover_score?: number | null;
+  compliance_risk_score?: number | null;
+  refund_risk_score?: number | null;
+  is_bundle?: boolean;
+  comparable_market_price_range?: [number, number] | null;
 }
 
-export interface PricingResult {
-  price: number;
-  compare_at_price: number | null;
+export type PricingTier = "starter" | "standard" | "premium" | "toolkit" | "bundle";
+
+export interface PricingReport {
+  recommended_price: number;
+  launch_price: number;
+  standard_price: number;
+  low_price_test: number;
+  high_price_test: number;
+  bundle_price_recommendation: number;
+  pricing_tier: PricingTier;
+  price_confidence_score: number; // 0–100
+  category_slug: string;
+  band: { min: number; max: number };
+  rationale: Array<{ factor: string; delta: number; note: string }>;
   currency: "USD";
-  rationale: {
-    category: string;
-    profile_band: { min: number; max: number };
-    factors: Array<{ name: string; delta: number; note: string }>;
-    base_price: number;
-    computed_price: number;
-    quality_bonus_applied: boolean;
-    format: string;
-  };
 }
 
-function clamp(v: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, v));
-}
-
-function niceRound(n: number): number {
+function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
+function nice(n: number): number {
   if (n <= 0) return 0;
-  // round to nearest .99 or .00 depending on band
-  const floor = Math.floor(n);
-  return floor + 0.99;
+  const f = Math.floor(n);
+  return f + 0.99;
+}
+function s10(v: number | null | undefined): number {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return 5;
+  return n > 10 ? Math.max(0, Math.min(10, n / 10)) : Math.max(0, Math.min(10, n));
 }
 
-export function computePricing(input: PricingInputs): PricingResult {
+export function computePricing(input: PricingInputs): PricingReport {
   const profile: StyleProfile = resolveStyleProfile({
     category_slug: input.category_slug,
     category_name: input.category_name,
     title: input.title,
-    subtitle: input.subtitle,
   });
-
   const band = profile.price_band;
-  let base = (band.min + band.max) / 2;
-  const factors: PricingResult["rationale"]["factors"] = [];
+  const mid = (band.min + band.max) / 2;
 
-  // Size factor
+  const rationale: PricingReport["rationale"] = [];
+  let base = mid;
+
+  // Buyer signals (0–10 each)
+  const pain = s10(input.buyer_pain_level);
+  const urgency = s10(input.buyer_urgency);
+  const ability = s10(input.buyer_ability_to_pay);
+  const demand = s10(input.topic_demand);
+  const competition = s10(input.market_competition);
+
+  const buyerDelta = ((pain + urgency + ability + demand - competition) / 10) * 4;
+  if (Math.abs(buyerDelta) >= 0.5) rationale.push({
+    factor: "buyer_signals",
+    delta: Math.round(buyerDelta * 100) / 100,
+    note: `pain=${pain} urgency=${urgency} pay=${ability} demand=${demand} comp=${competition}`,
+  });
+  base += buyerDelta;
+
+  // Length & content depth
   const wc = Math.max(0, Number(input.word_count ?? 0));
-  if (wc >= 25000) { base += 6; factors.push({ name: "length", delta: 6, note: `${wc.toLocaleString()} words (long)` }); }
-  else if (wc >= 12000) { base += 3; factors.push({ name: "length", delta: 3, note: `${wc.toLocaleString()} words (standard)` }); }
-  else if (wc > 0 && wc < 5000) { base -= 3; factors.push({ name: "length", delta: -3, note: `${wc.toLocaleString()} words (mini)` }); }
+  if (wc >= 25000) { base += 6; rationale.push({ factor: "length", delta: 6, note: `${wc.toLocaleString()} words` }); }
+  else if (wc >= 12000) { base += 3; rationale.push({ factor: "length", delta: 3, note: `${wc.toLocaleString()} words` }); }
+  else if (wc > 0 && wc < 5000) { base -= 3; rationale.push({ factor: "length", delta: -3, note: `${wc.toLocaleString()} words (mini)` }); }
 
-  // Illustration factor (children / creative books)
-  const ic = Math.max(0, Number(input.illustration_count ?? 0));
-  if (ic >= 20) { base += 5; factors.push({ name: "illustrations", delta: 5, note: `${ic} illustrations` }); }
-  else if (ic >= 8) { base += 2; factors.push({ name: "illustrations", delta: 2, note: `${ic} illustrations` }); }
+  const worksheets = Number(input.worksheet_count ?? 0) + Number(input.template_count ?? 0);
+  if (worksheets >= 5) { base += 6; rationale.push({ factor: "toolkit", delta: 6, note: `${worksheets} worksheets/templates` }); }
+  else if (worksheets >= 1) { base += 2; rationale.push({ factor: "toolkit", delta: 2, note: `${worksheets} worksheets` }); }
 
-  // Worksheets / toolkit bonus
-  const ws = Math.max(0, Number(input.worksheet_count ?? 0));
-  if (ws >= 5) { base += 8; factors.push({ name: "toolkit", delta: 8, note: `${ws} worksheets/templates` }); }
-  else if (ws >= 1) { base += 3; factors.push({ name: "toolkit", delta: 3, note: `${ws} worksheets` }); }
+  const bonus = Number(input.bonus_asset_count ?? 0);
+  if (bonus >= 3) { base += 3; rationale.push({ factor: "bonus", delta: 3, note: `${bonus} bonus assets` }); }
 
-  // Quality bonus
-  const q = Number(input.final_quality_score ?? 0);
-  let qualityBonus = false;
-  if (q >= 92) { base += 4; qualityBonus = true; factors.push({ name: "quality", delta: 4, note: `Q${q} premium` }); }
-  else if (q >= 88) { base += 2; qualityBonus = true; factors.push({ name: "quality", delta: 2, note: `Q${q} high` }); }
+  // Quality
+  const q = Number(input.premium_score ?? 0);
+  if (q >= 92) { base += 4; rationale.push({ factor: "quality", delta: 4, note: `premium score ${q}` }); }
+  else if (q >= 85) { base += 2; rationale.push({ factor: "quality", delta: 2, note: `high score ${q}` }); }
 
-  // Format override
-  const fmt = (input.product_format ?? "ebook").toLowerCase();
-  if (fmt === "bundle") { base = Math.max(base + 40, 79); factors.push({ name: "format", delta: 40, note: "bundle" }); }
-  else if (fmt === "toolkit") { base += 10; factors.push({ name: "format", delta: 10, note: "toolkit" }); }
-  else if (fmt === "mini") { base = Math.min(base, 17); factors.push({ name: "format", delta: 0, note: "mini guide capped" }); }
+  // Compliance / refund risk pushes down
+  const compliance = Number(input.compliance_risk_score ?? 0);
+  if (compliance >= 7) { base -= 3; rationale.push({ factor: "compliance", delta: -3, note: "high sensitivity" }); }
+  const refund = Number(input.refund_risk_score ?? 0);
+  if (refund >= 7) { base -= 2; rationale.push({ factor: "refund_risk", delta: -2, note: "high refund risk" }); }
 
-  const computed = clamp(base, band.min, fmt === "bundle" ? 199 : band.max);
-  const price = niceRound(computed);
+  // Comparable market range
+  const cmp = input.comparable_market_price_range;
+  if (cmp && cmp.length === 2) {
+    const mkt = (cmp[0] + cmp[1]) / 2;
+    const pull = (mkt - base) * 0.3;
+    if (Math.abs(pull) >= 0.5) {
+      base += pull;
+      rationale.push({ factor: "market", delta: Math.round(pull * 100) / 100, note: `comparable $${cmp[0]}–$${cmp[1]}` });
+    }
+  }
+
+  const standard = clamp(base, band.min, band.max);
+  const recommended = standard;
+  const launch = clamp(standard * 0.7, band.min * 0.7, band.max);
+  const low = clamp(standard * 0.55, 4, band.max);
+  const high = clamp(standard * 1.35, band.min, band.max * 1.35);
+  const bundleRec = Math.max(79, standard * 2.4);
+
+  // Tier
+  let tier: PricingTier = "standard";
+  if (input.is_bundle) tier = "bundle";
+  else if (worksheets >= 5) tier = "toolkit";
+  else if (recommended <= 14) tier = "starter";
+  else if (recommended >= 29 || q >= 90) tier = "premium";
+
+  // Confidence: more signals + higher quality → higher confidence
+  const signalCount = [input.word_count, input.premium_score, input.buyer_pain_level, input.topic_demand, cmp]
+    .filter(v => v !== null && v !== undefined).length;
+  const confidence = clamp(40 + signalCount * 10 + Math.round(q / 5), 30, 95);
 
   return {
-    price,
-    compare_at_price: null, // only truthful when admin enables it
+    recommended_price: nice(recommended),
+    launch_price: nice(launch),
+    standard_price: nice(standard),
+    low_price_test: nice(low),
+    high_price_test: nice(high),
+    bundle_price_recommendation: nice(bundleRec),
+    pricing_tier: tier,
+    price_confidence_score: confidence,
+    category_slug: profile.slug,
+    band,
+    rationale,
     currency: "USD",
-    rationale: {
-      category: profile.slug,
-      profile_band: band,
-      factors,
-      base_price: Math.round(((band.min + band.max) / 2) * 100) / 100,
-      computed_price: Math.round(computed * 100) / 100,
-      quality_bonus_applied: qualityBonus,
-      format: fmt,
-    },
+  };
+}
+
+// ---------- 2) Simple auto-list pricing (new internal store) ----------
+
+export interface ListingPricingInputs {
+  category_slug?: string | null;
+  category_name?: string | null;
+  title?: string | null;
+  word_count?: number | null;
+  illustration_count?: number | null;
+  worksheet_count?: number | null;
+  final_quality_score?: number | null;
+  product_format?: string | null;
+}
+
+export interface ListingPricingResult {
+  price: number;
+  compare_at_price: number | null;
+  rationale: PricingReport;
+}
+
+export function computeListingPrice(input: ListingPricingInputs): ListingPricingResult {
+  const report = computePricing({
+    title: input.title,
+    category_slug: input.category_slug,
+    category_name: input.category_name,
+    word_count: input.word_count,
+    worksheet_count: input.worksheet_count,
+    diagram_count: input.illustration_count,
+    premium_score: input.final_quality_score,
+    is_bundle: (input.product_format ?? "").toLowerCase() === "bundle",
+  });
+  return {
+    price: report.recommended_price,
+    compare_at_price: null,
+    rationale: report,
   };
 }
