@@ -1,7 +1,8 @@
 import { Link, NavLink as RouterNavLink } from "react-router-dom";
 import { CartDrawer } from "./CartDrawer";
-import { Search, Menu, X } from "lucide-react";
+import { Search, Menu, X, ShieldCheck } from "lucide-react";
 import { useState } from "react";
+import logoHorizontal from "@/assets/secretpdf-horizontal.png.asset.json";
 
 const NAV = [
   { label: "Library", to: "/library" },
@@ -15,22 +16,22 @@ export const Header = () => {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-40 bg-background border-b-2 border-foreground">
+    <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-md border-b border-border">
       {/* Announcement bar */}
-      <div className="bg-foreground text-background overflow-hidden">
-        <div className="marquee py-2 text-xs font-mono uppercase tracking-widest">
+      <div className="bg-primary text-primary-foreground overflow-hidden">
+        <div className="marquee py-2 text-[11px] font-mono uppercase tracking-[0.2em]">
           {[0, 1].map((i) => (
             <div key={i} className="marquee-content">
               {Array.from({ length: 8 }).map((_, j) => (
                 <span key={j} className="flex items-center gap-3 whitespace-nowrap">
-                  <span className="text-highlight">★</span>
-                  Instant PDF Delivery
-                  <span className="text-highlight">★</span>
-                  Print Unlimited Copies
-                  <span className="text-highlight">★</span>
+                  <ShieldCheck className="h-3.5 w-3.5 text-accent" strokeWidth={2.5} />
+                  Private &amp; Encrypted Delivery
+                  <span className="text-accent">•</span>
+                  Instant PDF Download
+                  <span className="text-accent">•</span>
                   30-Day Money Back
-                  <span className="text-highlight">★</span>
-                  Trusted by 50K+ Creators
+                  <span className="text-accent">•</span>
+                  Trusted by 50K+ Readers
                 </span>
               ))}
             </div>
@@ -39,13 +40,12 @@ export const Header = () => {
       </div>
 
       <div className="container flex items-center justify-between h-20 gap-4">
-        <Link to="/" className="flex items-center gap-2 group" aria-label="Printly home">
-          <div className="h-10 w-10 bg-accent border-2 border-foreground flex items-center justify-center font-display text-accent-foreground text-xl group-hover:rotate-3 transition-transform">
-            P
-          </div>
-          <span className="font-display text-2xl uppercase tracking-tight hidden sm:inline">
-            Printly
-          </span>
+        <Link to="/" className="flex items-center group" aria-label="SecretPDF home">
+          <img
+            src={logoHorizontal.url}
+            alt="SecretPDF"
+            className="h-9 sm:h-10 w-auto transition-transform group-hover:scale-[1.02]"
+          />
         </Link>
 
         <nav className="hidden md:flex items-center gap-1">
@@ -54,10 +54,10 @@ export const Header = () => {
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `px-4 py-2 font-display text-sm uppercase tracking-wide border-2 transition-all ${
+                `px-4 py-2 font-sans text-sm font-medium rounded-full transition-all ${
                   isActive
-                    ? "border-foreground bg-highlight"
-                    : "border-transparent hover:border-foreground hover:bg-secondary"
+                    ? "bg-highlight text-primary"
+                    : "text-foreground/70 hover:text-primary hover:bg-secondary"
                 }`
               }
             >
@@ -69,15 +69,15 @@ export const Header = () => {
         <div className="flex items-center gap-2">
           <button
             aria-label="Search"
-            className="hidden sm:flex h-12 w-12 border-2 border-foreground bg-background hover:bg-highlight transition-colors items-center justify-center"
+            className="hidden sm:flex h-11 w-11 rounded-full border border-border bg-background hover:bg-secondary transition-colors items-center justify-center"
           >
-            <Search className="h-5 w-5" strokeWidth={2.5} />
+            <Search className="h-4.5 w-4.5 text-foreground/70" strokeWidth={2} />
           </button>
           <CartDrawer />
           <button
             aria-label="Menu"
             onClick={() => setOpen(!open)}
-            className="md:hidden h-12 w-12 border-2 border-foreground bg-background flex items-center justify-center"
+            className="md:hidden h-11 w-11 rounded-full border border-border bg-background flex items-center justify-center"
           >
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -86,7 +86,7 @@ export const Header = () => {
 
       {/* Mobile nav */}
       {open && (
-        <div className="md:hidden border-t-2 border-foreground bg-background">
+        <div className="md:hidden border-t border-border bg-background">
           <nav className="container py-4 flex flex-col gap-1">
             {NAV.map((item) => (
               <RouterNavLink
@@ -94,8 +94,8 @@ export const Header = () => {
                 to={item.to}
                 onClick={() => setOpen(false)}
                 className={({ isActive }) =>
-                  `px-4 py-3 font-display text-base uppercase border-2 ${
-                    isActive ? "border-foreground bg-highlight" : "border-transparent hover:border-foreground"
+                  `px-4 py-3 font-sans text-base rounded-lg ${
+                    isActive ? "bg-highlight text-primary" : "text-foreground/80 hover:bg-secondary"
                   }`
                 }
               >
