@@ -45,13 +45,17 @@ Return ONLY JSON matching this schema (no prose):
   "spine_page_depth_score": 0-100,
   "shadow_lighting_score": 0-100,
   "store_click_appeal_score": 0-100,
+  "text_integrity_score": 0-100,
+  "book_geometry_score": 0-100,
   "final_store_thumbnail_score": 0-100,
   "reasons": [ "..." ],
   "detected_title": "the exact title text you can read on the cover",
-  "repair_hints": [ "too_small" | "dark_bg" | "distorted_text" | "flat" | "no_shadow" ]
+  "repair_hints": [ "too_small" | "dark_bg" | "distorted_text" | "flat" | "no_shadow" | "distorted_geometry" | "clipped_text" ]
 }
 Rules:
 - Expected title on the cover: "${expectedTitle.replace(/"/g, "'")}". If the visible title does not match this string, title_baked_in_score must be <= 40 and add "distorted_text" to repair_hints.
+- text_integrity_score: check that EVERY word (title, subtitle, badge, footer chips) is fully visible with no letters clipped at any edge. If any letter is cut off or a word is truncated, this must be <= 50 and add "clipped_text".
+- book_geometry_score: cover aspect ratio must be ~1:1.5, corners square, spine 6-8% of width, no warping/stretching/fisheye. If the book looks stretched, elongated, warped, or the corners are not square, this must be <= 50 and add "distorted_geometry".
 - If the book occupies < 78% of frame height, book_size_score <= 60 and add "too_small".
 - If background is dark or not off-white studio, white_bg_product_photo_score <= 40 and add "dark_bg".
 - If the book looks flat / vector / template with no visible spine or page thickness, spine_page_depth_score <= 50 and add "flat".
