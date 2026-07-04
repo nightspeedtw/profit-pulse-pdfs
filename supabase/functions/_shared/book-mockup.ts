@@ -100,6 +100,7 @@ function wrapWords(text: string, maxChars: number, maxLines: number): string[] {
 
 // ---------- Category style presets ----------
 type IconName = "target" | "calendar" | "chart" | "shield" | "focus" | "clock" | "workflow" | "sparkle" | "leaf" | "wallet" | "route" | "check" | "star";
+type MotifName = "stairs" | "ladder" | "shield" | "wave" | "circuit" | "leaf" | "route" | "grid" | "star" | "door";
 type Preset = {
   key: string;
   badge: string;
@@ -110,10 +111,40 @@ type Preset = {
   accent: string;   // highlight (usually yellow / teal)
   spine: string;
   titleFont: "Bebas Neue" | "Playfair Display";
-  motif: "stairs" | "ladder" | "shield" | "wave" | "circuit" | "leaf" | "route" | "grid" | "star" | "door";
+  motif: MotifName;
   icons: { icon: IconName; label: string }[];
   aiHint: string; // additional description for the AI cover art
+  sceneConcept: string; // unique per-book scene metaphor for the AI
+  avoidConcepts: string[]; // banned motifs to force visual variation
 };
+
+// Deterministic hash of the title so the same book always gets the same variant.
+function titleHash(s: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h >>> 0;
+}
+const ALL_MOTIFS: MotifName[] = ["stairs","ladder","shield","wave","circuit","leaf","route","grid","star","door"];
+function bannedFrom(chosen: MotifName, pool: MotifName[]): string[] {
+  const map: Record<MotifName,string> = {
+    stairs: "staircase leading to a doorway",
+    door: "glowing doorway with staircase in front",
+    ladder: "climbing ladder",
+    shield: "shield or crest",
+    wave: "sine-wave chart line",
+    circuit: "circuit-board node graph",
+    leaf: "single centered leaf",
+    route: "dashed winding route map",
+    grid: "calendar / time-block grid",
+    star: "starburst pattern",
+  };
+  const banned = pool.filter(m => m !== chosen).map(m => map[m]);
+  return banned;
+}
+
 
 function presetFor(slug: string | null | undefined, title: string, subtitle?: string | null, benefits?: string[] | null): Preset {
   const s = (slug ?? "").toLowerCase();
