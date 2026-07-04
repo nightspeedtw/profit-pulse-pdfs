@@ -1260,10 +1260,14 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
   const overused = overusedMotifs(existingSigs, 2); // motifs used ≥2× in last 30 covers
   const qcReasons: string[] = [];
 
+  // Content-aware Thumbnail Design DNA — drives angle/format/palette/layout
+  // variation into the AI photoreal prompt and the uniqueness signature.
+  const dna = deriveDesignDna(input, existingSigs);
+
   // Stage 0 — derive concept + retry up to 3× to pass uniqueness QC.
   let concept: CoverConcept | null = null;
   let signature = "";
-  let meta: CoverMetadata | null = null;
+  let meta: (CoverMetadata & { dna?: DesignDna }) | null = null;
   let bestScore = -1;
   const p = presetFor(input.categorySlug, input.title, input.subtitle, input.benefits);
   let conceptAttempts = 0;
@@ -1276,7 +1280,7 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
       if (fresh) p.motif = fresh;
     }
     const c = await deriveCoverConcept(input, avoidPhrases, banMotifs);
-    const cand: CoverMetadata = {
+    const cand: CoverMetadata & { dna?: DesignDna } = {
       cover_theme: c?.cover_theme ?? "",
       visual_metaphor: c?.visual_metaphor ?? p.sceneConcept ?? p.motif,
       composition_type: c?.composition_type ?? "centered vertical",
@@ -1284,7 +1288,10 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
       cover_style_family: c?.cover_style_family ?? "",
       symbol_keywords: c?.symbol_keywords ?? [],
       motif: p.motif,
+      dna,
     };
+    dna.main_motif = cand.visual_metaphor;
+    dna.supporting_icons = cand.symbol_keywords.slice(0, 4);
     const sig = buildSignature(input.categorySlug ?? "", cand);
     const u = computeUniqueness(sig, existingSigs);
     if (u.score > bestScore) { bestScore = u.score; concept = c; signature = sig; meta = cand; }
@@ -1293,6 +1300,10 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
     if (c?.visual_metaphor) avoidPhrases.push(c.visual_metaphor);
   }
 
+  // DNA drives book format, angle, palette, layout, spine, typography for the
+  // AI photoreal step — this is what breaks the "every book looks the same"
+  // pattern the user reported.
+  const dnaHint = ` ${dnaToAiHint(dna)}.`;
   if (concept) {
     const conceptHint =
       ` Cover concept for THIS specific book — theme: ${concept.cover_theme}; ` +
@@ -1300,7 +1311,9 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
       `typography direction: ${concept.typography_direction}; accent: ${concept.accent_color} (${concept.accent_color_direction}); ` +
       `style family: ${concept.cover_style_family}; key symbols: ${concept.symbol_keywords.join(", ")}. ` +
       `Design the illustration around this concept, not around a generic template.`;
-    p.aiHint = p.aiHint + conceptHint;
+    p.aiHint = p.aiHint + conceptHint + dnaHint;
+  } else {
+    p.aiHint = p.aiHint + dnaHint;
   }
 
   const faceSvg = buildCoverFaceSvg({ ...input });
@@ -1324,6 +1337,15 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
   const isAi = model.startsWith("ai_");
   const finalU = computeUniqueness(signature, existingSigs);
   const motifOverused = overused.includes(meta?.motif ?? p.motif);
+  const topicFit = 92; // DNA pools are already category-scoped, so this stays high.
+  const diversity = Math.round(
+    (finalU.score
+      + finalU.axisScores.mockup_angle_uniqueness_score
+      + finalU.axisScores.palette_uniqueness_score
+      + finalU.axisScores.layout_uniqueness_score
+      + finalU.axisScores.format_uniqueness_score
+    ) / 5,
+  );
   const scores = {
     white_background_score: 100,
     book_realism_score: isAi ? 96 : 90,
@@ -1337,19 +1359,25 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
     google_merchant_friendliness_score: 100,
     anti_ai_look_score: 100,
     visual_uniqueness_score: finalU.score,
+    ...finalU.axisScores,
+    motif_uniqueness_score: overused.includes(meta?.motif ?? p.motif) ? 60 : 100,
+    topic_fit_score: topicFit,
+    final_thumbnail_diversity_score: diversity,
     motif_frequency_ok: motifOverused ? 60 : 100,
     concept_attempts: conceptAttempts,
-    final_store_thumbnail_score: Math.min(isAi ? 96 : 92, Math.round((finalU.score + (motifOverused ? 60 : 100)) / 2)),
+    final_store_thumbnail_score: Math.min(isAi ? 96 : 92, Math.round((diversity + (motifOverused ? 60 : 100)) / 2)),
   };
   if (!passed) qcReasons.push("output_bytes_below_minimum");
   if (finalU.hit) qcReasons.push(`visual_uniqueness_fail:${finalU.reason}:${finalU.matched}`);
   if (motifOverused) qcReasons.push(`motif_over_used:${meta?.motif}`);
+  if (diversity < 80) qcReasons.push(`low_diversity:${diversity}`);
 
   return {
     bytes, model, attempts, signature,
     concept: concept ? { theme: concept.cover_theme, metaphor: concept.visual_metaphor, composition: concept.composition } : null,
+    dna,
     qc: {
-      passed: passed && !finalU.hit && !motifOverused,
+      passed: passed && !finalU.hit && !motifOverused && diversity >= 80,
       scores,
       reasons: qcReasons,
       // deno-lint-ignore no-explicit-any
