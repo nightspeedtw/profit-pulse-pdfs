@@ -854,14 +854,72 @@ async function tryAiPhotorealMockup(faceBytes: Uint8Array, p: Preset): Promise<U
   }
 }
 
+// ---------- Stage 0: Per-book cover concept brief ----------
+// Ask the LLM for a topic-specific concept BEFORE we design the cover, so no
+// two books default to the same staircase/doorway/light-beam.
+export interface CoverConcept {
+  cover_theme: string;
+  visual_metaphor: string;
+  composition: string;
+  typography_direction: string;
+  accent_color_direction: string;
+}
+async function deriveCoverConcept(input: BookMockupInput): Promise<CoverConcept | null> {
+  const key = Deno.env.get("LOVABLE_API_KEY");
+  if (!key) return null;
+  const prompt =
+    `Design ONE unique premium ebook cover concept for this specific book. Be topic-specific. ` +
+    `Do NOT default to a staircase, glowing doorway, chart line, or centered symbolic icon unless it is truly the best fit. ` +
+    `Return JSON with keys: cover_theme, visual_metaphor, composition, typography_direction, accent_color_direction. ` +
+    `Title: "${input.title}". Subtitle: "${input.subtitle ?? ""}". Category: "${input.categorySlug ?? ""}". ` +
+    `Benefits: ${JSON.stringify((input.benefits ?? []).slice(0, 5))}.`;
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!res.ok) { console.warn("book-mockup: concept status", res.status); return null; }
+    const j = await res.json();
+    const txt: string | undefined = j?.choices?.[0]?.message?.content;
+    if (!txt) return null;
+    const parsed = JSON.parse(txt);
+    return {
+      cover_theme: String(parsed.cover_theme ?? ""),
+      visual_metaphor: String(parsed.visual_metaphor ?? ""),
+      composition: String(parsed.composition ?? ""),
+      typography_direction: String(parsed.typography_direction ?? ""),
+      accent_color_direction: String(parsed.accent_color_direction ?? ""),
+    };
+  } catch (e) {
+    console.warn("book-mockup: concept error", (e as Error).message);
+    return null;
+  }
+}
+
 // ---------- Public entry ----------
 export async function generateBookMockup(input: BookMockupInput): Promise<MockupResult> {
   if (!input.title) throw new Error("title is required");
 
+  // Stage 0 — derive a topic-specific concept brief (drives the AI image prompt)
+  const concept = await deriveCoverConcept(input);
+
   const p = presetFor(input.categorySlug, input.title, input.subtitle, input.benefits);
+  if (concept) {
+    const conceptHint =
+      ` Cover concept for THIS specific book — theme: ${concept.cover_theme}; ` +
+      `visual metaphor: ${concept.visual_metaphor}; composition: ${concept.composition}; ` +
+      `typography direction: ${concept.typography_direction}; accent direction: ${concept.accent_color_direction}. ` +
+      `Design the illustration around this concept, not around a generic template.`;
+    p.aiHint = p.aiHint + conceptHint;
+  }
 
   // Stage 1
-  const faceSvg = buildCoverFaceSvg(input);
+  const faceSvg = buildCoverFaceSvg({ ...input });
   const faceBytes = await renderSvgToPng(faceSvg, 1600);
 
   // Stage 2 — try AI photoreal, up to 2 attempts
@@ -873,6 +931,7 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
     bytes = await tryAiPhotorealMockup(faceBytes, p);
     if (bytes) model = "ai_photoreal_gemini_3.1_flash_image";
   }
+
 
   // Fallback: SVG 3D wrapper around Stage-1 face
   if (!bytes) {
