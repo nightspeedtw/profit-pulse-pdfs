@@ -155,16 +155,39 @@ Deno.serve(async (req) => {
       if (refreshed?.product_description) e.product_description = refreshed.product_description;
     }
 
-    // Sync Stripe
+    // Auto-price via category-aware pricing engine (unless admin already set a price).
+    let finalPrice = Number(e.price ?? 0);
+    let priceRationale: unknown = null;
+    if (!finalPrice || finalPrice <= 0) {
+      const pr = computeListingPrice({
+        category_slug: profile.slug,
+        category_name: cat?.name ?? null,
+        title: e.title,
+        word_count: (e as any).total_word_count ?? (e as any).word_count ?? null,
+        worksheet_count: (e as any).worksheet_count ?? null,
+        final_quality_score: (e as any).final_quality_score ?? null,
+        product_format: (e as any).product_format ?? "ebook",
+      });
+      finalPrice = pr.price;
+      priceRationale = pr.rationale;
+      await log(ebookId, "auto_list.pricing", "computed", { price: finalPrice, category: profile.slug });
+    }
+    e.price = finalPrice;
+
+    // Sync Stripe (checkout)
     const stripe = await syncStripe(environment, e);
     await log(ebookId, "auto_list.stripe_sync", "completed", stripe);
 
-    // Mark as listed + published
+    // Mark as listed + published on the internal store
     const { error: upErr } = await supabase
       .from("ebooks")
       .update({
         listed_at: e.listed_at ?? new Date().toISOString(),
+        listing_status: "listed",
         status: "published",
+        price: finalPrice,
+        ...(priceRationale ? { price_rationale: priceRationale as any } : {}),
+        category_slug: profile.slug,
         updated_at: new Date().toISOString(),
       })
       .eq("id", ebookId);
