@@ -299,6 +299,128 @@ function basePresetFor(slug: string | null | undefined, title: string, subtitle?
       aiHint: "cheerful children storybook hardcover, warm cream and yellow with rose accent, whimsical playful illustration",
     };
   }
+  // ---------- 8 launch-batch categories ----------
+  if (s === "study-exam" || /exam|study/.test(t)) {
+    return {
+      key: "study_exam", badge: "STUDY SYSTEM",
+      bg: "#1a2340", bgAlt: "#232f52", ink: "#f4f2ee", ink2: "#c8cfdc",
+      accent: "#ffd166", spine: "#0d1428",
+      titleFont: "Bebas Neue", motif: "grid",
+      icons: withBenefits([
+        { icon: "calendar", label: "STUDY BLOCKS" },
+        { icon: "focus", label: "DEEP FOCUS" },
+        { icon: "check", label: "EXAM READY" },
+        { icon: "target", label: "CONFIDENT SCORES" },
+      ]),
+      aiHint: "premium study-planner hardcover, academic navy with warm highlighter-yellow accent, minimalist exam-desk / focus-block motif, calm disciplined student-friendly tone",
+    };
+  }
+  if (s === "business-templates") {
+    return {
+      key: "business_templates", badge: "OPERATING SYSTEM",
+      bg: "#111318", bgAlt: "#1e222b", ink: "#f4f2ee", ink2: "#c0c7d1",
+      accent: "#c9a24c", spine: "#05070b",
+      titleFont: "Bebas Neue", motif: "workflow" as MotifName,
+      icons: withBenefits([
+        { icon: "workflow", label: "WEEKLY OS" },
+        { icon: "target", label: "CLIENT SYSTEM" },
+        { icon: "chart", label: "OFFER STACK" },
+        { icon: "check", label: "SHIP FASTER" },
+      ]),
+      aiHint: "premium solo-business operating-system hardcover, near-black cover with brushed metallic gold accent, sharp modular dashboard / workflow schematic motif, authoritative modern business tone",
+    };
+  }
+  if (s === "wellness-mind") {
+    return {
+      key: "wellness_mind", badge: "RESET PROTOCOL",
+      bg: "#eef3ee", bgAlt: "#dde7dd", ink: "#1f2a24", ink2: "#5a6b60",
+      accent: "#7fb28f", spine: "#c9d5c9",
+      titleFont: "Playfair Display", motif: "leaf",
+      icons: withBenefits([
+        { icon: "leaf", label: "MENTAL RESET" },
+        { icon: "clock", label: "DAILY RHYTHM" },
+        { icon: "sparkle", label: "CLEAR MIND" },
+        { icon: "check", label: "CALM ROUTINE" },
+      ]),
+      aiHint: "soft off-white wellness workbook cover, sage green accent, calm breathing-space horizon / leaf motif, gentle editorial reset-protocol tone",
+    };
+  }
+  if (s === "fitness-meal-plans") {
+    return {
+      key: "fitness_meal_plans", badge: "30-DAY PLANNER",
+      bg: "#0f1a1e", bgAlt: "#1a2a30", ink: "#f4f2ee", ink2: "#bfd0d4",
+      accent: "#ff7a59", spine: "#050b0e",
+      titleFont: "Bebas Neue", motif: "grid",
+      icons: withBenefits([
+        { icon: "calendar", label: "MEAL PLAN" },
+        { icon: "check", label: "WORKOUT LOG" },
+        { icon: "chart", label: "PROGRESS TRACKER" },
+        { icon: "target", label: "WEEKLY WINS" },
+      ]),
+      aiHint: "clean deep-teal fitness planner cover, coral energy accent, meal-prep board / weekly tracker grid motif, motivating athletic editorial tone",
+    };
+  }
+  if (s === "parenting-kids") {
+    return {
+      key: "parenting_kids", badge: "FAMILY PLANNER",
+      bg: "#f7ecdc", bgAlt: "#efd9be", ink: "#3a2418", ink2: "#7a5138",
+      accent: "#d97757", spine: "#8a5a3d",
+      titleFont: "Playfair Display", motif: "star",
+      icons: withBenefits([
+        { icon: "calendar", label: "MORNINGS" },
+        { icon: "check", label: "CHORES" },
+        { icon: "star", label: "SCHOOL PREP" },
+        { icon: "sparkle", label: "CALM EVENINGS" },
+      ]),
+      aiHint: "warm hand-illustrated family-routine planner cover, cream and terracotta palette, cozy home / routine-board motif, warm trustworthy parenting tone",
+    };
+  }
+  if (s === "lifestyle-planners") {
+    return {
+      key: "lifestyle_planners", badge: "LIFE ADMIN RESET",
+      bg: "#efece6", bgAlt: "#e2ddd2", ink: "#1a1a1a", ink2: "#606060",
+      accent: "#3d5afe", spine: "#c8c2b3",
+      titleFont: "Playfair Display", motif: "grid",
+      icons: withBenefits([
+        { icon: "check", label: "BILLS SORTED" },
+        { icon: "calendar", label: "APPOINTMENTS" },
+        { icon: "workflow", label: "HOME SYSTEM" },
+        { icon: "target", label: "CLEAR GOALS" },
+      ]),
+      aiHint: "premium stationery-feel life admin planner cover, warm neutral paper background with a single confident cobalt accent, organized checklist / dashboard motif, calm architectural editorial tone",
+    };
+  }
+  if (s === "art-creative") {
+    return {
+      key: "art_creative", badge: "CREATIVE WORKBOOK",
+      bg: "#faf5ec", bgAlt: "#f0e6d0", ink: "#22140a", ink2: "#6a4a2a",
+      accent: "#e11d48", spine: "#3a1a1a",
+      titleFont: "Playfair Display", motif: "star",
+      icons: withBenefits([
+        { icon: "sparkle", label: "IDEA CAPTURE" },
+        { icon: "workflow", label: "CREATIVE HABITS" },
+        { icon: "target", label: "FINISH PROJECTS" },
+        { icon: "check", label: "SHIP WORK" },
+      ]),
+      aiHint: "expressive risograph-textured creative workbook cover, warm cream paper, single bold crimson accent, sketch-collage / idea-board motif, artist-studio editorial tone",
+    };
+  }
+  if (s === "cooking-recipes") {
+    return {
+      key: "cooking_recipes", badge: "MEAL PREP PLAYBOOK",
+      bg: "#f5efe4", bgAlt: "#e7dcc4", ink: "#2a1a10", ink2: "#7a5a3a",
+      accent: "#d97706", spine: "#a06a3a",
+      titleFont: "Playfair Display", motif: "grid",
+      icons: withBenefits([
+        { icon: "calendar", label: "WEEKLY MENU" },
+        { icon: "check", label: "GROCERY LIST" },
+        { icon: "workflow", label: "PREP FLOW" },
+        { icon: "star", label: "FAMILY FAVES" },
+      ]),
+      aiHint: "warm cream cookbook / meal-planner cover, single amber accent, recipe-card / calendar-menu motif, appetizing organized kitchen editorial tone",
+    };
+  }
+
   return {
     key: "default", badge: "EBOOK",
     bg: "#0f2a47", bgAlt: "#173858", ink: "#f4f2ee", ink2: "#c8cfdc",
