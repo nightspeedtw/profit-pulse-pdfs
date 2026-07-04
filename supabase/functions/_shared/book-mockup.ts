@@ -1032,4 +1032,3 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
   };
 }
 
-}
