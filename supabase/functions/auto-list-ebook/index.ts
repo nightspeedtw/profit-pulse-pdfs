@@ -1,11 +1,13 @@
-// Auto-list a ready ebook on the native storefront.
-// - Verifies required fields (title, price, category, cover, PDF).
-// - If cover is missing, invokes generate-cover first.
-// - Creates/refreshes a Stripe Product + Price (lookup_key = ebook_<uuid>_price).
-// - Sets ebooks.listed_at = now() and status = 'published'.
-// - Logs to pipeline_step_logs.
+// Auto-list a ready ebook on the internal store.
+// - Verifies required fields (title, category, cover, PDF).
+// - Regenerates thumbnail (category-styled) + listing copy on every list event.
+// - Auto-computes a price via the category-aware pricing engine.
+// - Syncs Stripe Product + Price for checkout.
+// - Sets listed_at, listing_status='listed', status='published'.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { type StripeEnv, createStripeClient, corsHeaders } from "../_shared/stripe.ts";
+import { computeListingPrice } from "../_shared/pricing.ts";
+import { resolveStyleProfile } from "../_shared/thumbnail-style-system.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -92,19 +94,28 @@ Deno.serve(async (req) => {
 
     const { data: e, error } = await supabase
       .from("ebooks")
-      .select("id, title, price, category_id, cover_url, product_description, pdf_url, status, listed_at")
+      .select("id, title, price, category_id, category_slug, cover_url, product_description, pdf_url, status, listed_at, total_word_count, word_count, worksheet_count, final_quality_score, product_format")
       .eq("id", ebookId)
       .maybeSingle();
     if (error) throw error;
     if (!e) throw new Error("Ebook not found");
 
-    // Validate required fields
+    // Validate required fields (price is now auto-computed, so drop from required list)
     const missing: string[] = [];
     if (!e.title) missing.push("title");
-    if (!e.price || Number(e.price) <= 0) missing.push("price");
     if (!e.category_id) missing.push("category");
     if (!e.pdf_url) missing.push("pdf");
     if (missing.length) throw new Error(`Missing required fields: ${missing.join(", ")}`);
+
+    // Resolve category name → style slug so pricing + cover both use it.
+    const cat = e.category_id
+      ? (await supabase.from("categories").select("name,slug").eq("id", e.category_id).maybeSingle()).data
+      : null;
+    const profile = resolveStyleProfile({
+      category_slug: e.category_slug ?? cat?.slug ?? null,
+      category_name: cat?.name ?? null,
+      title: e.title,
+    });
 
     // Always regenerate the thumbnail with the currently active reference
     // style so every listing gets the newest look. Fire-and-forget: the
