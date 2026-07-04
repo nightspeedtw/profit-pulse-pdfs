@@ -24,99 +24,72 @@ type StyleDirection = {
 function resolveStyle(categorySlug?: string | null, title?: string): StyleDirection {
   const s = (categorySlug ?? "").toLowerCase();
   const t = (title ?? "").toLowerCase();
-  if (
-    /finance|debt|money|wealth|invest|cash|budget|secret-finance|personal-finance/.test(s) ||
-    /debt|money|wealth|finance|invest|budget|cash|payoff|fortress|feast|famine/.test(t)
-  ) {
-    return {
-      key: "finance",
-      format: "hardcover",
-      background: "dark charcoal seamless studio backdrop with a soft warm rim light from the upper left",
-      mood: "serious, premium, trustworthy finance authority",
-    };
-  }
-  if (/wellness|health|energy|sleep|calm|burnout|self-help|selfhelp/.test(s + " " + t)) {
-    return {
-      key: "wellness",
-      format: "premium paperback",
-      background: "soft cream and sage seamless studio backdrop with warm natural light",
-      mood: "calm, restorative, editorial wellness",
-    };
-  }
-  if (/ai|prompt|automation|copilot|assistant/.test(s + " " + t)) {
-    return {
-      key: "ai",
-      format: "hardcover",
-      background: "deep navy gradient studio backdrop with a subtle cyan rim light",
-      mood: "modern, technical, high-signal AI systems",
-    };
-  }
-  if (/productivity|workday|focus|playbook/.test(s + " " + t)) {
-    return {
-      key: "productivity",
-      format: "hardcover",
-      background: "graphite grey seamless studio backdrop with a cool white key light",
-      mood: "focused, professional, executive playbook",
-    };
-  }
-  if (/business|career|leader|manager|exec|side-hustle/.test(s + " " + t)) {
-    return {
-      key: "business",
-      format: "hardcover",
-      background: "deep navy seamless studio backdrop with a soft white key light",
-      mood: "executive, credible, business-authority",
-    };
-  }
-  if (/workbook|planner|worksheet|template|beginner/.test(s + " " + t)) {
+  const both = s + " " + t;
+  if (/workbook|planner|worksheet|template/.test(both)) {
     return {
       key: "workbook",
-      format: "workbook",
-      background: "warm off-white paper backdrop with a soft top-down light",
-      mood: "practical, tactile, workshop-ready",
+      format: "premium paperback",
+      background: "seamless pure white (#ffffff) studio background, ecommerce product-photo style",
+      mood: "practical, tactile, premium workbook",
     };
   }
-  if (/kid|child|nursery|bedtime|story|illustrat/.test(s + " " + t)) {
+  if (/kid|child|nursery|bedtime|story|illustrat/.test(both)) {
     return {
       key: "kids",
       format: "premium paperback",
-      background: "warm cream backdrop with soft daylight",
+      background: "seamless pure white (#ffffff) studio background, ecommerce product-photo style",
       mood: "friendly, playful, premium children's book",
     };
   }
+  // Every other category — including finance, wellness, productivity, business, AI —
+  // ships on a clean white ecommerce background per Google Merchant requirements.
   return {
-    key: "general",
+    key: "hardcover-white",
     format: "hardcover",
-    background: "neutral warm grey seamless studio backdrop with a soft key light",
-    mood: "premium, editorial, sellable",
+    background: "seamless pure white (#ffffff) studio background, ecommerce product-photo style, subtle soft grey contact shadow beneath the book",
+    mood: "premium, trustworthy, real-world knowledge product",
   };
 }
 
 function buildMockupPrompt(input: BookMockupInput, style: StyleDirection): string {
   const subtitle = (input.subtitle ?? "").trim();
   return [
-    `Create a high-converting ecommerce product photograph of a real premium ${style.format} book, standing at a natural 3/4 angle on a clean studio surface.`,
+    `TASK: Take the supplied cover artwork and produce an Amazon-catalog product photo of that cover wrapped around a real physical hardcover book, isolated on a pure white studio background.`,
     ``,
-    `Use the supplied flat cover artwork as the EXACT front cover of the book — do not redesign, restyle, retype, or re-render the cover art or its typography. Preserve every letter, color, badge, and detail of the supplied cover exactly. Wrap it around the front face of a real physical book.`,
+    `IMPORTANT — background rule (highest priority):`,
+    `- The output background MUST be pure white #FFFFFF, edge to edge, top to bottom, corner to corner.`,
+    `- IGNORE any dark tones from the supplied cover reference. The reference is ONLY the front-cover artwork — it is NOT the scene. The scene is a bright white e-commerce studio.`,
+    `- Do NOT extend, blend, or echo the cover's dark palette into the surrounding background. Under no circumstances output a dark, black, grey, navy, moody, vignette, gradient, or cinematic background.`,
+    `- Think Amazon "main product image" or Google Shopping listing: subject cleanly cut out on flat white, with a single soft grey contact shadow beneath.`,
     ``,
-    `Book title (already printed on the supplied cover, do not add new text): "${input.title}"${subtitle ? ` — "${subtitle}"` : ""}.`,
+    `SUBJECT:`,
+    `- ONE premium ${style.format} book, standing upright at a natural 3/4 front angle, photographed as a real physical object.`,
+    `- Ultra-realistic product photography, sharp focus, catalog quality.`,
+    `- Book fills ~70–80% of the frame vertically, centered, with generous pure-white space on all sides.`,
     ``,
-    `Composition requirements:`,
-    `- Realistic ${style.format} book, standing upright, angled ~20° so both the front cover and the left spine are clearly visible.`,
-    `- Visible book thickness (roughly 3–4 cm), with crisp page edges on the right side of the book.`,
-    `- Spine should show a hint of the book's brand color (matching the cover palette). Do NOT invent or spell any new spine text; leave the spine as a clean color block matching the cover.`,
-    `- Professional product photography lighting: soft key light, gentle rim light, subtle contact shadow beneath the book.`,
-    `- Background: ${style.background}.`,
-    `- Mood: ${style.mood}.`,
-    `- The book must fill roughly 70–80% of the frame vertically, centered, with generous negative space around it.`,
-    `- Square framing (1:1), 1024×1024.`,
+    `COVER FIDELITY (do not modify the supplied art):`,
+    `- Wrap the EXACT supplied front-cover artwork around the front face of the book.`,
+    `- Preserve every letter, word, color, badge, icon, image, layout, hierarchy, and typography choice EXACTLY as supplied.`,
+    `- Do NOT redesign, restyle, retype, translate, recolor, crop, rearrange, omit, or re-render the cover. Do NOT drop the title. Do NOT change fonts. Do NOT invent new elements.`,
     ``,
-    `Strict prohibitions:`,
-    `- Do NOT alter, redraw, retype, translate, or restyle the front cover artwork or its typography in any way.`,
-    `- Do NOT add price tags, "buy now" buttons, star ratings, review counts, "as seen on" badges, watermarks, or any UI chrome.`,
-    `- Do NOT add extra objects (mug, glasses, plant, phone, laptop, hands).`,
-    `- Do NOT distort, warp, or over-tilt the cover; keep the title clearly readable.`,
-    `- Do NOT output a flat cover screenshot or a simple tilted rectangle — this must look like a real physical book with true depth.`,
-    `- No AI artifacts, no melted glyphs, no duplicated titles.`,
+    `Book title (already printed on the supplied cover — do not add or duplicate text): "${input.title}"${subtitle ? ` — "${subtitle}"` : ""}.`,
+    ``,
+    `PHYSICAL BOOK DETAILS:`,
+    `- Real ${style.format}, angled ~20–25° so front cover, left spine, and right page-block edge are all clearly visible.`,
+    `- Visible book thickness (~3–4 cm) with crisp cream-white page edges on the right.`,
+    `- Spine matches the cover palette; leave as a clean color block — never invent new spine text.`,
+    `- Lighting: bright, even, diffused softbox key from upper-left with soft fill; realistic soft grey contact shadow directly beneath the book on the white floor. High-key studio lighting. No dramatic mood, no rim glow, no colored gels, no lens flare, no bokeh.`,
+    `- 1024×1024, sharp edge-to-edge.`,
+    `- Product-photo mood only: ${style.mood} — but the background is always pure white regardless of the cover palette.`,
+    ``,
+    `HARD REJECTS (any of these = failure):`,
+    `- Dark / black / grey / navy / moody / cinematic / gradient / vignette / textured backgrounds. Background MUST be flat pure white #FFFFFF.`,
+    `- Extending the cover art into the surrounding background.`,
+    `- Environment or props: desks, tables, marble, wood, leather, cloth, plants, mugs, glasses, phones, laptops, hands, people, fingers.`,
+    `- Any alteration of the supplied cover art or typography.`,
+    `- Price tags, "buy now" buttons, star ratings, badges, category pills, stickers, watermarks, or UI chrome.`,
+    `- Flat cover screenshot, floating rectangle, or website card look — must be a photographed physical book with real depth, spine, and page edges.`,
+    `- AI artifacts, melted glyphs, duplicated titles, distorted geometry.`,
   ].join("\n");
 }
 
