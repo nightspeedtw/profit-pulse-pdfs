@@ -261,10 +261,10 @@ export function buildStoreThumbnailSVG(input: StoreThumbInput): string {
   // ---------- Cover face content (drawn upright, then transformed) ----------
   // Title
   const rawTitle = (input.title ?? "").trim();
-  const { size: titleSize, lines: titleLines } = fitTitle(rawTitle, usableW, 4, style.title_font === "bebas" ? 148 : 108, style.title_font === "bebas" ? 70 : 54, style.title_font);
+  const { size: titleSize, lines: titleLines } = fitTitle(rawTitle, usableW, 3, style.title_font === "bebas" ? 138 : 100, style.title_font === "bebas" ? 62 : 48, style.title_font);
   const titleLineH = titleSize * (style.title_font === "bebas" ? 0.96 : 1.08);
   const titleBlockH = titleLines.length * titleLineH;
-  const titleTop = bookY + 340;
+  const titleTop = bookY + 260;
 
   const titleFontFamily = style.title_font === "bebas"
     ? "'Bebas Neue', Impact, 'Arial Black', sans-serif"
