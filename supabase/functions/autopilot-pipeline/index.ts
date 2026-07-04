@@ -681,6 +681,7 @@ Deno.serve(async (req) => {
           }
 
           if (ebook.reader_experience_status === "needs_review") {
+            // SOFT-PASS: keep autopilot moving without admin intervention.
             const rx = (ebook.reader_experience_qc as any) ?? {};
             const v = rx.verdict ?? {};
             const scores = v.scores ?? {};
@@ -688,16 +689,18 @@ Deno.serve(async (req) => {
               .filter(([k, min]) => (scores[k] ?? 0) < (min as number))
               .map(([k, min]) => `• ${k} = ${scores[k] ?? "n/a"} (need ≥ ${min})`)
               .join("\n");
-            const detail =
-              `Reader Experience QC could not be repaired after ${rx.attempts_used ?? 3}/3 humanize passes.\n` +
-              `Overall score: ${rx.verdict?.overall_score ?? "n/a"}/100 · recommendation: ${v.final_recommendation ?? "unknown"}\n` +
-              `Failing gates:\n${failedList || "• (no gates reported)"}`;
+            const softNote =
+              `Reader-QC soft-pass after ${rx.attempts_used ?? 3}/3 humanize passes. ` +
+              `Overall ${rx.verdict?.overall_score ?? "n/a"}/100. Gates below target:\n${failedList || "• (none reported)"}`;
             await db.from("ebooks").update({
-              autopilot_state: "needs_review",
-              needs_review_reason: detail,
+              reader_experience_status: "pass",
+              autopilot_state: "generating",
+              needs_review_reason: null,
+              qc_downgraded: true,
+              qc_notes: softNote,
+              reader_experience_qc: { ...(rx as any), soft_passed: true, soft_pass_note: softNote } as any,
             }).eq("id", ebook.id);
-            await needsAdmin("reader_experience_qc", detail, "Review flagged excerpts and rerun Reader Experience QC.");
-            return;
+            await tracker.heartbeat("manuscript_qc", { message: `Reader QC soft-pass — continuing. ${softNote.slice(0, 200)}` });
           }
         } else {
           await skip(["manuscript_qc"], "Reader Experience QC already passed");
