@@ -816,15 +816,33 @@ export function buildCoverFaceSvg(input: BookMockupInput): string {
   }
   lines = lines.filter(Boolean).slice(0, 3);
 
-  const titleSize = lines.length <= 2 ? 130 : 108;
+  // Title auto-fit. Previously the size was chosen from line count only, so a
+  // long line like "FEAST-OR-FAMINE" or "UNINTERRUPTED" overflowed past the
+  // safe right edge (bookX + padX + usableW). The 3D compositor then cropped
+  // the tail letters ("SCAPE PLA…" instead of "ESCAPE PLAN"). Fix: shrink
+  // the title until the longest line fits inside the safe width.
+  const TITLE_PAD_X = 60;
+  const TITLE_SAFE_W = CW - TITLE_PAD_X * 2; // 680 at CW=800
+  // Bebas Neue is condensed (~0.42 avg glyph ratio at bold-ish weight), Playfair
+  // Display is a serif (~0.55). Include the negative letter-spacing (-2 or -1).
+  const glyphRatio = useUpper ? 0.42 : 0.55;
+  const tracking = useUpper ? -2 : -1;
+  const longestChars = lines.reduce((m, l) => Math.max(m, l.length), 0);
+  const startSize = lines.length <= 2 ? 130 : 108;
+  const candidates = [startSize, 120, 110, 100, 92, 84, 76, 68];
+  let titleSize = candidates[candidates.length - 1];
+  for (const s of candidates) {
+    const w = longestChars * (s * glyphRatio + tracking);
+    if (w <= TITLE_SAFE_W) { titleSize = s; break; }
+  }
   const titleLh = titleSize * 1.02;
   const titleStartY = 260;
-  const titleX = 60;
+  const titleX = TITLE_PAD_X;
   // Highlight middle line accent when 3 lines
   const lineColor = (i: number) => (lines.length === 3 && i === 1) ? p.accent : p.ink;
 
   const titleTspans = lines.map((ln, i) =>
-    `<text x="${titleX}" y="${titleStartY + i * titleLh}" font-family="${p.titleFont}" font-size="${titleSize}" font-weight="${useUpper?400:700}" fill="${lineColor(i)}" letter-spacing="${useUpper?"-2":"-1"}">${esc(ln)}</text>`
+    `<text x="${titleX}" y="${titleStartY + i * titleLh}" font-family="${p.titleFont}" font-size="${titleSize}" font-weight="${useUpper?400:700}" fill="${lineColor(i)}" letter-spacing="${tracking}">${esc(ln)}</text>`
   ).join("");
 
   // Subtitle (full, wrapped up to 3 lines, never truncated silently)
