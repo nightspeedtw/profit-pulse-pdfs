@@ -50,7 +50,7 @@ export async function renderPhotorealMockup(
   const hints = (opts.repairReasons ?? []).map((r) => REPAIR_HINTS[r] ?? "").join("");
   const prompt = BASE_PROMPT + hints;
 
-  const model = "google/gemini-3.1-flash-image";
+  const model = "google/gemini-2.5-flash-image";
   const body = {
     model,
     modalities: ["image", "text"],
