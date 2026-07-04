@@ -127,10 +127,10 @@ export function ReadyShopifyCard({ ebook, onChanged }: Props) {
       if (error) throw error;
       const payload = data as { error?: string; shopify_draft_url?: string };
       if (payload?.error) throw new Error(payload.error);
-      toast.success("Shopify draft created");
+      toast.success("Listing published");
       onChanged();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Shopify upload failed");
+      toast.error(e instanceof Error ? e.message : "Publishing failed");
     } finally {
       setBusy(null);
     }
@@ -175,7 +175,7 @@ export function ReadyShopifyCard({ ebook, onChanged }: Props) {
                 <div className="flex flex-wrap items-center gap-2 mb-1">
                   {uploaded ? (
                     <Badge className="bg-blue-600 text-white gap-1">
-                      <CheckCircle2 className="h-3 w-3" /> Draft on Shopify
+                      <CheckCircle2 className="h-3 w-3" /> Listed
                     </Badge>
                   ) : gatesReady && hasPackage ? (
                     <Badge className="bg-emerald-600 text-white gap-1">
@@ -243,7 +243,7 @@ export function ReadyShopifyCard({ ebook, onChanged }: Props) {
               {!hasPackage ? (
                 <Button size="sm" onClick={runPackage} disabled={busy !== null}>
                   {busy === "package" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  Generate Shopify Package
+                  Generate Listing Package
                 </Button>
               ) : (
                 <>
@@ -251,10 +251,10 @@ export function ReadyShopifyCard({ ebook, onChanged }: Props) {
                     size="sm"
                     onClick={runUpload}
                     disabled={!canUpload || busy !== null}
-                    title={canUpload ? "Create Shopify draft" : blockers.join(" · ")}
+                    title={canUpload ? "Publish to internal store" : blockers.join(" · ")}
                   >
                     {busy === "upload" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}
-                    {uploaded ? "Re-upload" : "Add to Shopify"}
+                    {uploaded ? "Re-upload" : "Publish to Store"}
                   </Button>
                   <Button size="sm" variant="outline" onClick={runPackage} disabled={busy !== null}>
                     {busy === "package" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
@@ -278,7 +278,7 @@ export function ReadyShopifyCard({ ebook, onChanged }: Props) {
               {ebook.shopify_draft_url && (
                 <Button size="sm" variant="ghost" asChild>
                   <a href={ebook.shopify_draft_url} target="_blank" rel="noreferrer">
-                    <ExternalLink className="h-4 w-4" /> Open in Shopify
+                    <ExternalLink className="h-4 w-4" /> Open Product
                   </a>
                 </Button>
               )}

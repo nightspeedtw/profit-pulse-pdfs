@@ -58,10 +58,10 @@ export default function ReadyShopify() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-3xl uppercase flex items-center gap-2">
-            <Rocket className="h-7 w-7" /> Ready to Shopify
+            <Rocket className="h-7 w-7" /> Ready to List
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Finished ebooks packaged as premium Shopify draft products — thumbnail, price, hook, description.
+            Finished ebooks packaged as premium store listings — thumbnail, price, hook, description.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={load} disabled={busy}>
