@@ -94,7 +94,7 @@ export function buildCoverFaceHtml(input: CoverFaceInput): string {
   <div class="frame"></div>
   <div class="content">
     ${input.badge ? `<div class="badge">${esc(input.badge)}</div>` : ""}
-    <div class="title">${renderTitle(input.title, s.accent)}</div>
+    <div class="title" style="font-size:${fitTitleFontSize(input.title)}px;">${renderTitle(input.title, s.accent)}</div>
     ${input.subtitle ? `<div class="rule"></div><div class="subtitle">${esc(input.subtitle)}</div>` : ""}
     <div class="illustration">${input.illustrationSvg}</div>
     ${chips.length ? `<div class="chips">${chips.map((c) => `<div class="chip"><span class="dot"></span>${esc(c)}</div>`).join("")}</div>` : ""}
