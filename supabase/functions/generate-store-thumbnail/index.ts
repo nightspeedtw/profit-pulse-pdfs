@@ -1,10 +1,13 @@
-// Generate a real premium storefront thumbnail with EXACT title/subtitle text
-// baked into the image (fonts embedded into resvg). Uploads to `ebook-covers`
-// storage, updates `store_thumbnail_url` + `store_thumbnail_qc` on the ebook,
-// and leaves cover_url / pdf_url / manuscript / price / copy fully untouched.
+// Generate a premium storefront thumbnail as a photoreal 3D book mockup using
+// the Lovable AI Gateway (Gemini 3.1 Flash Image) with the approved flat cover
+// as the reference. Falls back to the deterministic SVG mockup only if the AI
+// call fails or the ebook has no cover_url.
+//
+// This function NEVER touches cover_url, pdf_url, manuscript, price, or copy.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/stripe.ts";
 import { buildStoreThumbnailSVG, rasterizeThumbnail, qcThumbnail } from "../_shared/store-thumbnail.ts";
+import { generateBookMockup } from "../_shared/book-mockup.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -21,6 +24,16 @@ async function log(ebookId: string, step: string, status: string, payload: unkno
   } catch (_) { /* best-effort */ }
 }
 
+async function signIfNeeded(rawUrl: string | null | undefined): Promise<string | null> {
+  if (!rawUrl) return null;
+  // Already a signed/public URL
+  if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+  // Storage path like "<ebook_id>/cover.png"
+  const { data, error } = await supabase.storage.from("ebook-covers").createSignedUrl(rawUrl, 60 * 10);
+  if (error) return null;
+  return data?.signedUrl ?? null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST")
@@ -34,7 +47,7 @@ Deno.serve(async (req) => {
 
     const { data: e, error } = await supabase
       .from("ebooks")
-      .select("id, title, subtitle, category_slug, category_id, price, store_thumbnail_url")
+      .select("id, title, subtitle, category_slug, category_id, price, store_thumbnail_url, cover_url")
       .eq("id", ebookId)
       .maybeSingle();
     if (error) throw error;
@@ -53,43 +66,70 @@ Deno.serve(async (req) => {
       categorySlug = cat?.slug ?? null;
     }
 
-    await log(ebookId, "store_thumbnail.render", "started", { categorySlug });
+    await log(ebookId, "store_thumbnail.render", "started", { categorySlug, has_cover: !!e.cover_url });
 
     let bytes: Uint8Array | null = null;
-    let svg = "";
-    let qc: ReturnType<typeof qcThumbnail> | null = null;
+    let qc: { passed: boolean; scores?: Record<string, number>; reasons: string[] } | null = null;
+    let source: "ai_mockup" | "svg_fallback" = "svg_fallback";
     let attempts = 0;
-    const MAX = 3;
 
-    while (attempts < MAX) {
-      attempts++;
-      svg = buildStoreThumbnailSVG({
-        title: e.title,
-        subtitle: e.subtitle,
-        categorySlug,
-        price: e.price,
-      });
+    // ----- Try photoreal AI book mockup first -----
+    const coverSigned = await signIfNeeded(e.cover_url);
+    if (coverSigned) {
       try {
-        bytes = await rasterizeThumbnail(svg, 1200);
-      } catch (err) {
-        await log(ebookId, "store_thumbnail.render", "error", { attempt: attempts, error: (err as Error).message });
-        continue;
+        const result = await generateBookMockup({
+          coverUrl: coverSigned,
+          title: e.title,
+          subtitle: e.subtitle,
+          categorySlug,
+        });
+        bytes = result.bytes;
+        qc = result.qc;
+        attempts = result.attempts;
+        source = "ai_mockup";
+        await log(ebookId, "store_thumbnail.ai_mockup", "completed", { model: result.model, attempts, qc });
+      } catch (aiErr) {
+        await log(ebookId, "store_thumbnail.ai_mockup", "failed", { error: (aiErr as Error).message });
       }
-      qc = qcThumbnail({ bytes, svg, title: e.title });
-      if (qc.passed) break;
-      await log(ebookId, "store_thumbnail.qc", "retry", { attempt: attempts, reasons: qc.reasons });
+    } else {
+      await log(ebookId, "store_thumbnail.ai_mockup", "skipped", { reason: "no_cover_url" });
     }
 
-    if (!bytes || !qc) throw new Error("Rasterization failed after retries");
+    // ----- SVG fallback -----
+    if (!bytes) {
+      const MAX = 3;
+      let svgAttempts = 0;
+      while (svgAttempts < MAX) {
+        svgAttempts++;
+        const svg = buildStoreThumbnailSVG({
+          title: e.title,
+          subtitle: e.subtitle,
+          categorySlug,
+          price: e.price,
+        });
+        try {
+          bytes = await rasterizeThumbnail(svg, 1200);
+        } catch (err) {
+          await log(ebookId, "store_thumbnail.svg_render", "error", { attempt: svgAttempts, error: (err as Error).message });
+          continue;
+        }
+        const svgQc = qcThumbnail({ bytes, svg, title: e.title });
+        qc = { passed: svgQc.passed, scores: (svgQc as any).scores, reasons: svgQc.reasons };
+        if (svgQc.passed) break;
+      }
+      attempts = svgAttempts;
+    }
 
-    // Even if QC didn't fully pass, keep the previous thumbnail and mark for review.
+    if (!bytes || !qc) throw new Error("Thumbnail generation failed after retries");
+
+    // Keep previous if the fresh attempt failed QC and we already have one on file.
     if (!qc.passed && e.store_thumbnail_url) {
       await supabase.from("ebooks").update({
         thumbnail_needs_review: true,
-        store_thumbnail_qc: qc as any,
+        store_thumbnail_qc: { source, ...qc } as any,
       }).eq("id", ebookId);
-      await log(ebookId, "store_thumbnail.qc", "failed_kept_previous", qc);
-      return new Response(JSON.stringify({ ok: false, ebook_id: ebookId, qc, kept_previous: true }), {
+      await log(ebookId, "store_thumbnail.qc", "failed_kept_previous", { source, qc });
+      return new Response(JSON.stringify({ ok: false, ebook_id: ebookId, source, qc, kept_previous: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
       });
     }
@@ -107,16 +147,16 @@ Deno.serve(async (req) => {
 
     const { error: updErr } = await supabase.from("ebooks").update({
       store_thumbnail_url: url,
-      store_thumbnail_qc: qc as any,
+      store_thumbnail_qc: { source, ...qc } as any,
       store_thumbnail_generated_at: new Date().toISOString(),
       thumbnail_needs_review: !qc.passed,
       updated_at: new Date().toISOString(),
     }).eq("id", ebookId);
     if (updErr) throw updErr;
 
-    await log(ebookId, "store_thumbnail.render", "completed", { url, qc, attempts });
+    await log(ebookId, "store_thumbnail.render", "completed", { url, source, qc, attempts });
 
-    return new Response(JSON.stringify({ ok: true, ebook_id: ebookId, url, qc, attempts }), {
+    return new Response(JSON.stringify({ ok: true, ebook_id: ebookId, url, source, qc, attempts }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
