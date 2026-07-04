@@ -153,6 +153,237 @@ function bannedFrom(chosen: MotifName, pool: MotifName[]): string[] {
   return banned;
 }
 
+// ---------- Thumbnail Design DNA ----------
+// Content-aware variation so books in the same category do not share the same
+// book-format / angle / palette / layout. Deterministic per title, but
+// avoids axes already heavily used in `existingSigs` (last ~30 covers).
+export type MockupStyle =
+  | "hardcover" | "workbook" | "planner" | "field_guide" | "manual" | "storybook" | "modern_ebook";
+export type MockupAngle =
+  | "left_spine_3q" | "right_page_3q" | "front_slight_angle" | "standing_book"
+  | "stacked_workbook" | "open_edge_view";
+export type CoverLayout =
+  | "big_type_center" | "poster_grid" | "illustration_bottom" | "split_panel"
+  | "badge_top" | "framework_diagram" | "planner_interface" | "story_scene";
+export type PaletteFamily =
+  | "black_gold" | "cream_red_black" | "teal_charcoal" | "emerald_white"
+  | "navy_cyan" | "warm_cream_orange" | "pastel_kids" | "cinematic_dark"
+  | "forest_mint" | "space_violet" | "ivory_navy";
+export type TypographyStyle =
+  | "condensed_bold" | "planner_block" | "editorial_serif" | "modern_sans"
+  | "playful_story" | "tech_mono" | "premium_manual";
+export type TextureStyle =
+  | "matte_black" | "cream_paper" | "glossy_planner" | "linen_cover"
+  | "soft_touch" | "illustrated_paper";
+export type SpineStyle =
+  | "bold_vertical_title" | "minimal_label" | "colored_band" | "planner_tab" | "storybook_spine";
+
+export interface DesignDna {
+  mockup_style: MockupStyle;
+  mockup_angle: MockupAngle;
+  cover_layout: CoverLayout;
+  palette_family: PaletteFamily;
+  typography_style: TypographyStyle;
+  texture: TextureStyle;
+  spine_style: SpineStyle;
+  main_motif: string;
+  supporting_icons: string[];
+  avoid_similarity_to: string[];
+}
+
+// Category → allowed DNA pools (topic-aware, not random).
+function dnaPoolsFor(slug: string | null | undefined, title: string) {
+  const s = (slug ?? "").toLowerCase();
+  const t = (title ?? "").toLowerCase();
+  const isFinance = /debt|money|finance|cash|budget|wealth|fortress|feast|famine/.test(s + " " + t);
+  const isWellness = /wellness|health|energy|sleep|calm|mind/.test(s + " " + t);
+  const isProductivity = /productivity|focus|workday|deep|time/.test(s + " " + t);
+  const isAi = /\bai\b|assistant|automation|prompt|invisible/.test(s + " " + t);
+  const isCareer = /career|business|interview|application|bypass|founder/.test(s + " " + t);
+  const isKids = /kid|child|nursery|storybook/.test(s + " " + t);
+
+  if (isKids) return {
+    styles: ["storybook","hardcover"] as MockupStyle[],
+    angles: ["standing_book","front_slight_angle","open_edge_view"] as MockupAngle[],
+    layouts: ["story_scene","illustration_bottom","big_type_center"] as CoverLayout[],
+    palettes: ["pastel_kids","warm_cream_orange","cream_red_black"] as PaletteFamily[],
+    typo: ["playful_story","editorial_serif"] as TypographyStyle[],
+    textures: ["illustrated_paper","cream_paper"] as TextureStyle[],
+    spines: ["storybook_spine","colored_band"] as SpineStyle[],
+  };
+  if (isWellness) return {
+    styles: ["field_guide","hardcover","modern_ebook"] as MockupStyle[],
+    angles: ["front_slight_angle","standing_book","left_spine_3q"] as MockupAngle[],
+    layouts: ["illustration_bottom","big_type_center","split_panel"] as CoverLayout[],
+    palettes: ["forest_mint","emerald_white","warm_cream_orange","ivory_navy"] as PaletteFamily[],
+    typo: ["editorial_serif","modern_sans"] as TypographyStyle[],
+    textures: ["soft_touch","linen_cover","cream_paper"] as TextureStyle[],
+    spines: ["minimal_label","colored_band"] as SpineStyle[],
+  };
+  if (isProductivity) return {
+    styles: ["planner","manual","modern_ebook","hardcover"] as MockupStyle[],
+    angles: ["left_spine_3q","stacked_workbook","standing_book","right_page_3q"] as MockupAngle[],
+    layouts: ["planner_interface","framework_diagram","poster_grid","big_type_center"] as CoverLayout[],
+    palettes: ["navy_cyan","teal_charcoal","ivory_navy"] as PaletteFamily[],
+    typo: ["condensed_bold","modern_sans","planner_block"] as TypographyStyle[],
+    textures: ["glossy_planner","soft_touch","matte_black"] as TextureStyle[],
+    spines: ["planner_tab","bold_vertical_title","minimal_label"] as SpineStyle[],
+  };
+  if (isAi) return {
+    styles: ["manual","modern_ebook","hardcover"] as MockupStyle[],
+    angles: ["left_spine_3q","front_slight_angle","standing_book"] as MockupAngle[],
+    layouts: ["framework_diagram","poster_grid","split_panel","big_type_center"] as CoverLayout[],
+    palettes: ["space_violet","cinematic_dark","navy_cyan"] as PaletteFamily[],
+    typo: ["tech_mono","modern_sans","condensed_bold"] as TypographyStyle[],
+    textures: ["soft_touch","matte_black"] as TextureStyle[],
+    spines: ["bold_vertical_title","minimal_label"] as SpineStyle[],
+  };
+  if (isCareer) return {
+    styles: ["hardcover","manual","modern_ebook"] as MockupStyle[],
+    angles: ["left_spine_3q","standing_book","front_slight_angle"] as MockupAngle[],
+    layouts: ["big_type_center","framework_diagram","split_panel","badge_top"] as CoverLayout[],
+    palettes: ["ivory_navy","warm_cream_orange","black_gold","navy_cyan"] as PaletteFamily[],
+    typo: ["editorial_serif","condensed_bold","premium_manual"] as TypographyStyle[],
+    textures: ["linen_cover","soft_touch","matte_black"] as TextureStyle[],
+    spines: ["bold_vertical_title","minimal_label"] as SpineStyle[],
+  };
+  if (isFinance) return {
+    // Finance: keep it credible but explicitly diverse — do NOT default to black_gold every time.
+    styles: ["hardcover","workbook","planner","manual"] as MockupStyle[],
+    angles: ["left_spine_3q","right_page_3q","standing_book","stacked_workbook","front_slight_angle"] as MockupAngle[],
+    layouts: ["big_type_center","framework_diagram","planner_interface","split_panel","badge_top"] as CoverLayout[],
+    palettes: ["black_gold","cream_red_black","teal_charcoal","ivory_navy","warm_cream_orange"] as PaletteFamily[],
+    typo: ["condensed_bold","editorial_serif","premium_manual","planner_block"] as TypographyStyle[],
+    textures: ["matte_black","linen_cover","cream_paper","glossy_planner"] as TextureStyle[],
+    spines: ["bold_vertical_title","colored_band","planner_tab","minimal_label"] as SpineStyle[],
+  };
+  return {
+    styles: ["hardcover","manual","modern_ebook","field_guide"] as MockupStyle[],
+    angles: ["left_spine_3q","front_slight_angle","standing_book","right_page_3q"] as MockupAngle[],
+    layouts: ["big_type_center","framework_diagram","split_panel","badge_top"] as CoverLayout[],
+    palettes: ["ivory_navy","teal_charcoal","navy_cyan","warm_cream_orange"] as PaletteFamily[],
+    typo: ["condensed_bold","editorial_serif","modern_sans"] as TypographyStyle[],
+    textures: ["matte_black","soft_touch","linen_cover"] as TextureStyle[],
+    spines: ["bold_vertical_title","minimal_label"] as SpineStyle[],
+  };
+}
+
+// Count occurrences of a value at a specific "|"-separated signature index.
+function countAt(sigs: string[], idx: number): Record<string, number> {
+  const c: Record<string, number> = {};
+  for (const s of sigs.slice(0, 30)) {
+    const v = s.split("|")[idx];
+    if (!v) continue;
+    c[v] = (c[v] ?? 0) + 1;
+  }
+  return c;
+}
+
+// Pick the least-used option in `pool` given recent-sig counts, deterministic tiebreak.
+function pickLeastUsed<T extends string>(pool: T[], counts: Record<string, number>, seed: number): T {
+  if (!pool.length) return "" as unknown as T;
+  const scored = pool.map((v, i) => ({ v, n: counts[v] ?? 0, i }));
+  const min = Math.min(...scored.map(x => x.n));
+  const bucket = scored.filter(x => x.n === min);
+  return bucket[seed % bucket.length].v;
+}
+
+// Angle / layout / palette / format extracted from signature indices 5..8.
+export function deriveDesignDna(input: BookMockupInput, existingSigs: string[]): DesignDna {
+  const pools = dnaPoolsFor(input.categorySlug, input.title);
+  const h = titleHash((input.title ?? "") + "|" + (input.subtitle ?? "") + "|" + (input.categorySlug ?? ""));
+  // Recent-usage counts per axis (see buildSignature() layout below).
+  const angleCounts   = countAt(existingSigs, 5);
+  const formatCounts  = countAt(existingSigs, 6);
+  const paletteCounts = countAt(existingSigs, 7);
+  const layoutCounts  = countAt(existingSigs, 8);
+
+  const mockup_angle    = pickLeastUsed(pools.angles,   angleCounts,   h);
+  const mockup_style    = pickLeastUsed(pools.styles,   formatCounts,  h >> 3);
+  const palette_family  = pickLeastUsed(pools.palettes, paletteCounts, h >> 5);
+  const cover_layout    = pickLeastUsed(pools.layouts,  layoutCounts,  h >> 7);
+  const typography_style = pools.typo[(h >> 9) % pools.typo.length];
+  const texture          = pools.textures[(h >> 11) % pools.textures.length];
+  const spine_style      = pools.spines[(h >> 13) % pools.spines.length];
+
+  return {
+    mockup_style, mockup_angle, cover_layout, palette_family,
+    typography_style, texture, spine_style,
+    main_motif: "",
+    supporting_icons: [],
+    avoid_similarity_to: [],
+  };
+}
+
+// Human-readable AI prompt fragments for each DNA axis.
+const ANGLE_PROMPT: Record<MockupAngle, string> = {
+  left_spine_3q:      "3/4 angle with the matte spine on the LEFT and clean page edges on the right",
+  right_page_3q:      "reverse 3/4 angle with the page edges on the LEFT and the spine on the right",
+  front_slight_angle: "near-frontal view tilted only ~10 degrees, minimal spine visible, subtle depth",
+  standing_book:      "book standing upright facing the camera, tiny lean, soft floor shadow",
+  stacked_workbook:   "a chunky workbook lying flat with a second thinner booklet stacked at an offset, top-down 3/4",
+  open_edge_view:     "book viewed from the fore-edge side, showing the thickness of the page block and a sliver of front cover",
+};
+const FORMAT_PROMPT: Record<MockupStyle, string> = {
+  hardcover:     "premium matte hardcover with clean square corners and firm boards",
+  workbook:      "thick spiral-free perfect-bound workbook, chunky page block, softcover feel",
+  planner:       "premium planner with slight rounded corners and a colored spine band",
+  field_guide:   "compact pocketable field guide, soft-touch cover, rounded corners",
+  manual:        "editorial trade paperback manual, matte cover, crisp typography",
+  storybook:     "large illustrated children storybook hardcover with tactile printed feel",
+  modern_ebook:  "modern trade paperback with a soft-touch matte finish",
+};
+const PALETTE_PROMPT: Record<PaletteFamily, string> = {
+  black_gold:         "matte black cover with warm gold foil accents",
+  cream_red_black:    "cream cover with deep red and black accents",
+  teal_charcoal:      "charcoal cover with muted teal accents",
+  emerald_white:      "emerald green cover with clean white typography",
+  navy_cyan:          "deep navy cover with electric cyan accents",
+  warm_cream_orange:  "warm cream cover with burnt orange accents",
+  pastel_kids:        "soft pastel palette — mint, blush, butter yellow",
+  cinematic_dark:     "cinematic near-black cover with a single saturated highlight",
+  forest_mint:        "forest green cover with soft mint accents",
+  space_violet:       "deep space-blue cover with a subtle violet glow",
+  ivory_navy:         "ivory cover with navy typography and a thin metallic rule",
+};
+const LAYOUT_PROMPT: Record<CoverLayout, string> = {
+  big_type_center:      "cover art driven by huge centered display typography, minimal supporting art",
+  poster_grid:          "cover organized like a modern editorial poster with a small info grid",
+  illustration_bottom:  "large custom illustration anchored to the bottom two-thirds, title stacked above",
+  split_panel:          "two-panel split cover: solid color block on one side, illustration on the other",
+  badge_top:            "circular badge or seal at the top, disciplined title below",
+  framework_diagram:    "cover shows a clean framework diagram / schematic supporting the title",
+  planner_interface:    "cover mimics a real planner interface — dated grid, tabs, checklist rows",
+  story_scene:          "cover shows a small illustrated scene with a character or object relevant to the story",
+};
+const TYPO_PROMPT: Record<TypographyStyle, string> = {
+  condensed_bold:   "condensed heavy sans title",
+  planner_block:    "chunky planner-style block title with tab labels",
+  editorial_serif:  "confident editorial serif title with tight tracking",
+  modern_sans:      "clean neutral sans title",
+  playful_story:    "hand-lettered storybook title with warmth",
+  tech_mono:        "technical monospace title with restrained secondary type",
+  premium_manual:   "small-caps premium manual title with fine metallic rule",
+};
+const SPINE_PROMPT: Record<SpineStyle, string> = {
+  bold_vertical_title:  "spine shows the full title vertically in bold caps",
+  minimal_label:        "spine shows only a small brand mark and thin rule",
+  colored_band:         "spine has a horizontal color band at the top and bottom",
+  planner_tab:          "spine has planner-style side tabs peeking out",
+  storybook_spine:      "spine is illustrated with a small motif from the story",
+};
+
+function dnaToAiHint(dna: DesignDna): string {
+  return [
+    FORMAT_PROMPT[dna.mockup_style],
+    ANGLE_PROMPT[dna.mockup_angle],
+    PALETTE_PROMPT[dna.palette_family],
+    LAYOUT_PROMPT[dna.cover_layout],
+    TYPO_PROMPT[dna.typography_style],
+    SPINE_PROMPT[dna.spine_style],
+  ].filter(Boolean).join(". ");
+}
+
 
 function basePresetFor(slug: string | null | undefined, title: string, subtitle?: string | null, benefits?: string[] | null): Preset {
   const s = (slug ?? "").toLowerCase();
