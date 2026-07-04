@@ -1,0 +1,1 @@
+ALTER TABLE public.ebooks ADD COLUMN IF NOT EXISTS qc_downgraded boolean NOT NULL DEFAULT false; ALTER TABLE public.ebooks ADD COLUMN IF NOT EXISTS qc_notes text;

@@ -993,7 +993,9 @@ export type Database = {
           progress_pct: number | null
           progress_percent: number | null
           qc: Json
+          qc_downgraded: boolean
           qc_gates_json: Json | null
+          qc_notes: string | null
           qc_ready_for_shopify: boolean
           qc_status: string | null
           queue_position: number | null
@@ -1183,7 +1185,9 @@ export type Database = {
           progress_pct?: number | null
           progress_percent?: number | null
           qc?: Json
+          qc_downgraded?: boolean
           qc_gates_json?: Json | null
+          qc_notes?: string | null
           qc_ready_for_shopify?: boolean
           qc_status?: string | null
           queue_position?: number | null
@@ -1373,7 +1377,9 @@ export type Database = {
           progress_pct?: number | null
           progress_percent?: number | null
           qc?: Json
+          qc_downgraded?: boolean
           qc_gates_json?: Json | null
+          qc_notes?: string | null
           qc_ready_for_shopify?: boolean
           qc_status?: string | null
           queue_position?: number | null
