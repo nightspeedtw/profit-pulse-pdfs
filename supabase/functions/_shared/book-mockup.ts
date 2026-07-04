@@ -27,8 +27,11 @@ export interface BookMockupInput {
   categorySlug?: string | null;
   benefits?: string[] | null; // optional 3–4 short feature-icon labels
   // Uniqueness QC — signatures of previously generated covers in the same
-  // storefront. Format: "categorySlug|motif|metaphor-keywords". If the newly
-  // derived concept collides, we regenerate with a different metaphor.
+  // storefront. Format:
+  //   "categorySlug|motif|composition|layout_family|palette_family|emotional_tone|accent|kws"
+  // Pull up to the most recent 100 signatures; the engine enforces
+  // <20% metaphor-family reuse, <20% layout-family reuse, <30% palette
+  // reuse across that window.
   avoidSignatures?: string[] | null;
 }
 
@@ -36,8 +39,16 @@ export interface MockupResult {
   bytes: Uint8Array;
   model: string;
   attempts: number;
-  signature: string; // "<category>|<motif>|<metaphor-keywords>" — persist for future avoid lists
+  signature: string;
   concept: { theme: string; metaphor: string; composition: string } | null;
+  chosen_families?: {
+    category: string;
+    emotional_tone: string;
+    metaphor_family: string;
+    layout_family: string;
+    palette_family: string;
+    why_it_fits: string;
+  };
   qc: {
     passed: boolean;
     scores: Record<string, number>;
