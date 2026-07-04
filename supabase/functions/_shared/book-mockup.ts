@@ -868,21 +868,32 @@ export interface CoverConcept {
   cover_theme: string;
   visual_metaphor: string;
   composition: string;
+  composition_type: string;      // e.g. "centered vertical", "asymmetric split", "left-anchored"
   typography_direction: string;
   accent_color_direction: string;
+  accent_color: string;          // short color name, e.g. "yellow"
+  cover_style_family: string;    // "bold editorial" | "calm clean" | "structured modern" | "warm emotional" | "authority sharp"
+  symbol_keywords: string[];     // 3-6 concrete symbols, e.g. ["stairs","doorway","freedom"]
 }
-async function deriveCoverConcept(input: BookMockupInput, avoidPhrases: string[] = []): Promise<CoverConcept | null> {
+async function deriveCoverConcept(input: BookMockupInput, avoidPhrases: string[] = [], avoidMotifs: string[] = []): Promise<CoverConcept | null> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) return null;
   const avoidClause = avoidPhrases.length
-    ? ` The following metaphors and compositions have already been used on other covers in this storefront — do NOT reuse them or anything visually similar: ${JSON.stringify(avoidPhrases.slice(0, 20))}. Pick a fundamentally different metaphor and composition.`
+    ? ` The following metaphors and compositions have already been used on other covers in this storefront — do NOT reuse them or anything visually similar: ${JSON.stringify(avoidPhrases.slice(0, 20))}.`
+    : "";
+  const motifCap = avoidMotifs.length
+    ? ` The following symbol motifs are ALREADY over-used in the last 30 covers and must NOT appear again: ${JSON.stringify(avoidMotifs)}.`
     : "";
   const prompt =
     `Design ONE unique premium ebook cover concept for this specific book. Be topic-specific. ` +
-    `Do NOT default to a staircase, glowing doorway, chart line, or centered symbolic icon unless it is truly the best fit. ` +
-    `Return JSON with keys: cover_theme, visual_metaphor, composition, typography_direction, accent_color_direction. ` +
+    `First internally identify: category, pain point, promise, emotional tone, desired transformation. ` +
+    `Then pick a custom visual metaphor that matches the book content — do NOT default to a staircase, glowing doorway, chart line, or centered symbolic icon unless it is truly the best fit. ` +
+    `Return JSON with keys: cover_theme, visual_metaphor, composition, composition_type, typography_direction, accent_color_direction, accent_color, cover_style_family, symbol_keywords. ` +
+    `composition_type is one of: "centered vertical", "asymmetric split", "left-anchored", "top-heavy", "bottom-anchored", "diagonal", "full-bleed", "grid-modular". ` +
+    `cover_style_family is one of: "bold editorial", "calm clean", "structured modern", "warm emotional", "authority sharp", "playful illustrated". ` +
+    `symbol_keywords is an array of 3-6 concrete visual symbols (nouns), e.g. ["shield","planner","vault"]. ` +
     `Title: "${input.title}". Subtitle: "${input.subtitle ?? ""}". Category: "${input.categorySlug ?? ""}". ` +
-    `Benefits: ${JSON.stringify((input.benefits ?? []).slice(0, 5))}.` + avoidClause;
+    `Benefits: ${JSON.stringify((input.benefits ?? []).slice(0, 5))}.` + avoidClause + motifCap;
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -898,12 +909,19 @@ async function deriveCoverConcept(input: BookMockupInput, avoidPhrases: string[]
     const txt: string | undefined = j?.choices?.[0]?.message?.content;
     if (!txt) return null;
     const parsed = JSON.parse(txt);
+    const symArr = Array.isArray(parsed.symbol_keywords)
+      ? parsed.symbol_keywords.map((x: unknown) => String(x).toLowerCase().trim()).filter(Boolean).slice(0, 6)
+      : [];
     return {
       cover_theme: String(parsed.cover_theme ?? ""),
       visual_metaphor: String(parsed.visual_metaphor ?? ""),
       composition: String(parsed.composition ?? ""),
+      composition_type: String(parsed.composition_type ?? "centered vertical").toLowerCase(),
       typography_direction: String(parsed.typography_direction ?? ""),
       accent_color_direction: String(parsed.accent_color_direction ?? ""),
+      accent_color: String(parsed.accent_color ?? "").toLowerCase(),
+      cover_style_family: String(parsed.cover_style_family ?? "").toLowerCase(),
+      symbol_keywords: symArr,
     };
   } catch (e) {
     console.warn("book-mockup: concept error", (e as Error).message);
@@ -917,24 +935,56 @@ function metaphorKeywords(s: string): string[] {
   return (s ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/).filter(w => w.length > 3 && !STOPWORDS.has(w));
 }
-function buildSignature(category: string, motif: string, metaphor: string): string {
-  const kws = metaphorKeywords(metaphor).slice(0, 4).sort().join("-");
-  return `${category || "default"}|${motif}|${kws}`;
+export interface CoverMetadata {
+  cover_theme: string;
+  visual_metaphor: string;
+  composition_type: string;
+  accent_color: string;
+  cover_style_family: string;
+  symbol_keywords: string[];
+  motif: string;
 }
-function tooSimilar(candidate: string, existing: string[]): { hit: boolean; matched?: string } {
-  const [cCat, cMotif, cKws] = candidate.split("|");
-  const cSet = new Set((cKws ?? "").split("-").filter(Boolean));
-  for (const sig of existing) {
-    const [eCat, eMotif, eKws] = sig.split("|");
-    if (eCat !== cCat) continue;
-    if (eMotif === cMotif) return { hit: true, matched: sig };
-    const eSet = new Set((eKws ?? "").split("-").filter(Boolean));
-    let overlap = 0;
-    for (const w of cSet) if (eSet.has(w)) overlap++;
-    if (overlap >= 2) return { hit: true, matched: sig };
+function buildSignature(category: string, meta: CoverMetadata): string {
+  const kws = [...(meta.symbol_keywords ?? []), ...metaphorKeywords(meta.visual_metaphor)]
+    .filter(Boolean).map(w => w.toLowerCase()).slice(0, 6).sort().join("-");
+  return `${category || "default"}|${meta.motif}|${meta.composition_type || ""}|${meta.accent_color || ""}|${kws}`;
+}
+// Motif-frequency cap: a motif can appear at most 2× across the last 30 covers.
+function overusedMotifs(recentSigs: string[], cap = 2): string[] {
+  const counts: Record<string, number> = {};
+  for (const s of recentSigs.slice(0, 30)) {
+    const m = s.split("|")[1];
+    if (!m) continue;
+    counts[m] = (counts[m] ?? 0) + 1;
   }
-  return { hit: false };
+  return Object.entries(counts).filter(([, n]) => n >= cap).map(([m]) => m);
 }
+function computeUniqueness(candidate: string, existing: string[]): { score: number; hit: boolean; matched?: string; reason?: string } {
+  const [cCat, cMotif, cComp, cAcc, cKws] = candidate.split("|");
+  const cSymSet = new Set((cKws ?? "").split("-").filter(Boolean));
+  let worst = 100;
+  let worstMatch: string | undefined;
+  let worstReason: string | undefined;
+  for (const sig of existing) {
+    const [eCat, eMotif, eComp, eAcc, eKws] = sig.split("|");
+    if (eCat !== cCat) continue;
+    const eSymSet = new Set((eKws ?? "").split("-").filter(Boolean));
+    let overlap = 0;
+    for (const w of cSymSet) if (eSymSet.has(w)) overlap++;
+    const symRatio = cSymSet.size ? overlap / Math.max(cSymSet.size, eSymSet.size) : 0;
+    let s = 100;
+    let r = "";
+    if (eMotif === cMotif) { s -= 40; r = "motif_match"; }
+    if (eComp && eComp === cComp) { s -= 15; r = r ? r + "+composition" : "composition_match"; }
+    if (eAcc && eAcc === cAcc) { s -= 10; r = r ? r + "+accent" : "accent_match"; }
+    if (symRatio >= 0.5) { s -= 30; r = r ? r + "+symbols" : "symbol_overlap"; }
+    else if (overlap >= 2) { s -= 15; r = r ? r + "+symbols" : "symbol_overlap"; }
+    if (s < worst) { worst = s; worstMatch = sig; worstReason = r; }
+  }
+  const hit = worst < 70;
+  return { score: Math.max(0, worst), hit, matched: worstMatch, reason: worstReason };
+}
+
 
 // ---------- Public entry ----------
 export async function generateBookMockup(input: BookMockupInput): Promise<MockupResult> {
