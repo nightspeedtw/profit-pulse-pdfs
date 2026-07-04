@@ -92,6 +92,7 @@ Deno.serve(async (req) => {
 
     let signature = "";
     let concept: { theme: string; metaphor: string; composition: string } | null = null;
+    let dna: any = null;
     try {
       const benefits = ((e as any).key_benefits ?? (e as any).benefit_bullets ?? []) as string[];
       const result = await generateBookMockup({
@@ -107,8 +108,9 @@ Deno.serve(async (req) => {
       attempts = result.attempts;
       signature = result.signature;
       concept = result.concept;
+      dna = result.dna;
       source = result.model.startsWith("ai_") ? "ai_mockup" : "svg_fallback";
-      await log(ebookId, "store_thumbnail.mockup", "completed", { model: result.model, attempts, qc, signature, concept });
+      await log(ebookId, "store_thumbnail.mockup", "completed", { model: result.model, attempts, qc, signature, concept, dna });
     } catch (mErr) {
       await log(ebookId, "store_thumbnail.mockup", "failed", { error: (mErr as Error).message });
     }
@@ -145,10 +147,10 @@ Deno.serve(async (req) => {
     if (!qc.passed && e.store_thumbnail_url) {
       await supabase.from("ebooks").update({
         thumbnail_needs_review: true,
-        store_thumbnail_qc: { source, signature, concept, ...qc } as any,
+        store_thumbnail_qc: { source, signature, concept, dna, ...qc } as any,
       }).eq("id", ebookId);
       await log(ebookId, "store_thumbnail.qc", "failed_kept_previous", { source, qc, signature });
-      return new Response(JSON.stringify({ ok: false, ebook_id: ebookId, source, qc, signature, kept_previous: true }), {
+      return new Response(JSON.stringify({ ok: false, ebook_id: ebookId, source, qc, signature, dna, kept_previous: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
       });
     }
@@ -166,7 +168,7 @@ Deno.serve(async (req) => {
 
     const { error: updErr } = await supabase.from("ebooks").update({
       store_thumbnail_url: url,
-      store_thumbnail_qc: { source, signature, concept, ...qc } as any,
+      store_thumbnail_qc: { source, signature, concept, dna, ...qc } as any,
       store_thumbnail_generated_at: new Date().toISOString(),
       thumbnail_needs_review: !qc.passed,
       updated_at: new Date().toISOString(),
@@ -175,7 +177,7 @@ Deno.serve(async (req) => {
 
     await log(ebookId, "store_thumbnail.render", "completed", { url, source, qc, attempts, signature, concept });
 
-    return new Response(JSON.stringify({ ok: true, ebook_id: ebookId, url, source, qc, signature, concept, attempts }), {
+    return new Response(JSON.stringify({ ok: true, ebook_id: ebookId, url, source, qc, signature, concept, dna, attempts }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
