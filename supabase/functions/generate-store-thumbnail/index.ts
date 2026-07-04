@@ -74,6 +74,24 @@ Deno.serve(async (req) => {
     let attempts = 0;
 
     // ----- Photoreal book mockup (hybrid pipeline; own retries + fallback) -----
+    // Uniqueness QC: pull signatures of recent thumbnails so the concept
+    // brief can avoid re-using the same visual metaphor / composition.
+    let avoidSignatures: string[] = [];
+    try {
+      const { data: recent } = await supabase
+        .from("ebooks")
+        .select("id, store_thumbnail_qc")
+        .neq("id", ebookId)
+        .not("store_thumbnail_qc", "is", null)
+        .order("store_thumbnail_generated_at", { ascending: false })
+        .limit(40);
+      avoidSignatures = (recent ?? [])
+        .map((r: any) => r?.store_thumbnail_qc?.signature)
+        .filter((s: any) => typeof s === "string" && s.length > 0);
+    } catch (_) { /* non-fatal */ }
+
+    let signature = "";
+    let concept: { theme: string; metaphor: string; composition: string } | null = null;
     try {
       const benefits = ((e as any).key_benefits ?? (e as any).benefit_bullets ?? []) as string[];
       const result = await generateBookMockup({
@@ -82,15 +100,19 @@ Deno.serve(async (req) => {
         subtitle: e.subtitle,
         categorySlug,
         benefits,
+        avoidSignatures,
       });
       bytes = result.bytes;
       qc = result.qc;
       attempts = result.attempts;
+      signature = result.signature;
+      concept = result.concept;
       source = result.model.startsWith("ai_") ? "ai_mockup" : "svg_fallback";
-      await log(ebookId, "store_thumbnail.mockup", "completed", { model: result.model, attempts, qc });
+      await log(ebookId, "store_thumbnail.mockup", "completed", { model: result.model, attempts, qc, signature, concept });
     } catch (mErr) {
       await log(ebookId, "store_thumbnail.mockup", "failed", { error: (mErr as Error).message });
     }
+
 
     // ----- SVG fallback -----
     if (!bytes) {
