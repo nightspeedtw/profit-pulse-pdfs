@@ -2,7 +2,7 @@ import { Link, NavLink as RouterNavLink } from "react-router-dom";
 import { CartDrawer } from "./CartDrawer";
 import { Search, Menu, X, ShieldCheck } from "lucide-react";
 import { useState } from "react";
-import logoHorizontal from "@/assets/secretpdf-horizontal.png.asset.json";
+import logoHorizontal from "@/assets/secretpdf-horizontal.png";
 
 const NAV = [
   { label: "Library", to: "/library" },
@@ -42,7 +42,7 @@ export const Header = () => {
       <div className="container flex items-center justify-between h-20 gap-4">
         <Link to="/" className="flex items-center group" aria-label="SecretPDF home">
           <img
-            src={logoHorizontal.url}
+            src={logoHorizontal}
             alt="SecretPDF"
             className="h-9 sm:h-10 w-auto transition-transform group-hover:scale-[1.02]"
           />
