@@ -1,47 +1,44 @@
+# Smoke Test: 3 หมวด → สร้าง + อัพขึ้นระบบขาย (Internal Store)
 
-# Fix distorted book mockups and clipped cover text
+ตอนนี้ AI credit พร้อมแล้ว จะรัน pipeline ครบวงจรสำหรับ 3 หมวด และ list ขายในระบบ internal store (ไม่แตะ Shopify)
 
-From your screenshots, two real problems are visible on the storefront thumbnails:
+## เป้าหมาย
+สร้าง ebook 1 เล่ม/หมวด สำหรับ 3 หมวด และ auto-list ขายบนระบบเราเอง เพื่อทดสอบ end-to-end pipeline
 
-1. **Text clipping on the front face.** "The Feast-or-Famine Escape Plan" renders as "…EAST-OR-FAMINE …SCAPE PLAN" — the first letter of each line is cut off. "6-Month Framework" badge is also cropped to "-MONTH FRAMEWOR". This is happening on the deterministic Stage‑1 cover face (HTML → PNG), before Gemini ever sees it. The title layout uses a fixed 120px inset with a 230px display font and lines that can exceed the safe width, so long words overflow the left/right edges.
-2. **Book geometry looks wrong.** The Gemini composite is producing an over‑tall / narrow book with an exaggerated spine perspective and inconsistent page-edge thickness. It reads as a stretched 3D render, not a real hardcover. The current prompt doesn't lock aspect ratio, camera angle, or physical proportions, so each attempt drifts.
+## หมวดที่จะทดสอบ
+1. **Personal Finance** — ใช้ idea ที่มีอยู่ `The Cash Flow Command Protocol`
+2. **Health & Wellness** — ใช้ idea ที่มีอยู่ `The Functional Burnout Protocol`
+3. **Productivity** — ต้อง regenerate idea ใหม่ (idea pool หมด)
 
-## What I'll change (thumbnail pipeline only — no PDF, manuscript, price, copy, or Shopify)
+## ขั้นตอนการรัน
 
-### A. Stage 1 — deterministic cover face (`supabase/functions/_shared/cover-face.ts`)
-- Add a real safe‑area: increase `.content` inset to 160px and cap title block width at 1280px.
-- Auto‑fit the title: measure the longest line and scale font-size down from 230px in steps (210 / 190 / 170 / 150) until every line fits within the safe width. Never let a line overflow.
-- Improve line breaking: never break so a single-word line is longer than the safe width; when a word alone exceeds width, shrink font, don't clip.
-- Badge: allow it to wrap to two lines and cap at `max-width: 900px` so "6‑MONTH FRAMEWORK" is never cropped.
-- Same guardrails applied to subtitle and footer chips.
+### Step 1 — เติม idea สำหรับ Productivity
+เรียก `generate-idea` เฉพาะหมวด `productivity` (ตอนนี้ credit พร้อมแล้ว ไม่ควรเจอ 403 credit_limit_reached อีก)
 
-### B. Stage 2 — photoreal mockup prompt (`supabase/functions/_shared/photoreal-mockup.ts`)
-Rewrite the geometry constraints so Gemini stops distorting the book:
-- Lock **cover aspect ratio to 1:1.5** (standard trade hardcover) and state it explicitly.
-- Lock **camera**: "straight-on front view rotated ~12° to the right around vertical axis, camera at cover center height, no tilt, no perspective foreshortening beyond that angle."
-- Lock **physical proportions**: "spine thickness 6–8% of cover width, visible page block on the right with realistic uniform paper layers, cover corners square and equal, no barrel/pincushion distortion."
-- Explicit negatives: "no stretched or elongated book, no tall narrow proportions, no warped cover, no fisheye, no exaggerated perspective, no floating book."
-- Reinforce: "reproduce the provided front‑cover artwork pixel‑for‑pixel — no cropping, no re‑layout, no added or removed text."
-- Keep the bright cool off-white background (#f6f4ef) and the soft contact shadow rules already in place.
+### Step 2 — Trigger pipeline ทั้ง 3 หมวดแบบ parallel
+เรียก `autopilot-pipeline` mode `full` สำหรับแต่ละ category:
+- ข้าม category_mix (บังคับ 1 หมวด/รอบ)
+- ข้าม Shopify (`shopify_draft_upload_enabled=false`)
+- `auto_publish=true` → เข้า Step 3 อัตโนมัติ
 
-### C. QC gates (`supabase/functions/_shared/thumbnail-qc-photoreal.ts`)
-Add two hard gates so a distorted or clipped result cannot be promoted:
-- `text_integrity_score` ≥ 92 — critic checks that every word from `title`, `subtitle`, and `badge` is fully visible and uncut on the rendered cover. Any clipped letter fails.
-- `book_geometry_score` ≥ 88 — critic checks aspect ratio, spine width %, corner squareness, and absence of warping.
-Repair hints for these feed back into the Stage‑2 retry loop.
+Pipeline จะ:
+1. เลือก idea → เขียน outline → เขียนเนื้อหา → gen ปก (ใช้ book-mockup.ts + store-thumbnail.ts ที่แก้ badge/title clipping ล่าสุด) → QC → publish record
 
-### D. Regenerate the two sample books
-After the code changes, re-run `generate-photoreal-thumbnail` (max_attempts=3) for:
-- Deep Energy Protocol (`160f23dd-…`)
-- Six-Month Debt Exit Strategy (`cfc0ab97-…`)
-Only promote (`store_thumbnail_url` update) if the new `text_integrity` and `book_geometry` gates both pass. If Gemini 403‑throttles, wait and retry — no manual override this round, because the whole point is passing the new gates.
+### Step 3 — Auto-list ขาย
+`daily-cron` จะเรียก `auto_list_ebook` ให้ ebook ที่ `status=published` ปรากฏใน internal store พร้อมขาย
 
-## What I will NOT touch
-- PDF, manuscript, pricing, selling copy, listing metadata
-- Shopify (no push, no publish)
-- Any file outside the thumbnail pipeline
+จะ trigger cron manually หลัง pipeline เสร็จ เพื่อไม่ต้องรอรอบถัดไป
 
-## Deliverable
-Two new thumbnails that (a) show every letter of the title/subtitle/badge with no clipping and (b) look like a realistic hardcover with correct 1:1.5 proportions and a natural spine — or a clear report of exactly which gate blocked promotion and the inspection URL to review.
+## Verification
+หลังรันเสร็จ จะตรวจสอบ:
+- `ebooks` table: 3 rows ใหม่, status=published, cover_url + thumbnail_url ครบ
+- `store_listings` table: 3 rows ใหม่, is_active=true
+- เปิดหน้า store preview ดูว่าปก+ราคาแสดงถูกต้อง ข้อความบนปกไม่โดน clip
+- ถ้าปกยังมีปัญหา clipping → รายงานเล่มที่ผิด แล้วรอ instruction ถัดไป
 
-Approve and I'll implement.
+## Risk / Notes
+- ถ้า `generate-idea` สำหรับ productivity ยัง 403 → หยุดและแจ้งว่า credit ยังไม่พอ
+- ถ้า pipeline ล่มกลางทาง → เก็บ log และรายงาน error กลับมา ไม่รัน retry อัตโนมัติเกิน 1 ครั้ง
+- ไม่มีการยิงขึ้น Shopify (ตาม instruction ล่าสุด)
+
+กด **Implement plan** เพื่อเริ่ม smoke test
