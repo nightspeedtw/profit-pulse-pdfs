@@ -261,7 +261,7 @@ export function buildStoreThumbnailSVG(input: StoreThumbInput): string {
   // ---------- Cover face content (drawn upright, then transformed) ----------
   // Title
   const rawTitle = (input.title ?? "").trim();
-  const { size: titleSize, lines: titleLines } = fitTitle(rawTitle, usableW, 3, style.title_font === "bebas" ? 138 : 100, style.title_font === "bebas" ? 62 : 48, style.title_font);
+  const { size: titleSize, lines: titleLines } = fitTitle(rawTitle, usableW, 4, style.title_font === "bebas" ? 122 : 88, style.title_font === "bebas" ? 58 : 46, style.title_font);
   const titleLineH = titleSize * (style.title_font === "bebas" ? 0.96 : 1.08);
   const titleBlockH = titleLines.length * titleLineH;
   const titleTop = bookY + 260;
