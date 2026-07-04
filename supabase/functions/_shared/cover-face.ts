@@ -103,16 +103,48 @@ export function buildCoverFaceHtml(input: CoverFaceInput): string {
 </body></html>`;
 }
 
-function renderTitle(title: string, accentColor: string): string {
-  // Split title into lines of at most ~12 chars, alternate accent color for the middle line
-  const words = title.split(/\s+/);
+// Break title into lines aiming for balanced widths, with a HARD max
+// character count per line so no line ever overflows the 1280px safe box.
+function breakTitleLines(title: string, maxCharsPerLine: number): string[] {
+  const words = title.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let cur = "";
   for (const w of words) {
-    if ((cur + " " + w).trim().length > 12 && cur) { lines.push(cur.trim()); cur = w; }
-    else cur = (cur + " " + w).trim();
+    const candidate = (cur ? cur + " " : "") + w;
+    if (candidate.length > maxCharsPerLine && cur) {
+      lines.push(cur);
+      cur = w;
+    } else {
+      cur = candidate;
+    }
   }
-  if (cur) lines.push(cur.trim());
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+// Auto-fit title font size so the longest line fits inside the 1280px safe
+// width. Uses a conservative 0.55 avg-glyph-width ratio for the display fonts.
+function fitTitleFontSize(title: string): number {
+  const SAFE_WIDTH = 1280;
+  const AVG_GLYPH_RATIO = 0.55;
+  const candidates = [230, 210, 190, 170, 150, 130, 110];
+  // Try each font size; pick the largest whose longest line fits.
+  for (const size of candidates) {
+    // At this size, how many chars fit per line?
+    const maxChars = Math.max(6, Math.floor(SAFE_WIDTH / (size * AVG_GLYPH_RATIO)));
+    const lines = breakTitleLines(title, maxChars);
+    const longest = lines.reduce((m, l) => Math.max(m, l.length), 0);
+    if (longest * size * AVG_GLYPH_RATIO <= SAFE_WIDTH) return size;
+  }
+  return 110;
+}
+
+function renderTitle(title: string, _accentColor: string): string {
+  const SAFE_WIDTH = 1280;
+  const AVG_GLYPH_RATIO = 0.55;
+  const size = fitTitleFontSize(title);
+  const maxChars = Math.max(6, Math.floor(SAFE_WIDTH / (size * AVG_GLYPH_RATIO)));
+  const lines = breakTitleLines(title, maxChars);
   const midIdx = lines.length >= 3 ? 1 : lines.length === 2 ? 1 : 0;
   return lines
     .map((l, i) => (i === midIdx ? `<span class="accent">${esc(l)}</span>` : `<span>${esc(l)}</span><br/>`))
