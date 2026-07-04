@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
 
     const { data: e, error } = await supabase
       .from("ebooks")
-      .select("id, title, subtitle, category_slug, category_id, price, store_thumbnail_url, cover_url")
+      .select("id, title, subtitle, category_slug, category_id, price, store_thumbnail_url, cover_url, key_benefits, benefit_bullets")
       .eq("id", ebookId)
       .maybeSingle();
     if (error) throw error;
@@ -73,26 +73,23 @@ Deno.serve(async (req) => {
     let source: "ai_mockup" | "svg_fallback" = "svg_fallback";
     let attempts = 0;
 
-    // ----- Try photoreal AI book mockup first -----
-    const coverSigned = await signIfNeeded(e.cover_url);
-    if (coverSigned) {
-      try {
-        const result = await generateBookMockup({
-          coverUrl: coverSigned,
-          title: e.title,
-          subtitle: e.subtitle,
-          categorySlug,
-        });
-        bytes = result.bytes;
-        qc = result.qc;
-        attempts = result.attempts;
-        source = "ai_mockup";
-        await log(ebookId, "store_thumbnail.ai_mockup", "completed", { model: result.model, attempts, qc });
-      } catch (aiErr) {
-        await log(ebookId, "store_thumbnail.ai_mockup", "failed", { error: (aiErr as Error).message });
-      }
-    } else {
-      await log(ebookId, "store_thumbnail.ai_mockup", "skipped", { reason: "no_cover_url" });
+    // ----- Photoreal book mockup (hybrid pipeline; own retries + fallback) -----
+    try {
+      const benefits = ((e as any).key_benefits ?? (e as any).benefit_bullets ?? []) as string[];
+      const result = await generateBookMockup({
+        coverUrl: null,
+        title: e.title,
+        subtitle: e.subtitle,
+        categorySlug,
+        benefits,
+      });
+      bytes = result.bytes;
+      qc = result.qc;
+      attempts = result.attempts;
+      source = result.model.startsWith("ai_") ? "ai_mockup" : "svg_fallback";
+      await log(ebookId, "store_thumbnail.mockup", "completed", { model: result.model, attempts, qc });
+    } catch (mErr) {
+      await log(ebookId, "store_thumbnail.mockup", "failed", { error: (mErr as Error).message });
     }
 
     // ----- SVG fallback -----
