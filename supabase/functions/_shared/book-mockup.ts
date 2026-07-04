@@ -1502,7 +1502,7 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
   if (familiesOverused.metaphor) qcReasons.push(`metaphor_family_over_used:${meta?.motif}`);
   if (familiesOverused.layout)   qcReasons.push(`layout_family_over_used:${meta?.layout_family}`);
   if (familiesOverused.palette)  qcReasons.push(`palette_family_over_used:${meta?.palette_family}`);
-  for (const dim of failedDims) qcReasons.push(`qc_dim_below_threshold:${dim}=${(dimScores as any)[dim]}<${THUMB_QC_THRESHOLDS[dim]}`);
+  for (const dim of failedDims) qcReasons.push(`qc_dim_below_threshold:${dim}=${dimScores[dim]}<${THUMB_QC_THRESHOLDS[dim]}`);
 
   const qcPassed = passed && failedDims.length === 0;
 
