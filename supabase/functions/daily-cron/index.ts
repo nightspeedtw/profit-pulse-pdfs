@@ -100,33 +100,61 @@ Deno.serve(async (req) => {
     }
 
     // --- B) SCHEDULED PUBLISH ---
-    // Auto-publish ONLY when generation_settings.auto_publish=true AND mode=full.
-    // Defaults: auto_publish OFF → Shopify items stay as drafts for admin review.
+    // Auto-publish now targets the Internal Store. Shopify publishing is legacy
+    // and feature-flagged only (see FEATURES.SHOPIFY_UPLOAD); it must never be
+    // reached from the scheduled cron path.
     const currentHour = new Date().getUTCHours();
     if (settings.auto_publish && mode === "full") {
       if (currentHour === publishHour) {
-        const { data: ready } = await db.from("ebooks")
-          .select("id,title")
-          .eq("autopilot_state", "ready_to_publish")
-          .eq("shopify_status", "draft");
+        // Store readiness: PDF + thumbnail + price + listing copy + QC score + Store Ready state.
+        const minQc = Math.max(0, Number(settings.minimum_qc_pass_rate ?? 80));
+        const { data: candidates } = await db.from("ebooks")
+          .select("id,title,pdf_url,cover_url,thumbnail_url,price,product_description,short_hook,selling_hook,final_quality_score,cover_score,autopilot_state,listing_status,compliance_safety_score")
+          .in("autopilot_state", ["ready_to_publish"]);
         result.published = [];
-        for (const e of ready ?? []) {
+        result.skipped = [];
+        for (const e of candidates ?? []) {
+          const skipReasons: string[] = [];
+          if (!e.pdf_url) skipReasons.push("missing_pdf");
+          if (!e.cover_url && !(e as any).thumbnail_url) skipReasons.push("missing_thumbnail");
+          if (!e.price || Number(e.price) <= 0) skipReasons.push("missing_price");
+          const hasCopy = !!(e.product_description || (e as any).short_hook || (e as any).selling_hook);
+          if (!hasCopy) skipReasons.push("missing_listing_copy");
+          if ((e.final_quality_score ?? 0) < minQc) skipReasons.push("qc_not_ready");
+          if ((e.cover_score ?? 0) < 70) skipReasons.push("cover_gate_not_passed");
+          if ((e as any).compliance_safety_score != null && Number((e as any).compliance_safety_score) < 70) skipReasons.push("compliance_blocker");
+          if (e.listing_status === "listed") skipReasons.push("already_listed");
+
+          if (skipReasons.length > 0) {
+            (result.skipped as any[]).push({ ebook_id: e.id, title: e.title, skip_reasons: skipReasons });
+            continue;
+          }
           try {
-            const r = await fetch(`${url}/functions/v1/shopify-publish`, {
+            const r = await fetch(`${url}/functions/v1/auto-list-ebook`, {
               method: "POST", headers: auth, body: JSON.stringify({ ebook_id: e.id }),
             });
             const j = await r.json().catch(() => ({}));
-            (result.published as any[]).push({ ebook_id: e.id, title: e.title, ok: r.ok, response: j });
+            if (r.ok && (j as any).ok !== false) {
+              (result.published as any[]).push({ ebook_id: e.id, title: e.title, ok: true, response: j });
+            } else {
+              // Internal Store publish failed — keep ebook in ready_to_publish
+              // so the admin can retry from /admin/store. Never fall back to Shopify.
+              (result.published as any[]).push({
+                ebook_id: e.id, title: e.title, ok: false,
+                store_publish_failed: (j as any)?.error ?? `HTTP ${r.status}`,
+              });
+            }
           } catch (err) {
-            (result.published as any[]).push({ ebook_id: e.id, error: String(err) });
+            (result.published as any[]).push({ ebook_id: e.id, title: e.title, store_publish_failed: String(err) });
           }
         }
       } else {
         result.publish_window = `current ${currentHour}:00 UTC, scheduled ${publishHour}:00 UTC`;
       }
     } else {
-      result.publish_skipped = "auto_publish OFF or not Full mode (drafts stay in Shopify for admin review)";
+      result.publish_skipped = "auto_publish OFF or not Full mode — Store listings stay in ready_to_publish for admin review";
     }
+
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
