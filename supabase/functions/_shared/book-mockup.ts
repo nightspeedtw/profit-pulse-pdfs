@@ -26,18 +26,25 @@ export interface BookMockupInput {
   subtitle?: string | null;
   categorySlug?: string | null;
   benefits?: string[] | null; // optional 3–4 short feature-icon labels
+  // Uniqueness QC — signatures of previously generated covers in the same
+  // storefront. Format: "categorySlug|motif|metaphor-keywords". If the newly
+  // derived concept collides, we regenerate with a different metaphor.
+  avoidSignatures?: string[] | null;
 }
 
 export interface MockupResult {
   bytes: Uint8Array;
   model: string;
   attempts: number;
+  signature: string; // "<category>|<motif>|<metaphor-keywords>" — persist for future avoid lists
+  concept: { theme: string; metaphor: string; composition: string } | null;
   qc: {
     passed: boolean;
     scores: Record<string, number>;
     reasons: string[];
   };
 }
+
 
 // ---------- WASM + font caching ----------
 let wasmReady: Promise<void> | null = null;
