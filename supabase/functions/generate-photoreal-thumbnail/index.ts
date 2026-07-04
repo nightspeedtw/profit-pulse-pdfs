@@ -56,6 +56,8 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const ebookId: string = body.ebook_id;
     const dryRun: boolean = body.dry_run === true;
+    const promoteInspection: boolean = body.promote_inspection === true;
+    const overrideNote: string | undefined = body.override_note;
     const maxAttempts: number = Math.min(3, Math.max(1, Number(body.max_attempts ?? 3)));
     if (!ebookId) throw new Error("ebook_id is required");
 
@@ -66,6 +68,43 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (error) throw error;
     if (!e?.title) throw new Error("ebook not found or missing title");
+
+    // ------ Promote-inspection short path (manual override) ------
+    // Copies the previously-generated `photoreal_attempt.png` into the final
+    // `store_thumbnail.png` slot and updates the ebook row. Skips Stage 1/2
+    // regeneration entirely — used when a strict QC gate blocked promotion
+    // but the operator is satisfied with the visual result.
+    if (promoteInspection) {
+      const inspectionPath = `${ebookId}/photoreal_attempt.png`;
+      const { data: file, error: dlErr } = await supabase.storage
+        .from("ebook-covers").download(inspectionPath);
+      if (dlErr || !file) throw new Error(`no inspection png to promote: ${dlErr?.message ?? "not found"}`);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const finalPath = `${ebookId}/store_thumbnail.png`;
+      const { error: upErr } = await supabase.storage.from("ebook-covers")
+        .upload(finalPath, bytes, { contentType: "image/png", upsert: true });
+      if (upErr) throw upErr;
+      const { data: signed, error: signErr } = await supabase.storage.from("ebook-covers")
+        .createSignedUrl(finalPath, SIGNED_TTL);
+      if (signErr) throw signErr;
+      const url = signed.signedUrl;
+      const { error: updErr } = await supabase.from("ebooks").update({
+        store_thumbnail_url: url,
+        store_thumbnail_qc: {
+          source: "photoreal_gemini3_pro_image",
+          promoted_via: "manual_override",
+          note: overrideNote ?? "operator approved best attempt despite strict shadow_lighting_score gate",
+        } as any,
+        store_thumbnail_generated_at: new Date().toISOString(),
+        thumbnail_needs_review: false,
+        updated_at: new Date().toISOString(),
+      }).eq("id", ebookId);
+      if (updErr) throw updErr;
+      await log(ebookId, "photoreal_thumbnail.final", "completed_override", { url });
+      return new Response(JSON.stringify({ ok: true, ebook_id: ebookId, url, promoted_via: "manual_override" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const preset = PRESETS[ebookId];
     if (!preset) throw new Error(`no preset registered for ebook ${ebookId} — sample-only endpoint`);
