@@ -14,9 +14,9 @@ export default {
     },
     extend: {
       fontFamily: {
-        display: ['"Archivo Black"', "system-ui", "sans-serif"],
-        sans: ['"Hind"', "system-ui", "sans-serif"],
-        mono: ['"Space Mono"', "ui-monospace", "monospace"],
+        display: ['"Fraunces"', "ui-serif", "Georgia", "serif"],
+        sans: ['"Inter"', "system-ui", "sans-serif"],
+        mono: ['"JetBrains Mono"', "ui-monospace", "monospace"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -74,11 +74,14 @@ export default {
         sm: "calc(var(--radius) + 4px)",
       },
       boxShadow: {
-        brutal: "var(--shadow-brutal)",
+        brutal: "var(--shadow-soft)",
         "brutal-sm": "var(--shadow-brutal-sm)",
-        "brutal-lg": "var(--shadow-brutal-lg)",
-        "brutal-accent": "var(--shadow-brutal-accent)",
+        "brutal-lg": "var(--shadow-elegant)",
+        "brutal-accent": "var(--shadow-brand)",
         "brutal-highlight": "var(--shadow-brutal-highlight)",
+        elegant: "var(--shadow-elegant)",
+        soft: "var(--shadow-soft)",
+        brand: "var(--shadow-brand)",
       },
       keyframes: {
         "accordion-down": {

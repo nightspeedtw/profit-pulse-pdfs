@@ -8,7 +8,7 @@ const Category = () => {
   const cat = CATEGORIES.find((c) => c.slug === slug);
 
   useEffect(() => {
-    document.title = `${cat?.label ?? "Category"} — Printly`;
+    document.title = `${cat?.label ?? "Category"} — SecretPDF`;
   }, [cat]);
 
   return (

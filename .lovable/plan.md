@@ -1,72 +1,68 @@
-# Internal Store Standard + Daily Premium Production
+# Rebrand: Printly → SecretPDF
 
-Big scope. Splitting into 6 tracks. All Shopify code stays but hidden behind a feature flag; the store becomes our own internal catalog.
+Replace the "Printly" brand and its brutalist "P" mark with the uploaded **SecretPDF** identity (navy #0F2A47 + teal #2AA9B8, document + shield/keyhole icon). Refine the visual language so the site reads as a world-class, trust-forward digital product brand — **not** a brutalist print shop.
 
-## Track 1 — Shopify → Internal Store
+## 1. Logo asset
 
-- Set `FEATURES.SHOPIFY_UPLOAD = false` (already) and add `FEATURES.INTERNAL_STORE = true`. Wrap every Shopify UI entry (`LiveProductionQueue`, `ReadyShopifyCard`, `admin/ReadyShopify`, `admin/EbookShopify`, `ShopifyStatus`) behind the flag.
-- Rename buttons: "Push to Shopify" → "Publish to Store", "Shopify Draft" → "Ready for Listing", "Shopify Status" → "Listing Status".
-- Pipeline stops requiring Shopify env vars; `auto-list-ebook` marks `listed_at` + `listing_status='listed'` in our DB (already the source of truth for `list-storefront`). Shopify sync becomes a no-op behind the flag.
+- Save the uploaded logo (`user-uploads://ChatGPT_Image_4_ก.ค._2569_14_07_21.png`) as source, then create three trimmed, transparent assets via `imagegen--edit_image`:
+  - `src/assets/secretpdf-logo-horizontal.png` — main lockup (icon + wordmark)
+  - `src/assets/secretpdf-icon.png` — icon only (rounded-square favicon/app)
+  - `src/assets/secretpdf-logo-stacked.png` — icon over "SecretPDF / PRIVATE. SECURE. TRUSTED."
+- Publish each via `lovable-assets` → `src/assets/*.asset.json`, import as ES modules.
+- Replace `public/favicon.ico` with a 512px PNG derived from the icon-only asset; update `<link rel="icon">` in `index.html` and delete the old `.ico`.
 
-## Track 2 — Category-aware Thumbnail Style System
+## 2. Brand tokens (`src/index.css`, `tailwind.config.ts`)
 
-- New `supabase/functions/_shared/thumbnail-style-system.ts`:
-  - Category tone/palette/typography/badge/mockup style/prompt rules/forbidden list/QC thresholds.
-  - Categories: `finance`, `children_illustrated`, `business_career`, `wellness_selfhelp`, `education_workbook`, `parenting_family`, `creative_hobby`, `beginner_guide`, `fiction_short`.
-  - `resolveStyle(categorySlug) → StyleProfile` used by cover + thumbnail + listing copy.
-- `generate-cover/index.ts`: pass resolved style profile into background + mockup prompts. Keep textless-AI rule. Text/typography overlaid app-side (already the pattern).
-- QC gates per profile (title readability ≥90, click appeal ≥85, mood match ≥85). Photoreal-mockup failure falls back to flat-cover mockup scored on its own rubric.
+Retire the brutalist "PRINTLY" palette. Introduce SecretPDF tokens (HSL):
 
-## Track 3 — Listing Copy + Shopping-list Card
+```text
+--background:      210 40% 98%     (near-white)
+--foreground:      212 55% 12%     (navy ink #0F2A47)
+--primary:         212 55% 17%     (deep navy)
+--primary-foreground: 0 0% 100%
+--accent:          188 63% 44%     (teal #2AA9B8)
+--accent-foreground:  0 0% 100%
+--highlight:       188 80% 92%     (soft teal wash, replaces yellow)
+--muted:           210 30% 94%
+--border:          212 20% 88%
+--ring:            188 63% 44%
+--shadow-elegant:  0 20px 60px -20px hsl(212 55% 12% / 0.18)
+--gradient-brand:  linear-gradient(135deg, hsl(212 55% 17%), hsl(188 63% 44%))
+```
 
-- DB migration on `ebooks` — add nullable columns:
-  - `short_hook text`, `shopping_card_description text`, `long_description text`, `key_benefits jsonb`, `who_it_is_for text`, `what_you_get jsonb`, `preview_blurb text`, `listing_status text default 'draft'`, `price_rationale jsonb`, `compare_at_price numeric`, `category_slug text`.
-  - (Keep existing `selling_hook`, `benefit_bullets`, `product_description` as the short-card fields already used by `ProductCard`.)
-- Extend `generate-selling-copy` to fill the full listing schema in Thai, with category-aware tone and required disclaimers (finance/health/legal/parenting/children). Never guarantee outcomes.
-- `list-storefront` returns the new fields; `ProductCard` + `Product.tsx` render category badge, hook, 2–3 benefit bullets, price, status.
+- Fonts: swap display font from brutalist condensed to **Fraunces** (serif, authority) for headings + **Inter** for body via `@fontsource`. Keep tracking tight, no all-caps chunky slabs.
+- Rename the `/* PRINTLY */` comment header and any leftover yellow highlight utilities.
+- Soften the brutalist defaults: reduce default `border-2` chrome, allow `rounded-lg/xl`, add subtle `shadow-elegant` instead of hard offset shadows in shared UI wrappers (only where already used — no component behavior changes).
 
-## Track 4 — Pricing Engine
+## 3. Text/brand renames
 
-- New `supabase/functions/compute-pricing/index.ts` (or extend existing `compute-pricing`):
-  - Inputs from ebook row + QC report: category, word_count, illustration_count, worksheet_count, final_quality_score, compliance flags.
-  - Category bands: mini $9–17, premium $19–39, ebook+toolkit $39–79, children $7–19, bundle $79–199.
-  - Output: `price`, `compare_at_price` (only if truthful and admin-enabled), `price_rationale` jsonb (factors + weights).
-- Called automatically inside `auto-list-ebook` after QC. Admin can override in Ebook Detail.
+Replace every user-facing "Printly" string with **SecretPDF**:
 
-## Track 5 — Daily Production Scheduler
+- `index.html` — `<title>`, meta author, og:title, twitter:title, meta description ("SecretPDF — Private, Secure, Trusted Digital PDFs. Instant Download.").
+- `src/components/Header.tsx` — swap the "P" tile + text for `<img src={logoHorizontal} alt="SecretPDF" className="h-9 w-auto" />`, aria-label "SecretPDF home".
+- `src/components/Footer.tsx` — stacked logo + `© {year} SecretPDF. Private. Secure. Trusted.`
+- `src/pages/About.tsx`, `Bundles.tsx`, `Categories.tsx`, `Category.tsx` — update `document.title` and body copy mentioning Printly.
+- Marquee/tagline copy: keep functional text, replace "Trusted by 50K+ Creators" wording only if it names Printly.
 
-- Extend `generation_settings` with: `daily_cost_cap`, `max_books_per_day`, `max_parallel_runs`, `category_mix jsonb`, `quality_first_mode bool`, `stop_when_failure_rate_above numeric`, `stop_when_qc_failures_exceed int`, `min_final_quality_score int`.
-- Update `daily-cron` / autopilot orchestrator:
-  - Compute today's capacity from cost cap ÷ avg cost/book, respecting `max_parallel_runs`.
-  - Pick next ideas honoring `category_mix` weights.
-  - Halt when failure rate or repeat-gate failures exceed thresholds → mark run `needs_admin_attention`.
-  - Never lower QC thresholds to hit volume.
-- New "Production Command Center" card in admin: capacity estimate, books today, pass rate, cost used, queued categories, Run/Pause/Resume.
+## 4. Header/Footer polish
 
-## Track 6 — Admin UI
+- Header: white/near-white surface, thin bottom border in `--border`, logo left, nav center, teal CTA button for primary action (cart/checkout stays functional — only styling changes).
+- Footer: navy background (`--primary`) with white text, stacked logo + tagline, quiet legal row. Keep existing links/columns, only restyle.
 
-- `LiveProductionQueue`: rename Shopify actions, add "Regenerate thumbnail", "Regenerate listing copy", "Recalculate price" per row.
-- New `ProductionCommandCenter.tsx` on Dashboard.
-- New `InternalStoreList.tsx` (admin) showing shopping-list rows with thumbnail, title, hook, category, price, listing status, "Publish to Store".
-- Ebook Detail page adds sections: flat cover, thumbnail, price + rationale, listing copy, QC report, per-action regenerate buttons.
+## 5. Out of scope (do NOT touch)
 
-## Backfill
+- No changes to product data, PDFs, manuscripts, prices, store thumbnails, cover generation, or Shopify calls.
+- No routing, auth, or backend/edge-function logic changes.
+- No changes to `ProductCard` layout beyond inheriting the new tokens.
 
-One-off admin action "Refresh 2 existing QC-ready ebooks": regenerate thumbnail + listing copy + price only (no rewrite of PDF).
+## 6. Verification
 
-## Out of scope
+- `tsgo --noEmit` typecheck.
+- Playwright: screenshot `/`, `/product/<id>`, `/about` at 1280×1800; visually confirm new logo in header/footer, navy+teal palette, no remaining "Printly" text (`rg -i printly src index.html` returns 0 user-facing hits).
 
-- Rewriting existing PDFs.
-- Building a customer-facing children's-book illustrator (children category will use the existing cover + storefront copy path with children profile — deep interior illustration is a follow-up).
-- Removing Shopify code (kept behind flag).
+## Deliverables
 
-## Testing
-
-- **Existing ebook**: open Ebook Detail → "Regenerate thumbnail + listing + price" → verify DB fields populated, thumbnail matches finance profile, shopping card renders on `/`.
-- **New ebook**: Run Daily Production → verify one ebook flows idea → PDF QC → cover → thumbnail (category-styled) → listing copy → auto price → `listing_status='listed'` without any Shopify call.
-
-## Questions before I build
-
-1. **Scope of this turn** — this is ~15–20 files + migration + 2 new edge functions. Do you want me to ship all 6 tracks now, or stage it (recommended: Tracks 1+2+3+4 first, then 5+6 next turn)?
-2. **Children's-book interior illustrations** — for now, do children's ebooks use the existing text-only PDF pipeline with a children-styled cover, or should I stub a placeholder illustration step and mark it needs_admin until a real illustrator function lands?
-3. **Currency** — prices in USD (current) or THB for the Thai storefront?
+- Logo assets + favicon
+- Updated tokens (`index.css`, `tailwind.config.ts`)
+- Header, Footer, index.html, About/Bundles/Categories/Category title updates
+- Screenshots before/after

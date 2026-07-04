@@ -1,102 +1,106 @@
-@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Hind:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* PRINTLY — Bold Brutalist Design System
- * All colors HSL. Inspired by Awwwards-grade printables marketplaces.
+/* SecretPDF — Private. Secure. Trusted.
+ * Premium trust-forward design system. Navy ink + teal accent.
+ * All colors HSL.
  */
 
 @layer base {
   :root {
     /* Core surfaces */
-    --background: 0 0% 100%;            /* pure white */
-    --foreground: 0 0% 4%;              /* near black */
+    --background: 210 40% 99%;
+    --foreground: 212 55% 12%;           /* navy ink #0F2A47 */
 
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 4%;
+    --card-foreground: 212 55% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 4%;
+    --popover-foreground: 212 55% 12%;
 
-    /* Brand */
-    --primary: 0 0% 4%;                 /* black ink */
+    /* Brand — deep navy */
+    --primary: 212 55% 17%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 0 0% 96%;
-    --secondary-foreground: 0 0% 4%;
+    --secondary: 210 30% 96%;
+    --secondary-foreground: 212 55% 12%;
 
-    --muted: 0 0% 95%;
-    --muted-foreground: 0 0% 38%;
+    --muted: 210 30% 94%;
+    --muted-foreground: 212 20% 42%;
 
-    /* Brutalist accent — electric orange */
-    --accent: 14 100% 57%;              /* #ff5722 */
+    /* Accent — SecretPDF teal */
+    --accent: 188 63% 44%;               /* #2AA9B8 */
     --accent-foreground: 0 0% 100%;
 
-    /* Highlight — neon yellow (use sparingly: badges, hover, scribbles) */
-    --highlight: 53 100% 50%;           /* #ffeb3b */
-    --highlight-foreground: 0 0% 4%;
+    /* Soft teal wash — used for hover/highlight */
+    --highlight: 188 70% 92%;
+    --highlight-foreground: 212 55% 12%;
 
-    --destructive: 0 84% 60%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 4%;                  /* hard black borders — brutalist signature */
-    --border-soft: 0 0% 88%;
-    --input: 0 0% 90%;
-    --ring: 14 100% 57%;
+    --border: 212 25% 88%;
+    --border-soft: 212 20% 92%;
+    --input: 212 25% 90%;
+    --ring: 188 63% 44%;
 
-    --radius: 0;                        /* brutalist = sharp corners */
+    --radius: 0.75rem;
 
-    /* Brutalist signature shadows (offset, no blur) */
-    --shadow-brutal: 6px 6px 0 0 hsl(var(--foreground));
-    --shadow-brutal-sm: 3px 3px 0 0 hsl(var(--foreground));
-    --shadow-brutal-lg: 10px 10px 0 0 hsl(var(--foreground));
-    --shadow-brutal-accent: 6px 6px 0 0 hsl(var(--accent));
-    --shadow-brutal-highlight: 6px 6px 0 0 hsl(var(--highlight));
+    /* Elevated shadows (soft, premium — no brutalist offset) */
+    --shadow-elegant: 0 20px 60px -20px hsl(212 55% 12% / 0.18);
+    --shadow-soft: 0 4px 20px -8px hsl(212 55% 12% / 0.12);
+    --shadow-brand: 0 20px 50px -18px hsl(188 63% 44% / 0.35);
+
+    /* Legacy brutalist shadow tokens — remapped to soft variants for backward compat */
+    --shadow-brutal: var(--shadow-soft);
+    --shadow-brutal-sm: 0 2px 10px -4px hsl(212 55% 12% / 0.10);
+    --shadow-brutal-lg: var(--shadow-elegant);
+    --shadow-brutal-accent: var(--shadow-brand);
+    --shadow-brutal-highlight: 0 20px 50px -18px hsl(188 63% 44% / 0.25);
 
     /* Gradients */
-    --gradient-hero: linear-gradient(135deg, hsl(var(--highlight)) 0%, hsl(var(--accent)) 100%);
-    --gradient-noise: radial-gradient(circle at 20% 20%, hsl(var(--highlight) / 0.3) 0%, transparent 50%),
-                      radial-gradient(circle at 80% 80%, hsl(var(--accent) / 0.2) 0%, transparent 50%);
+    --gradient-brand: linear-gradient(135deg, hsl(212 55% 17%) 0%, hsl(188 63% 44%) 100%);
+    --gradient-hero: linear-gradient(135deg, hsl(210 40% 99%) 0%, hsl(188 70% 96%) 100%);
+    --gradient-noise: radial-gradient(circle at 20% 20%, hsl(188 63% 44% / 0.10) 0%, transparent 50%),
+                      radial-gradient(circle at 80% 80%, hsl(212 55% 17% / 0.08) 0%, transparent 50%);
 
-    /* Sidebar (kept for shadcn compat) */
+    /* Sidebar (shadcn compat) */
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 0 0% 4%;
-    --sidebar-primary: 0 0% 4%;
+    --sidebar-foreground: 212 55% 12%;
+    --sidebar-primary: 212 55% 17%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 0% 96%;
-    --sidebar-accent-foreground: 0 0% 4%;
-    --sidebar-border: 0 0% 4%;
-    --sidebar-ring: 14 100% 57%;
+    --sidebar-accent: 210 30% 96%;
+    --sidebar-accent-foreground: 212 55% 12%;
+    --sidebar-border: 212 25% 88%;
+    --sidebar-ring: 188 63% 44%;
   }
 
   .dark {
-    --background: 0 0% 6%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 8%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 8%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 4%;
-    --secondary: 0 0% 12%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 12%;
-    --muted-foreground: 0 0% 60%;
-    --accent: 14 100% 57%;
-    --accent-foreground: 0 0% 100%;
-    --highlight: 53 100% 50%;
-    --highlight-foreground: 0 0% 4%;
+    --background: 212 45% 8%;
+    --foreground: 210 30% 96%;
+    --card: 212 40% 11%;
+    --card-foreground: 210 30% 96%;
+    --popover: 212 40% 11%;
+    --popover-foreground: 210 30% 96%;
+    --primary: 188 63% 50%;
+    --primary-foreground: 212 55% 10%;
+    --secondary: 212 30% 16%;
+    --secondary-foreground: 210 30% 96%;
+    --muted: 212 30% 16%;
+    --muted-foreground: 212 15% 65%;
+    --accent: 188 63% 50%;
+    --accent-foreground: 212 55% 10%;
+    --highlight: 188 63% 20%;
+    --highlight-foreground: 210 30% 96%;
     --destructive: 0 70% 45%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 98%;
-    --border-soft: 0 0% 18%;
-    --input: 0 0% 18%;
-    --ring: 14 100% 57%;
-    --shadow-brutal: 6px 6px 0 0 hsl(var(--foreground));
-    --shadow-brutal-sm: 3px 3px 0 0 hsl(var(--foreground));
-    --shadow-brutal-lg: 10px 10px 0 0 hsl(var(--foreground));
+    --border: 212 25% 20%;
+    --border-soft: 212 20% 16%;
+    --input: 212 25% 20%;
+    --ring: 188 63% 50%;
   }
 }
 
@@ -112,34 +116,36 @@
 
   body {
     @apply bg-background text-foreground font-sans;
-    font-feature-settings: "ss01", "ss02", "cv01";
+    font-feature-settings: "ss01", "cv11";
   }
 
   h1, h2, h3, h4 {
     @apply font-display tracking-tight;
     text-wrap: balance;
+    letter-spacing: -0.02em;
   }
 
   ::selection {
-    background: hsl(var(--highlight));
-    color: hsl(var(--highlight-foreground));
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
   }
 }
 
 @layer components {
-  /* Brutalist card — black border + offset shadow */
+  /* Elegant card — soft border + elevated shadow (replaces brutalist offset) */
   .brutal-card {
-    @apply border-2 border-foreground bg-card transition-all duration-200;
-    box-shadow: var(--shadow-brutal);
+    @apply border border-border bg-card rounded-xl transition-all duration-300;
+    box-shadow: var(--shadow-soft);
   }
   .brutal-card:hover {
-    transform: translate(-3px, -3px);
-    box-shadow: var(--shadow-brutal-lg);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-elegant);
+    border-color: hsl(var(--accent) / 0.35);
   }
 
   .brutal-card-accent {
-    @apply border-2 border-foreground bg-card transition-all duration-200;
-    box-shadow: var(--shadow-brutal-accent);
+    @apply border border-border bg-card rounded-xl transition-all duration-300;
+    box-shadow: var(--shadow-brand);
   }
 
   /* Marquee */
@@ -162,18 +168,25 @@
     to { transform: translateX(-100%); }
   }
 
-  /* Sticker tag */
+  /* Trust sticker */
   .sticker {
-    @apply inline-flex items-center px-3 py-1 text-xs font-bold uppercase tracking-wider border-2 border-foreground bg-highlight text-highlight-foreground;
-    transform: rotate(-2deg);
+    @apply inline-flex items-center px-3 py-1 text-xs font-semibold uppercase tracking-wider rounded-full bg-highlight text-highlight-foreground border border-accent/30;
   }
 
   /* Underline highlight */
   .underline-brutal {
-    background-image: linear-gradient(hsl(var(--highlight)), hsl(var(--highlight)));
-    background-size: 100% 40%;
+    background-image: linear-gradient(hsl(var(--accent) / 0.35), hsl(var(--accent) / 0.35));
+    background-size: 100% 30%;
     background-repeat: no-repeat;
-    background-position: 0 85%;
+    background-position: 0 90%;
+  }
+
+  /* Brand gradient text */
+  .brand-gradient-text {
+    background: var(--gradient-brand);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
 
   /* Grain texture overlay */
@@ -182,7 +195,7 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
-    opacity: 0.04;
+    opacity: 0.03;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 }

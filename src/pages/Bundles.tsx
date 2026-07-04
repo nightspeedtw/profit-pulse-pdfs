@@ -3,7 +3,7 @@ import { useEffect } from "react";
 
 const Bundles = () => {
   useEffect(() => {
-    document.title = "Bundles — Printly";
+    document.title = "Bundles — SecretPDF";
   }, []);
 
   return (
