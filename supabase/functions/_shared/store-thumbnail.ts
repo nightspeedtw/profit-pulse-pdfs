@@ -286,7 +286,7 @@ export function buildStoreThumbnailSVG(input: StoreThumbInput): string {
   // Subtitle
   const subRaw = (input.subtitle ?? "").trim().slice(0, 140);
   const subSize = 30;
-  const subLines = subRaw ? wrapByWidth(subRaw, usableW - 40, subCharW, subSize).slice(0, 2) : [];
+  const subLines = subRaw ? wrapByWidth(subRaw, usableW - 40, subCharW, subSize).slice(0, 1) : [];
   const subGap = 40;
   const ruleTopY = titleBottom + subGap;
   const subStartY = ruleTopY + 40 + subSize * 0.5;
