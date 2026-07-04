@@ -178,9 +178,10 @@ Deno.serve(async (req) => {
 
     await log(ebookId, "store_thumbnail.render", "completed", { url, source, qc, attempts, signature, concept });
 
-    return new Response(JSON.stringify({ ok: true, ebook_id: ebookId, url, source, qc, signature, concept, attempts }), {
+    return new Response(JSON.stringify({ ok: true, ebook_id: ebookId, url, source, qc, signature, concept, chosen_families: chosenFamilies, attempts }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
 
   } catch (err) {
     console.error("generate-store-thumbnail error:", err);
