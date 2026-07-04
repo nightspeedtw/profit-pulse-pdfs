@@ -40,9 +40,9 @@ export default function Product() {
         <ArrowLeft className="h-4 w-4" /> Back to Library
       </Link>
       <div className="grid md:grid-cols-2 gap-8">
-        <div className="aspect-[4/5] bg-secondary border-2 border-foreground overflow-hidden">
-          {product.cover_url ? (
-            <img src={product.cover_url} alt={product.title} className="w-full h-full object-cover" />
+        <div className="aspect-[3/4] bg-secondary border-2 border-foreground overflow-hidden">
+          {(product.store_thumbnail_url || product.cover_url) ? (
+            <img src={product.store_thumbnail_url || product.cover_url!} alt={product.title} className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-muted-foreground">No cover</div>
           )}

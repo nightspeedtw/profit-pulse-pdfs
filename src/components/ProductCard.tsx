@@ -61,7 +61,8 @@ export const ProductCard = ({ product }: Props) => {
     fallbackTeaser(product.title);
   const bullets = (product.benefit_bullets ?? []).slice(0, 2);
 
-  const image = product.cover_url;
+  const image = product.store_thumbnail_url || product.cover_url;
+  const hasBakedText = !!product.store_thumbnail_url;
 
   return (
     <Link to={`/product/${product.id}`} className="group brutal-card flex flex-col overflow-hidden">
@@ -79,12 +80,15 @@ export const ProductCard = ({ product }: Props) => {
             <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent pointer-events-none" />
             {/* Category-tinted top accent */}
             <div className={`absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b ${accent} pointer-events-none`} />
-            {/* Title overlay so cards are always readable even when cover art has no text */}
-            <div className="absolute inset-x-0 bottom-0 p-3 z-10">
-              <div className="font-display uppercase text-white text-lg leading-tight line-clamp-3 drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
-                {product.title}
+            {/* CSS fallback title overlay — hidden when the thumbnail already
+                has real baked-in text (store_thumbnail_url). */}
+            {!hasBakedText && (
+              <div className="absolute inset-x-0 bottom-0 p-3 z-10">
+                <div className="font-display uppercase text-white text-lg leading-tight line-clamp-3 drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
+                  {product.title}
+                </div>
               </div>
-            </div>
+            )}
           </>
         ) : (
           <div className="w-full h-full flex items-center justify-center text-muted-foreground">
