@@ -842,11 +842,22 @@ export function buildCoverFaceSvg(input: BookMockupInput): string {
     ? `<line x1="${CW/2 - 200}" y1="${subEndY + 14}" x2="${CW/2 + 200}" y2="${subEndY + 14}" stroke="${p.ink2}" stroke-width="1.5" opacity="0.65"/>`
     : "";
 
-  // Category badge top-left
-  const badgeW = Math.max(120, p.badge.length * 12 + 28);
+  // Category badge top-left.
+  // Accurate width: at font-size 19, weight 700, letter-spacing 2.5 the real
+  // per-glyph advance is ~15.5px + 2.5 tracking. Under-sizing the pill made
+  // text-anchor="middle" push characters beyond the pill on BOTH sides, and
+  // the left overflow was clipped by the book edge in the 3D mockup
+  // ("INCOME SYSTEM" → "NOME SYSTEM", "FOCUS PROTOCOL" → "FOCUS PROTOCO").
+  // Fix: size the pill from real metrics and left-anchor the text inside it
+  // so the accent background always fully covers every glyph.
+  const badgeLabel = String(p.badge ?? "").toUpperCase();
+  const BADGE_PAD_X = 24;
+  const BADGE_GLYPH_ADVANCE = 15.5 + 2.5; // font-size 19 bold + letter-spacing 2.5
+  const badgeTextW = Math.max(1, badgeLabel.length) * BADGE_GLYPH_ADVANCE;
+  const badgeW = Math.max(120, Math.round(badgeTextW + BADGE_PAD_X * 2));
   const badge = `
     <rect x="60" y="80" width="${badgeW}" height="46" fill="${p.accent}" rx="2"/>
-    <text x="${60 + badgeW/2}" y="112" font-family="Inter" font-size="19" font-weight="700" fill="#0a0a0a" text-anchor="middle" letter-spacing="2.5">${esc(p.badge)}</text>
+    <text x="${60 + BADGE_PAD_X}" y="112" font-family="Inter" font-size="19" font-weight="700" fill="#0a0a0a" text-anchor="start" letter-spacing="2.5">${esc(badgeLabel)}</text>
   `;
 
   // Feature-icon strip at the bottom
