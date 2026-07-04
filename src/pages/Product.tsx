@@ -58,9 +58,20 @@ export default function Product() {
           )}
 
           <h1 className="font-display text-4xl uppercase leading-tight">{product.title}</h1>
-          <p className="font-display text-3xl text-accent-foreground">FREE</p>
+          {(() => {
+            const price = product.price != null ? Number(product.price) : null;
+            const isFree = price === 0 || price == null;
+            return (
+              <p className="font-display text-3xl text-accent-foreground">
+                {isFree ? "FREE" : `$${price!.toFixed(2)}`}
+              </p>
+            );
+          })()}
           <div className="prose prose-sm max-w-none whitespace-pre-wrap">
-            {product.product_description || "Premium digital PDF, instant download — no signup required."}
+            {product.product_description ||
+              product.shopping_card_description ||
+              product.short_hook ||
+              "Premium digital PDF, instant download."}
           </div>
           {product.benefit_bullets && product.benefit_bullets.length > 0 && (
             <ul className="space-y-2 pt-2">
@@ -74,12 +85,10 @@ export default function Product() {
           )}
           <div className="flex gap-3 pt-2">
             <Button onClick={() => freeDownload(product.id, product.title)} className="h-14 flex-1 gap-2">
-              <Download className="h-5 w-5" /> Download PDF
+              <Download className="h-5 w-5" />
+              {product.price && Number(product.price) > 0 ? `Buy · $${Number(product.price).toFixed(2)}` : "Download PDF"}
             </Button>
           </div>
-          <ul className="text-xs text-muted-foreground space-y-1 pt-4 border-t-2 border-foreground/20">
-            <li className="flex items-center gap-2"><Download className="h-3 w-3" /> Instant PDF · no payment required</li>
-          </ul>
         </div>
       </div>
     </div>
