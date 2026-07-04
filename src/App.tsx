@@ -30,6 +30,7 @@ import AutopilotRun from "./pages/admin/AutopilotRun.tsx";
 import ReadyShopify from "./pages/admin/ReadyShopify.tsx";
 import ProductionCommandCenter from "./pages/admin/ProductionCommandCenter.tsx";
 import InternalStore from "./pages/admin/InternalStore.tsx";
+import SmokeTestStatus from "./pages/admin/SmokeTestStatus.tsx";
 
 const queryClient = new QueryClient();
 
@@ -59,6 +60,7 @@ const App = () => (
             <Route path="production" element={<Production />} />
             <Route path="production-command-center" element={<ProductionCommandCenter />} />
             <Route path="store" element={<InternalStore />} />
+            <Route path="smoke-test" element={<SmokeTestStatus />} />
             <Route path="store/:id" element={<EbookReview />} />
             <Route path="ready-shopify" element={<ReadyShopify />} />
             <Route path="products" element={<Products />} />
