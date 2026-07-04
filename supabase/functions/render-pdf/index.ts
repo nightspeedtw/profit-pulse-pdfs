@@ -114,17 +114,24 @@ Deno.serve(async (req) => {
     let plan: IllustrationPlan | null = null;
     let illustrationsByChapter: Record<number, { url: string; caption: string }> = {};
     try {
+      // Resolve category slug so the planner picks a topic-appropriate visual
+      // medium (food photography for cooking, athletic photography for
+      // fitness, etc.) rather than the default abstract minimalist look.
+      let categorySlug: string | null = null;
+      if (ebook.category_id) {
+        const { data: cat } = await db.from("categories").select("slug").eq("id", ebook.category_id).maybeSingle();
+        categorySlug = cat?.slug ?? null;
+      }
       const existingPlan = ebook.inside_illustration_plan_json as IllustrationPlan | null;
       const existingImages = (ebook.inside_illustrations_json ?? {}) as Record<string, { url: string; caption: string }>;
-      // Reuse cached plan only if it actually recommended illustrations;
-      // otherwise re-plan (rules or thresholds may have improved).
       plan = (existingPlan?.entries?.length && (existingPlan.total_recommended ?? 0) > 0)
         ? existingPlan
         : planIllustrations(chapters.map((c: any, i: number) => ({
             index: c.chapter_index ?? (i + 1),
             title: c.title ?? `Chapter ${i + 1}`,
             content: c.content ?? "",
-          })));
+          })), categorySlug);
+
       // Reuse existing images where present; generate the rest in small
       // parallel batches so we stay under the edge function's memory + time
       // budget. Also cap total new generations at 8 per render.
