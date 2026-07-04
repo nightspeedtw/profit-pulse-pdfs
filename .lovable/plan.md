@@ -1,67 +1,47 @@
-# Reference-Grade Photoreal Thumbnails — 2 Samples Only
 
-## Scope (strict)
-Rebuild the thumbnail renderer for 2 books ONLY. No backfill until the 2 samples pass.
+# Fix distorted book mockups and clipped cover text
 
-- `cfc0ab97-ec48-447a-a0ca-73513e36941f` — **The Six-Month Debt Exit Strategy**
-- `160f23dd-2c74-4bd0-910d-2fb3d1a5b00e` — **The Deep Energy Protocol**
+From your screenshots, two real problems are visible on the storefront thumbnails:
 
-No PDF / manuscript / price / copy changes. No Shopify calls. No pipeline changes.
+1. **Text clipping on the front face.** "The Feast-or-Famine Escape Plan" renders as "…EAST-OR-FAMINE …SCAPE PLAN" — the first letter of each line is cut off. "6-Month Framework" badge is also cropped to "-MONTH FRAMEWOR". This is happening on the deterministic Stage‑1 cover face (HTML → PNG), before Gemini ever sees it. The title layout uses a fixed 120px inset with a 230px display font and lines that can exceed the safe width, so long words overflow the left/right edges.
+2. **Book geometry looks wrong.** The Gemini composite is producing an over‑tall / narrow book with an exaggerated spine perspective and inconsistent page-edge thickness. It reads as a stretched 3D render, not a real hardcover. The current prompt doesn't lock aspect ratio, camera angle, or physical proportions, so each attempt drifts.
 
-## Why current output fails
-Existing renderer (`_shared/book-mockup.ts` + `generate-store-thumbnail`) composes an SVG "3D-ish" book — perspective is faked in vector, so it always reads as a template. Self-reported QC scores are inflated (96/100) because the QC critic sees SVG, not photorealism.
+## What I'll change (thumbnail pipeline only — no PDF, manuscript, price, copy, or Shopify)
 
-## New two-stage approach
+### A. Stage 1 — deterministic cover face (`supabase/functions/_shared/cover-face.ts`)
+- Add a real safe‑area: increase `.content` inset to 160px and cap title block width at 1280px.
+- Auto‑fit the title: measure the longest line and scale font-size down from 230px in steps (210 / 190 / 170 / 150) until every line fits within the safe width. Never let a line overflow.
+- Improve line breaking: never break so a single-word line is longer than the safe width; when a word alone exceeds width, shrink font, don't clip.
+- Badge: allow it to wrap to two lines and cap at `max-width: 900px` so "6‑MONTH FRAMEWORK" is never cropped.
+- Same guardrails applied to subtitle and footer chips.
 
-### Stage 1 — Deterministic cover face (HTML → PNG via Browserless)
-`_shared/cover-face.ts` (new) — renders a 1600×2400 HTML cover with:
-- Exact title/subtitle/badge in Bebas Neue / Anton / Playfair (baked into image, never AI text)
-- Topic illustration composed from Lucide SVGs + gradients + halftone textures
-- Palette per book (Debt Exit = matte black + white/gold; Deep Energy = deep forest green + cream)
-- Poster-style typography hierarchy matching the uploaded references
-- Rendered via existing Browserless (`BROWSERLESS_TOKEN` already set) → PNG buffer
+### B. Stage 2 — photoreal mockup prompt (`supabase/functions/_shared/photoreal-mockup.ts`)
+Rewrite the geometry constraints so Gemini stops distorting the book:
+- Lock **cover aspect ratio to 1:1.5** (standard trade hardcover) and state it explicitly.
+- Lock **camera**: "straight-on front view rotated ~12° to the right around vertical axis, camera at cover center height, no tilt, no perspective foreshortening beyond that angle."
+- Lock **physical proportions**: "spine thickness 6–8% of cover width, visible page block on the right with realistic uniform paper layers, cover corners square and equal, no barrel/pincushion distortion."
+- Explicit negatives: "no stretched or elongated book, no tall narrow proportions, no warped cover, no fisheye, no exaggerated perspective, no floating book."
+- Reinforce: "reproduce the provided front‑cover artwork pixel‑for‑pixel — no cropping, no re‑layout, no added or removed text."
+- Keep the bright cool off-white background (#f6f4ef) and the soft contact shadow rules already in place.
 
-### Stage 2 — Photoreal book mockup composite (Gemini 3 Pro Image edit)
-`_shared/photoreal-mockup.ts` (new) — takes the Stage 1 cover face as `image_paths[0]` and calls Lovable AI Gateway `google/gemini-3-pro-image` (image edit) with the prompt:
+### C. QC gates (`supabase/functions/_shared/thumbnail-qc-photoreal.ts`)
+Add two hard gates so a distorted or clipped result cannot be promoted:
+- `text_integrity_score` ≥ 92 — critic checks that every word from `title`, `subtitle`, and `badge` is fully visible and uncut on the rendered cover. Any clipped letter fails.
+- `book_geometry_score` ≥ 88 — critic checks aspect ratio, spine width %, corner squareness, and absence of warping.
+Repair hints for these feed back into the Stage‑2 retry loop.
 
-> "Take the provided flat book cover artwork and place it EXACTLY as-is onto the front cover of a premium hardcover book, photographed as a realistic product photo on a clean off-white studio background, slight three-quarter angle, visible spine and page edge with realistic paper thickness, matte cover texture, subtle soft shadow beneath the book, book fills 78–90% of frame height, professional ecommerce photography, crisp studio lighting. Do NOT alter, redraw, or add text to the cover — preserve every letter of the provided artwork pixel-for-pixel on the front face."
+### D. Regenerate the two sample books
+After the code changes, re-run `generate-photoreal-thumbnail` (max_attempts=3) for:
+- Deep Energy Protocol (`160f23dd-…`)
+- Six-Month Debt Exit Strategy (`cfc0ab97-…`)
+Only promote (`store_thumbnail_url` update) if the new `text_integrity` and `book_geometry` gates both pass. If Gemini 403‑throttles, wait and retry — no manual override this round, because the whole point is passing the new gates.
 
-Gemini 3 Pro Image is the only model on the gateway that reliably preserves reference typography under geometric transforms.
+## What I will NOT touch
+- PDF, manuscript, pricing, selling copy, listing metadata
+- Shopify (no push, no publish)
+- Any file outside the thumbnail pipeline
 
-Output: 1600×1600 PNG on white → upload to `ebook-covers` bucket → signed URL → `ebooks.store_thumbnail_url`.
+## Deliverable
+Two new thumbnails that (a) show every letter of the title/subtitle/badge with no clipping and (b) look like a realistic hardcover with correct 1:1.5 proportions and a natural spine — or a clear report of exactly which gate blocked promotion and the inspection URL to review.
 
-### QC gate (new)
-`_shared/thumbnail-qc-photoreal.ts` — AI critic scores 10 axes on 0–100:
-- `reference_grade_realism_score` ≥ 92
-- `book_size_score` ≥ 90 (book height ≥ 78% of frame)
-- `white_bg_product_photo_score` ≥ 95
-- `cover_typography_score` ≥ 90
-- `title_baked_in_score` ≥ 95 (title matches exact expected string, no AI-drift)
-- `topic_illustration_score` ≥ 85
-- `spine_page_depth_score` ≥ 90
-- `shadow_lighting_score` ≥ 90
-- `store_click_appeal_score` ≥ 90
-- `final_store_thumbnail_score` ≥ 92
-
-Hard fail = template look, dark bg, small book, distorted/missing title, no spine/depth, no shadow.
-
-Retry up to 2 times per sample with sharpened prompts. If still failing → **STOP**, do not overwrite `store_thumbnail_url`, report the exact blocker.
-
-## New endpoint
-`supabase/functions/generate-photoreal-thumbnail/index.ts` — POST `{ ebook_id }` → runs Stage 1 → Stage 2 → QC → conditional save. Manual call only, not wired into orchestrator yet.
-
-## Verification loop
-1. Call the new function for both ebook IDs.
-2. Fetch the generated PNGs, open `/library` in Playwright, screenshot both cards.
-3. Report URLs, per-axis QC scores, screenshot, pass/fail verdict.
-
-## What I will NOT do
-- Not touch pdf-template, render-pdf, chapters, prices, product copy.
-- Not call Shopify.
-- Not backfill the remaining 30+ products.
-- Not overwrite the current `store_thumbnail_url` unless the new sample passes every hard gate.
-
-## What I need from you
-1. **OK to spend Gemini 3 Pro Image credits** on ~3–6 total image generations (2 samples × up to 3 retries)?
-2. **OK with the 2-stage architecture** above (HTML cover face + Gemini 3 Pro Image composite), rather than a fixed mockup template library?
-3. If Gemini 3 Pro Image still distorts the reference typography under the transform (known model limitation on aggressive perspective), the fallback is a **fixed PNG mockup template library** with a Skia/Canvas perspective composite of the cover face — OK to fall back to that automatically, or stop and report?
+Approve and I'll implement.
