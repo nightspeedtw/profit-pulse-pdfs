@@ -26,18 +26,25 @@ export interface BookMockupInput {
   subtitle?: string | null;
   categorySlug?: string | null;
   benefits?: string[] | null; // optional 3–4 short feature-icon labels
+  // Uniqueness QC — signatures of previously generated covers in the same
+  // storefront. Format: "categorySlug|motif|metaphor-keywords". If the newly
+  // derived concept collides, we regenerate with a different metaphor.
+  avoidSignatures?: string[] | null;
 }
 
 export interface MockupResult {
   bytes: Uint8Array;
   model: string;
   attempts: number;
+  signature: string; // "<category>|<motif>|<metaphor-keywords>" — persist for future avoid lists
+  concept: { theme: string; metaphor: string; composition: string } | null;
   qc: {
     passed: boolean;
     scores: Record<string, number>;
     reasons: string[];
   };
 }
+
 
 // ---------- WASM + font caching ----------
 let wasmReady: Promise<void> | null = null;
@@ -864,15 +871,18 @@ export interface CoverConcept {
   typography_direction: string;
   accent_color_direction: string;
 }
-async function deriveCoverConcept(input: BookMockupInput): Promise<CoverConcept | null> {
+async function deriveCoverConcept(input: BookMockupInput, avoidPhrases: string[] = []): Promise<CoverConcept | null> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) return null;
+  const avoidClause = avoidPhrases.length
+    ? ` The following metaphors and compositions have already been used on other covers in this storefront — do NOT reuse them or anything visually similar: ${JSON.stringify(avoidPhrases.slice(0, 20))}. Pick a fundamentally different metaphor and composition.`
+    : "";
   const prompt =
     `Design ONE unique premium ebook cover concept for this specific book. Be topic-specific. ` +
     `Do NOT default to a staircase, glowing doorway, chart line, or centered symbolic icon unless it is truly the best fit. ` +
     `Return JSON with keys: cover_theme, visual_metaphor, composition, typography_direction, accent_color_direction. ` +
     `Title: "${input.title}". Subtitle: "${input.subtitle ?? ""}". Category: "${input.categorySlug ?? ""}". ` +
-    `Benefits: ${JSON.stringify((input.benefits ?? []).slice(0, 5))}.`;
+    `Benefits: ${JSON.stringify((input.benefits ?? []).slice(0, 5))}.` + avoidClause;
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -901,14 +911,64 @@ async function deriveCoverConcept(input: BookMockupInput): Promise<CoverConcept 
   }
 }
 
+// ---------- Uniqueness QC ----------
+const STOPWORDS = new Set(["the","a","an","and","or","of","in","on","to","for","with","by","from","at","as","is","are","be","this","that","its","into","over","under","up","down"]);
+function metaphorKeywords(s: string): string[] {
+  return (s ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/).filter(w => w.length > 3 && !STOPWORDS.has(w));
+}
+function buildSignature(category: string, motif: string, metaphor: string): string {
+  const kws = metaphorKeywords(metaphor).slice(0, 4).sort().join("-");
+  return `${category || "default"}|${motif}|${kws}`;
+}
+function tooSimilar(candidate: string, existing: string[]): { hit: boolean; matched?: string } {
+  const [cCat, cMotif, cKws] = candidate.split("|");
+  const cSet = new Set((cKws ?? "").split("-").filter(Boolean));
+  for (const sig of existing) {
+    const [eCat, eMotif, eKws] = sig.split("|");
+    if (eCat !== cCat) continue;
+    if (eMotif === cMotif) return { hit: true, matched: sig };
+    const eSet = new Set((eKws ?? "").split("-").filter(Boolean));
+    let overlap = 0;
+    for (const w of cSet) if (eSet.has(w)) overlap++;
+    if (overlap >= 2) return { hit: true, matched: sig };
+  }
+  return { hit: false };
+}
+
 // ---------- Public entry ----------
 export async function generateBookMockup(input: BookMockupInput): Promise<MockupResult> {
   if (!input.title) throw new Error("title is required");
 
-  // Stage 0 — derive a topic-specific concept brief (drives the AI image prompt)
-  const concept = await deriveCoverConcept(input);
+  const existingSigs = (input.avoidSignatures ?? []).filter(Boolean);
+  const avoidPhrases: string[] = [];
+  const qcReasons: string[] = [];
 
+  // Stage 0 — derive a topic-specific concept, up to 3 tries to pass the
+  // visual-uniqueness QC vs previously generated covers.
+  let concept: CoverConcept | null = null;
+  let signature = "";
   const p = presetFor(input.categorySlug, input.title, input.subtitle, input.benefits);
+  let conceptAttempts = 0;
+  for (let i = 0; i < 3; i++) {
+    conceptAttempts++;
+    const c = await deriveCoverConcept(input, avoidPhrases);
+    const metaphor = c?.visual_metaphor ?? p.sceneConcept ?? p.motif;
+    const sig = buildSignature(input.categorySlug ?? "", p.motif, metaphor);
+    const sim = tooSimilar(sig, existingSigs);
+    if (!sim.hit) { concept = c; signature = sig; break; }
+    qcReasons.push(`uniqueness_retry:${sim.matched}`);
+    avoidPhrases.push(metaphor);
+    // On the last attempt, force a fresh motif from the variant pool.
+    if (i === 1) {
+      const g = VARIANT_GROUPS[p.key] ?? VARIANT_GROUPS.default;
+      const used = new Set(existingSigs.map(s => s.split("|")[1]));
+      const fresh = g.motifs.find(m => !used.has(m)) ?? p.motif;
+      p.motif = fresh;
+    }
+    concept = c; signature = sig; // keep last as fallback
+  }
+
   if (concept) {
     const conceptHint =
       ` Cover concept for THIS specific book — theme: ${concept.cover_theme}; ` +
@@ -932,7 +992,6 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
     if (bytes) model = "ai_photoreal_gemini_3.1_flash_image";
   }
 
-
   // Fallback: SVG 3D wrapper around Stage-1 face
   if (!bytes) {
     const faceDataUrl = `data:image/png;base64,${bytesToBase64(faceBytes)}`;
@@ -942,6 +1001,8 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
 
   const passed = bytes.length > 30_000;
   const isAi = model.startsWith("ai_");
+  const finalSim = tooSimilar(signature, existingSigs);
+  const uniquenessScore = finalSim.hit ? 60 : 96;
   const scores = {
     white_background_score: 100,
     book_realism_score: isAi ? 96 : 90,
@@ -954,10 +1015,20 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
     premium_feel_score: isAi ? 96 : 92,
     google_merchant_friendliness_score: 100,
     anti_ai_look_score: 100,
-    final_store_thumbnail_score: isAi ? 96 : 92,
+    visual_uniqueness_score: uniquenessScore,
+    concept_attempts: conceptAttempts,
+    final_store_thumbnail_score: isAi ? Math.min(96, uniquenessScore + 30) : Math.min(92, uniquenessScore + 28),
   };
-  const reasons: string[] = [];
-  if (!passed) reasons.push("output_bytes_below_minimum");
+  if (!passed) qcReasons.push("output_bytes_below_minimum");
+  if (finalSim.hit) qcReasons.push(`visual_uniqueness_fail:${finalSim.matched}`);
 
-  return { bytes, model, attempts, qc: { passed, scores, reasons } };
+  return {
+    bytes,
+    model,
+    attempts,
+    signature,
+    concept: concept ? { theme: concept.cover_theme, metaphor: concept.visual_metaphor, composition: concept.composition } : null,
+    qc: { passed: passed && !finalSim.hit, scores, reasons: qcReasons },
+  };
 }
+
