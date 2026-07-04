@@ -1373,26 +1373,36 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
   if (!input.title) throw new Error("title is required");
 
   const existingSigs = (input.avoidSignatures ?? []).filter(Boolean);
-  const avoidPhrases: string[] = [];
-  const overused = overusedMotifs(existingSigs, 2); // motifs used ≥2× in last 30 covers
+  const overusedMot = overusedMotifs(existingSigs, 2);
+  const overusedFam = overusedFamilies(existingSigs);
   const qcReasons: string[] = [];
+  const avoidPhrases: string[] = [];
 
-  // Stage 0 — derive concept + retry up to 3× to pass uniqueness QC.
+  // Stage 0 — derive concept + 3-attempt loop that forces a fresh metaphor
+  // and layout family whenever the diversity engine flags overuse.
   let concept: CoverConcept | null = null;
   let signature = "";
   let meta: CoverMetadata | null = null;
   let bestScore = -1;
   const p = presetFor(input.categorySlug, input.title, input.subtitle, input.benefits);
   let conceptAttempts = 0;
+  const banMetaphorFamilies = new Set(overusedFam.metaphor);
+  const banLayoutFamilies   = new Set(overusedFam.layout);
+  const banPaletteFamilies  = new Set(overusedFam.palette);
+
   for (let i = 0; i < 3; i++) {
     conceptAttempts++;
-    const banMotifs = [...overused, ...(meta ? [meta.motif] : [])];
-    if (overused.includes(p.motif) || (i >= 1 && banMotifs.includes(p.motif))) {
+    const banMotifs = [...overusedMot, ...(meta && i > 0 ? [meta.motif] : [])];
+    if (overusedMot.includes(p.motif) || (i >= 1 && banMotifs.includes(p.motif))) {
       const g = VARIANT_GROUPS[p.key] ?? VARIANT_GROUPS.default;
       const fresh = g.motifs.find(m => !banMotifs.includes(m));
       if (fresh) p.motif = fresh;
     }
-    const c = await deriveCoverConcept(input, avoidPhrases, banMotifs);
+    const c = await deriveCoverConcept(input, avoidPhrases, banMotifs, {
+      metaphor: [...banMetaphorFamilies],
+      layout:   [...banLayoutFamilies],
+      palette:  [...banPaletteFamilies],
+    });
     const cand: CoverMetadata = {
       cover_theme: c?.cover_theme ?? "",
       visual_metaphor: c?.visual_metaphor ?? p.sceneConcept ?? p.motif,
@@ -1401,22 +1411,36 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
       cover_style_family: c?.cover_style_family ?? "",
       symbol_keywords: c?.symbol_keywords ?? [],
       motif: p.motif,
+      metaphor_family: c?.metaphor_family ?? "blueprint_framework_diagram",
+      layout_family:   c?.layout_family   ?? "modern_commercial_nonfiction",
+      palette_family:  c?.palette_family  ?? "editorial_off_white",
+      emotional_tone:  c?.emotional_tone  ?? "clarity",
     };
     const sig = buildSignature(input.categorySlug ?? "", cand);
     const u = computeUniqueness(sig, existingSigs);
+    const familyCollision =
+      banMetaphorFamilies.has(cand.metaphor_family) ||
+      banLayoutFamilies.has(cand.layout_family) ||
+      banPaletteFamilies.has(cand.palette_family);
     if (u.score > bestScore) { bestScore = u.score; concept = c; signature = sig; meta = cand; }
-    if (!u.hit && !overused.includes(p.motif)) break;
-    qcReasons.push(`uniqueness_retry:${u.reason ?? "similarity"}:${u.score}`);
+    if (!u.hit && !familyCollision && !overusedMot.includes(p.motif)) break;
+    qcReasons.push(`retry:${u.reason ?? "similarity"}:score=${u.score}${familyCollision ? ":family_collision" : ""}`);
     if (c?.visual_metaphor) avoidPhrases.push(c.visual_metaphor);
+    // On next attempt, add the just-picked families to the ban list to
+    // force a different direction.
+    if (c?.metaphor_family) banMetaphorFamilies.add(c.metaphor_family);
+    if (c?.layout_family)   banLayoutFamilies.add(c.layout_family);
   }
 
   if (concept) {
     const conceptHint =
       ` Cover concept for THIS specific book — theme: ${concept.cover_theme}; ` +
-      `visual metaphor: ${concept.visual_metaphor}; composition: ${concept.composition} (${concept.composition_type}); ` +
-      `typography direction: ${concept.typography_direction}; accent: ${concept.accent_color} (${concept.accent_color_direction}); ` +
-      `style family: ${concept.cover_style_family}; key symbols: ${concept.symbol_keywords.join(", ")}. ` +
-      `Design the illustration around this concept, not around a generic template.`;
+      `visual metaphor: ${concept.visual_metaphor} (family: ${concept.metaphor_family}); ` +
+      `composition: ${concept.composition} (${concept.composition_type}, layout family: ${concept.layout_family}); ` +
+      `typography: ${concept.typography_direction}; accent: ${concept.accent_color} (${concept.accent_color_direction}, palette family: ${concept.palette_family}); ` +
+      `emotional tone: ${concept.emotional_tone}; style family: ${concept.cover_style_family}; ` +
+      `key symbols: ${concept.symbol_keywords.join(", ")}. ` +
+      `Design the illustration around this concept, not a generic template. Why it fits: ${concept.why_it_fits}`;
     p.aiHint = p.aiHint + conceptHint;
   }
 
@@ -1440,38 +1464,67 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
   const passed = bytes.length > 30_000;
   const isAi = model.startsWith("ai_");
   const finalU = computeUniqueness(signature, existingSigs);
-  const motifOverused = overused.includes(meta?.motif ?? p.motif);
+  const motifOverused = overusedMot.includes(meta?.motif ?? p.motif);
+  const familiesOverused = {
+    metaphor: !!meta && overusedFam.metaphor.includes(meta.motif), // motif ≈ metaphor proxy in signature
+    layout:   !!meta && overusedFam.layout.includes(meta.layout_family),
+    palette:  !!meta && overusedFam.palette.includes(meta.palette_family),
+  };
+  const { scores: dimScores, failedDims } = scoreThumbnail({
+    isAi, bytes, uniquenessScore: finalU.score,
+    motifOverused, familiesOverused, hasConcept: !!concept,
+  });
   const scores = {
+    ...dimScores,
+    // Legacy fields kept for backward compatibility with existing consumers:
     white_background_score: 100,
-    book_realism_score: isAi ? 96 : 90,
-    title_readability_score: 96,
+    book_realism_score: dimScores.product_realism,
+    title_readability_score: dimScores.title_readability,
     cover_typography_score: 96,
-    topic_style_match_score: 94,
-    illustration_relevance_score: isAi ? 94 : 92,
-    store_click_appeal_score: isAi ? 96 : 92,
+    topic_style_match_score: dimScores.category_relevance,
+    illustration_relevance_score: dimScores.category_relevance,
+    store_click_appeal_score: dimScores.commercial_attractiveness,
     spine_visibility_score: isAi ? 96 : 94,
-    premium_feel_score: isAi ? 96 : 92,
-    google_merchant_friendliness_score: 100,
-    anti_ai_look_score: 100,
-    visual_uniqueness_score: finalU.score,
+    premium_feel_score: dimScores.premium_aesthetic_score,
+    google_merchant_friendliness_score: dimScores.ecommerce_background_score,
+    anti_ai_look_score: dimScores.human_designed_feel,
+    visual_uniqueness_score: dimScores.visual_uniqueness,
     motif_frequency_ok: motifOverused ? 60 : 100,
     concept_attempts: conceptAttempts,
-    final_store_thumbnail_score: Math.min(isAi ? 96 : 92, Math.round((finalU.score + (motifOverused ? 60 : 100)) / 2)),
+    final_store_thumbnail_score: Math.min(
+      isAi ? 96 : 92,
+      Math.round((dimScores.visual_uniqueness + dimScores.diversity_from_recent) / 2),
+    ),
   };
   if (!passed) qcReasons.push("output_bytes_below_minimum");
   if (finalU.hit) qcReasons.push(`visual_uniqueness_fail:${finalU.reason}:${finalU.matched}`);
   if (motifOverused) qcReasons.push(`motif_over_used:${meta?.motif}`);
+  if (familiesOverused.metaphor) qcReasons.push(`metaphor_family_over_used:${meta?.motif}`);
+  if (familiesOverused.layout)   qcReasons.push(`layout_family_over_used:${meta?.layout_family}`);
+  if (familiesOverused.palette)  qcReasons.push(`palette_family_over_used:${meta?.palette_family}`);
+  for (const dim of failedDims) qcReasons.push(`qc_dim_below_threshold:${dim}=${(dimScores as any)[dim]}<${THUMB_QC_THRESHOLDS[dim]}`);
+
+  const qcPassed = passed && failedDims.length === 0;
 
   return {
     bytes, model, attempts, signature,
     concept: concept ? { theme: concept.cover_theme, metaphor: concept.visual_metaphor, composition: concept.composition } : null,
+    chosen_families: meta ? {
+      category: input.categorySlug ?? "",
+      emotional_tone: meta.emotional_tone,
+      metaphor_family: meta.metaphor_family,
+      layout_family: meta.layout_family,
+      palette_family: meta.palette_family,
+      why_it_fits: concept?.why_it_fits ?? "",
+    } : undefined,
     qc: {
-      passed: passed && !finalU.hit && !motifOverused,
+      passed: qcPassed,
       scores,
       reasons: qcReasons,
       // deno-lint-ignore no-explicit-any
-      ...(meta ? ({ metadata: meta } as any) : {}),
+      ...(meta ? ({ metadata: meta, failed_dimensions: failedDims } as any) : {}),
     },
   };
 }
+
 
