@@ -77,12 +77,12 @@ export function buildCoverFaceHtml(input: CoverFaceInput): string {
   html,body{margin:0;padding:0;background:${s.bg};color:${s.ink};font-family:${s.bodyFont};-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;}
   .page{width:1600px;height:2400px;position:relative;overflow:hidden;background:${s.bg};background-image:${s.texture};}
   .frame{position:absolute;inset:70px;border:6px solid ${s.ink}22;border-radius:10px;}
-  .content{position:absolute;inset:120px;display:flex;flex-direction:column;}
-  .badge{align-self:flex-start;background:${s.badgeBg};color:${s.badgeInk};font-family:${s.bodyFont};font-weight:800;letter-spacing:0.14em;font-size:34px;padding:14px 28px;border-radius:4px;text-transform:uppercase;}
-  .title{margin-top:60px;font-family:${s.titleFont};color:${s.ink};font-size:230px;line-height:0.92;letter-spacing:-0.01em;text-transform:uppercase;}
+  .content{position:absolute;inset:160px;display:flex;flex-direction:column;}
+  .badge{align-self:flex-start;background:${s.badgeBg};color:${s.badgeInk};font-family:${s.bodyFont};font-weight:800;letter-spacing:0.12em;font-size:32px;padding:14px 26px;border-radius:4px;text-transform:uppercase;max-width:900px;line-height:1.15;word-break:normal;overflow-wrap:break-word;}
+  .title{margin-top:56px;font-family:${s.titleFont};color:${s.ink};line-height:0.94;letter-spacing:-0.01em;text-transform:uppercase;max-width:1280px;word-break:normal;overflow-wrap:break-word;hyphens:none;}
   .title .accent{color:${s.accent};display:block;}
   .rule{margin-top:56px;height:4px;background:${s.divider};width:60%;}
-  .subtitle{margin-top:44px;font-family:${s.bodyFont};font-weight:600;font-size:56px;line-height:1.15;color:${s.ink};max-width:1200px;}
+  .subtitle{margin-top:44px;font-family:${s.bodyFont};font-weight:600;font-size:52px;line-height:1.18;color:${s.ink};max-width:1200px;word-break:normal;overflow-wrap:break-word;}
   .illustration{margin-top:auto;margin-bottom:60px;display:flex;justify-content:center;align-items:center;height:820px;}
   .illustration svg{max-width:100%;max-height:100%;}
   .chips{display:flex;gap:26px;justify-content:space-between;border-top:2px solid ${s.divider};padding-top:36px;color:${s.chipInk};}
@@ -94,7 +94,7 @@ export function buildCoverFaceHtml(input: CoverFaceInput): string {
   <div class="frame"></div>
   <div class="content">
     ${input.badge ? `<div class="badge">${esc(input.badge)}</div>` : ""}
-    <div class="title">${renderTitle(input.title, s.accent)}</div>
+    <div class="title" style="font-size:${fitTitleFontSize(input.title)}px;">${renderTitle(input.title, s.accent)}</div>
     ${input.subtitle ? `<div class="rule"></div><div class="subtitle">${esc(input.subtitle)}</div>` : ""}
     <div class="illustration">${input.illustrationSvg}</div>
     ${chips.length ? `<div class="chips">${chips.map((c) => `<div class="chip"><span class="dot"></span>${esc(c)}</div>`).join("")}</div>` : ""}
@@ -103,16 +103,48 @@ export function buildCoverFaceHtml(input: CoverFaceInput): string {
 </body></html>`;
 }
 
-function renderTitle(title: string, accentColor: string): string {
-  // Split title into lines of at most ~12 chars, alternate accent color for the middle line
-  const words = title.split(/\s+/);
+// Break title into lines aiming for balanced widths, with a HARD max
+// character count per line so no line ever overflows the 1280px safe box.
+function breakTitleLines(title: string, maxCharsPerLine: number): string[] {
+  const words = title.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let cur = "";
   for (const w of words) {
-    if ((cur + " " + w).trim().length > 12 && cur) { lines.push(cur.trim()); cur = w; }
-    else cur = (cur + " " + w).trim();
+    const candidate = (cur ? cur + " " : "") + w;
+    if (candidate.length > maxCharsPerLine && cur) {
+      lines.push(cur);
+      cur = w;
+    } else {
+      cur = candidate;
+    }
   }
-  if (cur) lines.push(cur.trim());
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+// Auto-fit title font size so the longest line fits inside the 1280px safe
+// width. Uses a conservative 0.55 avg-glyph-width ratio for the display fonts.
+function fitTitleFontSize(title: string): number {
+  const SAFE_WIDTH = 1280;
+  const AVG_GLYPH_RATIO = 0.55;
+  const candidates = [230, 210, 190, 170, 150, 130, 110];
+  // Try each font size; pick the largest whose longest line fits.
+  for (const size of candidates) {
+    // At this size, how many chars fit per line?
+    const maxChars = Math.max(6, Math.floor(SAFE_WIDTH / (size * AVG_GLYPH_RATIO)));
+    const lines = breakTitleLines(title, maxChars);
+    const longest = lines.reduce((m, l) => Math.max(m, l.length), 0);
+    if (longest * size * AVG_GLYPH_RATIO <= SAFE_WIDTH) return size;
+  }
+  return 110;
+}
+
+function renderTitle(title: string, _accentColor: string): string {
+  const SAFE_WIDTH = 1280;
+  const AVG_GLYPH_RATIO = 0.55;
+  const size = fitTitleFontSize(title);
+  const maxChars = Math.max(6, Math.floor(SAFE_WIDTH / (size * AVG_GLYPH_RATIO)));
+  const lines = breakTitleLines(title, maxChars);
   const midIdx = lines.length >= 3 ? 1 : lines.length === 2 ? 1 : 0;
   return lines
     .map((l, i) => (i === midIdx ? `<span class="accent">${esc(l)}</span>` : `<span>${esc(l)}</span><br/>`))

@@ -10,14 +10,33 @@ export interface PhotorealResult {
   prompt: string;
 }
 
-const BASE_PROMPT = `Take the provided flat book cover artwork and place it EXACTLY as-is onto the front cover of a premium hardcover book. Photograph the book as a realistic ecommerce product photo on a BRIGHT COOL OFF-WHITE STUDIO BACKGROUND, hex approximately #f6f4ef — clean, neutral, luminous, no warm cream or beige cast. Slight three-quarter angle so the spine and page edge are visible. Realistic paper thickness, matte cover texture, subtle bevels, crisp bright studio lighting, and a DISTINCT SOFT CONTACT SHADOW directly beneath the book — a clearly visible grounding shadow that pools right under the base of the book and fades outward, so the book feels physically grounded on the surface. The book must fill 82-90% of the frame height, centered, tack-sharp focus. Absolutely do NOT alter, redraw, restyle, translate, add, or remove any text on the cover — preserve every letter, badge, illustration, and color of the provided artwork pixel-for-pixel on the front face. Do not add any additional text, watermark, logo, price tag, sticker, or UI. Do not use a dark, warm-cream, or beige background. Do not produce a flat poster, vector mockup, cartoon, or template look.`;
+const BASE_PROMPT = `Take the provided flat book cover artwork and place it EXACTLY as-is onto the front cover of a premium hardcover book, then photograph it as a realistic ecommerce product photo.
+
+BOOK GEOMETRY — STRICT:
+- Cover aspect ratio LOCKED to 1:1.5 (standard trade hardcover, width:height). Do NOT stretch, elongate, or squash.
+- Camera: straight-on front view, rotated approximately 12 degrees to the right around the vertical axis so the spine and page edge on the left side are just visible. Camera at cover-center height. No tilt, no fisheye, no exaggerated perspective, no foreshortening beyond that angle.
+- Spine thickness: 6-8% of cover width. Visible page block on the right edge with realistic uniform paper layers.
+- Cover corners square and equal. No warping, no barrel/pincushion distortion, no floating book.
+- Book fills 82-90% of the frame height, centered.
+
+COVER ARTWORK — STRICT:
+- Reproduce the provided front-cover artwork PIXEL-FOR-PIXEL: every letter, badge, illustration, color, and layout. Do NOT crop, re-layout, translate, restyle, add, or remove any text or element on the front face. Every word from the source must be fully visible and readable — no clipping at any edge.
+
+BACKGROUND & LIGHTING:
+- Bright cool off-white studio background, hex approximately #f6f4ef. Clean, neutral, luminous. No warm cream, no beige, no tint.
+- DISTINCT SOFT CONTACT SHADOW pooling directly beneath the base of the book, clearly visible, fading outward, so the book is grounded on the surface.
+- Crisp bright studio lighting, matte cover texture, subtle bevels, tack-sharp focus.
+
+NEGATIVES: no stretched or elongated book, no tall narrow proportions, no warped cover, no fisheye, no exaggerated perspective, no floating book, no dark or warm-cream background, no added text/watermark/logo/price/sticker/UI, no flat poster or vector template look, no cartoon.`;
 
 const REPAIR_HINTS: Record<string, string> = {
   too_small: " The book must be LARGE — fill at least 84% of the frame height. Zoom in.",
   dark_bg: " Background MUST be bright cool off-white #f6f4ef — not warm cream, not beige, not tinted. Neutral and luminous.",
-  distorted_text: " Preserve the cover artwork EXACTLY. Do not regenerate any text.",
-  flat: " Show real 3D depth — visible spine thickness, page edge with paper layers.",
+  distorted_text: " Preserve the cover artwork EXACTLY. Do not regenerate any text. Every word must be fully visible with no clipping.",
+  flat: " Show real 3D depth — visible spine thickness (6-8% of cover width), page edge with uniform paper layers.",
   no_shadow: " Add a DISTINCT soft contact shadow pooling directly beneath the base of the book, clearly visible, fading outward. The book must look grounded on the surface.",
+  distorted_geometry: " Book is stretched/warped. Enforce cover aspect ratio 1:1.5, square corners, ~12° rotation only, no fisheye, no foreshortening.",
+  clipped_text: " Cover text is being cut off. Reproduce the provided artwork pixel-for-pixel with NO cropping; every word must be fully visible.",
 };
 
 export async function renderPhotorealMockup(
@@ -31,7 +50,7 @@ export async function renderPhotorealMockup(
   const hints = (opts.repairReasons ?? []).map((r) => REPAIR_HINTS[r] ?? "").join("");
   const prompt = BASE_PROMPT + hints;
 
-  const model = "google/gemini-3-pro-image";
+  const model = "google/gemini-2.5-flash-image";
   const body = {
     model,
     modalities: ["image", "text"],
