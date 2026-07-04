@@ -66,28 +66,25 @@ export const ProductCard = ({ product }: Props) => {
 
   return (
     <Link to={`/product/${product.id}`} className="group brutal-card flex flex-col overflow-hidden">
-      <div className="relative aspect-[3/4] bg-gradient-to-br from-neutral-900 to-neutral-800 overflow-hidden border-b-2 border-foreground">
+      <div className="relative aspect-[3/4] bg-white overflow-hidden border-b-2 border-foreground">
         {image ? (
           <>
-            {/* Background cover — contain so full book mockup shows without cropping */}
             <img
               src={image}
               alt={product.title}
-              className="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+              className={`absolute inset-0 w-full h-full ${hasBakedText ? "object-contain" : "object-cover"} object-center group-hover:scale-105 transition-transform duration-500`}
               loading="lazy"
             />
-            {/* Bottom gradient to guarantee readable title overlay */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent pointer-events-none" />
-            {/* Category-tinted top accent */}
-            <div className={`absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b ${accent} pointer-events-none`} />
-            {/* CSS fallback title overlay — hidden when the thumbnail already
-                has real baked-in text (store_thumbnail_url). */}
             {!hasBakedText && (
-              <div className="absolute inset-x-0 bottom-0 p-3 z-10">
-                <div className="font-display uppercase text-white text-lg leading-tight line-clamp-3 drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
-                  {product.title}
+              <>
+                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent pointer-events-none" />
+                <div className={`absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b ${accent} pointer-events-none`} />
+                <div className="absolute inset-x-0 bottom-0 p-3 z-10">
+                  <div className="font-display uppercase text-white text-lg leading-tight line-clamp-3 drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
+                    {product.title}
+                  </div>
                 </div>
-              </div>
+              </>
             )}
           </>
         ) : (
