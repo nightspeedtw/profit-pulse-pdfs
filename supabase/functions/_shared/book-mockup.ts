@@ -146,7 +146,7 @@ function bannedFrom(chosen: MotifName, pool: MotifName[]): string[] {
 }
 
 
-function presetFor(slug: string | null | undefined, title: string, subtitle?: string | null, benefits?: string[] | null): Preset {
+function basePresetFor(slug: string | null | undefined, title: string, subtitle?: string | null, benefits?: string[] | null): Preset {
   const s = (slug ?? "").toLowerCase();
   const t = (title ?? "").toLowerCase();
   const withBenefits = (fallback: { icon: IconName; label: string }[]) => {
