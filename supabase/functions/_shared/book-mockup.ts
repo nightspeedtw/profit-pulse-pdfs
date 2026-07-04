@@ -161,45 +161,6 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
 
   if (!bytes) throw new Error(`Book mockup generation failed after ${attempts} attempts: ${lastErr}`);
 
-  // ----- Second pass: force pure white ecommerce background -----
-  // Gemini refuses to place a dark-cover book on white in one shot (it extends
-  // the cover palette into the scene). We fix that with an explicit
-  // background-swap edit on the just-generated mockup.
-  try {
-    let bin2 = "";
-    for (let i = 0; i < bytes.length; i++) bin2 += String.fromCharCode(bytes[i]);
-    const mockupDataUrl = `data:image/png;base64,${btoa(bin2)}`;
-    const whitePrompt = [
-      `Edit the supplied product photo: REPLACE the entire background with pure white #FFFFFF, edge to edge, corner to corner. Isolated e-commerce product shot on a bright white studio cyclorama, exactly like an Amazon main product image or a Google Shopping listing.`,
-      `Keep the book EXACTLY the same — same cover art, same title, same typography, same colors, same 3D shape, same angle, same spine, same page edges, same size, same position in frame. Do not redraw the book. Do not modify the cover in any way.`,
-      `Add only a single soft grey contact shadow directly beneath the book on the white floor. No dark tones, no gradient, no vignette, no textures, no props, no environment. Bright high-key studio lighting only. 1024×1024.`,
-    ].join("\n");
-    const res2 = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        messages: [{
-          role: "user",
-          content: [
-            { type: "text", text: whitePrompt },
-            { type: "image_url", image_url: { url: mockupDataUrl } },
-          ],
-        }],
-        modalities: ["image", "text"],
-      }),
-    });
-    if (res2.ok) {
-      const j2 = await res2.json();
-      const b64_2: string | undefined = j2?.data?.[0]?.b64_json;
-      if (b64_2) {
-        const bb = atob(b64_2);
-        const out2 = new Uint8Array(bb.length);
-        for (let i = 0; i < bb.length; i++) out2[i] = bb.charCodeAt(i);
-        if (out2.length > 40_000) bytes = out2;
-      }
-    }
-  } catch (_) { /* best-effort — keep first-pass output on failure */ }
 
 
   // Lightweight structural QC — we trust the model for photorealism, but flag
