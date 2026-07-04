@@ -296,6 +296,141 @@ function basePresetFor(slug: string | null | undefined, title: string, subtitle?
   };
 }
 
+// ---------- Per-title variant system (visual diversity) ----------
+// Rotates motif, accent, badge, and scene concept so covers within the same
+// category don't all look identical. Deterministic per title.
+type VariantGroup = {
+  motifs: MotifName[];
+  accents: string[];
+  badges: string[];
+  scenes: Record<string, string>; // motif → scene sentence
+};
+const VARIANT_GROUPS: Record<string, VariantGroup> = {
+  finance_debt: {
+    motifs: ["door","stairs","route","shield","ladder"],
+    accents: ["#f5c518","#e0b34a","#d97706","#c084fc"],
+    badges: ["EBOOK","DEBT-EXIT PLAYBOOK","6-MONTH FRAMEWORK","FINANCIAL RESET"],
+    scenes: {
+      door: "silhouette of an open bright doorway at the top of a modest staircase, warm rim-light",
+      stairs: "clean architectural staircase ascending into calm negative space",
+      route: "minimalist pathway crossing a bridge out of a dark valley into daylight",
+      shield: "solid geometric shield emblem representing financial protection",
+      ladder: "single wooden ladder rising through soft directional light",
+    },
+  },
+  finance_fortress: {
+    motifs: ["shield","grid","door","stairs"],
+    accents: ["#f5c518","#e0b34a","#c9a84c"],
+    badges: ["DIGITAL PLANNER","FINANCIAL BLUEPRINT","WEALTH SYSTEM","PROTECTION KIT"],
+    scenes: {
+      shield: "polished emblem shield with subtle embossed grid lines, vault-door texture",
+      grid: "isometric planner grid, ledger cells, precise blueprint feel",
+      door: "closed vault door with clean brass hardware, tight studio lighting",
+      stairs: "layered stone platforms suggesting a fortress of tiered savings",
+    },
+  },
+  finance_cashflow: {
+    motifs: ["wave","route","grid","shield"],
+    accents: ["#f5c518","#8ad0a8","#22d3ee"],
+    badges: ["CASHFLOW PLANNER","INCOME SYSTEM","MONTHLY FRAMEWORK","REVENUE RESET"],
+    scenes: {
+      wave: "smooth ascending line-chart tracing steady income growth",
+      route: "elegant curve connecting month labels on a minimalist ledger",
+      grid: "monthly ledger grid with highlighted reserve cells",
+      shield: "coin-stack silhouette shielded by soft directional light",
+    },
+  },
+  wellness: {
+    motifs: ["leaf","wave","star","route"],
+    accents: ["#8ad0a8","#f6b26b","#c084fc","#f5c518"],
+    badges: ["WELLNESS GUIDE","ENERGY PROTOCOL","RESET METHOD","MORNING SYSTEM"],
+    scenes: {
+      leaf: "single translucent leaf catching soft morning light on matte green",
+      wave: "gentle horizon line at sunrise, calm gradient sky",
+      star: "small radiant sun-glyph over layered organic shapes",
+      route: "quiet footpath winding through soft greenery, calm depth",
+    },
+  },
+  productivity: {
+    motifs: ["grid","focus" as MotifName,"workflow" as MotifName,"circuit","route"],
+    accents: ["#22d3ee","#a78bfa","#f5c518"],
+    badges: ["PRODUCTIVITY PLAYBOOK","DEEP-WORK SYSTEM","FOCUS PROTOCOL","TIME BLUEPRINT"],
+    scenes: {
+      grid: "clean time-block calendar grid with a single highlighted focus session",
+      circuit: "minimal control-panel dials arranged like a personal operating system",
+      route: "single arrow cutting through noise toward a clear target",
+      wave: "concentration meter rising to a crisp peak",
+    },
+  },
+  ai_automation: {
+    motifs: ["circuit","grid","route","wave"],
+    accents: ["#a78bfa","#22d3ee","#f5c518"],
+    badges: ["AI OPERATING SYSTEM","AUTOMATION MANUAL","PROMPT PLAYBOOK","AI WORKFLOW KIT"],
+    scenes: {
+      circuit: "single elegant node graph, few connections, soft violet glow",
+      grid: "modular workflow blocks arranged like a dashboard",
+      route: "clean pipeline diagram flowing left to right",
+      wave: "signal waveform representing intelligent automation",
+    },
+  },
+  career: {
+    motifs: ["route","stairs","ladder","target" as MotifName,"shield"],
+    accents: ["#e0b34a","#f5c518","#c9a84c"],
+    badges: ["CAREER PLAYBOOK","INTERVIEW SYSTEM","OFFER FRAMEWORK","LEVERAGE MANUAL"],
+    scenes: {
+      route: "elegant network map with a single highlighted path to an offer node",
+      stairs: "confident staircase upward through corporate architecture",
+      ladder: "polished ladder leading past a queue toward an open door",
+      shield: "crest emblem representing professional authority",
+    },
+  },
+  kids: {
+    motifs: ["star","leaf","wave"],
+    accents: ["#e11d48","#f5c518","#8ad0a8","#a78bfa"],
+    badges: ["ILLUSTRATED STORY","BEDTIME TALE","LEARNING STORYBOOK"],
+    scenes: {
+      star: "whimsical hand-painted stars over a soft cream sky",
+      leaf: "friendly storybook forest with soft watercolor leaves",
+      wave: "cheerful rolling hills under a rainbow arc",
+    },
+  },
+  default: {
+    motifs: ["grid","route","wave","star","shield"],
+    accents: ["#2aa9b8","#f5c518","#a78bfa","#8ad0a8"],
+    badges: ["EBOOK","PREMIUM GUIDE","PRACTICAL PLAYBOOK"],
+    scenes: {
+      grid: "clean modular grid representing a structured system",
+      route: "single decisive arrow through calm negative space",
+      wave: "confident upward curve over restrained typography",
+      star: "single focal glyph anchored in premium whitespace",
+      shield: "monogram emblem centered in a spacious layout",
+    },
+  },
+};
+
+function applyTitleVariant(base: Preset, title: string, subtitle?: string | null): Preset {
+  const g = VARIANT_GROUPS[base.key] ?? VARIANT_GROUPS.default;
+  const h = titleHash((title ?? "") + "|" + (subtitle ?? ""));
+  // Only rotate to motifs the SVG can render.
+  const drawable = g.motifs.filter(m => (ALL_MOTIFS as string[]).includes(m)) as MotifName[];
+  const motif = drawable[h % drawable.length] ?? base.motif;
+  const accent = g.accents[(h >> 3) % g.accents.length] ?? base.accent;
+  const badge = g.badges[(h >> 5) % g.badges.length] ?? base.badge;
+  const scene = g.scenes[motif] ?? g.scenes[base.motif] ?? "";
+  const avoid = bannedFrom(motif, ALL_MOTIFS);
+  const topic = [title, subtitle].filter(Boolean).join(" — ");
+  const aiHint =
+    `${base.aiHint}. Unique scene for this specific book "${topic}": ${scene}. ` +
+    `Do NOT include: ${avoid.join("; ")}. ` +
+    `The illustration must feel custom-designed for this title, not a repeated template.`;
+  return { ...base, motif, accent, badge, aiHint, sceneConcept: scene, avoidConcepts: avoid };
+}
+
+function presetFor(slug: string | null | undefined, title: string, subtitle?: string | null, benefits?: string[] | null): Preset {
+  const base = basePresetFor(slug, title, subtitle, benefits);
+  return applyTitleVariant(base, title, subtitle);
+
+
 // ---------- Icon path library (24-unit viewBox) ----------
 function iconPath(name: IconName): string {
   switch (name) {
