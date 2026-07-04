@@ -1178,7 +1178,15 @@ export interface CoverMetadata {
 function buildSignature(category: string, meta: CoverMetadata): string {
   const kws = [...(meta.symbol_keywords ?? []), ...metaphorKeywords(meta.visual_metaphor)]
     .filter(Boolean).map(w => w.toLowerCase()).slice(0, 6).sort().join("-");
-  return `${category || "default"}|${meta.motif}|${meta.composition_type || ""}|${meta.accent_color || ""}|${kws}`;
+  // Signature layout (pipe-delimited, positional):
+  //   0 category | 1 motif | 2 composition_type | 3 accent_color | 4 keywords
+  //   5 mockup_angle | 6 mockup_style | 7 palette_family | 8 cover_layout
+  const dna = (meta as CoverMetadata & { dna?: DesignDna }).dna;
+  const angle   = dna?.mockup_angle   ?? "";
+  const fmt     = dna?.mockup_style   ?? "";
+  const palette = dna?.palette_family ?? "";
+  const layout  = dna?.cover_layout   ?? "";
+  return `${category || "default"}|${meta.motif}|${meta.composition_type || ""}|${meta.accent_color || ""}|${kws}|${angle}|${fmt}|${palette}|${layout}`;
 }
 // Motif-frequency cap: a motif can appear at most 2× across the last 30 covers.
 function overusedMotifs(recentSigs: string[], cap = 2): string[] {
@@ -1190,14 +1198,34 @@ function overusedMotifs(recentSigs: string[], cap = 2): string[] {
   }
   return Object.entries(counts).filter(([, n]) => n >= cap).map(([m]) => m);
 }
-function computeUniqueness(candidate: string, existing: string[]): { score: number; hit: boolean; matched?: string; reason?: string } {
-  const [cCat, cMotif, cComp, cAcc, cKws] = candidate.split("|");
+function computeUniqueness(candidate: string, existing: string[]): { score: number; hit: boolean; matched?: string; reason?: string; axisScores: Record<string, number> } {
+  const parts = candidate.split("|");
+  const [cCat, cMotif, cComp, cAcc, cKws, cAngle, cFmt, cPal, cLay] = parts;
   const cSymSet = new Set((cKws ?? "").split("-").filter(Boolean));
   let worst = 100;
   let worstMatch: string | undefined;
   let worstReason: string | undefined;
+  // Axis-level uniqueness across the whole storefront (not just same category).
+  const angleCounts   = countAt(existing, 5);
+  const formatCounts  = countAt(existing, 6);
+  const paletteCounts = countAt(existing, 7);
+  const layoutCounts  = countAt(existing, 8);
+  const axisScore = (v: string, counts: Record<string, number>) => {
+    const n = counts[v] ?? 0;
+    if (!v) return 90;
+    if (n === 0) return 100;
+    if (n === 1) return 90;
+    if (n === 2) return 75;
+    return 60;
+  };
+  const axisScores = {
+    mockup_angle_uniqueness_score: axisScore(cAngle, angleCounts),
+    palette_uniqueness_score:      axisScore(cPal,   paletteCounts),
+    layout_uniqueness_score:       axisScore(cLay,   layoutCounts),
+    format_uniqueness_score:       axisScore(cFmt,   formatCounts),
+  };
   for (const sig of existing) {
-    const [eCat, eMotif, eComp, eAcc, eKws] = sig.split("|");
+    const [eCat, eMotif, eComp, eAcc, eKws, eAngle, eFmt, ePal, eLay] = sig.split("|");
     if (eCat !== cCat) continue;
     const eSymSet = new Set((eKws ?? "").split("-").filter(Boolean));
     let overlap = 0;
@@ -1205,15 +1233,20 @@ function computeUniqueness(candidate: string, existing: string[]): { score: numb
     const symRatio = cSymSet.size ? overlap / Math.max(cSymSet.size, eSymSet.size) : 0;
     let s = 100;
     let r = "";
-    if (eMotif === cMotif) { s -= 40; r = "motif_match"; }
-    if (eComp && eComp === cComp) { s -= 15; r = r ? r + "+composition" : "composition_match"; }
-    if (eAcc && eAcc === cAcc) { s -= 10; r = r ? r + "+accent" : "accent_match"; }
-    if (symRatio >= 0.5) { s -= 30; r = r ? r + "+symbols" : "symbol_overlap"; }
-    else if (overlap >= 2) { s -= 15; r = r ? r + "+symbols" : "symbol_overlap"; }
+    if (eMotif === cMotif) { s -= 30; r = "motif_match"; }
+    if (eComp && eComp === cComp) { s -= 10; r = r ? r + "+composition" : "composition_match"; }
+    if (eAcc && eAcc === cAcc) { s -= 8;  r = r ? r + "+accent" : "accent_match"; }
+    if (symRatio >= 0.5) { s -= 25; r = r ? r + "+symbols" : "symbol_overlap"; }
+    else if (overlap >= 2) { s -= 12; r = r ? r + "+symbols" : "symbol_overlap"; }
+    // New DNA axes — kill recolor/reangle clones inside the same category.
+    if (eAngle && eAngle === cAngle) { s -= 12; r = r ? r + "+angle" : "angle_match"; }
+    if (eFmt   && eFmt   === cFmt)   { s -= 10; r = r ? r + "+format" : "format_match"; }
+    if (ePal   && ePal   === cPal)   { s -= 15; r = r ? r + "+palette" : "palette_match"; }
+    if (eLay   && eLay   === cLay)   { s -= 12; r = r ? r + "+layout" : "layout_match"; }
     if (s < worst) { worst = s; worstMatch = sig; worstReason = r; }
   }
   const hit = worst < 70;
-  return { score: Math.max(0, worst), hit, matched: worstMatch, reason: worstReason };
+  return { score: Math.max(0, worst), hit, matched: worstMatch, reason: worstReason, axisScores };
 }
 
 
