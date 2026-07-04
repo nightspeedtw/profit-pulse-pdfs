@@ -1030,11 +1030,15 @@ export type Database = {
           short_hook: string | null
           standard_price: number | null
           status: string
+          store_thumbnail_generated_at: string | null
+          store_thumbnail_qc: Json | null
+          store_thumbnail_url: string | null
           structured_error: Json | null
           subtitle: string | null
           tags: string[]
           target_buyer: string | null
           text_density_score: number | null
+          thumbnail_needs_review: boolean
           thumbnail_qc_score: number | null
           thumbnail_url: string | null
           title: string
@@ -1216,11 +1220,15 @@ export type Database = {
           short_hook?: string | null
           standard_price?: number | null
           status?: string
+          store_thumbnail_generated_at?: string | null
+          store_thumbnail_qc?: Json | null
+          store_thumbnail_url?: string | null
           structured_error?: Json | null
           subtitle?: string | null
           tags?: string[]
           target_buyer?: string | null
           text_density_score?: number | null
+          thumbnail_needs_review?: boolean
           thumbnail_qc_score?: number | null
           thumbnail_url?: string | null
           title: string
@@ -1402,11 +1410,15 @@ export type Database = {
           short_hook?: string | null
           standard_price?: number | null
           status?: string
+          store_thumbnail_generated_at?: string | null
+          store_thumbnail_qc?: Json | null
+          store_thumbnail_url?: string | null
           structured_error?: Json | null
           subtitle?: string | null
           tags?: string[]
           target_buyer?: string | null
           text_density_score?: number | null
+          thumbnail_needs_review?: boolean
           thumbnail_qc_score?: number | null
           thumbnail_url?: string | null
           title?: string

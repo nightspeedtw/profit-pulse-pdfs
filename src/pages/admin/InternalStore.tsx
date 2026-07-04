@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, RefreshCw, Rocket, EyeOff, ExternalLink, ImageIcon } from "lucide-react";
+import { Loader2, RefreshCw, Rocket, EyeOff, ExternalLink, ImageIcon, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { findProfile } from "@/lib/styleProfiles";
 
@@ -22,6 +22,9 @@ type Row = {
   price: number | null;
   cover_url: string | null;
   thumbnail_url: string | null;
+  store_thumbnail_url: string | null;
+  store_thumbnail_qc: any;
+  thumbnail_needs_review: boolean | null;
   category_slug: string | null;
   listing_status: string | null;
   autopilot_state: string | null;
@@ -55,7 +58,7 @@ export default function InternalStore() {
 
   async function load() {
     const { data, error } = await supabase.from("ebooks")
-      .select("id,title,short_hook,selling_hook,product_description,price,cover_url,thumbnail_url,category_slug,listing_status,autopilot_state,final_quality_score,cover_score,pdf_url,created_at,updated_at")
+      .select("id,title,short_hook,selling_hook,product_description,price,cover_url,thumbnail_url,store_thumbnail_url,store_thumbnail_qc,thumbnail_needs_review,category_slug,listing_status,autopilot_state,final_quality_score,cover_score,pdf_url,created_at,updated_at")
       .order("updated_at", { ascending: false }).limit(200);
     if (error) { toast.error(error.message); return; }
     setRows((data ?? []) as Row[]);
@@ -94,6 +97,18 @@ export default function InternalStore() {
     finally { setBusy(null); }
   }
 
+  async function regenThumbnail(r: Row) {
+    setBusy(r.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-store-thumbnail", { body: { ebook_id: r.id, force: true } });
+      if (error) throw error;
+      const qc = (data as any)?.qc;
+      toast.success(`Thumbnail regenerated (QC ${qc?.score ?? "—"})`);
+      load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    finally { setBusy(null); }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -125,8 +140,9 @@ export default function InternalStore() {
         {filtered.map((r) => {
           const st = mapStatus(r);
           const profile = findProfile(r.category_slug);
-          const img = r.thumbnail_url || r.cover_url;
+          const img = r.store_thumbnail_url || r.thumbnail_url || r.cover_url;
           const canPublish = !!(r.pdf_url && (r.cover_url || r.thumbnail_url) && r.price && (r.final_quality_score ?? 0) >= 80);
+          const thumbQc = r.store_thumbnail_qc?.score;
           return (
             <Card key={r.id} className="overflow-hidden">
               <div className="aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden border-b">
@@ -143,12 +159,16 @@ export default function InternalStore() {
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold">{r.price != null ? `$${Number(r.price).toFixed(2)}` : "—"}</span>
                   <span className="text-muted-foreground">
-                    QC {r.final_quality_score ?? "—"} · Cover {r.cover_score ?? "—"}
+                    QC {r.final_quality_score ?? "—"} · Thumb {thumbQc ?? "—"}
+                    {r.thumbnail_needs_review ? " ⚠" : ""}
                   </span>
                 </div>
                 <div className="flex gap-1 pt-2">
                   <Button asChild size="sm" variant="outline" className="flex-1">
                     <Link to={`/admin/ebook/${r.id}`}><ExternalLink className="size-3" /> Detail</Link>
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => regenThumbnail(r)} disabled={busy === r.id} title="Regenerate store thumbnail">
+                    {busy === r.id ? <Loader2 className="size-3 animate-spin" /> : <ImagePlus className="size-3" />}
                   </Button>
                   {r.listing_status === "listed"
                     ? <Button size="sm" variant="outline" onClick={() => unpublish(r)} disabled={busy === r.id}>

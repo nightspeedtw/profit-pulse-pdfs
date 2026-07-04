@@ -139,6 +139,18 @@ Deno.serve(async (req) => {
       if (!e.cover_url) throw new Error("Cover generation did not produce a cover_url yet — try again in ~1 min.");
     }
 
+    // Always regenerate the storefront thumbnail (real baked-text 3:4 image).
+    // This is deterministic and safe: it never touches cover_url / pdf_url /
+    // manuscript / price / copy.
+    await log(ebookId, "auto_list.store_thumbnail", "started", { force: true });
+    const { error: thumbErr } = await supabase.functions.invoke("generate-store-thumbnail", {
+      body: { ebook_id: ebookId, force: true },
+    });
+    if (thumbErr) {
+      await log(ebookId, "auto_list.store_thumbnail", "failed", { error: thumbErr.message });
+      // non-fatal — storefront falls back to cover_url + CSS overlay
+    }
+
     // Regenerate selling copy (hook / description / bullets) on every listing
     // so the storefront always shows the freshest sales angle.
     await log(ebookId, "auto_list.generate_selling_copy", "started", {});
