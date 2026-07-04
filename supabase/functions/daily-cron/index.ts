@@ -9,6 +9,18 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
     const db = admin();
+    // Optional caller-provided cap (Production Command Center passes {limit}).
+    // We NEVER exceed this — it enforces the QC/cost/parallelism throttled
+    // "recommended starts today" computed client-side.
+    let callerLimit: number | null = null;
+    let callerSource: string | null = null;
+    try {
+      const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+      if (body && typeof body.limit === "number" && isFinite(body.limit) && body.limit >= 0) {
+        callerLimit = Math.floor(body.limit);
+      }
+      if (body && typeof body.source === "string") callerSource = body.source;
+    } catch { /* ignore */ }
     const { data: settings } = await db.from("generation_settings").select("*").eq("id", 1).single();
     if (!settings?.autopilot_enabled && !settings?.cron_enabled) {
       return new Response(JSON.stringify({ skipped: "autopilot disabled" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -16,7 +28,13 @@ Deno.serve(async (req) => {
     if (settings.paused) {
       return new Response(JSON.stringify({ skipped: "autopilot paused" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    const quota: number = Math.max(0, Number(settings.daily_quota ?? 0));
+    const baseQuota: number = Math.max(0, Number(settings.daily_quota ?? 0));
+    const maxBooksPerDay: number = Math.max(0, Number(settings.max_books_per_day ?? baseQuota));
+    // Effective per-invocation quota: the minimum of daily_quota, max_books_per_day,
+    // and any caller-provided limit. Never exceed the Command Center recommendation.
+    let quota: number = Math.min(baseQuota, maxBooksPerDay || baseQuota);
+    if (callerLimit !== null) quota = Math.min(quota, callerLimit);
+    quota = Math.max(0, quota);
     const mode: string = settings.autopilot_mode ?? "safe";
     const publishHour: number = Number(settings.publish_hour_utc ?? 14);
 
@@ -30,7 +48,7 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const auth = { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey, "Content-Type": "application/json" };
 
-    const result: Record<string, unknown> = { mode, quota, spent, budget };
+    const result: Record<string, unknown> = { mode, quota, spent, budget, caller_limit: callerLimit, caller_source: callerSource };
 
     // --- A) GENERATE + LAUNCH ---
     if (spent < budget && quota > 0) {

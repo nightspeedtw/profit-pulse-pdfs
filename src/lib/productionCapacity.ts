@@ -40,27 +40,41 @@ export type CapacityResult = {
 const FALLBACK_COST = 0.75; // conservative $ per premium ebook
 const FALLBACK_MINUTES = 20;
 
+const safeNum = (v: unknown, fallback = 0): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+const safeFloor = (v: number): number => {
+  if (!Number.isFinite(v) || v < 0) return 0;
+  return Math.floor(v);
+};
+
 export function computeCapacity(i: CapacityInput): CapacityResult {
   const warnings: string[] = [];
-  const perBookCostEstimate = i.recentAvgCostPerBook && i.recentAvgCostPerBook > 0
-    ? i.recentAvgCostPerBook
-    : FALLBACK_COST;
-  const avgMinutes = i.recentAvgMinutesPerBook && i.recentAvgMinutesPerBook > 0
-    ? i.recentAvgMinutesPerBook
-    : FALLBACK_MINUTES;
+  const dailyCostCap = Math.max(0, safeNum(i.dailyCostCapUsd));
+  const costUsedToday = Math.max(0, safeNum(i.costUsedToday));
+  const maxBooksPerDay = Math.max(0, safeFloor(safeNum(i.maxBooksPerDay)));
+  const booksStartedToday = Math.max(0, safeFloor(safeNum(i.booksStartedToday)));
+  const eligibleIdeas = Math.max(0, safeFloor(safeNum(i.eligibleIdeas)));
+  const minimumQcPassRate = Math.max(0, safeNum(i.minimumQcPassRate, 80));
 
-  const remainingBudget = Math.max(0, i.dailyCostCapUsd - i.costUsedToday);
-  const budgetLimitedCapacity = Math.floor(remainingBudget / perBookCostEstimate);
+  const rawAvgCost = safeNum(i.recentAvgCostPerBook, 0);
+  const perBookCostEstimate = rawAvgCost > 0 ? rawAvgCost : FALLBACK_COST;
+  const rawAvgMin = safeNum(i.recentAvgMinutesPerBook, 0);
+  const avgMinutes = rawAvgMin > 0 ? rawAvgMin : FALLBACK_MINUTES;
+
+  const remainingBudget = Math.max(0, dailyCostCap - costUsedToday);
+  const budgetLimitedCapacity = safeFloor(remainingBudget / perBookCostEstimate);
 
   // Time-limited: how many books fit in the remaining day given parallelism.
   const now = new Date();
   const endOfDay = new Date(now); endOfDay.setUTCHours(23, 59, 59, 999);
   const remainingMinutes = Math.max(0, (endOfDay.getTime() - now.getTime()) / 60000);
-  const parallel = Math.max(1, i.maxParallelBooks);
-  const timeLimitedCapacity = Math.floor((remainingMinutes / avgMinutes) * parallel);
+  const parallel = Math.max(1, safeFloor(safeNum(i.maxParallelBooks, 1)));
+  const timeLimitedCapacity = safeFloor((remainingMinutes / avgMinutes) * parallel);
 
-  const dailyRemaining = Math.max(0, i.maxBooksPerDay - i.booksStartedToday);
-  const queueLimitedCapacity = Math.max(0, i.eligibleIdeas);
+  const dailyRemaining = Math.max(0, maxBooksPerDay - booksStartedToday);
+  const queueLimitedCapacity = eligibleIdeas;
 
   // QC throttle
   const passRate = i.recentQcPassRate ?? 100;
@@ -71,7 +85,7 @@ export function computeCapacity(i: CapacityInput): CapacityResult {
   else if (i.paused) autopilotState = "paused";
   else if (i.costLimitReached || remainingBudget <= 0) autopilotState = "cost_limited";
   else if (i.enabledCategoryCount === 0) autopilotState = "no_categories";
-  else if (passRate < i.minimumQcPassRate) autopilotState = "qc_limited";
+  else if (passRate < minimumQcPassRate) autopilotState = "qc_limited";
 
   if (passRate < 70) {
     qcThrottleFactor = 0;
@@ -92,7 +106,7 @@ export function computeCapacity(i: CapacityInput): CapacityResult {
     dailyRemaining,
     queueLimitedCapacity,
   );
-  const throttled = Math.floor(rawCapacity * qcThrottleFactor);
+  const throttled = safeFloor(rawCapacity * qcThrottleFactor);
   const recommendedStartsToday = autopilotState === "running"
     ? Math.max(0, throttled)
     : 0;
