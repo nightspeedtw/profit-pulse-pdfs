@@ -92,6 +92,7 @@ Deno.serve(async (req) => {
 
     let signature = "";
     let concept: { theme: string; metaphor: string; composition: string } | null = null;
+    let dna: any = null;
     try {
       const benefits = ((e as any).key_benefits ?? (e as any).benefit_bullets ?? []) as string[];
       const result = await generateBookMockup({
@@ -107,8 +108,9 @@ Deno.serve(async (req) => {
       attempts = result.attempts;
       signature = result.signature;
       concept = result.concept;
+      dna = result.dna;
       source = result.model.startsWith("ai_") ? "ai_mockup" : "svg_fallback";
-      await log(ebookId, "store_thumbnail.mockup", "completed", { model: result.model, attempts, qc, signature, concept });
+      await log(ebookId, "store_thumbnail.mockup", "completed", { model: result.model, attempts, qc, signature, concept, dna });
     } catch (mErr) {
       await log(ebookId, "store_thumbnail.mockup", "failed", { error: (mErr as Error).message });
     }
