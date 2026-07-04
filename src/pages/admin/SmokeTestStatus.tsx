@@ -26,6 +26,8 @@ type EbookRow = {
   pdf_url: string | null;
   listed_at: string | null;
   updated_at: string | null;
+  qc_downgraded?: boolean | null;
+  qc_notes?: string | null;
 };
 type RunRow = {
   id: string;
@@ -144,6 +146,7 @@ export default function SmokeTestStatus() {
           const pct = Math.round((idx / (AUTOPILOT_STEPS.length - 1)) * 100);
 
           const isPublished = !!book?.listed_at;
+          const isSoftPass = !!book?.qc_downgraded;
           const isBlocked = run?.status === "needs_admin" || book?.status === "needs_review";
 
           return (
@@ -159,6 +162,8 @@ export default function SmokeTestStatus() {
                   <Badge className="shrink-0 gap-1"><CheckCircle2 className="size-3" />Live</Badge>
                 ) : isBlocked ? (
                   <Badge variant="destructive" className="shrink-0 gap-1"><AlertTriangle className="size-3" />Blocked</Badge>
+                ) : isSoftPass ? (
+                  <Badge variant="outline" className="shrink-0 gap-1 border-yellow-500 text-yellow-700"><Clock className="size-3" />QC Soft-Pass</Badge>
                 ) : (
                   <Badge variant="secondary" className="shrink-0 gap-1"><Clock className="size-3" />Working</Badge>
                 )}

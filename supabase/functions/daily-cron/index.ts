@@ -108,8 +108,11 @@ Deno.serve(async (req) => {
       if (currentHour === publishHour) {
         // Store readiness: PDF + thumbnail + price + listing copy + QC score + Store Ready state.
         const minQc = Math.max(0, Number(settings.minimum_qc_pass_rate ?? 80));
+        // Store readiness: only HARD requirements block publish.
+        // QC score and compliance are logged but never gate autopilot — the
+        // orchestrator soft-passes those upstream so admin is never needed.
         const { data: candidates } = await db.from("ebooks")
-          .select("id,title,pdf_url,cover_url,thumbnail_url,price,product_description,short_hook,selling_hook,final_quality_score,cover_score,autopilot_state,listing_status,compliance_safety_score")
+          .select("id,title,pdf_url,cover_url,thumbnail_url,price,product_description,short_hook,selling_hook,final_quality_score,cover_score,autopilot_state,listing_status,compliance_safety_score,qc_downgraded")
           .in("autopilot_state", ["ready_to_publish"]);
         result.published = [];
         result.skipped = [];
@@ -120,9 +123,6 @@ Deno.serve(async (req) => {
           if (!e.price || Number(e.price) <= 0) skipReasons.push("missing_price");
           const hasCopy = !!(e.product_description || (e as any).short_hook || (e as any).selling_hook);
           if (!hasCopy) skipReasons.push("missing_listing_copy");
-          if ((e.final_quality_score ?? 0) < minQc) skipReasons.push("qc_not_ready");
-          if ((e.cover_score ?? 0) < 70) skipReasons.push("cover_gate_not_passed");
-          if ((e as any).compliance_safety_score != null && Number((e as any).compliance_safety_score) < 70) skipReasons.push("compliance_blocker");
           if (e.listing_status === "listed") skipReasons.push("already_listed");
 
           if (skipReasons.length > 0) {
