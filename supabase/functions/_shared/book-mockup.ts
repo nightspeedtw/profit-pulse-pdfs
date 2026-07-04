@@ -36,8 +36,9 @@ export interface MockupResult {
   bytes: Uint8Array;
   model: string;
   attempts: number;
-  signature: string; // "<category>|<motif>|<metaphor-keywords>" — persist for future avoid lists
+  signature: string; // "<category>|<motif>|<comp>|<accent>|<kws>|<angle>|<format>|<palette>|<layout>"
   concept: { theme: string; metaphor: string; composition: string } | null;
+  dna: DesignDna | null;
   qc: {
     passed: boolean;
     scores: Record<string, number>;
