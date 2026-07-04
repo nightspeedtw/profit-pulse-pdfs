@@ -868,21 +868,32 @@ export interface CoverConcept {
   cover_theme: string;
   visual_metaphor: string;
   composition: string;
+  composition_type: string;      // e.g. "centered vertical", "asymmetric split", "left-anchored"
   typography_direction: string;
   accent_color_direction: string;
+  accent_color: string;          // short color name, e.g. "yellow"
+  cover_style_family: string;    // "bold editorial" | "calm clean" | "structured modern" | "warm emotional" | "authority sharp"
+  symbol_keywords: string[];     // 3-6 concrete symbols, e.g. ["stairs","doorway","freedom"]
 }
-async function deriveCoverConcept(input: BookMockupInput, avoidPhrases: string[] = []): Promise<CoverConcept | null> {
+async function deriveCoverConcept(input: BookMockupInput, avoidPhrases: string[] = [], avoidMotifs: string[] = []): Promise<CoverConcept | null> {
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) return null;
   const avoidClause = avoidPhrases.length
-    ? ` The following metaphors and compositions have already been used on other covers in this storefront — do NOT reuse them or anything visually similar: ${JSON.stringify(avoidPhrases.slice(0, 20))}. Pick a fundamentally different metaphor and composition.`
+    ? ` The following metaphors and compositions have already been used on other covers in this storefront — do NOT reuse them or anything visually similar: ${JSON.stringify(avoidPhrases.slice(0, 20))}.`
+    : "";
+  const motifCap = avoidMotifs.length
+    ? ` The following symbol motifs are ALREADY over-used in the last 30 covers and must NOT appear again: ${JSON.stringify(avoidMotifs)}.`
     : "";
   const prompt =
     `Design ONE unique premium ebook cover concept for this specific book. Be topic-specific. ` +
-    `Do NOT default to a staircase, glowing doorway, chart line, or centered symbolic icon unless it is truly the best fit. ` +
-    `Return JSON with keys: cover_theme, visual_metaphor, composition, typography_direction, accent_color_direction. ` +
+    `First internally identify: category, pain point, promise, emotional tone, desired transformation. ` +
+    `Then pick a custom visual metaphor that matches the book content — do NOT default to a staircase, glowing doorway, chart line, or centered symbolic icon unless it is truly the best fit. ` +
+    `Return JSON with keys: cover_theme, visual_metaphor, composition, composition_type, typography_direction, accent_color_direction, accent_color, cover_style_family, symbol_keywords. ` +
+    `composition_type is one of: "centered vertical", "asymmetric split", "left-anchored", "top-heavy", "bottom-anchored", "diagonal", "full-bleed", "grid-modular". ` +
+    `cover_style_family is one of: "bold editorial", "calm clean", "structured modern", "warm emotional", "authority sharp", "playful illustrated". ` +
+    `symbol_keywords is an array of 3-6 concrete visual symbols (nouns), e.g. ["shield","planner","vault"]. ` +
     `Title: "${input.title}". Subtitle: "${input.subtitle ?? ""}". Category: "${input.categorySlug ?? ""}". ` +
-    `Benefits: ${JSON.stringify((input.benefits ?? []).slice(0, 5))}.` + avoidClause;
+    `Benefits: ${JSON.stringify((input.benefits ?? []).slice(0, 5))}.` + avoidClause + motifCap;
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -898,12 +909,19 @@ async function deriveCoverConcept(input: BookMockupInput, avoidPhrases: string[]
     const txt: string | undefined = j?.choices?.[0]?.message?.content;
     if (!txt) return null;
     const parsed = JSON.parse(txt);
+    const symArr = Array.isArray(parsed.symbol_keywords)
+      ? parsed.symbol_keywords.map((x: unknown) => String(x).toLowerCase().trim()).filter(Boolean).slice(0, 6)
+      : [];
     return {
       cover_theme: String(parsed.cover_theme ?? ""),
       visual_metaphor: String(parsed.visual_metaphor ?? ""),
       composition: String(parsed.composition ?? ""),
+      composition_type: String(parsed.composition_type ?? "centered vertical").toLowerCase(),
       typography_direction: String(parsed.typography_direction ?? ""),
       accent_color_direction: String(parsed.accent_color_direction ?? ""),
+      accent_color: String(parsed.accent_color ?? "").toLowerCase(),
+      cover_style_family: String(parsed.cover_style_family ?? "").toLowerCase(),
+      symbol_keywords: symArr,
     };
   } catch (e) {
     console.warn("book-mockup: concept error", (e as Error).message);
@@ -917,24 +935,56 @@ function metaphorKeywords(s: string): string[] {
   return (s ?? "").toLowerCase().replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/).filter(w => w.length > 3 && !STOPWORDS.has(w));
 }
-function buildSignature(category: string, motif: string, metaphor: string): string {
-  const kws = metaphorKeywords(metaphor).slice(0, 4).sort().join("-");
-  return `${category || "default"}|${motif}|${kws}`;
+export interface CoverMetadata {
+  cover_theme: string;
+  visual_metaphor: string;
+  composition_type: string;
+  accent_color: string;
+  cover_style_family: string;
+  symbol_keywords: string[];
+  motif: string;
 }
-function tooSimilar(candidate: string, existing: string[]): { hit: boolean; matched?: string } {
-  const [cCat, cMotif, cKws] = candidate.split("|");
-  const cSet = new Set((cKws ?? "").split("-").filter(Boolean));
-  for (const sig of existing) {
-    const [eCat, eMotif, eKws] = sig.split("|");
-    if (eCat !== cCat) continue;
-    if (eMotif === cMotif) return { hit: true, matched: sig };
-    const eSet = new Set((eKws ?? "").split("-").filter(Boolean));
-    let overlap = 0;
-    for (const w of cSet) if (eSet.has(w)) overlap++;
-    if (overlap >= 2) return { hit: true, matched: sig };
+function buildSignature(category: string, meta: CoverMetadata): string {
+  const kws = [...(meta.symbol_keywords ?? []), ...metaphorKeywords(meta.visual_metaphor)]
+    .filter(Boolean).map(w => w.toLowerCase()).slice(0, 6).sort().join("-");
+  return `${category || "default"}|${meta.motif}|${meta.composition_type || ""}|${meta.accent_color || ""}|${kws}`;
+}
+// Motif-frequency cap: a motif can appear at most 2× across the last 30 covers.
+function overusedMotifs(recentSigs: string[], cap = 2): string[] {
+  const counts: Record<string, number> = {};
+  for (const s of recentSigs.slice(0, 30)) {
+    const m = s.split("|")[1];
+    if (!m) continue;
+    counts[m] = (counts[m] ?? 0) + 1;
   }
-  return { hit: false };
+  return Object.entries(counts).filter(([, n]) => n >= cap).map(([m]) => m);
 }
+function computeUniqueness(candidate: string, existing: string[]): { score: number; hit: boolean; matched?: string; reason?: string } {
+  const [cCat, cMotif, cComp, cAcc, cKws] = candidate.split("|");
+  const cSymSet = new Set((cKws ?? "").split("-").filter(Boolean));
+  let worst = 100;
+  let worstMatch: string | undefined;
+  let worstReason: string | undefined;
+  for (const sig of existing) {
+    const [eCat, eMotif, eComp, eAcc, eKws] = sig.split("|");
+    if (eCat !== cCat) continue;
+    const eSymSet = new Set((eKws ?? "").split("-").filter(Boolean));
+    let overlap = 0;
+    for (const w of cSymSet) if (eSymSet.has(w)) overlap++;
+    const symRatio = cSymSet.size ? overlap / Math.max(cSymSet.size, eSymSet.size) : 0;
+    let s = 100;
+    let r = "";
+    if (eMotif === cMotif) { s -= 40; r = "motif_match"; }
+    if (eComp && eComp === cComp) { s -= 15; r = r ? r + "+composition" : "composition_match"; }
+    if (eAcc && eAcc === cAcc) { s -= 10; r = r ? r + "+accent" : "accent_match"; }
+    if (symRatio >= 0.5) { s -= 30; r = r ? r + "+symbols" : "symbol_overlap"; }
+    else if (overlap >= 2) { s -= 15; r = r ? r + "+symbols" : "symbol_overlap"; }
+    if (s < worst) { worst = s; worstMatch = sig; worstReason = r; }
+  }
+  const hit = worst < 70;
+  return { score: Math.max(0, worst), hit, matched: worstMatch, reason: worstReason };
+}
+
 
 // ---------- Public entry ----------
 export async function generateBookMockup(input: BookMockupInput): Promise<MockupResult> {
@@ -942,47 +992,55 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
 
   const existingSigs = (input.avoidSignatures ?? []).filter(Boolean);
   const avoidPhrases: string[] = [];
+  const overused = overusedMotifs(existingSigs, 2); // motifs used ≥2× in last 30 covers
   const qcReasons: string[] = [];
 
-  // Stage 0 — derive a topic-specific concept, up to 3 tries to pass the
-  // visual-uniqueness QC vs previously generated covers.
+  // Stage 0 — derive concept + retry up to 3× to pass uniqueness QC.
   let concept: CoverConcept | null = null;
   let signature = "";
+  let meta: CoverMetadata | null = null;
+  let bestScore = -1;
   const p = presetFor(input.categorySlug, input.title, input.subtitle, input.benefits);
   let conceptAttempts = 0;
   for (let i = 0; i < 3; i++) {
     conceptAttempts++;
-    const c = await deriveCoverConcept(input, avoidPhrases);
-    const metaphor = c?.visual_metaphor ?? p.sceneConcept ?? p.motif;
-    const sig = buildSignature(input.categorySlug ?? "", p.motif, metaphor);
-    const sim = tooSimilar(sig, existingSigs);
-    if (!sim.hit) { concept = c; signature = sig; break; }
-    qcReasons.push(`uniqueness_retry:${sim.matched}`);
-    avoidPhrases.push(metaphor);
-    // On the last attempt, force a fresh motif from the variant pool.
-    if (i === 1) {
+    const banMotifs = [...overused, ...(meta ? [meta.motif] : [])];
+    if (overused.includes(p.motif) || (i >= 1 && banMotifs.includes(p.motif))) {
       const g = VARIANT_GROUPS[p.key] ?? VARIANT_GROUPS.default;
-      const used = new Set(existingSigs.map(s => s.split("|")[1]));
-      const fresh = g.motifs.find(m => !used.has(m)) ?? p.motif;
-      p.motif = fresh;
+      const fresh = g.motifs.find(m => !banMotifs.includes(m));
+      if (fresh) p.motif = fresh;
     }
-    concept = c; signature = sig; // keep last as fallback
+    const c = await deriveCoverConcept(input, avoidPhrases, banMotifs);
+    const cand: CoverMetadata = {
+      cover_theme: c?.cover_theme ?? "",
+      visual_metaphor: c?.visual_metaphor ?? p.sceneConcept ?? p.motif,
+      composition_type: c?.composition_type ?? "centered vertical",
+      accent_color: c?.accent_color ?? "",
+      cover_style_family: c?.cover_style_family ?? "",
+      symbol_keywords: c?.symbol_keywords ?? [],
+      motif: p.motif,
+    };
+    const sig = buildSignature(input.categorySlug ?? "", cand);
+    const u = computeUniqueness(sig, existingSigs);
+    if (u.score > bestScore) { bestScore = u.score; concept = c; signature = sig; meta = cand; }
+    if (!u.hit && !overused.includes(p.motif)) break;
+    qcReasons.push(`uniqueness_retry:${u.reason ?? "similarity"}:${u.score}`);
+    if (c?.visual_metaphor) avoidPhrases.push(c.visual_metaphor);
   }
 
   if (concept) {
     const conceptHint =
       ` Cover concept for THIS specific book — theme: ${concept.cover_theme}; ` +
-      `visual metaphor: ${concept.visual_metaphor}; composition: ${concept.composition}; ` +
-      `typography direction: ${concept.typography_direction}; accent direction: ${concept.accent_color_direction}. ` +
+      `visual metaphor: ${concept.visual_metaphor}; composition: ${concept.composition} (${concept.composition_type}); ` +
+      `typography direction: ${concept.typography_direction}; accent: ${concept.accent_color} (${concept.accent_color_direction}); ` +
+      `style family: ${concept.cover_style_family}; key symbols: ${concept.symbol_keywords.join(", ")}. ` +
       `Design the illustration around this concept, not around a generic template.`;
     p.aiHint = p.aiHint + conceptHint;
   }
 
-  // Stage 1
   const faceSvg = buildCoverFaceSvg({ ...input });
   const faceBytes = await renderSvgToPng(faceSvg, 1600);
 
-  // Stage 2 — try AI photoreal, up to 2 attempts
   let bytes: Uint8Array | null = null;
   let model = "svg_wrapper_v3";
   let attempts = 0;
@@ -991,8 +1049,6 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
     bytes = await tryAiPhotorealMockup(faceBytes, p);
     if (bytes) model = "ai_photoreal_gemini_3.1_flash_image";
   }
-
-  // Fallback: SVG 3D wrapper around Stage-1 face
   if (!bytes) {
     const faceDataUrl = `data:image/png;base64,${bytesToBase64(faceBytes)}`;
     const wrapperSvg = buildMockupSvgFromFace(faceDataUrl, p);
@@ -1001,8 +1057,8 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
 
   const passed = bytes.length > 30_000;
   const isAi = model.startsWith("ai_");
-  const finalSim = tooSimilar(signature, existingSigs);
-  const uniquenessScore = finalSim.hit ? 60 : 96;
+  const finalU = computeUniqueness(signature, existingSigs);
+  const motifOverused = overused.includes(meta?.motif ?? p.motif);
   const scores = {
     white_background_score: 100,
     book_realism_score: isAi ? 96 : 90,
@@ -1015,20 +1071,25 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
     premium_feel_score: isAi ? 96 : 92,
     google_merchant_friendliness_score: 100,
     anti_ai_look_score: 100,
-    visual_uniqueness_score: uniquenessScore,
+    visual_uniqueness_score: finalU.score,
+    motif_frequency_ok: motifOverused ? 60 : 100,
     concept_attempts: conceptAttempts,
-    final_store_thumbnail_score: isAi ? Math.min(96, uniquenessScore + 30) : Math.min(92, uniquenessScore + 28),
+    final_store_thumbnail_score: Math.min(isAi ? 96 : 92, Math.round((finalU.score + (motifOverused ? 60 : 100)) / 2)),
   };
   if (!passed) qcReasons.push("output_bytes_below_minimum");
-  if (finalSim.hit) qcReasons.push(`visual_uniqueness_fail:${finalSim.matched}`);
+  if (finalU.hit) qcReasons.push(`visual_uniqueness_fail:${finalU.reason}:${finalU.matched}`);
+  if (motifOverused) qcReasons.push(`motif_over_used:${meta?.motif}`);
 
   return {
-    bytes,
-    model,
-    attempts,
-    signature,
+    bytes, model, attempts, signature,
     concept: concept ? { theme: concept.cover_theme, metaphor: concept.visual_metaphor, composition: concept.composition } : null,
-    qc: { passed: passed && !finalSim.hit, scores, reasons: qcReasons },
+    qc: {
+      passed: passed && !finalU.hit && !motifOverused,
+      scores,
+      reasons: qcReasons,
+      // deno-lint-ignore no-explicit-any
+      ...(meta ? ({ metadata: meta } as any) : {}),
+    },
   };
 }
 
