@@ -895,6 +895,7 @@ export type Database = {
           buyer_appeal_score: number | null
           canonical_status: string | null
           category_id: string | null
+          category_slug: string | null
           chapter_qc: Json
           chapters: Json
           compare_at_price: number | null
@@ -938,10 +939,13 @@ export type Database = {
           inside_illustration_relevance_score: number | null
           inside_illustrations_json: Json | null
           interior_visuals: Json | null
+          key_benefits: Json | null
           last_auto_fix_action: string | null
           last_heartbeat_at: string | null
           launch_price: number | null
           listed_at: string | null
+          listing_status: string
+          long_description: string | null
           low_price_test: number | null
           manuscript_fix_count: number
           manuscript_qc_status: string | null
@@ -972,8 +976,10 @@ export type Database = {
           pipeline_status: Database["public"]["Enums"]["pipeline_status"]
           practical_tool_score: number | null
           premium_score: number | null
+          preview_blurb: string | null
           price: number
           price_confidence_score: number | null
+          price_rationale: Json | null
           price_tier: string | null
           pricing_computed_at: string | null
           pricing_confidence_score: number | null
@@ -1020,6 +1026,7 @@ export type Database = {
           shopify_status: string
           shopify_subtitle: string | null
           shopify_title: string | null
+          shopping_card_description: string | null
           short_hook: string | null
           standard_price: number | null
           status: string
@@ -1039,7 +1046,9 @@ export type Database = {
           visual_fatigue_score: number | null
           visual_plan: Json
           waiting_reason: string | null
+          what_you_get: Json | null
           whats_inside: Json | null
+          who_it_is_for: string | null
           who_its_for: Json | null
           who_its_not_for: Json | null
           word_count: number
@@ -1072,6 +1081,7 @@ export type Database = {
           buyer_appeal_score?: number | null
           canonical_status?: string | null
           category_id?: string | null
+          category_slug?: string | null
           chapter_qc?: Json
           chapters?: Json
           compare_at_price?: number | null
@@ -1115,10 +1125,13 @@ export type Database = {
           inside_illustration_relevance_score?: number | null
           inside_illustrations_json?: Json | null
           interior_visuals?: Json | null
+          key_benefits?: Json | null
           last_auto_fix_action?: string | null
           last_heartbeat_at?: string | null
           launch_price?: number | null
           listed_at?: string | null
+          listing_status?: string
+          long_description?: string | null
           low_price_test?: number | null
           manuscript_fix_count?: number
           manuscript_qc_status?: string | null
@@ -1149,8 +1162,10 @@ export type Database = {
           pipeline_status?: Database["public"]["Enums"]["pipeline_status"]
           practical_tool_score?: number | null
           premium_score?: number | null
+          preview_blurb?: string | null
           price?: number
           price_confidence_score?: number | null
+          price_rationale?: Json | null
           price_tier?: string | null
           pricing_computed_at?: string | null
           pricing_confidence_score?: number | null
@@ -1197,6 +1212,7 @@ export type Database = {
           shopify_status?: string
           shopify_subtitle?: string | null
           shopify_title?: string | null
+          shopping_card_description?: string | null
           short_hook?: string | null
           standard_price?: number | null
           status?: string
@@ -1216,7 +1232,9 @@ export type Database = {
           visual_fatigue_score?: number | null
           visual_plan?: Json
           waiting_reason?: string | null
+          what_you_get?: Json | null
           whats_inside?: Json | null
+          who_it_is_for?: string | null
           who_its_for?: Json | null
           who_its_not_for?: Json | null
           word_count?: number
@@ -1249,6 +1267,7 @@ export type Database = {
           buyer_appeal_score?: number | null
           canonical_status?: string | null
           category_id?: string | null
+          category_slug?: string | null
           chapter_qc?: Json
           chapters?: Json
           compare_at_price?: number | null
@@ -1292,10 +1311,13 @@ export type Database = {
           inside_illustration_relevance_score?: number | null
           inside_illustrations_json?: Json | null
           interior_visuals?: Json | null
+          key_benefits?: Json | null
           last_auto_fix_action?: string | null
           last_heartbeat_at?: string | null
           launch_price?: number | null
           listed_at?: string | null
+          listing_status?: string
+          long_description?: string | null
           low_price_test?: number | null
           manuscript_fix_count?: number
           manuscript_qc_status?: string | null
@@ -1326,8 +1348,10 @@ export type Database = {
           pipeline_status?: Database["public"]["Enums"]["pipeline_status"]
           practical_tool_score?: number | null
           premium_score?: number | null
+          preview_blurb?: string | null
           price?: number
           price_confidence_score?: number | null
+          price_rationale?: Json | null
           price_tier?: string | null
           pricing_computed_at?: string | null
           pricing_confidence_score?: number | null
@@ -1374,6 +1398,7 @@ export type Database = {
           shopify_status?: string
           shopify_subtitle?: string | null
           shopify_title?: string | null
+          shopping_card_description?: string | null
           short_hook?: string | null
           standard_price?: number | null
           status?: string
@@ -1393,7 +1418,9 @@ export type Database = {
           visual_fatigue_score?: number | null
           visual_plan?: Json
           waiting_reason?: string | null
+          what_you_get?: Json | null
           whats_inside?: Json | null
+          who_it_is_for?: string | null
           who_its_for?: Json | null
           who_its_not_for?: Json | null
           word_count?: number

@@ -4,6 +4,7 @@
 import { corsHeaders, admin, aiJSON, logCost, requireAdmin } from "../_shared/ai.ts";
 import { buildCoverSVG, rasterizeSVG, type CoverSpec } from "../_shared/cover.ts";
 import { computeQcGates } from "../_shared/qc-gates.ts";
+import { resolveStyleProfile, stylePromptClause } from "../_shared/thumbnail-style-system.ts";
 
 type EbookRow = {
   id: string; title: string; subtitle: string | null;
@@ -439,15 +440,6 @@ Output: 1200x1500 vertical composition, book centered.`;
   if (!outB64) return null;
   return Uint8Array.from(atob(outB64), (ch) => ch.charCodeAt(0));
 }
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`photoreal mockup ${res.status}: ${t.slice(0, 200)}`);
-  }
-  const j = await res.json();
-  const outB64: string | undefined = j.data?.[0]?.b64_json;
-  if (!outB64) return null;
-  return Uint8Array.from(atob(outB64), (ch) => ch.charCodeAt(0));
-}
 
 // Deterministic SVG fallback mockup — used only when the photoreal producer
 // fails. Not counted as premium quality but keeps the pipeline unblocked.
@@ -568,12 +560,19 @@ async function processCover(ebook: EbookRow, opts: ProcessOpts) {
         const feedback = lastReasons.length && lastQC
           ? "\n\n" + buildRepairFeedback(lastReasons, lastQC.improvements ?? [])
           : "";
+        const styleProfile = resolveStyleProfile({
+          category_name: category,
+          title: ebook.title,
+          subtitle: ebook.subtitle,
+        });
         const ai = await aiJSON<CoverSpec>({
           model: "google/gemini-3.1-pro-preview",
-          system: COVER_DESIGNER_SYSTEM + styleRefInstruction(styleRef),
+          system: COVER_DESIGNER_SYSTEM + styleRefInstruction(styleRef) + stylePromptClause(styleProfile),
           user: `Ebook Title: ${ebook.title}
 Subtitle: ${ebook.subtitle ?? ""}
-Category: ${category ?? "general"}
+Category: ${category ?? "general"} (style profile: ${styleProfile.display_name}, tone: ${styleProfile.tone}, mockup: ${styleProfile.mockup_style})
+Badge label: ${styleProfile.badge_label}
+Recommended accent_key: ${styleProfile.accent_key}
 Target Buyer: ${ebook.target_buyer ?? ""}
 Core Pain: ${ebook.hook ?? ""}
 Transformation Promise: ${(ebook.product_description ?? "").slice(0, 500)}

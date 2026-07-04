@@ -1,54 +1,72 @@
-## Goal
+# Internal Store Standard + Daily Premium Production
 
-Every time an ebook goes live (auto-list or manual list), automatically:
-1. Regenerate a **thumbnail** in the reference hardcover style (dark, dramatic side light, marble surface, spine visible, `EBOOK` chip, big condensed title with one word highlighted, hairline-ruled subtitle, central hero illustration matched to the book's topic, 4 icon+label feature chips at the bottom) — **style adapts per topic** (palette / hero metaphor / chips), not a fixed template.
-2. Regenerate **selling copy** — a punchy product description with a strong hook, 3–5 benefit bullets, and a short CTA line — tuned to the buyer pain and psychological lever of that specific book.
+Big scope. Splitting into 6 tracks. All Shopify code stays but hidden behind a feature flag; the store becomes our own internal catalog.
 
-Both regenerate on every listing event so the listed product always has the newest style + newest copy.
+## Track 1 — Shopify → Internal Store
 
-## What changes
+- Set `FEATURES.SHOPIFY_UPLOAD = false` (already) and add `FEATURES.INTERNAL_STORE = true`. Wrap every Shopify UI entry (`LiveProductionQueue`, `ReadyShopifyCard`, `admin/ReadyShopify`, `admin/EbookShopify`, `ShopifyStatus`) behind the flag.
+- Rename buttons: "Push to Shopify" → "Publish to Store", "Shopify Draft" → "Ready for Listing", "Shopify Status" → "Listing Status".
+- Pipeline stops requiring Shopify env vars; `auto-list-ebook` marks `listed_at` + `listing_status='listed'` in our DB (already the source of truth for `list-storefront`). Shopify sync becomes a no-op behind the flag.
 
-### 1. `supabase/functions/auto-list-ebook/index.ts`
-- Before the Stripe sync + `listed_at` update, always call:
-  - `generate-cover` (force regenerate, not only when `cover_url` is missing) — passes the currently active `cover_style_reference` so the thumbnail mimics the uploaded ref image.
-  - a new `generate-selling-copy` function (see #3) to refresh `product_description` (+ new `selling_hook` and `benefit_bullets` fields).
-- Push refreshed `cover_url`, `product_description`, and `images: [cover_url]` to Stripe in the existing `syncStripe` step so the storefront/Stripe listing reflects the new thumbnail immediately.
-- Log both steps to `pipeline_step_logs`.
+## Track 2 — Category-aware Thumbnail Style System
 
-### 2. `supabase/functions/generate-cover/index.ts` (already reads active style ref)
-- Confirm it always emits a fresh **photoreal thumbnail** (not just the flat cover) using the reference-style mockup, per book topic. Tighten the mockup prompt so it fails QC when the returned image is a light/studio background or has no visible spine.
-- Accept a `force: true` flag from `auto-list-ebook` so it re-runs even if `cover_url` already exists.
+- New `supabase/functions/_shared/thumbnail-style-system.ts`:
+  - Category tone/palette/typography/badge/mockup style/prompt rules/forbidden list/QC thresholds.
+  - Categories: `finance`, `children_illustrated`, `business_career`, `wellness_selfhelp`, `education_workbook`, `parenting_family`, `creative_hobby`, `beginner_guide`, `fiction_short`.
+  - `resolveStyle(categorySlug) → StyleProfile` used by cover + thumbnail + listing copy.
+- `generate-cover/index.ts`: pass resolved style profile into background + mockup prompts. Keep textless-AI rule. Text/typography overlaid app-side (already the pattern).
+- QC gates per profile (title readability ≥90, click appeal ≥85, mood match ≥85). Photoreal-mockup failure falls back to flat-cover mockup scored on its own rubric.
 
-### 3. New `supabase/functions/generate-selling-copy/index.ts`
-- Input: `ebook_id`.
-- Loads title, subtitle, category, buyer avatar, psychological lever, top pain, promised transformation from the ebook's `CoverSpec`/metadata.
-- Calls `google/gemini-2.5-pro` (Lovable AI) with a copywriter system prompt that enforces:
-  - 1 strong **selling hook** (≤ 12 words, curiosity + pain + promise).
-  - 3–5 **benefit bullets** (outcome-first, no fluff).
-  - 1 short **product description** paragraph (≤ 60 words) ending in a CTA.
-  - Tone matched to the lever (Control / Pain Relief / Identity / Status / Certainty / Belonging).
-- Writes back to `ebooks`: `product_description`, `selling_hook`, `benefit_bullets` (jsonb).
+## Track 3 — Listing Copy + Shopping-list Card
 
-### 4. DB migration
-- Add `selling_hook text` and `benefit_bullets jsonb` to `public.ebooks` (nullable, no RLS change).
+- DB migration on `ebooks` — add nullable columns:
+  - `short_hook text`, `shopping_card_description text`, `long_description text`, `key_benefits jsonb`, `who_it_is_for text`, `what_you_get jsonb`, `preview_blurb text`, `listing_status text default 'draft'`, `price_rationale jsonb`, `compare_at_price numeric`, `category_slug text`.
+  - (Keep existing `selling_hook`, `benefit_bullets`, `product_description` as the short-card fields already used by `ProductCard`.)
+- Extend `generate-selling-copy` to fill the full listing schema in Thai, with category-aware tone and required disclaimers (finance/health/legal/parenting/children). Never guarantee outcomes.
+- `list-storefront` returns the new fields; `ProductCard` + `Product.tsx` render category badge, hook, 2–3 benefit bullets, price, status.
 
-### 5. Storefront display (`src/pages/Product.tsx` + `src/components/ProductCard.tsx`)
-- Show `selling_hook` above the title on the product page.
-- Show `benefit_bullets` as a checkmark list under the description.
-- No layout redesign — just render the new fields if present, fall back to current behavior if empty.
+## Track 4 — Pricing Engine
 
-### 6. Admin UI (`src/components/admin/LiveProductionQueue.tsx`)
-- Rename the existing "Regenerate cover" button to "Regenerate thumbnail + copy" so admins can trigger the same refresh manually.
-- Bulk button already exists — extend it to also refresh copy for all listed ebooks.
+- New `supabase/functions/compute-pricing/index.ts` (or extend existing `compute-pricing`):
+  - Inputs from ebook row + QC report: category, word_count, illustration_count, worksheet_count, final_quality_score, compliance flags.
+  - Category bands: mini $9–17, premium $19–39, ebook+toolkit $39–79, children $7–19, bundle $79–199.
+  - Output: `price`, `compare_at_price` (only if truthful and admin-enabled), `price_rationale` jsonb (factors + weights).
+- Called automatically inside `auto-list-ebook` after QC. Admin can override in Ebook Detail.
+
+## Track 5 — Daily Production Scheduler
+
+- Extend `generation_settings` with: `daily_cost_cap`, `max_books_per_day`, `max_parallel_runs`, `category_mix jsonb`, `quality_first_mode bool`, `stop_when_failure_rate_above numeric`, `stop_when_qc_failures_exceed int`, `min_final_quality_score int`.
+- Update `daily-cron` / autopilot orchestrator:
+  - Compute today's capacity from cost cap ÷ avg cost/book, respecting `max_parallel_runs`.
+  - Pick next ideas honoring `category_mix` weights.
+  - Halt when failure rate or repeat-gate failures exceed thresholds → mark run `needs_admin_attention`.
+  - Never lower QC thresholds to hit volume.
+- New "Production Command Center" card in admin: capacity estimate, books today, pass rate, cost used, queued categories, Run/Pause/Resume.
+
+## Track 6 — Admin UI
+
+- `LiveProductionQueue`: rename Shopify actions, add "Regenerate thumbnail", "Regenerate listing copy", "Recalculate price" per row.
+- New `ProductionCommandCenter.tsx` on Dashboard.
+- New `InternalStoreList.tsx` (admin) showing shopping-list rows with thumbnail, title, hook, category, price, listing status, "Publish to Store".
+- Ebook Detail page adds sections: flat cover, thumbnail, price + rationale, listing copy, QC report, per-action regenerate buttons.
+
+## Backfill
+
+One-off admin action "Refresh 2 existing QC-ready ebooks": regenerate thumbnail + listing copy + price only (no rewrite of PDF).
 
 ## Out of scope
 
-- PDF interior, pricing, checkout, download flow.
-- Non-ebook product types.
-- Redesigning storefront layout.
+- Rewriting existing PDFs.
+- Building a customer-facing children's-book illustrator (children category will use the existing cover + storefront copy path with children profile — deep interior illustration is a follow-up).
+- Removing Shopify code (kept behind flag).
+
+## Testing
+
+- **Existing ebook**: open Ebook Detail → "Regenerate thumbnail + listing + price" → verify DB fields populated, thumbnail matches finance profile, shopping card renders on `/`.
+- **New ebook**: Run Daily Production → verify one ebook flows idea → PDF QC → cover → thumbnail (category-styled) → listing copy → auto price → `listing_status='listed'` without any Shopify call.
 
 ## Questions before I build
 
-1. **Copy language** — should selling hook + description + bullets be **Thai** (matching your message), **English** (matching current product data), or **both** (store `_th` and `_en`)?
-2. **Regenerate on every re-list, or only first time?** If an admin manually re-lists a book after editing its title, do you want the copy + thumbnail forcibly refreshed every time, or only when they're empty / older than X days?
-3. **Selling hook placement on the storefront** — above the title as a small yellow "eyebrow" line (matches your reference hardcover accent), or as a large tagline under the title?
+1. **Scope of this turn** — this is ~15–20 files + migration + 2 new edge functions. Do you want me to ship all 6 tracks now, or stage it (recommended: Tracks 1+2+3+4 first, then 5+6 next turn)?
+2. **Children's-book interior illustrations** — for now, do children's ebooks use the existing text-only PDF pipeline with a children-styled cover, or should I stub a placeholder illustration step and mark it needs_admin until a real illustrator function lands?
+3. **Currency** — prices in USD (current) or THB for the Thai storefront?

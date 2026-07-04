@@ -160,7 +160,7 @@ function SafeModeBanner({
           Sequential Safe Mode
         </div>
         <span className="text-xs text-muted-foreground">
-          Only one ebook in heavy production. PDF render + Shopify upload are strictly one-by-one.
+          Only one ebook in heavy production. PDF render + Store publish are strictly one-by-one.
           Topic/idea generation runs in parallel.
         </span>
         <div className="ml-auto flex flex-wrap items-center gap-2">

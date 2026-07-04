@@ -7,7 +7,16 @@ export interface StorefrontEbook {
   cover_url: string | null;
   product_description: string | null;
   selling_hook: string | null;
+  short_hook: string | null;
+  shopping_card_description: string | null;
+  long_description: string | null;
   benefit_bullets: string[] | null;
+  key_benefits: string[] | null;
+  who_it_is_for: string | null;
+  what_you_get: string[] | null;
+  preview_blurb: string | null;
+  category_slug: string | null;
+  listing_status: string | null;
   product_type: string | null;
   seo_title: string | null;
   seo_meta: string | null;

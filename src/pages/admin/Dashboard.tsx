@@ -246,7 +246,7 @@ export default function CommandCenter() {
               <p className="font-mono uppercase text-xs tracking-widest">Premium PDF Autopilot</p>
             </div>
             <p className="text-sm">
-              One click runs the full gated pipeline: idea → outline → 18k+ words → QC → cover → PDF → Shopify draft.
+              One click runs the full gated pipeline: idea → outline → 18k+ words → QC → cover → PDF → internal store listing.
             </p>
             <p className="text-[11px] text-muted-foreground">
               Mode: <span className="font-mono">{settings?.autopilot_mode ?? "safe"}</span> —{" "}
@@ -266,7 +266,7 @@ export default function CommandCenter() {
               {busy === "repush"
                 ? <Loader2 className="size-4 animate-spin mr-1" />
                 : <RefreshCw className="size-4 mr-1" />}
-              Re-push Shopify Draft
+              Re-publish to Store
             </Button>
           </div>
         </CardContent>
