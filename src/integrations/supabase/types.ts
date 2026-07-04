@@ -1519,22 +1519,32 @@ export type Database = {
           cost_limit_reason: string | null
           cron_enabled: boolean
           daily_budget_usd: number
+          daily_cost_cap_usd: number
           daily_quota: number
+          enabled_categories_json: Json
           enabled_category_ids: string[]
           heavy_production_concurrency: number
           id: number
           idea_generation_concurrency: number
           max_ai_calls_per_ebook: number
+          max_books_per_day: number
+          max_parallel_books: number
+          max_parallel_heavy_jobs: number
           max_refund_risk: number
           max_rewrite_attempts: number
           max_shopify_uploads_per_day: number
           min_score_threshold: number
           min_word_count: number
+          minimum_qc_pass_rate: number
           mode: Database["public"]["Enums"]["generation_mode"]
+          pause_when_cost_limit_reached: boolean
+          pause_when_qc_pass_rate_low: boolean
           paused: boolean
           pdf_render_concurrency: number
           per_ebook_budget_usd: number
           publish_hour_utc: number
+          quality_first_mode: boolean
+          safe_publish_to_store: boolean
           sequential_safe_mode: boolean
           shopify_draft_upload_enabled: boolean
           shopify_upload_concurrency: number
@@ -1552,22 +1562,32 @@ export type Database = {
           cost_limit_reason?: string | null
           cron_enabled?: boolean
           daily_budget_usd?: number
+          daily_cost_cap_usd?: number
           daily_quota?: number
+          enabled_categories_json?: Json
           enabled_category_ids?: string[]
           heavy_production_concurrency?: number
           id?: number
           idea_generation_concurrency?: number
           max_ai_calls_per_ebook?: number
+          max_books_per_day?: number
+          max_parallel_books?: number
+          max_parallel_heavy_jobs?: number
           max_refund_risk?: number
           max_rewrite_attempts?: number
           max_shopify_uploads_per_day?: number
           min_score_threshold?: number
           min_word_count?: number
+          minimum_qc_pass_rate?: number
           mode?: Database["public"]["Enums"]["generation_mode"]
+          pause_when_cost_limit_reached?: boolean
+          pause_when_qc_pass_rate_low?: boolean
           paused?: boolean
           pdf_render_concurrency?: number
           per_ebook_budget_usd?: number
           publish_hour_utc?: number
+          quality_first_mode?: boolean
+          safe_publish_to_store?: boolean
           sequential_safe_mode?: boolean
           shopify_draft_upload_enabled?: boolean
           shopify_upload_concurrency?: number
@@ -1585,22 +1605,32 @@ export type Database = {
           cost_limit_reason?: string | null
           cron_enabled?: boolean
           daily_budget_usd?: number
+          daily_cost_cap_usd?: number
           daily_quota?: number
+          enabled_categories_json?: Json
           enabled_category_ids?: string[]
           heavy_production_concurrency?: number
           id?: number
           idea_generation_concurrency?: number
           max_ai_calls_per_ebook?: number
+          max_books_per_day?: number
+          max_parallel_books?: number
+          max_parallel_heavy_jobs?: number
           max_refund_risk?: number
           max_rewrite_attempts?: number
           max_shopify_uploads_per_day?: number
           min_score_threshold?: number
           min_word_count?: number
+          minimum_qc_pass_rate?: number
           mode?: Database["public"]["Enums"]["generation_mode"]
+          pause_when_cost_limit_reached?: boolean
+          pause_when_qc_pass_rate_low?: boolean
           paused?: boolean
           pdf_render_concurrency?: number
           per_ebook_budget_usd?: number
           publish_hour_utc?: number
+          quality_first_mode?: boolean
+          safe_publish_to_store?: boolean
           sequential_safe_mode?: boolean
           shopify_draft_upload_enabled?: boolean
           shopify_upload_concurrency?: number
