@@ -114,8 +114,9 @@ type Preset = {
   motif: MotifName;
   icons: { icon: IconName; label: string }[];
   aiHint: string; // additional description for the AI cover art
-  sceneConcept: string; // unique per-book scene metaphor for the AI
-  avoidConcepts: string[]; // banned motifs to force visual variation
+  sceneConcept?: string; // unique per-book scene metaphor for the AI
+  avoidConcepts?: string[]; // banned motifs to force visual variation
+
 };
 
 // Deterministic hash of the title so the same book always gets the same variant.
