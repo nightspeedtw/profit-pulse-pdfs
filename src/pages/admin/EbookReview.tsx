@@ -14,6 +14,7 @@ import { downloadAdminPdf } from "@/lib/pdf";
 import { PdfWizard } from "@/components/admin/PdfWizard";
 import { FinalApproval } from "@/components/admin/FinalApproval";
 import ShopifyStatus from "@/components/admin/ShopifyStatus";
+import { StoreActionsPanel } from "@/components/admin/StoreActionsPanel";
 import { FEATURES } from "@/config/features";
 
 
@@ -244,6 +245,19 @@ export default function EbookReview() {
       <PdfWizard ebook={e} busy={busy} onRun={run} />
 
       <FinalApproval ebook={e} onChanged={load} />
+
+      <StoreActionsPanel
+        ebookId={e.id}
+        pdfUrl={(e as any).pdf_url}
+        coverUrl={(e as any).cover_url}
+        thumbnailUrl={(e as any).thumbnail_url}
+        price={(e as any).price}
+        finalQualityScore={(e as any).final_quality_score}
+        listingStatus={(e as any).listing_status}
+        hasCopy={!!((e as any).product_description || (e as any).short_hook || (e as any).selling_hook)}
+        hasPriceOverride={!!(e as any).admin_override_price}
+        onChanged={load}
+      />
 
 
 
