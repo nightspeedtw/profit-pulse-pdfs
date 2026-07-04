@@ -148,7 +148,7 @@ Deno.serve(async (req) => {
     if (!qc.passed && e.store_thumbnail_url) {
       await supabase.from("ebooks").update({
         thumbnail_needs_review: true,
-        store_thumbnail_qc: { source, signature, concept, ...qc } as any,
+        store_thumbnail_qc: { source, signature, concept, chosen_families: chosenFamilies, ...qc } as any,
       }).eq("id", ebookId);
       await log(ebookId, "store_thumbnail.qc", "failed_kept_previous", { source, qc, signature });
       return new Response(JSON.stringify({ ok: false, ebook_id: ebookId, source, qc, signature, kept_previous: true }), {
@@ -169,7 +169,7 @@ Deno.serve(async (req) => {
 
     const { error: updErr } = await supabase.from("ebooks").update({
       store_thumbnail_url: url,
-      store_thumbnail_qc: { source, signature, concept, ...qc } as any,
+      store_thumbnail_qc: { source, signature, concept, chosen_families: chosenFamilies, ...qc } as any,
       store_thumbnail_generated_at: new Date().toISOString(),
       thumbnail_needs_review: !qc.passed,
       updated_at: new Date().toISOString(),
