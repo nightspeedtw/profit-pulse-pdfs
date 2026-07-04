@@ -305,17 +305,23 @@ export function buildStoreThumbnailSVG(input: StoreThumbInput): string {
     <line x1="${ruleX}" y1="${ruleBottomY}" x2="${ruleX + ruleW}" y2="${ruleBottomY}" stroke="${style.text}" stroke-opacity="${isLight ? 0.35 : 0.5}" stroke-width="1.5"/>
   ` : "";
 
-  // Badge (top)
+  // Badge (top). Accurate width from real glyph metrics so long labels like
+  // "PRODUCTIVITY PLAYBOOK" or "INCOME SYSTEM" always fit inside the pill.
+  // Previous const 20px/char under-sized the pill and text-anchor="middle"
+  // pushed characters past both pill edges, which the 3D compositor cropped
+  // ("INCOME SYSTEM" → "NOME SYSTEM").
   const badgeText = style.badge_label.toUpperCase();
-  const badgeCharW = 20;
-  const badgeW = Math.max(220, badgeText.length * badgeCharW + 44);
+  const BADGE_GLYPH_ADVANCE = 21.5 + 5; // font-size 26 bold + letter-spacing 5
+  const BADGE_PAD_X = 28;
+  const badgeTextW = Math.max(1, badgeText.length) * BADGE_GLYPH_ADVANCE;
+  const badgeW = Math.max(220, Math.round(badgeTextW + BADGE_PAD_X * 2));
   const badgeH = 62;
   const badgeX = bookCX - badgeW / 2;
   const badgeY = bookY + 130;
   const badgeTextFill = isLight ? "#ffffff" : "#0b0b0b";
   const badge = `
     <rect x="${badgeX}" y="${badgeY}" width="${badgeW}" height="${badgeH}" fill="${style.accent}" rx="3"/>
-    <text x="${bookCX}" y="${badgeY + badgeH/2 + 10}" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="700" font-size="26" fill="${badgeTextFill}" letter-spacing="5">${esc(badgeText)}</text>
+    <text x="${badgeX + BADGE_PAD_X}" y="${badgeY + badgeH/2 + 10}" text-anchor="start" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="700" font-size="26" fill="${badgeTextFill}" letter-spacing="5">${esc(badgeText)}</text>
   `;
 
   // Bottom brand strip + accent bar

@@ -816,15 +816,33 @@ export function buildCoverFaceSvg(input: BookMockupInput): string {
   }
   lines = lines.filter(Boolean).slice(0, 3);
 
-  const titleSize = lines.length <= 2 ? 130 : 108;
+  // Title auto-fit. Previously the size was chosen from line count only, so a
+  // long line like "FEAST-OR-FAMINE" or "UNINTERRUPTED" overflowed past the
+  // safe right edge (bookX + padX + usableW). The 3D compositor then cropped
+  // the tail letters ("SCAPE PLA…" instead of "ESCAPE PLAN"). Fix: shrink
+  // the title until the longest line fits inside the safe width.
+  const TITLE_PAD_X = 60;
+  const TITLE_SAFE_W = CW - TITLE_PAD_X * 2; // 680 at CW=800
+  // Bebas Neue is condensed (~0.42 avg glyph ratio at bold-ish weight), Playfair
+  // Display is a serif (~0.55). Include the negative letter-spacing (-2 or -1).
+  const glyphRatio = useUpper ? 0.42 : 0.55;
+  const tracking = useUpper ? -2 : -1;
+  const longestChars = lines.reduce((m, l) => Math.max(m, l.length), 0);
+  const startSize = lines.length <= 2 ? 130 : 108;
+  const candidates = [startSize, 120, 110, 100, 92, 84, 76, 68];
+  let titleSize = candidates[candidates.length - 1];
+  for (const s of candidates) {
+    const w = longestChars * (s * glyphRatio + tracking);
+    if (w <= TITLE_SAFE_W) { titleSize = s; break; }
+  }
   const titleLh = titleSize * 1.02;
   const titleStartY = 260;
-  const titleX = 60;
+  const titleX = TITLE_PAD_X;
   // Highlight middle line accent when 3 lines
   const lineColor = (i: number) => (lines.length === 3 && i === 1) ? p.accent : p.ink;
 
   const titleTspans = lines.map((ln, i) =>
-    `<text x="${titleX}" y="${titleStartY + i * titleLh}" font-family="${p.titleFont}" font-size="${titleSize}" font-weight="${useUpper?400:700}" fill="${lineColor(i)}" letter-spacing="${useUpper?"-2":"-1"}">${esc(ln)}</text>`
+    `<text x="${titleX}" y="${titleStartY + i * titleLh}" font-family="${p.titleFont}" font-size="${titleSize}" font-weight="${useUpper?400:700}" fill="${lineColor(i)}" letter-spacing="${tracking}">${esc(ln)}</text>`
   ).join("");
 
   // Subtitle (full, wrapped up to 3 lines, never truncated silently)
@@ -842,11 +860,22 @@ export function buildCoverFaceSvg(input: BookMockupInput): string {
     ? `<line x1="${CW/2 - 200}" y1="${subEndY + 14}" x2="${CW/2 + 200}" y2="${subEndY + 14}" stroke="${p.ink2}" stroke-width="1.5" opacity="0.65"/>`
     : "";
 
-  // Category badge top-left
-  const badgeW = Math.max(120, p.badge.length * 12 + 28);
+  // Category badge top-left.
+  // Accurate width: at font-size 19, weight 700, letter-spacing 2.5 the real
+  // per-glyph advance is ~15.5px + 2.5 tracking. Under-sizing the pill made
+  // text-anchor="middle" push characters beyond the pill on BOTH sides, and
+  // the left overflow was clipped by the book edge in the 3D mockup
+  // ("INCOME SYSTEM" → "NOME SYSTEM", "FOCUS PROTOCOL" → "FOCUS PROTOCO").
+  // Fix: size the pill from real metrics and left-anchor the text inside it
+  // so the accent background always fully covers every glyph.
+  const badgeLabel = String(p.badge ?? "").toUpperCase();
+  const BADGE_PAD_X = 24;
+  const BADGE_GLYPH_ADVANCE = 15.5 + 2.5; // font-size 19 bold + letter-spacing 2.5
+  const badgeTextW = Math.max(1, badgeLabel.length) * BADGE_GLYPH_ADVANCE;
+  const badgeW = Math.max(120, Math.round(badgeTextW + BADGE_PAD_X * 2));
   const badge = `
     <rect x="60" y="80" width="${badgeW}" height="46" fill="${p.accent}" rx="2"/>
-    <text x="${60 + badgeW/2}" y="112" font-family="Inter" font-size="19" font-weight="700" fill="#0a0a0a" text-anchor="middle" letter-spacing="2.5">${esc(p.badge)}</text>
+    <text x="${60 + BADGE_PAD_X}" y="112" font-family="Inter" font-size="19" font-weight="700" fill="#0a0a0a" text-anchor="start" letter-spacing="2.5">${esc(badgeLabel)}</text>
   `;
 
   // Feature-icon strip at the bottom
