@@ -1,70 +1,67 @@
-# Phase 2 Launch Batch — 8 new ebooks (1 per category) with topic-matched illustrations
+# Reference-Grade Photoreal Thumbnails — 2 Samples Only
 
-## Goal
-Ship 1 additional premium ebook per active category (8 total), each with:
-- A cover whose **mood** matches the content (serious / playful / warm / artistic — not one template).
-- **Interior illustrations that match the actual topic** of each chapter (food photos in Cooking, exercise imagery in Fitness, study desks in Study & Exam, etc.).
-- All existing QC gates still enforced (reader QC, PDF A4 cover, thumbnail mockup, uniqueness DNA).
+## Scope (strict)
+Rebuild the thumbnail renderer for 2 books ONLY. No backfill until the 2 samples pass.
 
-## Books to generate
+- `cfc0ab97-ec48-447a-a0ca-73513e36941f` — **The Six-Month Debt Exit Strategy**
+- `160f23dd-2c74-4bd0-910d-2fb3d1a5b00e` — **The Deep Energy Protocol**
 
-| # | Category | Working title | Cover mood | Illustration theme |
-|---|---|---|---|---|
-| 1 | Study & Exam | The Memory Lab: 30-Day Recall System | Serious / academic calm | Study desks, flashcards, timelines |
-| 2 | Business & Templates | The One-Page Business Machine | Confident / editorial | Dashboards, templates, meeting scenes |
-| 3 | Wellness & Mind | The Quiet Mind Reset | Warm / soft / hopeful | Breathwork, journaling, morning light |
-| 4 | Fitness & Meal Plans | The Strong Base: 8-Week Home Strength Plan | Bold / athletic | Bodyweight moves, dumbbells, meal plates |
-| 5 | Parenting & Kids | Small Wins: The Calm Parenting Playbook | Playful / warm | Family scenes, kid activities, routines |
-| 6 | Lifestyle & Planners | The Signature Week Planner | Elegant / lifestyle | Planner spreads, morning rituals, desks |
-| 7 | Art & Creative | The Daily Studio: Creative Momentum in 20 Minutes | Artistic / expressive | Sketchbooks, brushes, studio corners |
-| 8 | Cooking & Recipes | The 20-Minute Weeknight Kitchen | Appetizing / warm | Finished dishes, ingredients flat-lay |
+No PDF / manuscript / price / copy changes. No Shopify calls. No pipeline changes.
 
-## Cover direction (per book)
-- Feed each book's category + mood + metaphor into the existing Design DNA engine so the 9-axis uniqueness signature stays diverse vs already-shipped covers.
-- Mood tag drives palette + typography family:
-  - serious → serif display, muted palette
-  - playful → rounded sans, warm bright accent
-  - artistic → hand-drawn/painterly medium, expressive accent
-  - appetizing → warm neutrals + food-forward still life
-- Textless AI background + app-side typography overlay (existing world-class cover rules).
+## Why current output fails
+Existing renderer (`_shared/book-mockup.ts` + `generate-store-thumbnail`) composes an SVG "3D-ish" book — perspective is faked in vector, so it always reads as a template. Self-reported QC scores are inflated (96/100) because the QC critic sees SVG, not photorealism.
 
-## Interior illustrations (new work)
-Currently chapters are text-only. Add a **topic-matched illustration per chapter** using the AI Gateway image endpoint.
+## New two-stage approach
 
-Approach:
-1. Extend the chapter generation step to also emit an `illustration_prompt` per chapter, derived from the chapter topic + book's illustration theme (e.g. Cooking chapter "Sheet-Pan Chicken" → "overhead flat-lay of a roasted sheet-pan chicken with lemon and vegetables, warm daylight, editorial food photography, no text").
-2. Add a new pipeline step `chapter-illustrations` after `manuscript_qc` and before `reader-experience-qc`:
-   - Generates 1 image per chapter via `openai/gpt-image-2` (or Gemini image for food/lifestyle warmth).
-   - Uploads to `ebook-covers` bucket (or a new `ebook-illustrations` bucket).
-   - Persists `illustration_url` on `ebook_chapters`.
-3. Update `pdf-template.ts` to render `<figure>` with the illustration at the top of each chapter body (below the chapter title, above the drop-cap paragraph), with a soft caption style. Keeps existing typography/QC gates intact.
-4. Add QC gate `illustration_topic_match_score ≥ 85` (AI critic checks that image matches chapter topic). Fail → regenerate with sharper prompt (max 2 retries).
+### Stage 1 — Deterministic cover face (HTML → PNG via Browserless)
+`_shared/cover-face.ts` (new) — renders a 1600×2400 HTML cover with:
+- Exact title/subtitle/badge in Bebas Neue / Anton / Playfair (baked into image, never AI text)
+- Topic illustration composed from Lucide SVGs + gradients + halftone textures
+- Palette per book (Debt Exit = matte black + white/gold; Deep Energy = deep forest green + cream)
+- Poster-style typography hierarchy matching the uploaded references
+- Rendered via existing Browserless (`BROWSERLESS_TOKEN` already set) → PNG buffer
 
-## Run order
-- Sequential (one book at a time), because orchestrator + image gen + PDF render are heavy.
-- Kick off Book 1 via `POST /autopilot-orchestrator` in `safe` mode; subsequent books auto-queue when previous reaches `ready_for_shopify` / `final_report`.
-- After 3 failed auto-fix attempts on any single book → mark `needs_admin_attention`, continue to next.
+### Stage 2 — Photoreal book mockup composite (Gemini 3 Pro Image edit)
+`_shared/photoreal-mockup.ts` (new) — takes the Stage 1 cover face as `image_paths[0]` and calls Lovable AI Gateway `google/gemini-3-pro-image` (image edit) with the prompt:
 
-## Technical changes required
+> "Take the provided flat book cover artwork and place it EXACTLY as-is onto the front cover of a premium hardcover book, photographed as a realistic product photo on a clean off-white studio background, slight three-quarter angle, visible spine and page edge with realistic paper thickness, matte cover texture, subtle soft shadow beneath the book, book fills 78–90% of frame height, professional ecommerce photography, crisp studio lighting. Do NOT alter, redraw, or add text to the cover — preserve every letter of the provided artwork pixel-for-pixel on the front face."
 
-1. `supabase/functions/_shared/pdf-template.ts` — add `<figure class="chapter-illustration">` block + print-safe CSS (max-width, no page-break inside figure).
-2. `supabase/functions/generate-chapters/index.ts` (or equivalent) — emit `illustration_prompt` per chapter.
-3. New edge function `supabase/functions/generate-chapter-illustrations/index.ts` — batch generate + upload + persist.
-4. `supabase/functions/autopilot-orchestrator/index.ts` — insert new step between `manuscript_qc` and `reader-experience-qc`.
-5. `supabase/functions/_shared/qc-gates.ts` — add `illustration_topic_match_score` gate.
-6. Migration: add `illustration_url TEXT`, `illustration_prompt TEXT`, `illustration_qc JSONB` to `ebook_chapters` (+ GRANTs).
-7. Seed 8 rows in `ebook_ideas` with the titles + moods + illustration themes above.
-8. No changes to Shopify upload, pricing, or thumbnail engine — those stay as-is.
+Gemini 3 Pro Image is the only model on the gateway that reliably preserves reference typography under geometric transforms.
 
-## Deliverable / final report
-For each of the 8 books:
-- title, category, mood, illustration theme
-- final PDF URL, cover URL, thumbnail URL
-- QC scores (reader, PDF cover A4, thumbnail mockup, illustration match, diversity)
-- suggested price
-- blockers (if `needs_admin_attention`)
+Output: 1600×1600 PNG on white → upload to `ebook-covers` bucket → signed URL → `ebooks.store_thumbnail_url`.
 
-## Confirmation before I build
-1. OK to add per-chapter illustrations (adds image-gen cost per chapter, ~10 images/book × 8 books ≈ 80 images this batch)?
-2. OK with the 8 working titles above, or want to swap any?
-3. Run sequentially in background (safe, slower) or parallel 2-at-a-time (faster, more load)?
+### QC gate (new)
+`_shared/thumbnail-qc-photoreal.ts` — AI critic scores 10 axes on 0–100:
+- `reference_grade_realism_score` ≥ 92
+- `book_size_score` ≥ 90 (book height ≥ 78% of frame)
+- `white_bg_product_photo_score` ≥ 95
+- `cover_typography_score` ≥ 90
+- `title_baked_in_score` ≥ 95 (title matches exact expected string, no AI-drift)
+- `topic_illustration_score` ≥ 85
+- `spine_page_depth_score` ≥ 90
+- `shadow_lighting_score` ≥ 90
+- `store_click_appeal_score` ≥ 90
+- `final_store_thumbnail_score` ≥ 92
+
+Hard fail = template look, dark bg, small book, distorted/missing title, no spine/depth, no shadow.
+
+Retry up to 2 times per sample with sharpened prompts. If still failing → **STOP**, do not overwrite `store_thumbnail_url`, report the exact blocker.
+
+## New endpoint
+`supabase/functions/generate-photoreal-thumbnail/index.ts` — POST `{ ebook_id }` → runs Stage 1 → Stage 2 → QC → conditional save. Manual call only, not wired into orchestrator yet.
+
+## Verification loop
+1. Call the new function for both ebook IDs.
+2. Fetch the generated PNGs, open `/library` in Playwright, screenshot both cards.
+3. Report URLs, per-axis QC scores, screenshot, pass/fail verdict.
+
+## What I will NOT do
+- Not touch pdf-template, render-pdf, chapters, prices, product copy.
+- Not call Shopify.
+- Not backfill the remaining 30+ products.
+- Not overwrite the current `store_thumbnail_url` unless the new sample passes every hard gate.
+
+## What I need from you
+1. **OK to spend Gemini 3 Pro Image credits** on ~3–6 total image generations (2 samples × up to 3 retries)?
+2. **OK with the 2-stage architecture** above (HTML cover face + Gemini 3 Pro Image composite), rather than a fixed mockup template library?
+3. If Gemini 3 Pro Image still distorts the reference typography under the transform (known model limitation on aggressive perspective), the fallback is a **fixed PNG mockup template library** with a Skia/Canvas perspective composite of the cover face — OK to fall back to that automatically, or stop and report?
