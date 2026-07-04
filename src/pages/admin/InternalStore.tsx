@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, RefreshCw, Rocket, EyeOff, ExternalLink, ImageIcon } from "lucide-react";
+import { Loader2, RefreshCw, Rocket, EyeOff, ExternalLink, ImageIcon, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { findProfile } from "@/lib/styleProfiles";
 
@@ -22,6 +22,9 @@ type Row = {
   price: number | null;
   cover_url: string | null;
   thumbnail_url: string | null;
+  store_thumbnail_url: string | null;
+  store_thumbnail_qc: any;
+  thumbnail_needs_review: boolean | null;
   category_slug: string | null;
   listing_status: string | null;
   autopilot_state: string | null;
@@ -55,7 +58,7 @@ export default function InternalStore() {
 
   async function load() {
     const { data, error } = await supabase.from("ebooks")
-      .select("id,title,short_hook,selling_hook,product_description,price,cover_url,thumbnail_url,category_slug,listing_status,autopilot_state,final_quality_score,cover_score,pdf_url,created_at,updated_at")
+      .select("id,title,short_hook,selling_hook,product_description,price,cover_url,thumbnail_url,store_thumbnail_url,store_thumbnail_qc,thumbnail_needs_review,category_slug,listing_status,autopilot_state,final_quality_score,cover_score,pdf_url,created_at,updated_at")
       .order("updated_at", { ascending: false }).limit(200);
     if (error) { toast.error(error.message); return; }
     setRows((data ?? []) as Row[]);
@@ -89,6 +92,18 @@ export default function InternalStore() {
       const { error } = await supabase.from("ebooks").update({ listing_status: "draft" as any, listed_at: null as any }).eq("id", r.id);
       if (error) throw error;
       toast.success("Unpublished");
+      load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+    finally { setBusy(null); }
+  }
+
+  async function regenThumbnail(r: Row) {
+    setBusy(r.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-store-thumbnail", { body: { ebook_id: r.id, force: true } });
+      if (error) throw error;
+      const qc = (data as any)?.qc;
+      toast.success(`Thumbnail regenerated (QC ${qc?.score ?? "—"})`);
       load();
     } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
     finally { setBusy(null); }
