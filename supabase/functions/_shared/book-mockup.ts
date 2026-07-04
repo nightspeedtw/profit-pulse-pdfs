@@ -992,47 +992,55 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
 
   const existingSigs = (input.avoidSignatures ?? []).filter(Boolean);
   const avoidPhrases: string[] = [];
+  const overused = overusedMotifs(existingSigs, 2); // motifs used ≥2× in last 30 covers
   const qcReasons: string[] = [];
 
-  // Stage 0 — derive a topic-specific concept, up to 3 tries to pass the
-  // visual-uniqueness QC vs previously generated covers.
+  // Stage 0 — derive concept + retry up to 3× to pass uniqueness QC.
   let concept: CoverConcept | null = null;
   let signature = "";
+  let meta: CoverMetadata | null = null;
+  let bestScore = -1;
   const p = presetFor(input.categorySlug, input.title, input.subtitle, input.benefits);
   let conceptAttempts = 0;
   for (let i = 0; i < 3; i++) {
     conceptAttempts++;
-    const c = await deriveCoverConcept(input, avoidPhrases);
-    const metaphor = c?.visual_metaphor ?? p.sceneConcept ?? p.motif;
-    const sig = buildSignature(input.categorySlug ?? "", p.motif, metaphor);
-    const sim = tooSimilar(sig, existingSigs);
-    if (!sim.hit) { concept = c; signature = sig; break; }
-    qcReasons.push(`uniqueness_retry:${sim.matched}`);
-    avoidPhrases.push(metaphor);
-    // On the last attempt, force a fresh motif from the variant pool.
-    if (i === 1) {
+    const banMotifs = [...overused, ...(meta ? [meta.motif] : [])];
+    if (overused.includes(p.motif) || (i >= 1 && banMotifs.includes(p.motif))) {
       const g = VARIANT_GROUPS[p.key] ?? VARIANT_GROUPS.default;
-      const used = new Set(existingSigs.map(s => s.split("|")[1]));
-      const fresh = g.motifs.find(m => !used.has(m)) ?? p.motif;
-      p.motif = fresh;
+      const fresh = g.motifs.find(m => !banMotifs.includes(m));
+      if (fresh) p.motif = fresh;
     }
-    concept = c; signature = sig; // keep last as fallback
+    const c = await deriveCoverConcept(input, avoidPhrases, banMotifs);
+    const cand: CoverMetadata = {
+      cover_theme: c?.cover_theme ?? "",
+      visual_metaphor: c?.visual_metaphor ?? p.sceneConcept ?? p.motif,
+      composition_type: c?.composition_type ?? "centered vertical",
+      accent_color: c?.accent_color ?? "",
+      cover_style_family: c?.cover_style_family ?? "",
+      symbol_keywords: c?.symbol_keywords ?? [],
+      motif: p.motif,
+    };
+    const sig = buildSignature(input.categorySlug ?? "", cand);
+    const u = computeUniqueness(sig, existingSigs);
+    if (u.score > bestScore) { bestScore = u.score; concept = c; signature = sig; meta = cand; }
+    if (!u.hit && !overused.includes(p.motif)) break;
+    qcReasons.push(`uniqueness_retry:${u.reason ?? "similarity"}:${u.score}`);
+    if (c?.visual_metaphor) avoidPhrases.push(c.visual_metaphor);
   }
 
   if (concept) {
     const conceptHint =
       ` Cover concept for THIS specific book — theme: ${concept.cover_theme}; ` +
-      `visual metaphor: ${concept.visual_metaphor}; composition: ${concept.composition}; ` +
-      `typography direction: ${concept.typography_direction}; accent direction: ${concept.accent_color_direction}. ` +
+      `visual metaphor: ${concept.visual_metaphor}; composition: ${concept.composition} (${concept.composition_type}); ` +
+      `typography direction: ${concept.typography_direction}; accent: ${concept.accent_color} (${concept.accent_color_direction}); ` +
+      `style family: ${concept.cover_style_family}; key symbols: ${concept.symbol_keywords.join(", ")}. ` +
       `Design the illustration around this concept, not around a generic template.`;
     p.aiHint = p.aiHint + conceptHint;
   }
 
-  // Stage 1
   const faceSvg = buildCoverFaceSvg({ ...input });
   const faceBytes = await renderSvgToPng(faceSvg, 1600);
 
-  // Stage 2 — try AI photoreal, up to 2 attempts
   let bytes: Uint8Array | null = null;
   let model = "svg_wrapper_v3";
   let attempts = 0;
@@ -1041,8 +1049,6 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
     bytes = await tryAiPhotorealMockup(faceBytes, p);
     if (bytes) model = "ai_photoreal_gemini_3.1_flash_image";
   }
-
-  // Fallback: SVG 3D wrapper around Stage-1 face
   if (!bytes) {
     const faceDataUrl = `data:image/png;base64,${bytesToBase64(faceBytes)}`;
     const wrapperSvg = buildMockupSvgFromFace(faceDataUrl, p);
@@ -1051,8 +1057,8 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
 
   const passed = bytes.length > 30_000;
   const isAi = model.startsWith("ai_");
-  const finalSim = tooSimilar(signature, existingSigs);
-  const uniquenessScore = finalSim.hit ? 60 : 96;
+  const finalU = computeUniqueness(signature, existingSigs);
+  const motifOverused = overused.includes(meta?.motif ?? p.motif);
   const scores = {
     white_background_score: 100,
     book_realism_score: isAi ? 96 : 90,
@@ -1065,20 +1071,25 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
     premium_feel_score: isAi ? 96 : 92,
     google_merchant_friendliness_score: 100,
     anti_ai_look_score: 100,
-    visual_uniqueness_score: uniquenessScore,
+    visual_uniqueness_score: finalU.score,
+    motif_frequency_ok: motifOverused ? 60 : 100,
     concept_attempts: conceptAttempts,
-    final_store_thumbnail_score: isAi ? Math.min(96, uniquenessScore + 30) : Math.min(92, uniquenessScore + 28),
+    final_store_thumbnail_score: Math.min(isAi ? 96 : 92, Math.round((finalU.score + (motifOverused ? 60 : 100)) / 2)),
   };
   if (!passed) qcReasons.push("output_bytes_below_minimum");
-  if (finalSim.hit) qcReasons.push(`visual_uniqueness_fail:${finalSim.matched}`);
+  if (finalU.hit) qcReasons.push(`visual_uniqueness_fail:${finalU.reason}:${finalU.matched}`);
+  if (motifOverused) qcReasons.push(`motif_over_used:${meta?.motif}`);
 
   return {
-    bytes,
-    model,
-    attempts,
-    signature,
+    bytes, model, attempts, signature,
     concept: concept ? { theme: concept.cover_theme, metaphor: concept.visual_metaphor, composition: concept.composition } : null,
-    qc: { passed: passed && !finalSim.hit, scores, reasons: qcReasons },
+    qc: {
+      passed: passed && !finalU.hit && !motifOverused,
+      scores,
+      reasons: qcReasons,
+      // deno-lint-ignore no-explicit-any
+      ...(meta ? ({ metadata: meta } as any) : {}),
+    },
   };
 }
 
