@@ -429,6 +429,9 @@ function applyTitleVariant(base: Preset, title: string, subtitle?: string | null
 function presetFor(slug: string | null | undefined, title: string, subtitle?: string | null, benefits?: string[] | null): Preset {
   const base = basePresetFor(slug, title, subtitle, benefits);
   return applyTitleVariant(base, title, subtitle);
+}
+
+
 
 
 // ---------- Icon path library (24-unit viewBox) ----------
