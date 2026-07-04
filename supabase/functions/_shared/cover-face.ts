@@ -77,12 +77,12 @@ export function buildCoverFaceHtml(input: CoverFaceInput): string {
   html,body{margin:0;padding:0;background:${s.bg};color:${s.ink};font-family:${s.bodyFont};-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;}
   .page{width:1600px;height:2400px;position:relative;overflow:hidden;background:${s.bg};background-image:${s.texture};}
   .frame{position:absolute;inset:70px;border:6px solid ${s.ink}22;border-radius:10px;}
-  .content{position:absolute;inset:120px;display:flex;flex-direction:column;}
-  .badge{align-self:flex-start;background:${s.badgeBg};color:${s.badgeInk};font-family:${s.bodyFont};font-weight:800;letter-spacing:0.14em;font-size:34px;padding:14px 28px;border-radius:4px;text-transform:uppercase;}
-  .title{margin-top:60px;font-family:${s.titleFont};color:${s.ink};font-size:230px;line-height:0.92;letter-spacing:-0.01em;text-transform:uppercase;}
+  .content{position:absolute;inset:160px;display:flex;flex-direction:column;}
+  .badge{align-self:flex-start;background:${s.badgeBg};color:${s.badgeInk};font-family:${s.bodyFont};font-weight:800;letter-spacing:0.12em;font-size:32px;padding:14px 26px;border-radius:4px;text-transform:uppercase;max-width:900px;line-height:1.15;word-break:normal;overflow-wrap:break-word;}
+  .title{margin-top:56px;font-family:${s.titleFont};color:${s.ink};line-height:0.94;letter-spacing:-0.01em;text-transform:uppercase;max-width:1280px;word-break:normal;overflow-wrap:break-word;hyphens:none;}
   .title .accent{color:${s.accent};display:block;}
   .rule{margin-top:56px;height:4px;background:${s.divider};width:60%;}
-  .subtitle{margin-top:44px;font-family:${s.bodyFont};font-weight:600;font-size:56px;line-height:1.15;color:${s.ink};max-width:1200px;}
+  .subtitle{margin-top:44px;font-family:${s.bodyFont};font-weight:600;font-size:52px;line-height:1.18;color:${s.ink};max-width:1200px;word-break:normal;overflow-wrap:break-word;}
   .illustration{margin-top:auto;margin-bottom:60px;display:flex;justify-content:center;align-items:center;height:820px;}
   .illustration svg{max-width:100%;max-height:100%;}
   .chips{display:flex;gap:26px;justify-content:space-between;border-top:2px solid ${s.divider};padding-top:36px;color:${s.chipInk};}
