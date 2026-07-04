@@ -4,7 +4,7 @@ import { useEffect } from "react";
 
 const Categories = () => {
   useEffect(() => {
-    document.title = "Categories — Printly";
+    document.title = "Categories — SecretPDF";
   }, []);
 
   return (
