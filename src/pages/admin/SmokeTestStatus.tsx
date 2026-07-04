@@ -26,6 +26,8 @@ type EbookRow = {
   pdf_url: string | null;
   listed_at: string | null;
   updated_at: string | null;
+  qc_downgraded?: boolean | null;
+  qc_notes?: string | null;
 };
 type RunRow = {
   id: string;
