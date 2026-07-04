@@ -54,18 +54,15 @@ function resolveStyle(categorySlug?: string | null, title?: string): StyleDirect
 function buildMockupPrompt(input: BookMockupInput, style: StyleDirection): string {
   const subtitle = (input.subtitle ?? "").trim();
   return [
-    `Place the supplied image EXACTLY as-is onto the front cover of a real hardcover book. Do not modify, redraw, retype, translate, recolor, or crop the supplied image in any way — treat it as a printed sticker applied to the front of the book. Preserve every letter and pixel of the supplied cover, including the title "${input.title}"${subtitle ? ` and subtitle "${subtitle}"` : ""}.`,
+    `Amazon product-listing photograph of a hardcover book on a pure white studio background.`,
     ``,
-    `Then photograph that book as a professional Amazon product-listing image:`,
-    `- ONE hardcover book, standing upright at a 3/4 front angle (~20° rotation) so the front cover, left spine, and right page-block edge are all clearly visible.`,
-    `- Real book thickness ~3 cm with crisp cream-white page edges on the right.`,
-    `- Spine matches the front-cover base color (leave as a clean color block — do NOT invent spine text).`,
-    `- Realistic soft grey contact shadow directly beneath the book.`,
-    `- PURE WHITE BACKGROUND (#FFFFFF), edge to edge, corner to corner. Isolated e-commerce product shot on a bright white studio cyclorama. NOT dark, NOT black, NOT grey, NOT navy, NOT moody, NOT gradient, NOT vignette, NOT textured. Do NOT let the dark tones of the supplied cover art bleed into the surrounding background — the background is a separate bright white studio.`,
-    `- Bright, even, diffused softbox lighting from upper-left. High-key studio lighting only. No dramatic mood, no rim glow, no colored gels, no lens flare, no bokeh.`,
-    `- Book fills ~70–80% of the frame vertically, centered, with generous pure-white space on all sides. 1024×1024, sharp.`,
+    `The book's front cover is EXACTLY the supplied reference image — do not modify it, do not redraw text, do not change any letter or color. Preserve title "${input.title}"${subtitle ? ` and subtitle "${subtitle}"` : ""} exactly as printed on the reference.`,
     ``,
-    `Do NOT include: any environment or props (desks, tables, marble, wood, cloth, plants, mugs, glasses, phones, hands, people, fingers); price tags, buttons, star ratings, badges, category pills, stickers, watermarks, UI chrome; extra copies of the book; AI artifacts; melted glyphs; duplicated titles.`,
+    `Shot: single hardcover book, standing upright, 3/4 front angle (~20°), front cover + left spine + right page-block edge all visible, real book thickness ~3 cm with crisp cream-white page edges, soft grey contact shadow directly beneath the book, book fills ~75% of frame vertically, centered, generous white space on all sides, 1024×1024, sharp.`,
+    ``,
+    `Background: pure white #FFFFFF, seamless, edge to edge, corner to corner. Bright high-key softbox studio lighting. NOT dark, NOT black, NOT grey, NOT navy, NOT gradient, NOT vignette, NOT cinematic — even if the cover art is dark, the surrounding scene stays pure white studio. Do not extend the cover's palette into the background.`,
+    ``,
+    `Do not add: environment, props, hands, people, text overlays, price tags, buttons, badges, watermarks, spine text, extra books.`,
   ].join("\n");
 }
 
