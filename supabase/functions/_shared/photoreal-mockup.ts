@@ -10,14 +10,14 @@ export interface PhotorealResult {
   prompt: string;
 }
 
-const BASE_PROMPT = `Take the provided flat book cover artwork and place it EXACTLY as-is onto the front cover of a premium hardcover book. Photograph the book as a realistic ecommerce product photo on a clean off-white studio background (#f4f1ea). Slight three-quarter angle so the spine and page edge are visible. Realistic paper thickness, matte cover texture, subtle bevels, crisp studio lighting, soft realistic drop shadow beneath the book. The book must fill 80-90% of the frame height, centered, tack-sharp focus. Absolutely do NOT alter, redraw, restyle, translate, add, or remove any text on the cover — preserve every letter, badge, illustration, and color of the provided artwork pixel-for-pixel on the front face. Do not add any additional text, watermark, logo, price tag, sticker, or UI. Do not use a dark background. Do not produce a flat poster, vector mockup, cartoon, or template look.`;
+const BASE_PROMPT = `Take the provided flat book cover artwork and place it EXACTLY as-is onto the front cover of a premium hardcover book. Photograph the book as a realistic ecommerce product photo on a BRIGHT COOL OFF-WHITE STUDIO BACKGROUND, hex approximately #f6f4ef — clean, neutral, luminous, no warm cream or beige cast. Slight three-quarter angle so the spine and page edge are visible. Realistic paper thickness, matte cover texture, subtle bevels, crisp bright studio lighting, and a DISTINCT SOFT CONTACT SHADOW directly beneath the book — a clearly visible grounding shadow that pools right under the base of the book and fades outward, so the book feels physically grounded on the surface. The book must fill 82-90% of the frame height, centered, tack-sharp focus. Absolutely do NOT alter, redraw, restyle, translate, add, or remove any text on the cover — preserve every letter, badge, illustration, and color of the provided artwork pixel-for-pixel on the front face. Do not add any additional text, watermark, logo, price tag, sticker, or UI. Do not use a dark, warm-cream, or beige background. Do not produce a flat poster, vector mockup, cartoon, or template look.`;
 
 const REPAIR_HINTS: Record<string, string> = {
-  too_small: " The book must be LARGE — fill at least 82% of the frame height. Zoom in.",
-  dark_bg: " Background must be a bright clean off-white studio backdrop, not dark.",
-  distorted_text: " Preserve the cover artwork EXACTLY. Do not regenerate the title text.",
-  flat: " Show real 3D depth — visible spine thickness, page edge with paper layers, soft physical shadow.",
-  no_shadow: " Add a soft realistic contact shadow directly beneath the book.",
+  too_small: " The book must be LARGE — fill at least 84% of the frame height. Zoom in.",
+  dark_bg: " Background MUST be bright cool off-white #f6f4ef — not warm cream, not beige, not tinted. Neutral and luminous.",
+  distorted_text: " Preserve the cover artwork EXACTLY. Do not regenerate any text.",
+  flat: " Show real 3D depth — visible spine thickness, page edge with paper layers.",
+  no_shadow: " Add a DISTINCT soft contact shadow pooling directly beneath the base of the book, clearly visible, fading outward. The book must look grounded on the surface.",
 };
 
 export async function renderPhotorealMockup(
