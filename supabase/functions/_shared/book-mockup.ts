@@ -98,7 +98,7 @@ export async function generateBookMockup(input: BookMockupInput): Promise<Mockup
   const prompt = buildMockupPrompt(input, style);
   const coverDataUrl = await fetchCoverAsDataUrl(input.coverUrl);
 
-  const model = "google/gemini-3.1-flash-image";
+  const model = "google/gemini-3-pro-image";
   const MAX = 3;
   let attempts = 0;
   let lastErr: string | null = null;
