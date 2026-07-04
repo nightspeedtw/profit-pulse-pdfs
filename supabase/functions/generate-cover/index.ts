@@ -440,15 +440,6 @@ Output: 1200x1500 vertical composition, book centered.`;
   if (!outB64) return null;
   return Uint8Array.from(atob(outB64), (ch) => ch.charCodeAt(0));
 }
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`photoreal mockup ${res.status}: ${t.slice(0, 200)}`);
-  }
-  const j = await res.json();
-  const outB64: string | undefined = j.data?.[0]?.b64_json;
-  if (!outB64) return null;
-  return Uint8Array.from(atob(outB64), (ch) => ch.charCodeAt(0));
-}
 
 // Deterministic SVG fallback mockup — used only when the photoreal producer
 // fails. Not counted as premium quality but keeps the pipeline unblocked.
