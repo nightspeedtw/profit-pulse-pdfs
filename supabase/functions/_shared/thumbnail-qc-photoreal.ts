@@ -20,6 +20,8 @@ const THRESHOLDS: Record<string, number> = {
   spine_page_depth_score: 90,
   shadow_lighting_score: 90,
   store_click_appeal_score: 90,
+  text_integrity_score: 92,
+  book_geometry_score: 88,
   final_store_thumbnail_score: 92,
 };
 
