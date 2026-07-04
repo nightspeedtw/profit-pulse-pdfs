@@ -82,7 +82,7 @@ Deno.serve(async (req) => {
           try {
             // Use the Milestone-8 pipeline so every step calls the modern
             // generate-outline / write-chapters / final-manuscript-qc /
-            // generate-cover / render-pdf / shopify-draft-upload functions.
+            // generate-cover / render-pdf functions.
             const r = await fetch(`${url}/functions/v1/autopilot-pipeline`, {
               method: "POST", headers: auth, body: JSON.stringify({ idea_id: i.id, mode }),
             });
