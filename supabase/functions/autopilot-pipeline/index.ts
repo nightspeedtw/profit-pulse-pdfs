@@ -616,30 +616,24 @@ Deno.serve(async (req) => {
           }
 
           if (ebook.manuscript_qc_status === "needs_review") {
-            // SOFT-PASS: autopilot must complete without admin. After repair
-            // attempts exhausted, downgrade QC verdict and keep moving.
-            // Full report retained in final_manuscript_qc for post-hoc review.
+            // STRICT QC: repair attempts exhausted → halt for admin review.
+            // Never soft-pass to live. Publish gates require real pass values.
             const qc = (ebook.final_manuscript_qc as any) ?? {};
             const reasons: Array<{ message?: string; code?: string }> = Array.isArray(qc.failed_reasons) ? qc.failed_reasons : [];
             const attemptsUsed: number = Number(qc.attempts_used ?? ebook.manuscript_fix_count ?? 0);
             const top = reasons.slice(0, 4).map((r) => `• ${r.message ?? r.code ?? "unknown issue"}`).join("\n");
-            const softNote = reasons.length
-              ? `Soft-pass after ${attemptsUsed}/3 targeted repair attempts.\nRemaining issues:\n${top}`
-              : `Soft-pass after ${attemptsUsed}/3 repair attempts.`;
+            const note = reasons.length
+              ? `Manuscript QC failed after ${attemptsUsed}/3 targeted repair attempts.\nBlockers:\n${top}`
+              : `Manuscript QC failed after ${attemptsUsed}/3 repair attempts.`;
             await db.from("ebooks").update({
-              manuscript_qc_status: "manuscript_passed",
-              qc_status: "qc_passed",
-              writing_status: "manuscript_passed",
-              pipeline_status: "pdf_design",
-              status: "ready_for_qc",
-              autopilot_state: "generating",
-              needs_review_reason: null,
-              rejection_reason: null,
-              qc_downgraded: true,
-              qc_notes: softNote,
-              final_manuscript_qc: { ...(qc as any), soft_passed: true, soft_pass_note: softNote } as any,
+              autopilot_state: "needs_review",
+              canonical_status: "needs_review",
+              needs_review_reason: note,
+              qc_downgraded: false,
+              qc_notes: note,
             }).eq("id", ebook.id);
-            await tracker.heartbeat("manuscript_qc", { message: `QC soft-pass — continuing pipeline. ${softNote.slice(0, 200)}` });
+            await needsAdmin("manuscript_qc", note, "Rewrite flagged chapters or regenerate. Publish blocked until real QC passes.");
+            return;
           }
         } else {
           await skip(["manuscript_qc"], "Manuscript QC already passed");
@@ -681,7 +675,7 @@ Deno.serve(async (req) => {
           }
 
           if (ebook.reader_experience_status === "needs_review") {
-            // SOFT-PASS: keep autopilot moving without admin intervention.
+            // STRICT QC: reader experience gates must actually pass. Halt for admin.
             const rx = (ebook.reader_experience_qc as any) ?? {};
             const v = rx.verdict ?? {};
             const scores = v.scores ?? {};
@@ -689,18 +683,18 @@ Deno.serve(async (req) => {
               .filter(([k, min]) => (scores[k] ?? 0) < (min as number))
               .map(([k, min]) => `• ${k} = ${scores[k] ?? "n/a"} (need ≥ ${min})`)
               .join("\n");
-            const softNote =
-              `Reader-QC soft-pass after ${rx.attempts_used ?? 3}/3 humanize passes. ` +
+            const note =
+              `Reader QC failed after ${rx.attempts_used ?? 3}/3 humanize passes. ` +
               `Overall ${rx.verdict?.overall_score ?? "n/a"}/100. Gates below target:\n${failedList || "• (none reported)"}`;
             await db.from("ebooks").update({
-              reader_experience_status: "pass",
-              autopilot_state: "generating",
-              needs_review_reason: null,
-              qc_downgraded: true,
-              qc_notes: softNote,
-              reader_experience_qc: { ...(rx as any), soft_passed: true, soft_pass_note: softNote } as any,
+              autopilot_state: "needs_review",
+              canonical_status: "needs_review",
+              needs_review_reason: note,
+              qc_downgraded: false,
+              qc_notes: note,
             }).eq("id", ebook.id);
-            await tracker.heartbeat("manuscript_qc", { message: `Reader QC soft-pass — continuing. ${softNote.slice(0, 200)}` });
+            await needsAdmin("reader_experience_qc", note, "Trigger targeted humanize rewrites or regenerate flagged chapters. Publish blocked.");
+            return;
           }
         } else {
           await skip(["manuscript_qc"], "Reader Experience QC already passed");
