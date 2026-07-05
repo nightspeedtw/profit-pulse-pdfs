@@ -10,6 +10,28 @@
 import { admin, aiJSON, corsHeaders, logCost, pickModel, requireAdmin } from "../_shared/ai.ts";
 import { checkPremiumTitle } from "../_shared/title-guard.ts";
 
+// Deterministic premium-positioning token injection.
+// Used ONLY when the sole guard failure is `missing_premium_positioning_token`
+// AND every numeric score already clears the strict gate. This preserves QC:
+// we do not lower any threshold — we only add a token the LLM forgot.
+const PREFERRED_INJECT_TOKENS = ["Blueprint", "Playbook", "System", "Protocol", "Framework"] as const;
+
+function injectPremiumToken(title: string): string {
+  const t = (title ?? "").trim().replace(/[.!?]+$/, "");
+  if (!t) return t;
+  // Prefer inserting before a colon so subtitle stays clean:
+  //   "The 5-PM Panic Exit Strategy: ..."  ->  "The 5-PM Panic Exit Blueprint: ..."
+  const colonIdx = t.indexOf(":");
+  const head = colonIdx > 0 ? t.slice(0, colonIdx).trim() : t;
+  const tail = colonIdx > 0 ? t.slice(colonIdx) : "";
+  // Swap a weak trailing noun for a premium one when possible.
+  const swapRx = /\b(strategy|guide|handbook|manual|approach|method|plan|tips|advice|tricks|hacks|secrets)\b\s*$/i;
+  if (swapRx.test(head)) {
+    return head.replace(swapRx, "Blueprint") + tail;
+  }
+  return `${head} Blueprint${tail}`;
+}
+
 // ---- Strict gate thresholds (per Premium Marketing Expert spec) ----
 const GATE = {
   title_quality_min: 85,
