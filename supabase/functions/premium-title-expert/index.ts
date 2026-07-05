@@ -10,6 +10,28 @@
 import { admin, aiJSON, corsHeaders, logCost, pickModel, requireAdmin } from "../_shared/ai.ts";
 import { checkPremiumTitle } from "../_shared/title-guard.ts";
 
+// Deterministic premium-positioning token injection.
+// Used ONLY when the sole guard failure is `missing_premium_positioning_token`
+// AND every numeric score already clears the strict gate. This preserves QC:
+// we do not lower any threshold — we only add a token the LLM forgot.
+const PREFERRED_INJECT_TOKENS = ["Blueprint", "Playbook", "System", "Protocol", "Framework"] as const;
+
+function injectPremiumToken(title: string): string {
+  const t = (title ?? "").trim().replace(/[.!?]+$/, "");
+  if (!t) return t;
+  // Prefer inserting before a colon so subtitle stays clean:
+  //   "The 5-PM Panic Exit Strategy: ..."  ->  "The 5-PM Panic Exit Blueprint: ..."
+  const colonIdx = t.indexOf(":");
+  const head = colonIdx > 0 ? t.slice(0, colonIdx).trim() : t;
+  const tail = colonIdx > 0 ? t.slice(colonIdx) : "";
+  // Swap a weak trailing noun for a premium one when possible.
+  const swapRx = /\b(strategy|guide|handbook|manual|approach|method|plan|tips|advice|tricks|hacks|secrets)\b\s*$/i;
+  if (swapRx.test(head)) {
+    return head.replace(swapRx, "Blueprint") + tail;
+  }
+  return `${head} Blueprint${tail}`;
+}
+
 // ---- Strict gate thresholds (per Premium Marketing Expert spec) ----
 const GATE = {
   title_quality_min: 85,
@@ -78,6 +100,19 @@ Attempt ${opts.attempt}/${MAX_ATTEMPTS}. Every score must clear:
 - premium_feel >= 85
 - shopify_click_appeal >= 85
 - compliance_risk_score <= 4 (1 safest .. 10 riskiest)
+
+HARD TITLE RULES (both recommended_title AND shopify_product_title MUST comply):
+- MUST include at least one premium positioning token (case-insensitive):
+  Blueprint, Playbook, Protocol, Framework, System, Operating System, Method,
+  Formula, Toolkit, Field Guide, Reset Plan, Exit Strategy, Escape Plan,
+  Recovery Plan, Roadmap, Engine, Stack, Doctrine, Vault, Fortress, Shield,
+  Advantage, Edge, Arsenal, Mastery
+  — OR an explicit outcome+timeframe (e.g. "The 6-Month Debt Exit Strategy").
+- Do NOT use generic leaders ("How to", "The Ultimate", "A Guide to",
+  "Beginner's Guide", "Everything You Need to Know").
+- Do NOT use weak/blog words (tips, tricks, hacks, secrets, basics, simple, easy).
+- 3–16 words, <= 70 characters.
+
 
 Return JSON in EXACTLY this shape (no extra fields, no markdown):
 {
@@ -213,7 +248,41 @@ Deno.serve(async (req) => {
         attemptLogs.push({ attempt, passed: false, scores: {}, reasons: previousWeaknesses });
         continue;
       }
-      const g = gate(pkg);
+      let g = gate(pkg);
+
+      // ---- Deterministic premium-token injection (does NOT lower QC) ----
+      // If the ONLY guard failure is `missing_premium_positioning_token` and
+      // every numeric score already clears the strict gate, deterministically
+      // inject a token (e.g. "Blueprint") and re-run the guard. Do not touch
+      // any threshold; if the new title still fails, we keep the failure.
+      const onlyMissingToken = (reasons: string[]) =>
+        reasons.length > 0 && reasons.every((r) =>
+          r === "generic_title:missing_premium_positioning_token" ||
+          r === "generic_shopify_title:missing_premium_positioning_token"
+        );
+      const scoresClear =
+        pkg.title_quality_score >= GATE.title_quality_min &&
+        pkg.buyer_pain_match >= GATE.buyer_pain_match_min &&
+        pkg.premium_feel >= GATE.premium_feel_min &&
+        pkg.shopify_click_appeal >= GATE.shopify_click_appeal_min &&
+        pkg.compliance_risk_score <= GATE.compliance_risk_max;
+      if (!g.passed && onlyMissingToken(g.reasons) && scoresClear) {
+        const beforeTitle = pkg.recommended_title;
+        const beforeShop = pkg.shopify_product_title;
+        pkg.recommended_title = injectPremiumToken(pkg.recommended_title);
+        pkg.shopify_product_title = injectPremiumToken(pkg.shopify_product_title);
+        pkg.url_slug = slugify(pkg.url_slug || pkg.recommended_title);
+        const g2 = gate(pkg);
+        if (g2.passed) {
+          console.log(`[premium-title-expert] token-injected: "${beforeTitle}" -> "${pkg.recommended_title}" | "${beforeShop}" -> "${pkg.shopify_product_title}"`);
+          g = g2;
+        } else {
+          // Revert if the injection somehow made things worse.
+          pkg.recommended_title = beforeTitle;
+          pkg.shopify_product_title = beforeShop;
+        }
+      }
+
       const scores = {
         title_quality_score: pkg.title_quality_score,
         buyer_pain_match: pkg.buyer_pain_match,
@@ -224,6 +293,7 @@ Deno.serve(async (req) => {
       attemptLogs.push({ attempt, passed: g.passed, scores, reasons: g.reasons });
 
       if (!best || pkg.title_quality_score > best.pkg.title_quality_score) best = { pkg, reasons: g.reasons };
+
 
       if (g.passed) {
         // Persist premium package onto the idea.
