@@ -106,24 +106,31 @@ Deno.serve(async (req) => {
     const currentHour = new Date().getUTCHours();
     if (settings.auto_publish && mode === "full") {
       if (currentHour === publishHour) {
-        // Store readiness: PDF + thumbnail + price + listing copy + QC score + Store Ready state.
-        const minQc = Math.max(0, Number(settings.minimum_qc_pass_rate ?? 80));
-        // Store readiness: only HARD requirements block publish.
-        // QC score and compliance are logged but never gate autopilot — the
-        // orchestrator soft-passes those upstream so admin is never needed.
+        // STRICT publish gate — must satisfy real premium QC thresholds.
+        // Soft-pass NEVER promotes to live. All numeric scores must be real.
+        const minFinalQuality = Math.max(90, Number(settings.minimum_qc_pass_rate ?? 90));
+        const minCoverScore = 85;
+        const minCompliance = 90;
         const { data: candidates } = await db.from("ebooks")
-          .select("id,title,pdf_url,cover_url,thumbnail_url,price,product_description,short_hook,selling_hook,final_quality_score,cover_score,autopilot_state,listing_status,compliance_safety_score,qc_downgraded")
+          .select("id,title,pdf_url,cover_url,thumbnail_url,price,product_description,short_hook,selling_hook,final_quality_score,cover_score,autopilot_state,listing_status,compliance_safety_score,qc_downgraded,page_count")
           .in("autopilot_state", ["ready_to_publish"]);
         result.published = [];
         result.skipped = [];
         for (const e of candidates ?? []) {
           const skipReasons: string[] = [];
+          // Hard requirements
           if (!e.pdf_url) skipReasons.push("missing_pdf");
           if (!e.cover_url && !(e as any).thumbnail_url) skipReasons.push("missing_thumbnail");
           if (!e.price || Number(e.price) <= 0) skipReasons.push("missing_price");
+          if (!e.page_count || Number(e.page_count) <= 0) skipReasons.push("missing_page_count");
           const hasCopy = !!(e.product_description || (e as any).short_hook || (e as any).selling_hook);
           if (!hasCopy) skipReasons.push("missing_listing_copy");
           if (e.listing_status === "listed") skipReasons.push("already_listed");
+          // Strict QC — soft-pass may never publish live
+          if (e.qc_downgraded === true) skipReasons.push("qc_soft_pass_blocked_from_live");
+          if (Number(e.final_quality_score ?? 0) < minFinalQuality) skipReasons.push(`final_quality_score<${minFinalQuality}`);
+          if (Number(e.cover_score ?? 0) < minCoverScore) skipReasons.push(`cover_score<${minCoverScore}`);
+          if (Number(e.compliance_safety_score ?? 0) < minCompliance) skipReasons.push(`compliance_safety_score<${minCompliance}`);
 
           if (skipReasons.length > 0) {
             (result.skipped as any[]).push({ ebook_id: e.id, title: e.title, skip_reasons: skipReasons });
