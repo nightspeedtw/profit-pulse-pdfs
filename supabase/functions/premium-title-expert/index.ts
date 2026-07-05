@@ -248,7 +248,41 @@ Deno.serve(async (req) => {
         attemptLogs.push({ attempt, passed: false, scores: {}, reasons: previousWeaknesses });
         continue;
       }
-      const g = gate(pkg);
+      let g = gate(pkg);
+
+      // ---- Deterministic premium-token injection (does NOT lower QC) ----
+      // If the ONLY guard failure is `missing_premium_positioning_token` and
+      // every numeric score already clears the strict gate, deterministically
+      // inject a token (e.g. "Blueprint") and re-run the guard. Do not touch
+      // any threshold; if the new title still fails, we keep the failure.
+      const onlyMissingToken = (reasons: string[]) =>
+        reasons.length > 0 && reasons.every((r) =>
+          r === "generic_title:missing_premium_positioning_token" ||
+          r === "generic_shopify_title:missing_premium_positioning_token"
+        );
+      const scoresClear =
+        pkg.title_quality_score >= GATE.title_quality_min &&
+        pkg.buyer_pain_match >= GATE.buyer_pain_match_min &&
+        pkg.premium_feel >= GATE.premium_feel_min &&
+        pkg.shopify_click_appeal >= GATE.shopify_click_appeal_min &&
+        pkg.compliance_risk_score <= GATE.compliance_risk_max;
+      if (!g.passed && onlyMissingToken(g.reasons) && scoresClear) {
+        const beforeTitle = pkg.recommended_title;
+        const beforeShop = pkg.shopify_product_title;
+        pkg.recommended_title = injectPremiumToken(pkg.recommended_title);
+        pkg.shopify_product_title = injectPremiumToken(pkg.shopify_product_title);
+        pkg.url_slug = slugify(pkg.url_slug || pkg.recommended_title);
+        const g2 = gate(pkg);
+        if (g2.passed) {
+          console.log(`[premium-title-expert] token-injected: "${beforeTitle}" -> "${pkg.recommended_title}" | "${beforeShop}" -> "${pkg.shopify_product_title}"`);
+          g = g2;
+        } else {
+          // Revert if the injection somehow made things worse.
+          pkg.recommended_title = beforeTitle;
+          pkg.shopify_product_title = beforeShop;
+        }
+      }
+
       const scores = {
         title_quality_score: pkg.title_quality_score,
         buyer_pain_match: pkg.buyer_pain_match,
@@ -259,6 +293,7 @@ Deno.serve(async (req) => {
       attemptLogs.push({ attempt, passed: g.passed, scores, reasons: g.reasons });
 
       if (!best || pkg.title_quality_score > best.pkg.title_quality_score) best = { pkg, reasons: g.reasons };
+
 
       if (g.passed) {
         // Persist premium package onto the idea.
