@@ -101,6 +101,19 @@ Attempt ${opts.attempt}/${MAX_ATTEMPTS}. Every score must clear:
 - shopify_click_appeal >= 85
 - compliance_risk_score <= 4 (1 safest .. 10 riskiest)
 
+HARD TITLE RULES (both recommended_title AND shopify_product_title MUST comply):
+- MUST include at least one premium positioning token (case-insensitive):
+  Blueprint, Playbook, Protocol, Framework, System, Operating System, Method,
+  Formula, Toolkit, Field Guide, Reset Plan, Exit Strategy, Escape Plan,
+  Recovery Plan, Roadmap, Engine, Stack, Doctrine, Vault, Fortress, Shield,
+  Advantage, Edge, Arsenal, Mastery
+  — OR an explicit outcome+timeframe (e.g. "The 6-Month Debt Exit Strategy").
+- Do NOT use generic leaders ("How to", "The Ultimate", "A Guide to",
+  "Beginner's Guide", "Everything You Need to Know").
+- Do NOT use weak/blog words (tips, tricks, hacks, secrets, basics, simple, easy).
+- 3–16 words, <= 70 characters.
+
+
 Return JSON in EXACTLY this shape (no extra fields, no markdown):
 {
   "recommended_title": "premium, hard-sell, emotionally specific, <= 70 chars",
