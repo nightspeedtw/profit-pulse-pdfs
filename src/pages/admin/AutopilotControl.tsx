@@ -59,7 +59,7 @@ export default function AutopilotControl() {
     return () => { clearInterval(iv); supabase.removeChannel(channel); };
   }, []);
 
-  const update = async (patch: Partial<Settings>) => {
+  const update = async (patch: Record<string, unknown>) => {
     const { error } = await supabase.from("generation_settings").update(patch).eq("id", 1);
     if (error) toast({ title: "Update failed", description: error.message, variant: "destructive" });
     else load();
@@ -77,7 +77,7 @@ export default function AutopilotControl() {
     } finally { setTicking(false); }
   };
 
-  const resume = () => update({ paused: false, cost_limit_reason: null } as Partial<Settings>);
+  const resume = () => update({ paused: false, cost_limit_reason: null });
 
   if (loading || !settings) return <div className="p-6">Loading…</div>;
 
