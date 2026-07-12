@@ -60,7 +60,8 @@ export default function AutopilotControl() {
   }, []);
 
   const update = async (patch: Record<string, unknown>) => {
-    const { error } = await supabase.from("generation_settings").update(patch).eq("id", 1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from("generation_settings") as any).update(patch).eq("id", 1);
     if (error) toast({ title: "Update failed", description: error.message, variant: "destructive" });
     else load();
   };
