@@ -822,6 +822,41 @@ Deno.serve(async (req) => {
         attempt: attemptsUsed, failed_chapters: failedChapters, top_reasons: deterministic.slice(0, 5).map((r) => ({ code: r.code, chapter: r.chapter_index })),
       });
 
+      // ---- Deterministic pre-repair (no AI): sanitize unsafe claims and
+      // append a "Common Mistake" section when missing. This eliminates two
+      // classes of blockers that the AI rewrite loop was failing to fix after
+      // 3 attempts. QC is re-scored on the next iteration — nothing here
+      // lowers thresholds or bypasses gates.
+      const detHandled = new Set<string>(); // `${code}:${chapter_index}`
+      for (const r of deterministic) {
+        if (r.code !== "unsafe_claims" && r.code !== "missing_common_mistake") continue;
+        if (!r.chapter_index) continue;
+        const ch = chapters.find((c) => c.chapter_index === r.chapter_index);
+        if (!ch || !ch.content) continue;
+        let next = ch.content;
+        if (r.code === "unsafe_claims") next = stripUnsafeClaims(next);
+        if (r.code === "missing_common_mistake") next = appendCommonMistakeSection(next, ch.title ?? `Chapter ${ch.chapter_index}`);
+        if (next !== ch.content) {
+          await db.from("ebook_chapters").update({ content: next, word_count: wc(next) })
+            .eq("ebook_id", ebook.id).eq("chapter_index", ch.chapter_index);
+          ch.content = next;
+          ch.word_count = wc(next);
+          repairLog.push({ attempt: attemptsUsed, action: `deterministic:${r.code}`, chapter_index: ch.chapter_index });
+          await emit("deterministic_repair", `Deterministic fix on Chapter ${ch.chapter_index}: ${r.code}`, {
+            attempt: attemptsUsed, chapter_index: ch.chapter_index, code: r.code,
+          });
+          detHandled.add(`${r.code}:${r.chapter_index}`);
+        }
+      }
+      // Drop resolved reasons so the AI loop doesn't waste an attempt on them.
+      if (detHandled.size > 0) {
+        for (let i = deterministic.length - 1; i >= 0; i--) {
+          const r = deterministic[i];
+          if (r.chapter_index && detHandled.has(`${r.code}:${r.chapter_index}`)) deterministic.splice(i, 1);
+        }
+      }
+
+
       // Deduplicate: at most one action per chapter per attempt; prioritize structural fixes.
       const priority: Record<string, number> = {
         regenerate_missing_chapter: 0,
