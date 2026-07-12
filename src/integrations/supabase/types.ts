@@ -1544,6 +1544,8 @@ export type Database = {
           heavy_production_concurrency: number
           id: number
           idea_generation_concurrency: number
+          last_tick_at: string | null
+          last_tick_result: Json | null
           max_ai_calls_per_ebook: number
           max_books_per_day: number
           max_parallel_books: number
@@ -1566,6 +1568,8 @@ export type Database = {
           sequential_safe_mode: boolean
           shopify_draft_upload_enabled: boolean
           shopify_upload_concurrency: number
+          stuck_run_ttl_min: number
+          tick_enabled: boolean
           updated_at: string
         }
         Insert: {
@@ -1587,6 +1591,8 @@ export type Database = {
           heavy_production_concurrency?: number
           id?: number
           idea_generation_concurrency?: number
+          last_tick_at?: string | null
+          last_tick_result?: Json | null
           max_ai_calls_per_ebook?: number
           max_books_per_day?: number
           max_parallel_books?: number
@@ -1609,6 +1615,8 @@ export type Database = {
           sequential_safe_mode?: boolean
           shopify_draft_upload_enabled?: boolean
           shopify_upload_concurrency?: number
+          stuck_run_ttl_min?: number
+          tick_enabled?: boolean
           updated_at?: string
         }
         Update: {
@@ -1630,6 +1638,8 @@ export type Database = {
           heavy_production_concurrency?: number
           id?: number
           idea_generation_concurrency?: number
+          last_tick_at?: string | null
+          last_tick_result?: Json | null
           max_ai_calls_per_ebook?: number
           max_books_per_day?: number
           max_parallel_books?: number
@@ -1652,6 +1662,8 @@ export type Database = {
           sequential_safe_mode?: boolean
           shopify_draft_upload_enabled?: boolean
           shopify_upload_concurrency?: number
+          stuck_run_ttl_min?: number
+          tick_enabled?: boolean
           updated_at?: string
         }
         Relationships: []
