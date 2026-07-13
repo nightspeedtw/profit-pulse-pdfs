@@ -54,6 +54,7 @@ export default function Kids() {
         .from("ebooks_kids")
         .select("id,title,subtitle,description,cover_url,price_cents,age_group_id,theme_ids")
         .eq("listing_status", "live")
+        .eq("sellable", true)
         .order("created_at", { ascending: false })
         .limit(48);
       if (ageId) query = query.eq("age_group_id", ageId);
