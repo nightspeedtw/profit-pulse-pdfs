@@ -101,7 +101,7 @@ Deno.serve(async (req) => {
         const s = await runKidsStoryJudge({
           title: (ebook.title as string) ?? "",
           subtitle: (ebook.subtitle as string | null) ?? null,
-          ageBand: (ebook.age_band as string | null) ?? null,
+          ageBand: null,
           manuscript_md: (ebook.manuscript_md as string) ?? "",
           page_texts: illos.map((r) => (r.scene as string | undefined) ?? "").filter(Boolean),
         });
