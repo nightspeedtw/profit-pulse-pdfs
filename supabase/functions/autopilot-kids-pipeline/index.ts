@@ -330,26 +330,157 @@ async function generateCover(ctx: Ctx): Promise<StepResult> {
   return { output: { path, style: styleSlug, ref_used: !!refUrl } };
 }
 
+// ---------- Style bible (locked, drives interior style consistency) ----------
+async function generateStyleBible(ctx: Ctx): Promise<StepResult> {
+  const db = ctx.supabase;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: bible } = await (db.from('kids_book_bibles') as any).select('*').eq('ebook_id', ctx.ebookId).maybeSingle();
+  const existing = (bible?.style_bible_json ?? {}) as Record<string, unknown>;
+  // Consider "present" only if it has structural fields (not just the auto-created stub).
+  const hasStructure = existing && (existing.line_quality || existing.palette || existing.lighting);
+  if (hasStructure) {
+    await db.from('ebooks_kids').update({ style_bible_json: existing }).eq('id', ctx.ebookId);
+    return { output: { skipped: true, reason: 'style bible already locked' } };
+  }
+
+  const cb = (bible?.character_bible_json ?? {}) as Record<string, string>;
+  const stylePrompt = await callAI(
+    `Create a locked style bible for "${ctx.ebook.title}". Character: ${JSON.stringify(cb)}. Existing style hint: ${JSON.stringify(existing)}.
+Return JSON only: {"line_quality":"","palette":["#","#","#","#","#"],"lighting":"","medium":"","mood":"","character_proportions":"","forbidden":["no text","no photorealism"]}`,
+    "You are a children's picture book art director locking a style bible for consistent interior illustrations.",
+  );
+  const parsed = JSON.parse(stylePrompt.replace(/^```(?:json)?\s*|\s*```$/g, '').trim());
+  const merged = { ...existing, ...parsed, locked_at: new Date().toISOString() };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (db.from('kids_book_bibles') as any).update({ style_bible_json: merged }).eq('ebook_id', ctx.ebookId);
+  await db.from('ebooks_kids').update({ style_bible_json: merged }).eq('id', ctx.ebookId);
+  return { output: { style_bible: merged } };
+}
+
+// ---------- Interior illustrations ----------
+async function generateInterior(ctx: Ctx): Promise<StepResult> {
+  const db = ctx.supabase;
+  const existing = Array.isArray(ctx.ebook.interior_illustrations) ? ctx.ebook.interior_illustrations : [];
+  if (existing.length >= MIN_INTERIOR) {
+    return { output: { skipped: true, count: existing.length } };
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: bible } = await (db.from('kids_book_bibles') as any).select('*').eq('ebook_id', ctx.ebookId).maybeSingle();
+  if (!bible) throw new Error('no bible — cover step must run first');
+  const cb = (bible.character_bible_json ?? {}) as Record<string, string>;
+  const sb = (bible.style_bible_json ?? ctx.ebook.style_bible_json ?? {}) as Record<string, unknown>;
+  const styleSlug = bible.style_slug as string | null;
+  const { data: stylePreset } = await db.from('kids_style_presets')
+    .select('prompt_suffix, negative_prompt').eq('slug', styleSlug ?? '').maybeSingle();
+
+  const styleParts = [
+    stylePreset?.prompt_suffix as string | undefined,
+    sb.line_quality && `line quality: ${sb.line_quality}`,
+    sb.lighting && `lighting: ${sb.lighting}`,
+    sb.mood && `mood: ${sb.mood}`,
+    sb.medium && `medium: ${sb.medium}`,
+    Array.isArray(sb.palette) && (sb.palette as string[]).length ? `palette: ${(sb.palette as string[]).join(', ')}` : null,
+  ].filter(Boolean).join('; ') || "warm whimsical storybook illustration, cozy painterly, soft edges";
+  const negativePrompt = (stylePreset?.negative_prompt as string | undefined) ?? 'text, watermark, scary, photorealistic';
+
+  const charDesc = [
+    cb.name && `named ${cb.name}`,
+    cb.species && `(${cb.species})`,
+    cb.hair && `${cb.hair} hair`,
+    cb.eyes && `${cb.eyes} eyes`,
+    cb.skin && `${cb.skin} skin`,
+    cb.outfit && `wearing ${cb.outfit}`,
+    cb.accessory && `with ${cb.accessory}`,
+  ].filter(Boolean).join(', ') || 'the story hero';
+
+  const plan = await buildScenePlan({
+    title: String(ctx.ebook.title ?? ''),
+    manuscript_md: String(ctx.ebook.manuscript_md ?? ''),
+    min_scenes: MIN_INTERIOR,
+  });
+
+  const records = await renderInteriorIllustrations({
+    ebookId: ctx.ebookId,
+    db,
+    characterDescription: charDesc,
+    styleSuffix: styleParts,
+    negativePrompt,
+    scenes: plan.scenes.slice(0, MIN_INTERIOR),
+    startPageNumber: 3,
+  });
+
+  await db.from('ebooks_kids').update({
+    interior_illustrations: records,
+    pipeline_status: 'illustrating',
+  }).eq('id', ctx.ebookId);
+  return { output: { count: records.length } };
+}
+
+// ---------- Thumbnail (kids picture books use the cover as thumbnail) ----------
+async function generateThumbnail(ctx: Ctx): Promise<StepResult> {
+  const cover = ctx.ebook.cover_url as string | null;
+  if (!cover) throw new Error('cover_url missing — cannot derive thumbnail');
+  // Point the thumbnail_url at the cover asset. Storefront can render at any size.
+  await ctx.supabase.from('ebooks_kids').update({ thumbnail_url: cover }).eq('id', ctx.ebookId);
+  return { output: { thumbnail_url: cover } };
+}
+
+// ---------- Preview pages (first N interior illustration URLs) ----------
+async function generatePreviews(ctx: Ctx): Promise<StepResult> {
+  const illos = Array.isArray(ctx.ebook.interior_illustrations) ? ctx.ebook.interior_illustrations : [];
+  const urls = illos.map((x: unknown) => (x as { url?: string })?.url).filter((u): u is string => !!u).slice(0, MIN_PREVIEWS);
+  if (urls.length < MIN_PREVIEWS) throw new Error(`only ${urls.length} preview candidates`);
+  await ctx.supabase.from('ebooks_kids').update({ preview_page_urls: urls }).eq('id', ctx.ebookId);
+  return { output: { count: urls.length, urls } };
+}
+
+// ---------- Real picture-book PDF (cover + title + illustrated spreads) ----------
 async function renderPdf(ctx: Ctx): Promise<StepResult> {
-  // Build a REAL PDF (not HTML with a lying content-type).
   const md = (ctx.ebook.manuscript_md as string) ?? '';
   if (!md || md.length < 200) throw new Error('manuscript too short to render');
-  const paragraphs = md.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
-  const pdfBytes = buildMinimalPdf(String(ctx.ebook.title ?? ''), paragraphs);
+  const coverUrl = ctx.ebook.cover_url as string | null;
+  const illos = (Array.isArray(ctx.ebook.interior_illustrations) ? ctx.ebook.interior_illustrations : []) as Array<{ url: string; scene?: string }>;
+  if (!coverUrl) throw new Error('cover_url required for picture PDF');
+  if (illos.length < MIN_INTERIOR) throw new Error(`interior illustrations missing: ${illos.length}/${MIN_INTERIOR}`);
+
+  const coverBytes = new Uint8Array(await (await fetch(coverUrl)).arrayBuffer());
+  const spreadImages: Uint8Array[] = [];
+  for (const il of illos) {
+    const b = new Uint8Array(await (await fetch(il.url)).arrayBuffer());
+    spreadImages.push(b);
+  }
+
+  // Split manuscript into N caption blocks matching the spread count.
+  const paras = md.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
+  const chunkSize = Math.max(1, Math.ceil(paras.length / illos.length));
+  const captions: string[] = [];
+  for (let i = 0; i < illos.length; i++) {
+    captions.push(paras.slice(i * chunkSize, (i + 1) * chunkSize).join(' ') || (illos[i].scene ?? ''));
+  }
+
+  const pdfBytes = await buildPicturePdf({
+    title: String(ctx.ebook.title ?? ''),
+    subtitle: (ctx.ebook.subtitle as string | null) ?? null,
+    coverPng: coverBytes,
+    spreads: illos.map((_, i) => ({ caption: captions[i], imagePng: spreadImages[i] })),
+  });
+
   const path = `kids/${ctx.ebookId}/book.pdf`;
   const up = await ctx.supabase.storage.from('ebook-pdfs').upload(path, pdfBytes, {
     contentType: 'application/pdf', upsert: true,
   });
   if (up.error) throw up.error;
   const { data: pub } = await ctx.supabase.storage.from('ebook-pdfs').createSignedUrl(path, 60 * 60 * 24 * 365);
+  const pageCount = 2 + illos.length + 1; // cover + title + spreads + end
   await ctx.supabase.from('ebooks_kids').update({
-    pdf_url: pub?.signedUrl ?? null, status: 'qc', pipeline_status: 'pdf_preflight',
+    pdf_url: pub?.signedUrl ?? null,
+    page_count: pageCount,
+    status: 'qc', pipeline_status: 'pdf_preflight',
   }).eq('id', ctx.ebookId);
-  return { output: { path, byte_size: pdfBytes.length } };
+  return { output: { path, byte_size: pdfBytes.length, page_count: pageCount } };
 }
 
 async function runQc(ctx: Ctx): Promise<StepResult> {
-  // Evidence-based: delegate to kids-qc-run.
   const res = await fetch(`${SUPABASE_URL}/functions/v1/kids-qc-run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
@@ -362,125 +493,24 @@ async function runQc(ctx: Ctx): Promise<StepResult> {
     pipeline_status: verdict.sellable ? 'sellable' : 'human_review_required',
     status: verdict.sellable ? 'ready' : 'needs_revision',
   }).eq('id', ctx.ebookId);
-  if (!verdict.sellable) {
-    // Bubble up as a hard failure so publish_live is skipped and the run is
-    // marked failed → operator can inspect the QC report and repair.
-    throw new Error(`NOT_SELLABLE: ${verdict.reasons.join('; ')}`);
-  }
+  if (!verdict.sellable) throw new Error(`NOT_SELLABLE: ${verdict.reasons.join('; ')}`);
   return { output: verdict };
 }
 
 async function publishLive(ctx: Ctx): Promise<StepResult> {
-  // Real gate: read the latest sellable flag from the DB. Never publish otherwise.
-  const { data: fresh } = await ctx.supabase.from('ebooks_kids').select('sellable, cover_url, pdf_url').eq('id', ctx.ebookId).single();
+  const { data: fresh } = await ctx.supabase.from('ebooks_kids')
+    .select('sellable, cover_url, pdf_url, thumbnail_url, interior_illustrations, preview_page_urls')
+    .eq('id', ctx.ebookId).single();
   if (!fresh?.sellable) throw new Error('refuse_publish: not sellable');
+  // Belt-and-braces asset check even after QC.
+  if (!fresh.cover_url || !fresh.pdf_url || !fresh.thumbnail_url) throw new Error('refuse_publish: missing assets');
+  const illoCount = Array.isArray(fresh.interior_illustrations) ? fresh.interior_illustrations.length : 0;
+  const previewCount = Array.isArray(fresh.preview_page_urls) ? fresh.preview_page_urls.length : 0;
+  if (illoCount < MIN_INTERIOR || previewCount < MIN_PREVIEWS) throw new Error('refuse_publish: missing illustrations/previews');
   await ctx.supabase.from('ebooks_kids').update({
     listing_status: 'live', status: 'live', pipeline_status: 'published',
   }).eq('id', ctx.ebookId);
   return { output: { published: true } };
-}
-
-// -------- Minimal real PDF builder (avoids the fake-mime-type defect) --------
-// Emits a genuine %PDF-1.4 with one page per paragraph chunk, using the built-in
-// Helvetica font. Content is embedded as text operators — good enough to pass the
-// preflight header/pages checks; visual QC still enforces typography rules.
-function buildMinimalPdf(title: string, paragraphs: string[]): Uint8Array {
-  const pageWidth = 612;   // 8.5in @ 72dpi
-  const pageHeight = 792;  // 11in
-  const marginX = 72;      // 1in
-  const marginY = 72;
-  const bodySize = 18;
-  const lineHeight = bodySize * 1.4;
-  const maxCharsPerLine = 60;
-  const linesPerPage = Math.floor((pageHeight - marginY * 2) / lineHeight) - 3;
-
-  const pages: string[][] = [];
-  let current: string[] = [`${title}`, ""];
-  for (const p of paragraphs) {
-    const wrapped = wrap(p, maxCharsPerLine);
-    for (const line of wrapped) {
-      if (current.length >= linesPerPage) { pages.push(current); current = []; }
-      current.push(line);
-    }
-    if (current.length >= linesPerPage) { pages.push(current); current = []; }
-    else current.push("");
-  }
-  if (current.length) pages.push(current);
-  if (!pages.length) pages.push([title]);
-
-  const objects: string[] = [];
-  const push = (s: string) => { objects.push(s); return objects.length; };
-
-  // 1: catalog, 2: pages, then per page: page object + contents. Font last.
-  const catalogId = 1;
-  const pagesId = 2;
-  objects.push("", ""); // reserve
-
-  const pageIds: number[] = [];
-  const contentIds: number[] = [];
-  for (const lines of pages) {
-    const stream = pageStream(lines, pageWidth, pageHeight, marginX, marginY, bodySize, lineHeight);
-    const contentId = push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
-    contentIds.push(contentId);
-    const pageId = push(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 999 0 R >> >> /Contents ${contentId} 0 R >>`);
-    pageIds.push(pageId);
-  }
-  const fontId = push(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`);
-  // fixup page /F1 999 → real font id
-  for (const pid of pageIds) {
-    objects[pid - 1] = objects[pid - 1].replace("999 0 R", `${fontId} 0 R`);
-  }
-
-  objects[0] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
-  objects[1] = `<< /Type /Pages /Kids [${pageIds.map(i => `${i} 0 R`).join(" ")}] /Count ${pageIds.length} >>`;
-
-  // Assemble
-  const header = "%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n";
-  let body = header;
-  const offsets: number[] = [];
-  for (let i = 0; i < objects.length; i++) {
-    offsets.push(body.length);
-    body += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
-  }
-  const xrefOffset = body.length;
-  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (const off of offsets) body += `${String(off).padStart(10, "0")} 00000 n \n`;
-  body += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-  return new TextEncoder().encode(body);
-}
-
-function wrap(text: string, max: number): string[] {
-  const words = text.split(/\s+/);
-  const out: string[] = [];
-  let line = "";
-  for (const w of words) {
-    if ((line + " " + w).trim().length > max) { if (line) out.push(line); line = w; }
-    else line = (line ? line + " " : "") + w;
-  }
-  if (line) out.push(line);
-  return out;
-}
-
-function pageStream(lines: string[], pw: number, _ph: number, mx: number, my: number, size: number, lh: number): string {
-  const startY = _ph - my;
-  // Normalize non-ASCII Unicode (curly quotes, em-dashes, ellipses) to WinAnsi-safe
-  // ASCII BEFORE PDF escaping. Base-14 Helvetica can't render curly quotes and
-  // silently substitutes /florin (ƒ), which is why the live book showed
-  // "littleƒ" instead of "little,". Fix at the encoder, not the model.
-  const normalize = (s: string) => s
-    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")   // curly single quotes
-    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')   // curly double quotes
-    .replace(/[\u2013\u2014]/g, "-")               // en/em dash
-    .replace(/\u2026/g, "...")                     // ellipsis
-    .replace(/[\u00A0\u2007\u202F]/g, " ")         // non-breaking spaces
-    .replace(/[^\x20-\x7E]/g, "");                 // drop any remaining non-ASCII
-  const escape = (s: string) => normalize(s).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-  let s = `BT /F1 ${size} Tf ${mx} ${startY} Td ${lh} TL\n`;
-  for (const line of lines) {
-    s += `(${escape(line)}) Tj T*\n`;
-  }
-  s += "ET";
-  return s;
 }
 
 function json(body: unknown, status = 200) {
