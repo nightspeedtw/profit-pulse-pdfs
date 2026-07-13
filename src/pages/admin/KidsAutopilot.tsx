@@ -57,26 +57,63 @@ export default function KidsAutopilot() {
 
   const [runs, setRuns] = useState<KidsRun[]>([]);
   const [forcing, setForcing] = useState<string | null>(null);
+  const [loadingRuns, setLoadingRuns] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [authState, setAuthState] = useState<"unknown" | "signed_out" | "not_admin" | "admin">("unknown");
 
   const load = useCallback(async () => {
-    const [a, t, w, r] = await Promise.all([
-      listAgeGroups(),
-      listThemes(),
-      supabase.from("kids_category_weights").select("*"),
-      supabase
-        .from("autopilot_kids_runs")
-        .select("id, status, current_step_label, progress_percent, blocker_reason, ebook_kids_id, created_at, metadata")
-        .order("created_at", { ascending: false })
-        .limit(30),
-    ]);
-    setAges(a); setThemes(t);
-    setWeights((w.data ?? []) as Weight[]);
-    // Hide child runs spawned by a parent job — they surface inside the parent row.
-    const rows = ((r.data ?? []) as KidsRun[]).filter(row => !row.metadata?.parent_run_id);
-    setRuns(rows);
+    setLoadingRuns(true);
+    setLoadError(null);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData?.user;
+      if (!user) {
+        setAuthState("signed_out");
+        setRuns([]);
+        return;
+      }
+      const { data: roleRow, error: roleErr } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .eq("role", "admin")
+        .maybeSingle();
+      if (roleErr) {
+        console.error("user_roles check failed", roleErr);
+      }
+      if (!roleRow) {
+        setAuthState("not_admin");
+        setRuns([]);
+        return;
+      }
+      setAuthState("admin");
+
+      const [a, t, w, r] = await Promise.all([
+        listAgeGroups(),
+        listThemes(),
+        supabase.from("kids_category_weights").select("*"),
+        supabase
+          .from("autopilot_kids_runs")
+          .select("id, status, current_step_label, progress_percent, blocker_reason, ebook_kids_id, created_at, metadata")
+          .order("created_at", { ascending: false })
+          .limit(30),
+      ]);
+      if (r.error) throw r.error;
+      setAges(a); setThemes(t);
+      setWeights((w.data ?? []) as Weight[]);
+      // Hide child runs spawned by a parent job — they surface inside the parent row.
+      const rows = ((r.data ?? []) as KidsRun[]).filter(row => !row.metadata?.parent_run_id);
+      setRuns(rows);
+    } catch (e) {
+      console.error("KidsAutopilot load failed", e);
+      setLoadError(String((e as Error)?.message ?? e));
+    } finally {
+      setLoadingRuns(false);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
 
   const cell = (ageId: string, themeId: string) =>
     weights.find((w) => w.age_group_id === ageId && w.theme_id === themeId);
