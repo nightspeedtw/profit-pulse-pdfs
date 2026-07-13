@@ -31,6 +31,7 @@ const STEPS: Step[] = [
   { name: 'generate_idea', label: 'Generate story idea', critical: true, run: generateIdea },
   { name: 'generate_manuscript', label: 'Write manuscript', critical: true, run: generateManuscript },
   { name: 'story_gate', label: 'Story judge gate (before art)', critical: true, run: storyGate },
+  { name: 'metadata_gate', label: 'Metadata/manuscript alignment gate', critical: true, run: metadataGate },
   { name: 'bible_check', label: 'Bible/story hero match check', critical: true, run: bibleCheck },
   { name: 'generate_cover', label: 'Design cover', run: generateCover },
   { name: 'generate_style_bible', label: 'Lock style bible', critical: true, run: generateStyleBible },
