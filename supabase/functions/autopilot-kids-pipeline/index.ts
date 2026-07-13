@@ -4,10 +4,14 @@ import { falFluxSchnell, falRecraftV3 } from '../_shared/fal.ts';
 import { pickStyle, markStyleUsed } from '../_shared/style-picker.ts';
 import { buildScenePlan, renderInteriorIllustrations } from '../_shared/kids-interior.ts';
 import { buildPicturePdf } from '../_shared/kids-picture-pdf.ts';
+import { runKidsStoryJudge } from '../_shared/kids-story-judge.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
+
+// Sentinel error that the pipeline loop recognizes to short-circuit before art.
+const STORY_GATE_BLOCK = 'STORY_GATE_BLOCK';
 
 const MIN_INTERIOR = 12;
 const MIN_PREVIEWS = 3;
@@ -24,6 +28,7 @@ type Ctx = { supabase: ReturnType<typeof createClient>; ebookId: string; ebook: 
 const STEPS: Step[] = [
   { name: 'generate_idea', label: 'Generate story idea', critical: true, run: generateIdea },
   { name: 'generate_manuscript', label: 'Write manuscript', critical: true, run: generateManuscript },
+  { name: 'story_gate', label: 'Story judge gate (before art)', critical: true, run: storyGate },
   { name: 'generate_cover', label: 'Design cover', run: generateCover },
   { name: 'generate_style_bible', label: 'Lock style bible', critical: true, run: generateStyleBible },
   { name: 'generate_interior', label: 'Illustrate interior', critical: true, run: generateInterior },
@@ -119,7 +124,19 @@ Deno.serve(async (req) => {
         error_message: outcome.error ?? null,
       }).eq('id', stepRow!.id);
 
-      // Never break the loop — keep pushing forward. Later steps decide what to do given prior state.
+      // Hard stop: if the story-gate step failed, do NOT run any art/PDF/QC/publish steps.
+      // This prevents baseline from spending image cost on a story the judge rejects.
+      if (step.name === 'story_gate' && outcome.status === 'failed') {
+        await supabase.from('ebooks_kids').update({
+          listing_status: 'draft',
+          status: 'needs_revision',
+          pipeline_status: 'human_review_required',
+        }).eq('id', ctx.ebookId);
+        console.log(`story_gate blocked pipeline; skipping remaining ${STEPS.length - i - 1} steps`);
+        break;
+      }
+
+      // Never break the loop for other steps — keep pushing forward. Later steps decide what to do given prior state.
     }
 
     const finalStatus = criticalFailures.length > 0 ? 'failed' : 'completed';
@@ -210,6 +227,64 @@ async function generateManuscript(ctx: Ctx): Promise<StepResult> {
   }).eq('id', ctx.ebookId);
   return { output: { word_count } };
 }
+
+// Story gate — runs BEFORE any art/PDF step so baseline never spends image cost on a rejected story.
+// Throws when the strict story judge does not pass; the pipeline loop then short-circuits.
+async function storyGate(ctx: Ctx): Promise<StepResult> {
+  const manuscript = String(ctx.ebook.manuscript_md ?? '').trim();
+  if (!manuscript) throw new Error(`${STORY_GATE_BLOCK}: manuscript missing`);
+  const ageBand = (ctx.ebook.storefront_meta as { admin_params?: { age_band?: string } } | null)?.admin_params?.age_band ?? '4-6';
+  const sb = (ctx.ebook.story_bible ?? {}) as { spreads?: Array<{ text?: string }> };
+  const pageTexts = Array.isArray(sb.spreads) ? sb.spreads.map((s) => String(s?.text ?? '')) : [];
+
+  const report = await runKidsStoryJudge({
+    title: String(ctx.ebook.title ?? ''),
+    subtitle: (ctx.ebook.subtitle as string | null) ?? null,
+    ageBand,
+    manuscript_md: manuscript,
+    page_texts: pageTexts,
+  });
+
+  // Persist scorecard even on pass so the admin UI can display subscores.
+  const sc = (ctx.ebook.qc_scorecard ?? {}) as Record<string, unknown>;
+  sc.story_gate = {
+    passed: report.story_qc_passed,
+    scores: {
+      age: report.age_appropriateness_score,
+      coh: report.story_coherence_score,
+      emo: report.emotional_payoff_score,
+      rer: report.reread_value_score,
+      lang: report.language_level_score,
+      buyer: report.parent_buyer_value_score,
+      generic_risk: report.generic_story_risk_score,
+    },
+    subscores: {
+      premise_specificity: report.premise_specificity_score,
+      story_engine_specificity: report.story_engine_specificity_score,
+      visual_hook_specificity: report.visual_hook_specificity_score,
+      retitle_resistance: report.retitle_resistance_score,
+      trope_dependency: report.trope_dependency_score,
+    },
+    generic_risk_analysis: report.generic_risk_analysis,
+    judge_version: report.judge_version,
+    computed_at: report.computed_at,
+  };
+  await ctx.supabase.from('ebooks_kids').update({ qc_scorecard: sc }).eq('id', ctx.ebookId);
+
+  if (!report.story_qc_passed) {
+    const blockers: string[] = [];
+    if (report.age_appropriateness_score < 90) blockers.push(`age=${report.age_appropriateness_score}<90`);
+    if (report.story_coherence_score < 90) blockers.push(`coh=${report.story_coherence_score}<90`);
+    if (report.emotional_payoff_score < 85) blockers.push(`emo=${report.emotional_payoff_score}<85`);
+    if (report.reread_value_score < 85) blockers.push(`rer=${report.reread_value_score}<85`);
+    if (report.language_level_score < 90) blockers.push(`lang=${report.language_level_score}<90`);
+    if (report.parent_buyer_value_score < 85) blockers.push(`buyer=${report.parent_buyer_value_score}<85`);
+    if (report.generic_story_risk_score > 25) blockers.push(`generic_risk=${report.generic_story_risk_score}>25`);
+    throw new Error(`${STORY_GATE_BLOCK}: ${blockers.join(', ')}`);
+  }
+  return { output: { passed: true, generic_risk: report.generic_story_risk_score, subscores: sc.story_gate } };
+}
+
 
 async function generateCover(ctx: Ctx): Promise<StepResult> {
   // 1. Pick / load style preset (auto-rotate across pool)
