@@ -43,6 +43,21 @@ const NEXT_STAGE: Record<Stage, Stage | null> = {
   pdf_finalize: null,
 };
 
+const VALID_STAGES = new Set<Stage>([
+  'pdf_prepare', 'pdf_pages_1_4', 'pdf_pages_5_8', 'pdf_pages_9_12', 'pdf_finalize',
+]);
+
+function resolveStage(requested: string | undefined, scorecard: Record<string, unknown>): Stage {
+  if (requested && requested !== 'resume' && VALID_STAGES.has(requested as Stage)) {
+    return requested as Stage;
+  }
+  const job = ((scorecard.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job ?? null) as
+    { stage?: Stage; next_stage?: Stage | null } | null;
+  if (job?.next_stage && VALID_STAGES.has(job.next_stage)) return job.next_stage;
+  if (job?.stage && VALID_STAGES.has(job.stage) && NEXT_STAGE[job.stage]) return NEXT_STAGE[job.stage]!;
+  return 'pdf_prepare';
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -98,7 +113,6 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const ebook_id: string = body.ebook_id;
-    const stage: Stage = (body.stage as Stage) ?? 'pdf_prepare';
     const publish: boolean = body.publish !== false;
     const runQcAfter: boolean = body.run_qc_after !== false;
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
@@ -118,6 +132,15 @@ Deno.serve(async (req) => {
       .map((c, i) => c || recs[i].scene || `Page ${i + 1}`);
 
     const scorecard = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
+
+    let stage: Stage = resolveStage(body.stage as string | undefined, scorecard);
+    if (stage !== 'pdf_prepare') {
+      const exists = await db.storage.from('ebook-pdfs').download(INPROGRESS_PATH(ebook_id));
+      if (exists.error || !exists.data) {
+        console.warn(`kids-build-picture-pdf: resolved stage ${stage} but no in-progress pdf exists for ${ebook_id}; restarting from pdf_prepare`);
+        stage = 'pdf_prepare';
+      }
+    }
 
     async function fetchImage(url: string): Promise<Uint8Array> {
       const r = await fetch(url);
