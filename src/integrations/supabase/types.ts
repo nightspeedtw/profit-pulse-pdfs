@@ -997,6 +997,7 @@ export type Database = {
           category_slug: string | null
           chapter_qc: Json
           chapters: Json
+          cliffhanger_hook: string | null
           compare_at_price: number | null
           compliance_rewrites_json: Json | null
           compliance_safety_score: number | null
@@ -1032,6 +1033,7 @@ export type Database = {
           hard_sell_strength_score: number | null
           high_price_test: number | null
           hook: string | null
+          hook_description: string | null
           id: string
           idea_id: string | null
           inside_illustration_plan_json: Json | null
@@ -1079,6 +1081,7 @@ export type Database = {
           practical_tool_score: number | null
           premium_score: number | null
           preview_blurb: string | null
+          preview_page_count: number
           price: number
           price_confidence_score: number | null
           price_rationale: Json | null
@@ -1193,6 +1196,7 @@ export type Database = {
           category_slug?: string | null
           chapter_qc?: Json
           chapters?: Json
+          cliffhanger_hook?: string | null
           compare_at_price?: number | null
           compliance_rewrites_json?: Json | null
           compliance_safety_score?: number | null
@@ -1228,6 +1232,7 @@ export type Database = {
           hard_sell_strength_score?: number | null
           high_price_test?: number | null
           hook?: string | null
+          hook_description?: string | null
           id?: string
           idea_id?: string | null
           inside_illustration_plan_json?: Json | null
@@ -1275,6 +1280,7 @@ export type Database = {
           practical_tool_score?: number | null
           premium_score?: number | null
           preview_blurb?: string | null
+          preview_page_count?: number
           price?: number
           price_confidence_score?: number | null
           price_rationale?: Json | null
@@ -1389,6 +1395,7 @@ export type Database = {
           category_slug?: string | null
           chapter_qc?: Json
           chapters?: Json
+          cliffhanger_hook?: string | null
           compare_at_price?: number | null
           compliance_rewrites_json?: Json | null
           compliance_safety_score?: number | null
@@ -1424,6 +1431,7 @@ export type Database = {
           hard_sell_strength_score?: number | null
           high_price_test?: number | null
           hook?: string | null
+          hook_description?: string | null
           id?: string
           idea_id?: string | null
           inside_illustration_plan_json?: Json | null
@@ -1471,6 +1479,7 @@ export type Database = {
           practical_tool_score?: number | null
           premium_score?: number | null
           preview_blurb?: string | null
+          preview_page_count?: number
           price?: number
           price_confidence_score?: number | null
           price_rationale?: Json | null
