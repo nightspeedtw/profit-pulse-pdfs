@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
 
     const { data: e, error } = await supabase
       .from("ebooks")
-      .select("id, title, price, category_id, category_slug, cover_url, product_description, pdf_url, status, listed_at, total_word_count, word_count, worksheet_count, final_quality_score, product_type")
+      .select("id, title, price, category_id, category_slug, cover_url, product_description, pdf_url, status, listed_at, total_word_count, word_count, final_quality_score, product_type")
       .eq("id", ebookId)
       .maybeSingle();
     if (error) throw error;
