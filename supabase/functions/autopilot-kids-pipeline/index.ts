@@ -454,7 +454,18 @@ function wrap(text: string, max: number): string[] {
 
 function pageStream(lines: string[], pw: number, _ph: number, mx: number, my: number, size: number, lh: number): string {
   const startY = _ph - my;
-  const escape = (s: string) => s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+  // Normalize non-ASCII Unicode (curly quotes, em-dashes, ellipses) to WinAnsi-safe
+  // ASCII BEFORE PDF escaping. Base-14 Helvetica can't render curly quotes and
+  // silently substitutes /florin (ƒ), which is why the live book showed
+  // "littleƒ" instead of "little,". Fix at the encoder, not the model.
+  const normalize = (s: string) => s
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")   // curly single quotes
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')   // curly double quotes
+    .replace(/[\u2013\u2014]/g, "-")               // en/em dash
+    .replace(/\u2026/g, "...")                     // ellipsis
+    .replace(/[\u00A0\u2007\u202F]/g, " ")         // non-breaking spaces
+    .replace(/[^\x20-\x7E]/g, "");                 // drop any remaining non-ASCII
+  const escape = (s: string) => normalize(s).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
   let s = `BT /F1 ${size} Tf ${mx} ${startY} Td ${lh} TL\n`;
   for (const line of lines) {
     s += `(${escape(line)}) Tj T*\n`;
