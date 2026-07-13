@@ -125,7 +125,7 @@ Deno.serve(async (req) => {
       blocker_reason: blocker,
     }).eq('id', run_id);
 
-    return json({ ok: true, ebook_kids_id: ctx.ebookId, status: finalStatus, soft_failures: softFailures });
+    return json({ ok: true, ebook_id: ctx.ebookId, status: finalStatus, soft_failures: softFailures });
   } catch (e) {
     console.error('pipeline error', e);
     return json({ ok: false, error: String(e) }, 500);
@@ -211,29 +211,39 @@ async function generateCover(ctx: Ctx): Promise<StepResult> {
 
   // Load or create bible row
   const { data: existingBible } = await db.from('kids_book_bibles')
-    .select('*').eq('ebook_kids_id', ctx.ebookId).maybeSingle();
+    .select('*').eq('ebook_id', ctx.ebookId).maybeSingle();
 
   let bible = existingBible as Record<string, unknown> | null;
 
-  if (!bible) {
+  // Ensure a bible with character_bible_json exists. If a row exists but the
+  // JSON is empty (partial prior run), fill it in place instead of crashing.
+  const bibleNeedsChar = !bible || !bible.character_bible_json || Object.keys((bible.character_bible_json as Record<string, unknown>) ?? {}).length === 0;
+  if (bibleNeedsChar) {
     const style = await pickStyle(db);
     const bibleText = await callAI(
       `Create a character bible JSON for the hero of "${ctx.ebook.title}". Description: ${ctx.ebook.description}. Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":"","outfit":"","accessory":"","personality":"","forbidden_changes":["never change hair color","never change outfit"]}`,
       "You are a picture-book art director. English only. JSON only, no markdown."
     );
     const cbJson = JSON.parse(bibleText.replace(/^```(?:json)?\s*|\s*```$/g, '').trim());
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ins = await (db.from('kids_book_bibles') as any).insert({
-      ebook_kids_id: ctx.ebookId,
+    const patch = {
       character_bible_json: cbJson,
       style_bible_json: { style_slug: style.slug, style_label: style.label },
       style_preset_id: style.id,
       style_slug: style.slug,
-    }).select('*').single();
-    bible = ins.data;
+    };
+    if (bible) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const upd = await (db.from('kids_book_bibles') as any).update(patch).eq('ebook_id', ctx.ebookId).select('*').single();
+      bible = upd.data ?? { ...bible, ...patch };
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ins = await (db.from('kids_book_bibles') as any).insert({ ebook_id: ctx.ebookId, ...patch }).select('*').single();
+      if (ins.error) throw new Error(`bible insert failed: ${ins.error.message}`);
+      bible = ins.data ?? { ebook_id: ctx.ebookId, ...patch };
+    }
     await markStyleUsed(db, style.id);
   }
+  if (!bible) throw new Error('bible unavailable after upsert');
 
   const cb = (bible!.character_bible_json ?? {}) as Record<string, string>;
   const styleSlug = bible!.style_slug as string | null;
@@ -267,7 +277,7 @@ async function generateCover(ctx: Ctx): Promise<StepResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (db.from('kids_book_bibles') as any).update({
       character_reference_image_url: refUrl,
-    }).eq('ebook_kids_id', ctx.ebookId);
+    }).eq('ebook_id', ctx.ebookId);
   }
 
   // Step: final cover with Recraft V3 + image-to-image on reference
