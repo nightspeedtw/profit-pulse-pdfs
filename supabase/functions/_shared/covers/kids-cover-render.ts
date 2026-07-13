@@ -134,7 +134,7 @@ export function buildKidsCoverSVG(input: KidsCoverInputs): string {
 
   // Fonts are loaded into resvg via rasterizeKidsSVG (below). Use inline
   // attributes only — resvg-wasm's CSS class parsing on <text> is unreliable.
-  const titleFontFamily = "Fredoka One";
+  const titleFontFamily = "Fredoka";
   const bodyFontFamily = "Baloo 2";
   const titleTspans = lines
     .map((line, i) => `<text x="${W / 2}" y="${titleY0 + i * lineGap}" text-anchor="middle"
