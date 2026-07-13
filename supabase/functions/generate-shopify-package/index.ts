@@ -140,6 +140,12 @@ Keep every claim compliance-safe. No fake reviews, no fake trust badges.`;
       pricing_confidence_score: clamp(pkg.pricing_confidence_score, 0, 100),
       product_page_qc_score: clamp(pkg.product_page_qc_score, 0, 100),
       shopify_package_json: pkg,
+      // For kids picture books, the finalized story title lives here — mirror it
+      // into ebooks.title/subtitle so the storefront, cover, and PDF all agree
+      // instead of still showing the original seed idea title.
+      ...(ebook.kids_visual_bible && pkg.shopify_title
+        ? { title: pkg.shopify_title, subtitle: pkg.shopify_subtitle ?? ebook.subtitle ?? null }
+        : {}),
     };
 
     const { error: uErr } = await db.from("ebooks").update(patch).eq("id", ebook_id);
