@@ -1,30 +1,36 @@
-# Translate leftover Thai stored content to English
+# Never-stop kids autopilot + Force-Finish action
 
-## Root cause
-
-The earlier English sweep only fixed code strings. The product page pulls **stored content** from the database that was generated in Thai during a prior run:
-
-- `ebooks.hook_description` and `ebooks.cliffhanger_hook` → shown as the product description block.
-- `ebooks.inside_illustrations_json.{page}.text` → shown in the Story Preview reader (captions are English, body text is Thai).
-- Possibly the same fields on other legacy books and the `ebooks_kids` mirror.
-
-Fields already in English on this book: `product_description`, `long_description`, `short_hook`, `selling_hook`, `preview_blurb`, `shopping_card_description`, `meta_description`.
+Two problems to solve for `Luna's Little Lights` and every future run:
+1. A single failing step (here: image generation returned no `b64_json`) marks the whole run `failed` and stops. It should retry and, if still unrecoverable, substitute a safe fallback and continue.
+2. Admin has no button to resume a stuck run — currently they can only "start one book".
 
 ## Fix
 
-1. **Add a one-off backfill edge function** `backfill-translate-en` (admin-only, `verify_jwt=false` gated by service role check) that:
-   - Iterates every row in `ebooks` and `ebooks_kids`.
-   - For each row, scans these text fields: `hook_description`, `cliffhanger_hook`, `short_hook`, `selling_hook`, `preview_blurb`, `product_description`, `long_description`, `shopping_card_description`, `meta_description`, `seo_title`, `seo_meta`, `who_it_is_for`, `preview_blurb`, plus every `text` and `caption` inside `inside_illustrations_json` and `worksheet_previews_json`.
-   - Detects Thai by regex `/[\u0E00-\u0E7F]/`. If found, calls Lovable AI Gateway (`google/gemini-2.5-flash`) with a strict "Translate to natural children's English, keep names, do not add commentary" prompt.
-   - Writes translated values back in place; leaves already-English fields untouched.
-   - Emits a JSON summary `{books_scanned, fields_translated, errors}`.
-2. **Trigger it once** via `supabase--curl_edge_functions` after deploy; verify `bcbb9b53-...` no longer contains any `\u0E00-\u0E7F` codepoints.
-3. **Prevent regressions** at generation time: add an "English only, no Thai" instruction line to the kids manuscript + illustration-caption prompt templates (`rewrite-kids-manuscript`, `autopilot-kids-pipeline`, and any prompt that produces `hook_description`/`cliffhanger_hook`). This is a one-line safety net so newly generated books can't reintroduce Thai.
+### 1. Resilient step loop in `autopilot-kids-pipeline`
+
+- Wrap each step's execution in a **retry helper**: up to 3 attempts with 2s → 6s backoff. Retry only on transient signatures (`no image`, `AI 429`, `AI 5xx`, `fetch failed`, `timeout`).
+- If all retries fail, run a step-specific **fallback** so the pipeline never dead-ends:
+  - `generate_idea` / `generate_manuscript`: no fallback possible → mark step failed, but still continue to later steps that don't depend on prose (skip render/qc/publish, mark run `failed`, keep row visible for admin retry).
+  - `generate_cover`: generate a **placeholder SVG cover** (title text + gradient), upload it as `cover.png` via a small SVG-to-PNG rasterization (use a data URL SVG uploaded as-is — bucket accepts `image/svg+xml`; or embed the SVG inside a 1024×1536 PNG generated with a tiny canvas polyfill using `npm:@napi-rs/canvas` — actually simplest: upload the SVG bytes and store the signed URL). Mark the step `completed_with_fallback` and continue.
+  - `render_pdf`: fallback = minimal single-page HTML "book pending render" so the run finishes and the QC/publish steps can still evaluate.
+  - `qc`: on failure, downgrade scores to `needs_revision` but do NOT throw — let publish decide.
+  - `publish_live`: never fails; only marks live if cover + pdf exist, else marks `ready` (not `live`).
+- Step-loop change: instead of `return` on caught error, record `status: 'failed_recovered'` or `'failed'` on the step, and **continue the for-loop**. Only mark the whole run `failed` at the end if *critical* steps (idea/manuscript) failed.
+- Add a `force_finish` flag on the request. When true, the loop skips already-`completed` steps and re-runs remaining ones fresh.
+
+### 2. Admin UI "Force finish" button
+
+- On `/admin/kids/autopilot` runs list, add a **"Force finish"** button on any run whose status is `failed` or `running` (stale). It calls `autopilot-kids-pipeline` with `{ run_id, force_finish: true }`.
+- Add a "Retry step" chip next to each failed step row in the run detail view.
+
+### 3. Immediate recovery for the current book
+
+After deploying, invoke the function once with `{ run_id: <Luna run id>, force_finish: true }` so it retries the cover, falls back to placeholder if still failing, and reaches `live` (or at least `ready`).
 
 ## Verification
 
-- Curl the backfill function → returns non-zero `fields_translated`.
-- Reload `/product/bcbb9b53-...` — description block and every Story Preview page render in English.
-- Spot-check 2 more listed books via SQL for any remaining Thai codepoints.
+- Curl the function with `force_finish: true` on the Luna run → response `ok: true`, run row shows `status='completed'`, at least a placeholder `cover_url`.
+- Simulate a cover failure locally by temporarily forcing `no image` → run still finishes; step logged as `failed_recovered` with `fallback_used: true`.
+- UI shows the new "Force finish" button and it works end-to-end.
 
-No schema changes, no UI changes.
+No schema changes required (using existing `status`, `blocker_reason`, `output` columns; fallback flag stored inside `output.jsonb`).
