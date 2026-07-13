@@ -224,7 +224,7 @@ Deno.serve(async (req) => {
         category_name: cat?.name ?? null,
         title: e.title,
         word_count: (e as any).total_word_count ?? (e as any).word_count ?? null,
-        worksheet_count: (e as any).worksheet_count ?? null,
+        worksheet_count: null,
         final_quality_score: (e as any).final_quality_score ?? null,
         product_format: (e as any).product_format ?? "ebook",
       });
