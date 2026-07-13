@@ -114,6 +114,40 @@ export default function KidsAutopilot() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Realtime: keep each parent row updated in place without refetching the whole list.
+  useEffect(() => {
+    if (authState !== "admin") return;
+    const channel = supabase
+      .channel("autopilot_kids_runs_live")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "autopilot_kids_runs" },
+        (payload) => {
+          const updated = payload.new as KidsRun;
+          if ((updated as unknown as { metadata?: { parent_run_id?: string } })?.metadata?.parent_run_id) return;
+          setRuns((prev) => {
+            const idx = prev.findIndex((r) => r.id === updated.id);
+            if (idx === -1) return prev;
+            const next = prev.slice();
+            next[idx] = { ...prev[idx], ...updated };
+            return next;
+          });
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "autopilot_kids_runs" },
+        (payload) => {
+          const inserted = payload.new as KidsRun;
+          if ((inserted as unknown as { metadata?: { parent_run_id?: string } })?.metadata?.parent_run_id) return;
+          setRuns((prev) => (prev.some((r) => r.id === inserted.id) ? prev : [inserted, ...prev].slice(0, 30)));
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [authState]);
+
+
 
   const cell = (ageId: string, themeId: string) =>
     weights.find((w) => w.age_group_id === ageId && w.theme_id === themeId);
