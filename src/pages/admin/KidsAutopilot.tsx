@@ -33,17 +33,26 @@ export default function KidsAutopilot() {
   const [busy, setBusy] = useState(false);
   const [running, setRunning] = useState(false);
 
-  const load = async () => {
-    const [a, t, w] = await Promise.all([
+  const [runs, setRuns] = useState<KidsRun[]>([]);
+  const [forcing, setForcing] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const [a, t, w, r] = await Promise.all([
       listAgeGroups(),
       listThemes(),
       supabase.from("kids_category_weights").select("*"),
+      supabase
+        .from("autopilot_kids_runs")
+        .select("id, status, current_step_label, progress_percent, blocker_reason, ebook_kids_id, created_at")
+        .order("created_at", { ascending: false })
+        .limit(20),
     ]);
     setAges(a); setThemes(t);
     setWeights((w.data ?? []) as Weight[]);
-  };
+    setRuns((r.data ?? []) as KidsRun[]);
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const cell = (ageId: string, themeId: string) =>
     weights.find((w) => w.age_group_id === ageId && w.theme_id === themeId);
