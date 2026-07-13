@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
     const system = `You are a professional children's picture-book author writing for ages 4-7.
 Follow the "Children's Storybook Consistency Lock" skill: age-appropriate warm read-aloud voice,
 short sentences, sensory detail, gentle rhythm, implicit moral (never preachy), satisfying resolution.
-Return valid JSON only. No markdown.`;
+Return valid JSON only. No markdown. Write everything in English only — never use Thai or any other language.`;
 
     const user = `Write a 14-spread picture-book manuscript for the industry-standard 32-page format
 (1 cover page + 1 copyright + 1 half-title + 14 story spreads (28 pages) + 1 back page = 32 pages).
