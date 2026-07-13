@@ -4,8 +4,12 @@ import { fetchStorefrontById, type StorefrontEbook } from "@/lib/storefront";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, Download } from "lucide-react";
 import { freeDownload } from "@/lib/freeDownload";
-import BookPreviewCarousel from "@/components/BookPreviewCarousel";
 import PlatformTrustSection from "@/components/PlatformTrustSection";
+import ProductRating from "@/components/product/ProductRating";
+import ProductPreview from "@/components/product/ProductPreview";
+import ProductReviews from "@/components/product/ProductReviews";
+import TrustBadges from "@/components/product/TrustBadges";
+import StickyBuyBar from "@/components/product/StickyBuyBar";
 
 export default function Product() {
   const { handle } = useParams();
@@ -42,9 +46,10 @@ export default function Product() {
   const previewImages = product.preview_images ?? [];
 
   const scrollToBuy = () => buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const handleBuy = () => freeDownload(product.id, product.title);
 
   return (
-    <div className="container py-8 max-w-5xl">
+    <div className="container py-8 max-w-5xl pb-32 md:pb-8">
       <Link to="/library" className="inline-flex items-center gap-2 text-sm font-mono uppercase mb-6 hover:underline">
         <ArrowLeft className="h-4 w-4" /> Back to Library
       </Link>
@@ -70,6 +75,8 @@ export default function Product() {
             {product.title}
           </h1>
 
+          <ProductRating ebookId={product.id} />
+
           <div className="inline-block border-2 border-foreground bg-background px-4 py-2">
             <p className="font-display text-3xl md:text-4xl font-black text-foreground tracking-tight">
               {isFree ? "FREE" : `$${price!.toFixed(2)}`}
@@ -93,20 +100,28 @@ export default function Product() {
             </ul>
           )}
           <div ref={buyRef} className="flex gap-3 pt-2">
-            <Button onClick={() => freeDownload(product.id, product.title)} className="h-14 flex-1 gap-2">
+            <Button onClick={handleBuy} className="h-14 flex-1 gap-2">
               <Download className="h-5 w-5" />
               {price && price > 0 ? `Buy · $${price.toFixed(2)}` : "Download PDF"}
             </Button>
           </div>
+
+          <TrustBadges />
         </div>
       </div>
 
       <div className="mt-12 space-y-12">
-        <BookPreviewCarousel images={previewImages} onBuyClick={scrollToBuy} />
+        <ProductPreview images={previewImages} onBuyClick={scrollToBuy} />
+        <ProductReviews ebookId={product.id} />
         <PlatformTrustSection />
       </div>
+
+      <StickyBuyBar
+        title={product.title}
+        price={price}
+        watchRef={buyRef}
+        onBuy={handleBuy}
+      />
     </div>
   );
 }
-
-

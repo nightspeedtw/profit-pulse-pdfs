@@ -1,62 +1,82 @@
-# Rewrite Barnaby as a 32-page picture book + rebuild PDF at picture-book trim
+## Goal
 
-Two parts, both scoped to the kids-book branch only. No effect on business/non-fiction ebooks.
+เพิ่ม Conversion elements มาตรฐาน (rating, preview, reviews, trust badges, sticky buy bar) ในหน้า Product Detail — ทำครั้งเดียวใน `src/pages/Product.tsx` เพื่อให้ **หนังสือทุกเล่ม** ที่มาใหม่ได้ทันที ไม่ใช่แค่เล่ม Barnaby
 
-## 1. Confirm the picture-book trim
+หน้า Product ปัจจุบันเป็น template กลางอยู่แล้ว (route `/product/:handle`) — ทุกเล่มดึงข้อมูลจาก `fetchStorefrontById` เหมือนกัน จึงเพิ่ม component เข้าไปที่นี่ที่เดียว
 
-The reference image you uploaded is a square page, which is the standard for illustrated children's picture books. The kids PDF template already uses **8.5 × 8.5 inches** — I'll keep that trim (industry standard, KDP/IngramSpark approved, matches your reference image).
+## Database (Cloud) – สร้าง `product_reviews` + view aggregate
 
-- Kids branch: `@page kb { size: 8.5in 8.5in; margin: 0 }` (already in `pdf-template.ts` `buildKidsPictureBookHtml`).
-- Business/nonfiction branch: unchanged A4.
-- I'll verify the render-pdf function sends `format: undefined` + `preferCSSPageSize: true` on the kids path so Browserless respects the CSS page size instead of falling back to A4. If it doesn't, that's the actual bug behind the wrong size you saw.
+Migration:
 
-## 2. Rewrite Barnaby into a 32-page picture-book manuscript
+```text
+1. CREATE TABLE public.product_reviews
+   - id uuid PK
+   - ebook_id uuid FK → ebooks(id) ON DELETE CASCADE
+   - reviewer_name text
+   - rating int (1..5)  ← validation trigger, not CHECK
+   - comment text
+   - verified_purchase boolean default false
+   - created_at timestamptz default now()
 
-Standard 32-page picture book structure (KDP / traditional print):
+2. GRANT SELECT ON public.product_reviews TO anon, authenticated  (public reads)
+   GRANT ALL ON public.product_reviews TO service_role
+   ENABLE RLS
+   POLICY "public read" FOR SELECT USING (true)
+   POLICY "service writes" — inserts only via edge/admin (no anon INSERT)
 
+3. VIEW public.product_review_stats
+   SELECT ebook_id, avg(rating)::numeric(3,2) AS average_rating,
+          count(*)::int AS review_count
+     FROM product_reviews GROUP BY ebook_id
+   GRANT SELECT TO anon, authenticated
 ```
-Page 1     Title page (title + author)
-Page 2     Copyright
-Pages 3-30 14 spreads of the story (illustration + short text per page)
-Page 31    "The End" + moral takeaway
-Page 32    About the book / back page
-```
 
-New edge function `rewrite-kids-manuscript` (POST `{ ebook_id }`) that:
+ไม่ใส่ข้อมูลปลอม — ตารางเริ่มว่าง component จะซ่อนตัวเองเมื่อไม่มีรีวิว
 
-1. Loads the Story Bible (`kids_visual_bible`) so tone, character, world and moral stay locked.
-2. Calls the LLM with the "Children's Storybook Consistency Lock" skill to produce a 32-page manuscript:
-   - 600–900 total words for ages 4–7
-   - 30–70 words per interior page, warm read-aloud rhythm
-   - clear beginning → escalating middle → satisfying climax → gentle resolution
-   - implicit moral about embracing imperfection (matches the seed hook)
-   - each page includes: `page_number`, `story_text`, `scene_summary`, `characters_present`, `emotions`, `location`, `continuity_notes`
-3. Persists as `ebooks.kids_page_plan_json` (new jsonb key inside the existing `kids_scene_briefs_json` column — no schema change).
-4. Also overwrites `ebook_chapters` for this ebook with 14 rows (one per spread) so the existing render pipeline can read the story text without a schema change.
+`src/lib/storefront.ts` เพิ่มการ join `product_review_stats` เพื่อให้ `StorefrontEbook` มี `average_rating` + `review_count` ติดมาโดยไม่ต้อง fetch เพิ่ม
 
-Then `render-pdf` (kids branch) will:
-- Iterate the 14 spreads, each producing 2 physical pages: illustration on the left page, story text on the right page (industry standard picture-book layout).
-- Use `buildKidsPagePrompt(bible, page)` for every illustration prompt so all 14 illustrations share the same character + style lock (Barnaby wears the same yellow vest, same face, same fur, same watercolor style on every page).
-- Pre-generate + cache all 14 interior images in `inside_illustrations_json` before HTML assembly (same pattern already in place, extended from ~6 to 14).
+## Reusable components (`src/components/product/`)
 
-## 3. Rebuild PDF
+1. **`ProductRating.tsx`** — props: `average`, `count`. ใช้ icon `Star` จาก lucide-react เติมครึ่งดวงตามค่าเฉลี่ย. คลิก → smooth-scroll ไป `#reviews`. **ถ้า `count === 0` → return null** (ไม่โชว์ 0 ดาว)
 
-After the manuscript rewrite finishes, automatically:
-- Re-run `render-pdf` on the kids branch.
-- Re-run the storefront `preview_images` extraction so the "Look Inside" carousel refreshes with the new pages.
-- Bump `kids_visual_bible.version = 2` if not already there.
+2. **`ProductPreview.tsx`** — wrapper ของ `BookPreviewCarousel` เดิม + ปุ่ม "ดูตัวอย่างฟรี" เปิด Dialog (shadcn) แสดง TOC (จาก `product.toc` ถ้ามี) + 1-2 หน้าตัวอย่างเต็ม. ถ้าไม่มีภาพ preview → return null
 
-## Verification
-- New PDF opens at 8.5×8.5in square (not A4) — verified by inspecting page size in the rendered file.
-- 32 numbered pages: 1 title, 1 copyright, 28 story pages (14 spreads), 1 "The End", 1 about.
-- All 14 illustrations show the same Barnaby (same yellow vest, same watercolor style, same forest world).
-- Story reads at ages-4–7 vocabulary, ~750 words, moral about embracing imperfection.
-- Product page "Look Inside" shows the first 4 interior spreads with the same style as the reference image.
+3. **`ProductReviews.tsx`** — props: `ebookId`. Fetch จาก `product_reviews` limit 3 + ปุ่ม "ดูรีวิวทั้งหมด" (ขยาย limit ใน state). แต่ละการ์ด: ชื่อย่อ, ดาว, ข้อความ, วันที่. **ถ้าไม่มีรีวิว → return null** (ไม่มี placeholder ปลอม)
+
+4. **`TrustBadges.tsx`** — static 3 badges ใช้ icon `Download`, `ShieldCheck`, `Lock`:
+   - "ดาวน์โหลดทันที"
+   - "การันตีคืนเงิน 30 วัน"
+   - "ไฟล์ปลอดภัย เข้ารหัส"
+   วางใต้ปุ่ม Buy
+
+5. **`StickyBuyBar.tsx`** — props: `title`, `price`, `onBuy`. ใช้ `IntersectionObserver` เฝ้าปุ่ม Buy หลัก, โผล่มาเมื่อปุ่มหลักหลุด viewport. Mobile: fixed bottom, full-width. Desktop (md+): fixed bottom-right card ขนาด ~360px. ใช้ semantic tokens (`bg-background`, `border-foreground`) ตาม design system เดิม
+
+## Integrate ใน `src/pages/Product.tsx`
+
+- ใต้ H1 → `<ProductRating>`
+- ใต้ปุ่ม Buy → `<TrustBadges>`
+- แทน `BookPreviewCarousel` ด้วย `<ProductPreview>`
+- ปิดหน้าด้วย `<section id="reviews"><ProductReviews ebookId={product.id} /></section>`
+- Mount `<StickyBuyBar>` เสมอ (มี logic ซ่อน/โชว์ในตัว)
+
+ไม่แตะ layout หลัก, Header, Footer, หรือหน้าอื่น — เพียง swap/insert ใน Product.tsx
+
+## Design system
+
+ทั้งหมดใช้ tokens เดิม (`text-foreground`, `bg-background`, `border-foreground`, `font-display`, `font-mono`, sticker style). ไม่ hardcode สี ไม่เพิ่มฟอนต์ใหม่
 
 ## Files touched
-- New: `supabase/functions/rewrite-kids-manuscript/index.ts`
-- Edit: `supabase/functions/render-pdf/index.ts` — kids branch: use 14-spread page plan, ensure Browserless uses CSS page size (kill any A4 fallback).
-- Edit: `supabase/functions/_shared/pdf-template.ts` — kids template: two-page spread layout (illustration page + text page), page numbers hidden, title/copyright/end/back pages.
-- No DB migration.
 
-Confirm and I'll build it, then trigger the rewrite + re-render for Barnaby.
+- **New migration**: `product_reviews` + `product_review_stats` view + RLS + GRANTs
+- **New**: `src/components/product/ProductRating.tsx`, `ProductPreview.tsx`, `ProductReviews.tsx`, `TrustBadges.tsx`, `StickyBuyBar.tsx`
+- **Edit**: `src/pages/Product.tsx` (insert 5 components)
+- **Edit**: `src/lib/storefront.ts` (join stats view, add `average_rating` + `review_count` fields)
+- **Edit**: `src/integrations/supabase/types.ts` — auto-regenerated after migration
+
+## Out of scope
+
+- ไม่ทำ admin UI เขียนรีวิว (ตอนนี้ยังไม่มีคน login ฝั่งลูกค้า) — ถ้าต้องการค่อยเปิด phase 2
+- ไม่ทำ Urgency/Scarcity (user prompt แนะไว้แต่บอก "ถ้ามีจริง" — ยังไม่มี field รองรับ, ข้ามเพื่อไม่หลอกลูกค้า)
+- ไม่แก้หน้าอื่น
+
+อนุมัติแล้ว build ต่อได้เลย
