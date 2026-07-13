@@ -317,14 +317,16 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const ageBand: string = body.age_band ?? '4-6';
+    const batchLane: string | undefined = typeof body.batch_lane === 'string' ? body.batch_lane : undefined;
+    const seedAvoid: string[] = Array.isArray(body.avoid_titles) ? body.avoid_titles.filter((s: unknown) => typeof s === 'string') : [];
 
     const judged: JudgedConcept[] = [];
-    const triedTitles: string[] = [];
+    const triedTitles: string[] = [...seedAvoid];
 
     // Attempt 1
     let c1: Concept;
     try {
-      c1 = await generateConcept(ageBand, [], 'primary');
+      c1 = await generateConcept(ageBand, triedTitles, 'primary', batchLane);
     } catch (e) {
       return json({ ok: false, error: `concept1_gen_failed: ${(e as Error).message.slice(0, 200)}` }, 500);
     }
@@ -338,7 +340,7 @@ Deno.serve(async (req) => {
     if (!e1.passed) {
       for (let i = 0; i < 2; i++) {
         try {
-          const cN = await generateConcept(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`);
+          const cN = await generateConcept(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`, batchLane);
           triedTitles.push(cN.title);
           const sN = await scoreConcept(cN, ageBand);
           const bN = detectBannedLaneHits(cN);
