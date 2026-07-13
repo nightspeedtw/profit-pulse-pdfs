@@ -290,70 +290,45 @@ Deno.serve(async (req) => {
     let publishState = 'not_attempted';
 
     if (runPdf) {
-      const { data: cur } = await db.from('ebooks_kids').select('cover_url, interior_illustrations, title, subtitle, manuscript_md').eq('id', ebook_id).single();
-      const recs = (cur?.interior_illustrations as typeof records) ?? records;
-      if (!cur?.cover_url) throw new Error('cover_url missing');
-      const coverPngBytes = new Uint8Array(await (await fetch(cur.cover_url)).arrayBuffer());
-      const spreadImages: Uint8Array[] = [];
-      for (const il of recs) {
-        spreadImages.push(new Uint8Array(await (await fetch(il.url)).arrayBuffer()));
-      }
-      const md = String(cur.manuscript_md ?? '');
-      const paras = md.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
-      const chunkSize = Math.max(1, Math.ceil(paras.length / recs.length));
-      const captions = recs.map((_, i) => paras.slice(i * chunkSize, (i + 1) * chunkSize).join(' ') || recs[i].scene);
-
-      const pdfBytes = await buildPicturePdf({
-        title: String(cur.title ?? ''),
-        subtitle: (cur.subtitle as string | null) ?? null,
-        coverPng: coverPngBytes,
-        spreads: recs.map((_, i) => ({ caption: captions[i], imagePng: spreadImages[i] })),
-      });
-      const pdfPath = `kids/${ebook_id}/book.pdf`;
-      const upPdf = await db.storage.from('ebook-pdfs').upload(pdfPath, pdfBytes, {
-        contentType: 'application/pdf', upsert: true,
-      });
-      if (upPdf.error) throw upPdf.error;
-      const { data: pdfSigned } = await db.storage.from('ebook-pdfs').createSignedUrl(pdfPath, 60 * 60 * 24 * 365);
-      const pageCount = 2 + recs.length + 1;
-      await db.from('ebooks_kids').update({
-        pdf_url: pdfSigned?.signedUrl ?? null, page_count: pageCount,
-      }).eq('id', ebook_id);
-      log.push({ step: 'pdf', status: 'rerendered', detail: { bytes: pdfBytes.length, page_count: pageCount } });
-    } else {
-      log.push({ step: 'pdf', status: 'skipped_stage' });
-    }
-
-    if (runQc) {
-      const qcRes = await fetch(`${SUPABASE_URL}/functions/v1/kids-qc-run`, {
+      // Delegate PDF assembly to the multi-stage builder so a single Edge
+      // worker never has to hold cover + 12 interior PNGs + full pdf-lib doc
+      // in memory at once. The builder self-chains through pdf_prepare ->
+      // pdf_pages_1_4 -> pdf_pages_5_8 -> pdf_pages_9_12 -> pdf_finalize
+      // via EdgeRuntime.waitUntil, then (when runQc) hands off to
+      // kids-publish-if-qc-passed for measured QC + strict publish gate.
+      const dispatch = await fetch(`${SUPABASE_URL}/functions/v1/kids-build-picture-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-        body: JSON.stringify({ ebook_id, use_cached_story_judge_if_hash_matches: true }),
+        body: JSON.stringify({
+          ebook_id, stage: 'pdf_prepare',
+          publish: publish_if_sellable, run_qc_after: runQc,
+        }),
+      });
+      const dispatchBody = await dispatch.json().catch(() => ({}));
+      publishState = runQc ? 'dispatched_pdf_then_qc' : 'dispatched_pdf_only';
+      log.push({
+        step: 'pdf',
+        status: dispatch.ok ? 'dispatched_multi_stage' : 'dispatch_failed',
+        detail: { first_stage: 'pdf_prepare', next_stage: dispatchBody?.next_stage ?? null, run_qc_after: runQc },
+      });
+    } else if (runQc) {
+      // No PDF stage requested but QC was — run measured QC + publish gate.
+      const qcRes = await fetch(`${SUPABASE_URL}/functions/v1/kids-publish-if-qc-passed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+        body: JSON.stringify({ ebook_id, publish: publish_if_sellable }),
       });
       qcBody = await qcRes.json();
-      log.push({ step: 'qc', status: qcRes.ok ? 'ok' : 'fail', detail: {
-        sellable: qcBody?.verdict?.sellable, overall: qcBody?.verdict?.overall_score,
-        story_qc_status: qcBody?.story_qc_status, reasons: qcBody?.verdict?.reasons,
-        global: {
-          character: (qcBody?.vision_report as Record<string, unknown> | undefined)?.overall_character_consistency,
-          cover_interior: (qcBody?.vision_report as Record<string, unknown> | undefined)?.overall_cover_interior_match,
-          style_bible: (qcBody?.vision_report as Record<string, unknown> | undefined)?.overall_style_bible_match,
+      publishState = qcBody?.publishState ?? (qcRes.ok ? 'unknown' : 'fail');
+      log.push({
+        step: 'qc', status: qcRes.ok ? 'ok' : 'fail', detail: {
+          sellable: qcBody?.verdict?.sellable, overall: qcBody?.verdict?.overall_score,
+          story_qc_status: qcBody?.story_qc_status, reasons: qcBody?.verdict?.reasons,
         },
-      } });
-
-      publishState = 'draft_needs_review';
-      if (publish_if_sellable && qcBody?.verdict?.sellable) {
-        await db.from('ebooks_kids').update({
-          listing_status: 'live', status: 'live', pipeline_status: 'published',
-        }).eq('id', ebook_id);
-        publishState = 'live';
-      } else {
-        await db.from('ebooks_kids').update({
-          listing_status: 'draft', status: 'needs_revision', pipeline_status: 'human_review_required',
-        }).eq('id', ebook_id);
-      }
+      });
       log.push({ step: 'publish', status: publishState });
     } else {
+      log.push({ step: 'pdf', status: 'skipped_stage' });
       log.push({ step: 'qc_and_publish', status: 'skipped_stage' });
     }
 

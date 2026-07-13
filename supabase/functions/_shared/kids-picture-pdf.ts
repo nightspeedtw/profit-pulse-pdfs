@@ -173,6 +173,82 @@ export async function buildPicturePdf(input: PicturePdfInput): Promise<Uint8Arra
   return await doc.save();
 }
 
+// ---- Incremental builders (memory-safe multi-stage) ---------------------
+// Used by kids-build-picture-pdf to keep each Edge invocation under the
+// worker memory limit. Each stage loads the prior PDF bytes, appends a few
+// pages, and re-serializes. pdf-lib preserves already-embedded image objects
+// across load/save, so images are not re-decoded per stage.
+
+const PAGE_W = 612;
+const PAGE_H = 792;
+
+export async function startPicturePdf(input: { title: string; subtitle?: string | null; authorLine?: string; coverPng: Uint8Array }): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const bodyFont = await doc.embedFont(StandardFonts.Helvetica);
+  const titleFont = await doc.embedFont(StandardFonts.HelveticaBold);
+
+  const coverImg = await embedImageSmart(doc, input.coverPng);
+  const coverPage = doc.addPage([PAGE_W, PAGE_H]);
+  const cscale = Math.max(PAGE_W / coverImg.width, PAGE_H / coverImg.height);
+  const cw = coverImg.width * cscale;
+  const ch = coverImg.height * cscale;
+  coverPage.drawImage(coverImg, { x: (PAGE_W - cw) / 2, y: (PAGE_H - ch) / 2, width: cw, height: ch });
+
+  const titlePage = doc.addPage([PAGE_W, PAGE_H]);
+  const titleText = normalizeText(input.title);
+  const subtitleText = input.subtitle ? normalizeText(input.subtitle) : "";
+  const titleSize = 32;
+  const tw = titleFont.widthOfTextAtSize(titleText, titleSize);
+  titlePage.drawText(titleText, { x: (PAGE_W - tw) / 2, y: PAGE_H / 2 + 20, size: titleSize, font: titleFont, color: rgb(0.1, 0.1, 0.15) });
+  if (subtitleText) {
+    const sw = bodyFont.widthOfTextAtSize(subtitleText, 18);
+    titlePage.drawText(subtitleText, { x: (PAGE_W - sw) / 2, y: PAGE_H / 2 - 20, size: 18, font: bodyFont, color: rgb(0.35, 0.35, 0.4) });
+  }
+  if (input.authorLine) {
+    const al = normalizeText(input.authorLine);
+    const aw = bodyFont.widthOfTextAtSize(al, 12);
+    titlePage.drawText(al, { x: (PAGE_W - aw) / 2, y: 80, size: 12, font: bodyFont, color: rgb(0.4, 0.4, 0.45) });
+  }
+  return await doc.save();
+}
+
+export async function appendSpreadsToPdf(existing: Uint8Array, spreads: Array<{ caption: string; imagePng: Uint8Array }>): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(existing);
+  const bodyFont = await doc.embedFont(StandardFonts.Helvetica);
+  for (const spread of spreads) {
+    const page = doc.addPage([PAGE_W, PAGE_H]);
+    const img = await embedImageSmart(doc, spread.imagePng);
+    const boxW = PAGE_W - 72;
+    const boxH = PAGE_H * 0.58;
+    const scale = Math.min(boxW / img.width, boxH / img.height);
+    const iw = img.width * scale;
+    const ih = img.height * scale;
+    page.drawImage(img, { x: (PAGE_W - iw) / 2, y: PAGE_H - 72 - ih, width: iw, height: ih });
+    const caption = normalizeText(spread.caption);
+    const size = 16;
+    const lineHeight = size * 1.35;
+    const lines = wrapLines(caption, 60);
+    let y = PAGE_H - 72 - ih - 36;
+    for (const line of lines) {
+      if (y < 60) break;
+      const lw = bodyFont.widthOfTextAtSize(line, size);
+      page.drawText(line, { x: (PAGE_W - lw) / 2, y, size, font: bodyFont, color: rgb(0.12, 0.12, 0.18) });
+      y -= lineHeight;
+    }
+  }
+  return await doc.save();
+}
+
+export async function finalizePicturePdf(existing: Uint8Array): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(existing);
+  const titleFont = await doc.embedFont(StandardFonts.HelveticaBold);
+  const endPage = doc.addPage([PAGE_W, PAGE_H]);
+  const end = "The End";
+  const ew = titleFont.widthOfTextAtSize(end, 40);
+  endPage.drawText(end, { x: (PAGE_W - ew) / 2, y: PAGE_H / 2, size: 40, font: titleFont, color: rgb(0.15, 0.15, 0.2) });
+  return await doc.save();
+}
+
 // Split a manuscript into N caption blocks (paragraph-based grouping).
 export function splitManuscriptForSpreads(md: string, n: number): string[] {
   const paras = md.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
