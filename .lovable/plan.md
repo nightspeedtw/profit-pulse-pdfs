@@ -1,213 +1,105 @@
+## Goal
 
-# QC v2 — "Sellable" Gate, Evidence-Based Scoring, Auto-Repair Loop
+เปลี่ยนระบบ generate ภาพเด็กใน pipeline จาก Lovable AI Gateway ปัจจุบัน → **Fal.ai** (Flux Schnell draft + Recraft V3 final) พร้อมระบบ **auto-rotate style** + **character consistency ผ่าน Character Bible + Reference Image (image-to-image)**
 
-Replaces the current cosmetic QC (hard-coded 92/94/96, "cover_url + pdf_url = publish") with an evidence-based system that measures real files, blocks placeholders, and auto-repairs targeted defects.
+---
 
-## Scope
+## วิธีสมัคร Fal.ai API Key (ทำก่อน)
 
-Applies to the kids track (`ebooks_kids`, `autopilot-kids-pipeline`). The adult track keeps its current QC; a follow-up can port the same engine once this proves out.
+1. เข้า https://fal.ai/ → Sign up (ใช้ Google/GitHub ได้)
+2. ไปที่ Dashboard → **Keys** (https://fal.ai/dashboard/keys)
+3. กด **Add Key** → ตั้งชื่อ (เช่น `secretpdf-kids`) → คัดลอกค่าคีย์ที่ขึ้นต้นด้วย `fal-…` ทันที (แสดงครั้งเดียว)
+4. ไปที่ **Billing** → เติมเครดิตขั้นต่ำ $5–$10 (Flux Schnell ~$0.003/ภาพ, Recraft V3 ~$0.04/ภาพ → พอ generate ได้หลายพันภาพ)
+5. เมื่อได้คีย์แล้ว บอกผมกลับมา → ผมจะเปิดฟอร์ม `add_secret` ให้กรอกเป็น `FAL_API_KEY` (เก็บใน Lovable Cloud secrets, ไม่โผล่ในโค้ด)
 
-## 1. New pipeline statuses
+---
 
-Extend `autopilot_kids_runs.status` with the vocabulary you specified:
+## สถาปัตยกรรม
 
-```
-draft → story_qc → character_bible_locked → style_bible_locked →
-illustrating → illustration_qc → layouting → layout_qc →
-pdf_rendering → pdf_preflight → commercial_qc →
-auto_repairing → human_review_required → sellable → published
-```
-
-`published` is only reachable from `sellable`. Nothing else can flip a row live.
-
-## 2. Character Bible + Style Bible lock
-
-New table `kids_book_bibles` (one row per book) storing:
-
-- `character_bible_json` — the exact schema you listed (name, face, hair, eyes, skin, spacesuit, helmet, chest_patch, proportions, style, `forbidden_changes[]`)
-- `style_bible_json` — medium, mood, palette hexes, lighting, line quality, texture, detail level, negative constraints
-- `character_reference_image_url` — the locked reference used as image-to-image seed for every subsequent illustration
-- `locked_at`, `locked_by`
-
-Pipeline cannot enter `illustrating` until both bibles exist and `locked_at IS NOT NULL`. Every illustration prompt is built by concatenating the bible JSON + page-specific action, and every image generation call passes the reference image as visual seed.
-
-## 3. Evidence-based QC rules (no hard-coded scores)
-
-New table `qc_findings` — one row per rule check:
-
-```
-rule_id, ebook_id, page_number, category,
-measured_value (jsonb), threshold (jsonb),
-passed (bool), severity ('critical'|'major'|'minor'),
-evidence_url (screenshot / bbox crop), repair_action, verification_result
+```text
+autopilot-kids-pipeline
+   │
+   ├─ step: lock_bibles
+   │    ├─ AI เขียน character_bible_json (ชื่อ, หน้าตา, ผม, ตา, ผิว, ชุด, สัดส่วน, forbidden_changes[])
+   │    ├─ AI เลือก style จาก style pool แบบ auto-rotate (ดูด้านล่าง)
+   │    └─ Fal Flux Schnell generate "character reference sheet"
+   │         → upload storage → บันทึกใน kids_book_bibles.character_reference_image_url
+   │
+   ├─ step: illustrate_spread (× 14 spreads)
+   │    ├─ mode = "draft"  → Fal Flux Schnell (i2i, ref image + prompt+style)
+   │    ├─ QC pass ≥ 85    → mode = "final" → Fal Recraft V3 (i2i, ref image + prompt+style)
+   │    └─ ล้มเหลว 3 ครั้ง  → mark failed (ไม่มี placeholder)
+   │
+   └─ step: cover → Fal Recraft V3 (ใช้ ref image + title guard)
 ```
 
-Scores are **computed** from findings, never authored by the LLM:
+### Style Auto-Rotation (ไม่ล๊อค 1 สไตล์)
 
+สร้าง `kids_style_presets` table:
+```text
+id | slug                    | prompt_suffix                                    | weight | last_used_at
+---|-------------------------|--------------------------------------------------|--------|-------------
+1  | watercolor_soft         | "soft watercolor, pastel palette, gentle..."     | 10     | ...
+2  | ghibli_hand_drawn       | "hand-drawn animation cel, lush background..."   | 10     | ...
+3  | 3d_pixar                | "3D rendered, soft global illumination..."       | 10     | ...
+4  | flat_vector             | "flat vector illustration, bold shapes..."       | 10     | ...
+5  | crayon_texture          | "crayon and colored pencil texture..."           | 10     | ...
+6  | gouache_painterly       | "gouache painterly, thick brush strokes..."      | 10     | ...
 ```
-category_score = 100 - (weighted penalty from failed rules in that category)
-overall_score  = Σ(category_score × weight)   // weights per your table
-```
+เลือกด้วย weighted random + penalty สำหรับ style ที่ใช้ล่าสุด → หนังสือแต่ละเล่มมี style ต่างกัน แต่**ในเล่มเดียวกัน**ใช้ style เดียวตลอด (บันทึกใน `kids_book_bibles.style_preset_id`).
 
-Weights (fixed constants in `_shared/qc/kids-weights.ts`):
+### Character Consistency (2 ชั้น)
 
-```
-story_structure 15, age_appropriateness 10, grammar 10,
-character_consistency 15, illustration_style 10,
-cover_interior_match 10, typography_layout 15,
-pdf_preflight 10, commercial_metadata 5
-```
+1. **Character Bible** (text) — ต่อท้ายทุก prompt ทุกหน้า verbatim
+2. **Reference Image** (image-to-image) — Fal endpoint รับ `image_url` + `strength: 0.65` → ยึดหน้าตัวละครจากภาพต้นแบบ
 
-## 4. Critical errors (any one = NOT sellable)
+---
 
-Hard-coded rule IDs enforced in `_shared/qc/critical.ts`:
+## Technical
 
-```
-TEXT_OVERFLOW, TEXT_CLIPPED, TEXT_OUTSIDE_SAFE_AREA,
-MISSING_PAGE, BLANK_UNINTENDED_PAGE, BROKEN_FONT_OR_GLYPH,
-IMAGE_MISSING, IMAGE_PLACEHOLDER, INVALID_PDF, FAKE_PDF_MIME_TYPE,
-UNREADABLE_TEXT, COVER_TITLE_MISMATCH, CHARACTER_IDENTITY_BREAK,
-WRONG_LANGUAGE, COPYRIGHT_PLACEHOLDER, DUPLICATED_PAGE,
-PAGE_ORDER_ERROR, CONTENT_UNSAFE_FOR_AGE
-```
+### Files ใหม่
+- `supabase/functions/_shared/fal.ts` — helper: `falFluxSchnell()`, `falRecraftV3()`, upload response → Supabase storage, cost log
+- `supabase/functions/_shared/style-picker.ts` — weighted-random style selection with recency penalty
+- `supabase/migrations/xxx_kids_style_presets.sql` — table + seed 6 styles + GRANTs
+- `supabase/migrations/xxx_book_style_link.sql` — เพิ่ม `style_preset_id`, `character_reference_image_url` ใน `kids_book_bibles` (มีอยู่แล้วจาก QC v2 — เพิ่มเฉพาะที่ขาด)
 
-## 5. Real PDF preflight (`_shared/pdf-preflight.ts`)
+### Files แก้
+- `supabase/functions/autopilot-kids-pipeline/index.ts` — step lock_bibles ใช้ Fal สร้าง ref image, step illustrate เรียก fal.ts (draft→final), ลบ path ที่เรียก Lovable AI Gateway image
+- `supabase/functions/_shared/covers/kids-cover-render.ts` — เปลี่ยนไปใช้ Fal Recraft V3 + ref image
+- `supabase/functions/_shared/kids-visual-bible.ts` — ให้ผลลัพธ์รวม `style_preset_id` ที่ picker เลือก
 
-Runs on the actual rendered PDF, not on model self-report:
-
-- Download PDF bytes, verify magic header `%PDF-`, reject if `content-type` lies (→ `FAKE_PDF_MIME_TYPE`, `INVALID_PDF`).
-- Parse with `npm:pdfjs-dist` → page count matches manifest (→ `MISSING_PAGE`, `DUPLICATED_PAGE`, `PAGE_ORDER_ERROR`).
-- For each page: rasterize at 150dpi → screenshot stored as evidence.
-- For each text run: real bounding box check
-  ```
-  x >= safeLeft && y >= safeTop &&
-  x + w <= pageWidth - safeRight &&
-  y + h <= pageHeight - safeBottom
-  ```
-  Fails → `TEXT_OUTSIDE_SAFE_AREA` / `TEXT_CLIPPED` / `TEXT_OVERFLOW` with the exact bbox stored in `measured_value`.
-- Font checks: embedded? glyph coverage? → `BROKEN_FONT_OR_GLYPH`.
-- Body font size ≥ 18pt, line-height 1.30-1.55, ≤ 65 chars/line, orphan/widow detection, no split words across pages.
-- Perceptual-hash detect against known placeholder SVG → `IMAGE_PLACEHOLDER`.
-- Text extraction empty on a page that should have prose → `UNREADABLE_TEXT`.
-- Language detect on extracted text → non-English → `WRONG_LANGUAGE`.
-
-## 6. Visual QC (`_shared/qc/visual.ts`)
-
-- **Character consistency**: CLIP embedding of each interior character crop vs. the locked reference. Cosine distance > threshold → `CHARACTER_IDENTITY_BREAK`.
-- **Style consistency**: palette histogram + edge-style metrics per page vs. cover. Deviation > threshold → `illustration_style` finding.
-- **Cover-to-interior match**: cover title text OCR vs. `ebooks_kids.title` → mismatch = `COVER_TITLE_MISMATCH`. Palette/style deltas contribute to `cover_interior_match`.
-
-## 7. Sellable gate (`_shared/qc/sellable.ts`)
-
+### Fal.ai API call
 ```ts
-sellable =
-  overall >= 90 &&
-  criticalErrors.length === 0 &&
-  all category scores >= 85 &&
-  typography_layout >= 95 &&
-  character_consistency >= 90 &&
-  cover_interior_match >= 90 &&
-  pdf_preflight.allPagesRendered &&
-  !anyFinding.evidence.matches(placeholderHash)
+POST https://fal.run/fal-ai/flux/schnell   // draft
+POST https://fal.run/fal-ai/recraft-v3      // final
+Authorization: Key ${FAL_API_KEY}
+Body: { prompt, image_size:"square_hd", num_inference_steps:4,
+        image_url?, strength?:0.65 }   // image_url present = i2i
+Response: { images:[{url, width, height, content_type}] }
 ```
+→ fetch URL → upload buf ไปที่ Supabase `ebook-covers` / (bucket ใหม่) `ebook-illustrations`.
 
-`publish_live` step is rewritten: refuses to run unless `sellable = true`. Existing "has cover_url + pdf_url" shortcut is deleted.
+### Secret
+- ใหม่: `FAL_API_KEY` (ผ่าน `add_secret` หลังผู้ใช้สมัคร)
+- Lovable AI Gateway image generation → เลิกใช้ในสาย kids (ยังใช้กับ text/QC ต่อไป)
 
-## 8. Targeted auto-repair loop
+### QC ยังทำงานเดิม
+Pipeline QC v2 (`kids-qc-run`, `sellable.ts`, `pdf-preflight.ts`) ไม่เปลี่ยน → gate ยังบังคับ 90 คะแนน / no placeholder / no critical เหมือนเดิม
 
-Replace the current retry-with-fallback loop. New engine in `_shared/qc/repair.ts`:
+### ต้นทุน/ภาพ ประมาณการ
+- 1 หนังสือ = 1 ref + 14 spreads (draft) + 14 spreads (final) + 1 cover ≈ 15×$0.003 + 15×$0.04 = **~$0.65/เล่ม (~23 บาท)**
+- ถ้าไม่มี regenerate = ต่ำกว่า Lovable Gateway ปัจจุบันมาก
 
-```
-generate → render → detect → classify → targetedRepair → re-render → re-qc
-```
+---
 
-Per finding class:
+## Rollout
 
-- `TEXT_OVERFLOW`: reflow → shrink font 0.5pt (floor 18pt) → grow textbox → cut paragraph spacing → move to text-only page → LLM-rewrite paragraph shorter preserving meaning.
-- `CHARACTER_IDENTITY_BREAK`: regenerate ONLY that page with reference image + tightened prompt + seed lock.
-- `illustration_style` mismatch: extract palette from approved cover, regenerate that page with palette clamp.
-- `INVALID_PDF` / `BROKEN_FONT_OR_GLYPH`: rebuild from source, embed fonts, convert to sRGB, re-render via secondary renderer.
+1. ✅ อธิบายวิธีสมัคร Fal (message นี้)
+2. ⏸ รอผู้ใช้สมัคร → ให้คีย์
+3. ผม `add_secret` ขอ `FAL_API_KEY`
+4. Implement code + migration ตามลำดับข้างบน
+5. Deploy edge functions อัตโนมัติ
+6. รัน 1 เล่มทดสอบ → เช็คภาพ + คะแนน QC + character consistency
+7. เปิด autopilot ต่อ
 
-Limits (enforced in loop):
-
-- 8 attempts per individual error
-- 5 full-book QC cycles
-- Transient API: 5 retries with backoff 2/5/10/20/40s
-- **A `completed_with_fallback` result NEVER counts as pass.**
-- When exhausted:
-  ```
-  status = 'human_review_required'
-  production_finished = true
-  sellable = false
-  blocker_reason = unresolved rule_ids joined
-  ```
-
-## 9. Admin QC report UI
-
-`/admin/kids/:id/qc` shows per-book:
-
-- Overall score + SELLABLE/NOT badge
-- Critical errors list
-- Per-category scores with weights
-- Failed-page thumbnails with bbox overlays
-- Before/after repair image pairs
-- Repair attempt count, AI confidence
-- Technical preflight result, final PDF SHA-256
-- QC rule version
-
-Action buttons wired to new edge endpoints:
-`Auto Repair All`, `Repair Selected Page`, `Re-run Visual Consistency`, `Re-render PDF`, `Compare Cover vs Interior`, `Approve for Sale` (admin override, audit-logged), `Reject and Regenerate`, `Download QC Report` (JSON + PDF).
-
-## 10. Immediate cleanup of current defects
-
-Deletes the current false-pass paths:
-
-- Remove hard-coded `92/94/96` scores in `autopilot-kids-pipeline` and `qc-check`.
-- Remove `Object.values(scores).every(v => v >= 85)` short-circuit.
-- Remove placeholder-SVG fallback path for covers (it stays as a *repair attempt*, but marks the step failed, never `completed_with_fallback = pass`).
-- Backfill: mark every existing kids book whose `cover_url` matches the placeholder hash back to `human_review_required`.
-
-## Files & migrations (technical)
-
-**Migrations**
-- `kids_book_bibles` (character + style bibles + reference image, RLS admin-only + service_role)
-- `qc_findings` (evidence rows, indexed by ebook_id + rule_id)
-- `qc_rule_versions` (rule_id, version, threshold_json — so historical findings stay reproducible)
-- Extend `autopilot_kids_runs.status` enum with the 14 new values
-- Add `ebooks_kids.sellable boolean default false`, `ebooks_kids.overall_qc_score int`, `ebooks_kids.qc_rule_version text`
-
-**New shared modules**
-- `supabase/functions/_shared/qc/critical.ts` — critical rule IDs + detectors
-- `supabase/functions/_shared/qc/weights.ts` — category weights
-- `supabase/functions/_shared/qc/sellable.ts` — gate function
-- `supabase/functions/_shared/qc/repair.ts` — repair strategies
-- `supabase/functions/_shared/pdf-preflight.ts` — pdfjs bbox + font + language
-- `supabase/functions/_shared/visual-consistency.ts` — CLIP-style embedding via Lovable AI vision
-- `supabase/functions/_shared/placeholder-hash.ts` — known placeholder detection
-
-**New edge functions**
-- `kids-lock-bibles` — build + lock character/style bibles, generate reference image
-- `kids-qc-run` — full evidence-based QC pass, writes `qc_findings`
-- `kids-qc-repair` — runs targeted repair for one finding or all
-- `kids-qc-report` — assembles admin JSON + downloadable PDF report
-
-**Modified**
-- `autopilot-kids-pipeline/index.ts` — new state machine, no fallback-as-pass, calls `kids-qc-run` and `kids-qc-repair`
-- `qc-check/index.ts` — evidence-based; removes hard-coded scoring
-- `src/pages/admin/KidsAutopilot.tsx` — status badges for new vocabulary
-- New `src/pages/admin/KidsQcReport.tsx` — the report view described in §9
-
-## Rollout order
-
-1. Migrations (bibles, findings, statuses, sellable column).
-2. Shared modules + pdf-preflight + placeholder-hash.
-3. `kids-lock-bibles` + `kids-qc-run` + `kids-qc-repair`.
-4. Rewrite `autopilot-kids-pipeline` state machine.
-5. Admin QC Report UI.
-6. Backfill: re-QC existing kids books, demote placeholders to `human_review_required`.
-
-## Out of scope
-
-- Adult (`ebooks`) pipeline — same engine can be ported later.
-- No new AI provider or key; uses existing Lovable AI Gateway for vision embeddings and rewrites.
-- No permission/`projects:write` changes needed on Lovable Cloud — that error message in your brief refers to an external tooling account, not this project. All changes here run through the standard migration + edge-function tools.
+**ขั้นต่อไป: กรุณาสมัคร Fal.ai และกลับมาบอก แล้วผมจะเปิดฟอร์มขอคีย์ให้ครับ**
