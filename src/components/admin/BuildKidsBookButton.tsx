@@ -80,13 +80,14 @@ export function BuildKidsBookButton({ onStarted }: Props) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="default">
-          <BookOpen className="size-4" /> Build Children Picture Book
+          <BookOpen className="size-4" /> Build Kids Picture Book
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Build Children Picture Book</DialogTitle>
+          <DialogTitle>Build Kids Picture Book</DialogTitle>
         </DialogHeader>
+
 
         <div className="space-y-4">
           <div className="space-y-1">
