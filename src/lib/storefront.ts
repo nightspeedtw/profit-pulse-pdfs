@@ -24,6 +24,7 @@ export interface StorefrontEbook {
   tags: string[] | null;
   sales_count: number;
   listed_at: string | null;
+  preview_images: string[] | null;
 }
 
 

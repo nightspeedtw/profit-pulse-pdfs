@@ -18,7 +18,7 @@ Deno.serve(async (req) => {
 
     let query = supabase
       .from("ebooks")
-      .select("id, title, price, cover_url, store_thumbnail_url, product_description, selling_hook, short_hook, shopping_card_description, long_description, benefit_bullets, key_benefits, who_it_is_for, what_you_get, preview_blurb, category_slug, listing_status, product_type, seo_title, seo_meta, tags, sales_count, listed_at")
+      .select("id, title, price, cover_url, store_thumbnail_url, product_description, selling_hook, short_hook, shopping_card_description, long_description, benefit_bullets, key_benefits, who_it_is_for, what_you_get, preview_blurb, category_slug, listing_status, product_type, seo_title, seo_meta, tags, sales_count, listed_at, inside_illustrations_json")
       .not("listed_at", "is", null)
       .not("pdf_url", "is", null)
       .not("price", "is", null)
@@ -32,7 +32,20 @@ Deno.serve(async (req) => {
 
     const { data, error } = await query;
     if (error) throw error;
-    return new Response(JSON.stringify({ items: data ?? [] }), {
+    const items = (data ?? []).map((row: any) => {
+      const raw = row.inside_illustrations_json;
+      let preview_images: string[] = [];
+      if (raw && typeof raw === "object") {
+        preview_images = Object.entries(raw)
+          .sort(([a], [b]) => Number(a) - Number(b))
+          .map(([, v]: any) => v?.url)
+          .filter((u: any): u is string => typeof u === "string" && u.length > 0)
+          .slice(0, 4);
+      }
+      const { inside_illustrations_json, ...rest } = row;
+      return { ...rest, preview_images };
+    });
+    return new Response(JSON.stringify({ items }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
