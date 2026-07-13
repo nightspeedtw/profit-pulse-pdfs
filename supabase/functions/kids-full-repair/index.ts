@@ -20,6 +20,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { buildScenePlan, renderInteriorIllustrations } from "../_shared/kids-interior.ts";
 import { buildPicturePdf } from "../_shared/kids-picture-pdf.ts";
 import { runKidsStoryJudge } from "../_shared/kids-story-judge.ts";
+import { isReferenceModelAvailable } from "../_shared/kids-image-gen.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -161,11 +162,21 @@ Return JSON:
     ...
   ]
 }`;
+          let raw = "";
+          let usedModel = "";
+          for (const m of ["google/gemini-2.5-flash", "google/gemini-2.5-pro"] as const) {
+            try {
+              raw = await ai(m, rewriteSystem, rewriteUser);
+              if (raw && raw.length > 200) { usedModel = m; break; }
+            } catch (e) {
+              log.push({ step: "story_rewrite_model_try", model: m, error: String((e as Error).message).slice(0, 160) });
+            }
+          }
           try {
-            const raw = await ai("google/gemini-2.5-pro", rewriteSystem, rewriteUser);
+            if (!raw) throw new Error("no rewrite output from any model");
             const parsed = JSON.parse(raw) as { manuscript_md: string; spreads?: Array<Record<string, unknown>>; refrain?: string; premise?: string };
             if (!parsed.manuscript_md || !Array.isArray(parsed.spreads) || parsed.spreads.length < targetIllos - 2) {
-              log.push({ step: "story_rewrite_attempt", attempt, status: "malformed" });
+              log.push({ step: "story_rewrite_attempt", attempt, status: "malformed", model: usedModel, raw_len: raw.length });
               continue;
             }
 
@@ -324,20 +335,35 @@ Return JSON exactly:
         scenes = plan.scenes.slice(0, targetIllos);
       }
 
+      // Probe whether a reference-conditioned image model is available.
+      let strategy: "reference_conditioned" | "unified_text_to_image_family" = "unified_text_to_image_family";
+      const coverUrl = eb3!.cover_url as string | null;
+      if (coverUrl) {
+        try {
+          const avail = await isReferenceModelAvailable(coverUrl);
+          if (avail) strategy = "reference_conditioned";
+        } catch (e) {
+          log.push({ step: "reference_probe_error", error: String((e as Error).message).slice(0, 200) });
+        }
+      }
+      log.push({ step: "image_generation_strategy", strategy });
+
       log.push({ step: "interior_reroll_start", scenes: scenes.length, char: charDesc.slice(0, 160) });
       const records = await renderInteriorIllustrations({
         ebookId: ebook_id, db,
         characterDescription: charDesc,
         styleSuffix: styleParts,
         negativePrompt: "text, watermark, off-model character, wrong outfit, wrong skin tone, wrong hair style, photorealistic, glossy 3d",
-        scenes, startPageNumber: 3, concurrency: 5,
+        scenes, startPageNumber: 3, concurrency: 3,
+        coverReferenceUrl: strategy === "reference_conditioned" ? coverUrl : null,
       });
       await db.from("ebooks_kids").update({
         interior_illustrations: records,
         thumbnail_url: eb3!.cover_url,
         preview_page_urls: records.slice(0, 3).map((r) => r.url),
       }).eq("id", ebook_id);
-      log.push({ step: "interior_reroll_done", count: records.length });
+      const uniqueHashes = new Set(records.map((r) => r.hash)).size;
+      log.push({ step: "interior_reroll_done", count: records.length, unique: uniqueHashes, strategy });
         await persistLog();
     }
 
