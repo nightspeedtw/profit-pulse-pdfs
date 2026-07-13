@@ -4,6 +4,8 @@
 // call fails or the ebook has no cover_url.
 //
 // This function NEVER touches cover_url, pdf_url, manuscript, price, or copy.
+// Kids picture books are the exception for thumbnail fields: their finished
+// hand-painted cover is reused directly as store_thumbnail_url + thumbnail_url.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/stripe.ts";
 import { buildStoreThumbnailSVG, rasterizeThumbnail, qcThumbnail } from "../_shared/store-thumbnail.ts";
@@ -22,6 +24,21 @@ async function log(ebookId: string, step: string, status: string, payload: unkno
       ebook_id: ebookId, step, status, payload: payload as any,
     });
   } catch (_) { /* best-effort */ }
+}
+
+function isKidsPictureBook(input: {
+  title?: string | null;
+  categorySlug?: string | null;
+  categoryName?: string | null;
+  productFormat?: string | null;
+}) {
+  const haystack = [
+    input.title,
+    input.categorySlug,
+    input.categoryName,
+    input.productFormat,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return /kid|kids|child|children|picture\s*book|storybook|illustrated\s*story|nursery|bedtime/.test(haystack);
 }
 
 async function signIfNeeded(rawUrl: string | null | undefined): Promise<string | null> {
@@ -47,7 +64,7 @@ Deno.serve(async (req) => {
 
     const { data: e, error } = await supabase
       .from("ebooks")
-      .select("id, title, subtitle, category_slug, category_id, price, store_thumbnail_url, cover_url, key_benefits, benefit_bullets")
+      .select("id, title, subtitle, category_slug, category_id, price, store_thumbnail_url, cover_url, key_benefits, benefit_bullets, product_format, product_type")
       .eq("id", ebookId)
       .maybeSingle();
     if (error) throw error;
@@ -64,6 +81,42 @@ Deno.serve(async (req) => {
     if (!categorySlug && e.category_id) {
       const { data: cat } = await supabase.from("categories").select("slug").eq("id", e.category_id).maybeSingle();
       categorySlug = cat?.slug ?? null;
+    }
+
+    const { data: category } = e.category_id
+      ? await supabase.from("categories").select("name,slug").eq("id", e.category_id).maybeSingle()
+      : { data: null } as { data: { name?: string | null; slug?: string | null } | null };
+
+    if (isKidsPictureBook({
+      title: e.title,
+      categorySlug: categorySlug ?? category?.slug ?? null,
+      categoryName: category?.name ?? null,
+      productFormat: (e as any).product_format ?? (e as any).product_type ?? null,
+    })) {
+      const coverUrl = await signIfNeeded(e.cover_url);
+      if (!coverUrl) throw new Error("Kids picture books need a finished illustrated cover before creating a storefront thumbnail.");
+      const kidsThumbnailQc = {
+        source: "kids_cover_passthrough",
+        reason: "Use the finished hand-painted children's cover directly; never replace it with a generic book mockup.",
+        scores: {
+          title_readability: 100,
+          cover_integrity: 100,
+          category_fit: 100,
+        },
+      };
+      const { error: updErr } = await supabase.from("ebooks").update({
+        store_thumbnail_url: coverUrl,
+        thumbnail_url: coverUrl,
+        store_thumbnail_qc: kidsThumbnailQc as any,
+        store_thumbnail_generated_at: new Date().toISOString(),
+        thumbnail_needs_review: false,
+        updated_at: new Date().toISOString(),
+      }).eq("id", ebookId);
+      if (updErr) throw updErr;
+      await log(ebookId, "store_thumbnail.render", "completed", { source: "kids_cover_passthrough", url: coverUrl });
+      return new Response(JSON.stringify({ ok: true, ebook_id: ebookId, url: coverUrl, source: "kids_cover_passthrough", skipped_mockup: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     await log(ebookId, "store_thumbnail.render", "started", { categorySlug, has_cover: !!e.cover_url });
