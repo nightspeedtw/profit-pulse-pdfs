@@ -246,9 +246,26 @@ Deno.serve(async (req) => {
       bonus_section: (ebook.bonus_section_json as any) ?? defaultBonusSection(outline.bonuses),
     };
 
-    const html = buildPdfHtml(data);
-    const headerTpl = buildHeaderTemplate("SECRET PDF", ebook.title);
-    const footerTpl = buildFooterTemplate();
+    // Kids picture books use a completely different layout: square trim,
+    // one spread per chapter (illustration + storybook text), no worksheets /
+    // action plan / bonus / running header / page numbers. Strip business
+    // fields so nothing bleeds through into the storybook.
+    if (kidsBook) {
+      data.action_plan = null;
+      data.bonus_section = null;
+      data.bonuses = null;
+      data.chapters = data.chapters.map((c) => ({
+        ...c,
+        worksheet: null,
+        checklist: null,
+        diagram: null,
+        callouts: [],
+      }));
+    }
+
+    const html = kidsBook ? buildKidsPictureBookHtml(data) : buildPdfHtml(data);
+    const headerTpl = kidsBook ? "<div></div>" : buildHeaderTemplate("SECRET PDF", ebook.title);
+    const footerTpl = kidsBook ? "<div></div>" : buildFooterTemplate();
 
     // ---- Render via Browserless ----
     const token = Deno.env.get("BROWSERLESS_TOKEN");
