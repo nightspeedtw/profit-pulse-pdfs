@@ -5,6 +5,11 @@ import { corsHeaders, admin, aiJSON, logCost, requireAdmin } from "../_shared/ai
 import { buildCoverSVG, rasterizeSVG, type CoverSpec } from "../_shared/cover.ts";
 import { computeQcGates } from "../_shared/qc-gates.ts";
 import { resolveStyleProfile, stylePromptClause } from "../_shared/thumbnail-style-system.ts";
+import {
+  isKidsPictureBook as isKidsPictureBookShared,
+  getOrBuildKidsVisualBible,
+  kidsIllustrationPrompt,
+} from "../_shared/kids-visual-bible.ts";
 
 type EbookRow = {
   id: string; title: string; subtitle: string | null;
@@ -16,9 +21,13 @@ type EbookRow = {
   category_id: string | null;
 };
 
-function isKidsPictureBook(input: { title?: string | null; category?: string | null }) {
-  const haystack = [input.title, input.category].filter(Boolean).join(" ").toLowerCase();
-  return /kid|kids|child|children|picture\s*book|storybook|illustrated\s*story|nursery|bedtime/.test(haystack);
+function isKidsPictureBook(input: { title?: string | null; category?: string | null; subtitle?: string | null; hook?: string | null }) {
+  return isKidsPictureBookShared({
+    title: input.title,
+    subtitle: input.subtitle,
+    category: input.category,
+    hook: input.hook,
+  });
 }
 
 const COVER_DESIGNER_SYSTEM = `You are a world-class ebook cover designer, premium brand strategist, buyer psychology expert, and conversion-focused digital product marketer for USA Shopify.
@@ -624,7 +633,22 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
           r.includes("category_fit") || r.includes("ai_text_errors") ||
           r.includes("premium_feel"));
         if (bgFailure || !bgBytes) {
-          const bg = await generateBackgroundPNG(spec.background_image_prompt_no_text || ebook.cover_prompt || `Premium editorial cover for "${ebook.title}"`, styleRef);
+          // Kids picture books: swap the finance-template prompt for a
+          // bible-locked storybook prompt so the cover character matches the
+          // interior illustrations (same species, fur, outfit, art medium).
+          let bgPrompt = spec.background_image_prompt_no_text || ebook.cover_prompt || `Premium editorial cover for "${ebook.title}"`;
+          if (isKidsCover) {
+            const bible = await getOrBuildKidsVisualBible({
+              ebook_id,
+              existing: (ebook as unknown as { kids_visual_bible?: unknown }).kids_visual_bible,
+              title: ebook.title,
+              subtitle: ebook.subtitle,
+              target_buyer: ebook.target_buyer,
+              hook: ebook.hook,
+            });
+            bgPrompt = kidsIllustrationPrompt(bible, "front cover hero scene: the primary character in a signature story moment, warm afternoon light, storybook charm, cinematic composition", { role: "cover", reservedZone: "top third" });
+          }
+          const bg = await generateBackgroundPNG(bgPrompt, styleRef);
           totalCost += bg.cost;
           bgBytes = bg.bytes;
           const { error } = await db.storage.from("ebook-covers").upload(bgPath, bgBytes, { contentType: "image/png", upsert: true });
@@ -783,7 +807,7 @@ Deno.serve(async (req) => {
     const resolvedMode: CoverMode = mode ?? (regenerate_spec === false ? "background" : "full");
 
     const { data: e } = await db.from("ebooks")
-      .select("id,title,subtitle,target_buyer,hook,product_description,cover_prompt,cost_usd,status,qc,cover_spec,category_id")
+      .select("id,title,subtitle,target_buyer,hook,product_description,cover_prompt,cost_usd,status,qc,cover_spec,category_id,kids_visual_bible")
       .eq("id", ebook_id).single();
     if (!e) throw new Error("Ebook not found");
 

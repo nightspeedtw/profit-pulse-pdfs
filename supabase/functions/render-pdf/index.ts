@@ -26,7 +26,11 @@ import {
   type PdfQcReport,
 } from "../_shared/pdf-qc.ts";
 import { lintChapters } from "../_shared/compliance.ts";
-import { planIllustrations, type IllustrationPlan } from "../_shared/illustration-planner.ts";
+import { planIllustrations, planKidsIllustrations, type IllustrationPlan } from "../_shared/illustration-planner.ts";
+import {
+  isKidsPictureBook, getOrBuildKidsVisualBible, generateSceneBriefs,
+  kidsIllustrationPrompt, type KidsVisualBible,
+} from "../_shared/kids-visual-bible.ts";
 import { logRun } from "../_shared/qc.ts";
 import {
   LOCK_PDF, tryAcquireLock, releaseLock, browserlessBackoffAt,
@@ -118,24 +122,63 @@ Deno.serve(async (req) => {
       // medium (food photography for cooking, athletic photography for
       // fitness, etc.) rather than the default abstract minimalist look.
       let categorySlug: string | null = null;
+      let categoryName: string | null = null;
       if (ebook.category_id) {
-        const { data: cat } = await db.from("categories").select("slug").eq("id", ebook.category_id).maybeSingle();
+        const { data: cat } = await db.from("categories").select("slug,name").eq("id", ebook.category_id).maybeSingle();
         categorySlug = cat?.slug ?? null;
+        categoryName = cat?.name ?? null;
       }
       const existingPlan = ebook.inside_illustration_plan_json as IllustrationPlan | null;
       const existingImages = (ebook.inside_illustrations_json ?? {}) as Record<string, { url: string; caption: string }>;
-      plan = (existingPlan?.entries?.length && (existingPlan.total_recommended ?? 0) > 0)
-        ? existingPlan
-        : planIllustrations(chapters.map((c: any, i: number) => ({
-            index: c.chapter_index ?? (i + 1),
-            title: c.title ?? `Chapter ${i + 1}`,
-            content: c.content ?? "",
-          })), categorySlug);
+
+      const kidsBook = isKidsPictureBook({
+        title: ebook.title,
+        subtitle: ebook.subtitle,
+        category: categoryName,
+        category_slug: categorySlug,
+        hook: ebook.hook,
+      });
+
+      if (kidsBook) {
+        // Bible-locked, character-consistent picture-book illustrations.
+        const bible: KidsVisualBible = await getOrBuildKidsVisualBible({
+          ebook_id: ebookId,
+          existing: ebook.kids_visual_bible,
+          title: ebook.title,
+          subtitle: ebook.subtitle,
+          target_buyer: ebook.target_buyer,
+          hook: ebook.hook,
+          chapters: chapters.map((c: any) => ({ title: c.title, content: c.content })),
+        });
+        const chapterInputs = chapters.map((c: any, i: number) => ({
+          index: c.chapter_index ?? (i + 1),
+          title: c.title ?? `Chapter ${i + 1}`,
+          content: c.content ?? "",
+        }));
+        const existingBriefs = (ebook.kids_scene_briefs_json ?? {}) as Record<string, string>;
+        const hasAllBriefs = chapterInputs.every((c) => existingBriefs[String(c.index)]);
+        const briefs = hasAllBriefs
+          ? Object.fromEntries(Object.entries(existingBriefs).map(([k, v]) => [Number(k), v]))
+          : await generateSceneBriefs({ ebook_id: ebookId, bible, chapters: chapterInputs });
+        plan = planKidsIllustrations(
+          chapterInputs,
+          briefs,
+          (sceneBrief) => kidsIllustrationPrompt(bible, sceneBrief, { role: "interior" }),
+        );
+      } else {
+        plan = (existingPlan?.entries?.length && (existingPlan.total_recommended ?? 0) > 0)
+          ? existingPlan
+          : planIllustrations(chapters.map((c: any, i: number) => ({
+              index: c.chapter_index ?? (i + 1),
+              title: c.title ?? `Chapter ${i + 1}`,
+              content: c.content ?? "",
+            })), categorySlug);
+      }
 
       // Reuse existing images where present; generate the rest in small
       // parallel batches so we stay under the edge function's memory + time
       // budget. Also cap total new generations at 8 per render.
-      const toGenerate = plan.entries.filter((e) => e.recommendation !== "none").slice(0, 8);
+      const toGenerate = plan.entries.filter((e) => e.recommendation !== "none").slice(0, kidsBook ? 24 : 8);
       const CONCURRENCY = 3;
       for (let i = 0; i < toGenerate.length; i += CONCURRENCY) {
         const batch = toGenerate.slice(i, i + CONCURRENCY);
@@ -156,6 +199,7 @@ Deno.serve(async (req) => {
     } catch (err) {
       console.warn("illustration planner failed:", (err as Error).message);
     }
+
 
     // ---- Assemble PDF data ----
     const outline = (ebook.outline_json ?? {}) as any;

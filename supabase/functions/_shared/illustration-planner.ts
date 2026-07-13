@@ -155,3 +155,30 @@ export function planIllustrations(
     strategy: `Category-aware planner (${categorySlug ?? "generic"}): added ${total} illustration${total === 1 ? "" : "s"} where chapters are ≥45 density and ≥1200 chars. Max 1 per chapter, no-text image prompts, HTML/SVG labels only.`,
   };
 }
+
+/**
+ * Kids picture-book planner: one full-scene illustration per chapter driven by
+ * the shared Visual Bible so every image locks the same character + art style.
+ */
+export function planKidsIllustrations(
+  chapters: { index: number; title: string; content: string }[],
+  sceneBriefs: Record<number, string>,
+  buildPrompt: (sceneBrief: string) => string,
+): IllustrationPlan {
+  const entries: IllustrationPlanEntry[] = chapters.map((c) => {
+    const brief = sceneBriefs[c.index] ?? c.title;
+    return {
+      chapter_index: c.index,
+      chapter_title: c.title,
+      text_density_score: 100,
+      recommendation: "conceptual",
+      caption: c.title,
+      prompt: buildPrompt(brief),
+    };
+  });
+  return {
+    entries,
+    total_recommended: entries.length,
+    strategy: `Kids picture-book planner: one bible-locked scene illustration per chapter (${entries.length} total). Character + art style repeated verbatim in every prompt.`,
+  };
+}
