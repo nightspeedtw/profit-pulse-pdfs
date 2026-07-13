@@ -1,79 +1,65 @@
-## Why the kids cover/thumbnail comes out wrong
+# Kids Isolation + Weighted Autopilot + English-Only
 
-I traced the pipeline. The kids track was **half-decoupled** — the character/illustration is bible-locked, but the cover then gets composited through the adult template and QC'd with the adult rubric. Result: the AI paints a beautiful hero illustration, then the app wraps it in a near-black finance-book chrome (EBOOK chip, condensed uppercase sans title, hairline rules, 4 feature chips) and passes that same file through as the storefront thumbnail. It doesn't look like a picture book at all — and when QC judges it against the adult rubric, it either fails ("no hierarchy", "no accent chips") or passes but ships something off-brand.
+## 1. Separate Kids backend (tables + functions)
 
-Concretely, in `supabase/functions/generate-cover/index.ts`:
+New tables (mirror of adult schema, kids-only fields):
+- `ebooks_kids` — id, title, subtitle, description, status, listing_status, age_group_id → `kids_age_groups`, theme_ids uuid[] → `kids_themes`, cover_url, pdf_url, storefront_meta jsonb, price_cents, all pipeline flags (locked, pipeline_status enum), timestamps
+- `autopilot_kids_runs` — mirror of `autopilot_pipeline_runs` scoped to `ebook_kids_id`
+- `autopilot_kids_steps` — mirror of `autopilot_pipeline_steps`
+- `kids_production_queue` — mirror of production_queue
+- `kids_download_grants` — mirror of download_grants (references ebooks_kids)
+- Full GRANTs + RLS + admin-only policies via `has_role('admin')`
 
-- Lines ~640–652: kids branch swaps only the **background prompt** to the visual-bible-locked illustration.
-- Line 685: `buildCoverSVG(spec, bgBytes)` — always the adult template. There is no kids equivalent.
-- Line 690: `renderThumbnail(spec, bgBytes, coverPng, styleRef)` — always the adult book-mockup renderer.
-- Line 697+: `COVER_QC_SYSTEM` — adult rubric.
+New/renamed edge functions (Kids namespace, isolated from adult):
+- `autopilot-kids-orchestrator` — kids-only tick, reads `generation_settings` kids block
+- `autopilot-kids-pipeline` — step runner writing to `autopilot_kids_runs/_steps`
+- `autopilot-kids-cover`, `autopilot-kids-pdf`, `autopilot-kids-qc`, `autopilot-kids-publish` — split concerns
+- `autopilot-kids-idea` — picks category per weighted-demand policy (see §2)
+- Keep existing `rewrite-kids-manuscript` but rewire to `ebooks_kids`
+- Adult functions no longer touch kids rows (guard clauses)
 
-And `generate-store-thumbnail/index.ts` (line ~96): the kids passthrough reads `cover_url`, which is the adult-styled composite — so the storefront thumbnail inherits the same problem. `_shared/covers/kids-cover.ts` and `_shared/thumbnails/kids-thumbnail.ts` are style-hint constants that nothing actually consumes.
+Frontend split:
+- New route `/admin/kids` with its own Dashboard, Production, Autopilot, Store tabs
+- Adult admin never lists kids books
+- Public storefront: separate `/kids` catalog reading `ebooks_kids`
 
-Nimble's book is stuck at `listing_status=draft` for the same reason: cover step produces something that fails the QC gate under mismatched rules and the run halts.
+## 2. Autopilot categories — weighted by demand
 
-## The fix — finish the kids-track separation for the visual layer
+- New table `kids_category_weights (id, age_group_id, theme_id, weight int, sales_last_30d int, updated_at)` unique per (age, theme)
+- Admin UI grid: rows = age groups, columns = themes; edit weight 0-100 per cell; button "Recompute from sales" pulls order_items → increments `sales_last_30d`, sets weight = base + f(sales)
+- Kids orchestrator idea picker: weighted-random sample from weights > 0 to choose age_group + theme, then generate
 
-### 1. Dedicated kids cover renderer
+Admin UI at `/admin/kids/autopilot`:
+- Toggle: kids autopilot on/off
+- Weight matrix editor
+- "Rotate all evenly" fallback toggle when no sales data
 
-Add `supabase/functions/_shared/covers/kids-cover-render.ts` that builds a real picture-book cover:
+## 3. English-only across the site
 
-- 1600×1600 square (industry standard for children's ebooks), NOT 2:3 hardcover.
-- Full-bleed hero illustration from the visual bible — no black field, no chips, no hairline rules, no "EBOOK" tag.
-- Title overlay: hand-lettered rounded storybook display face, warm cream fill with soft drop shadow, positioned in the reserved zone the illustration prompt already leaves (top third).
-- Optional small subtitle (age range) in the bottom-right in the same family, muted.
-- Palette pulled from `kids_visual_bible.color_palette` — never the finance gold/cyan accents.
-- Same `buildCoverSVG` → `rasterizeSVG` shape so nothing downstream changes API-wise, but the SVG structure is completely different.
+Sweep Thai text out of:
+- All `src/pages/**`, `src/components/**`, storefront pages, admin panels
+- Category names in DB (`kids_age_groups.label_th`, `kids_themes.label_th`) → replace usage with `label_en`; add `label_en` columns if missing
+- Toast messages, button labels, empty states, error messages
+- Meta/SEO tags in `index.html`
+- `<html lang="th">` → `lang="en"`
 
-### 2. Kids compose branch in `generate-cover`
+Automated pass: grep for Thai unicode block `[\u0E00-\u0E7F]` across src/ and rewrite each occurrence to English. Preserve semantics (e.g. "ทุกช่วงวัย" → "All ages").
 
-In `index.ts` around lines 619–695:
+## Order of execution
 
-- After `spec` is built, when `isKidsCover === true`, skip the adult spec normalization (feature chips, accent_key, EBOOK chip, black palette) and load the visual bible.
-- Call the new `buildKidsCoverSVG(bible, ebook.title, ebook.subtitle)` instead of `buildCoverSVG(spec, bgBytes)`.
-- Rasterize as usual and upload to `cover.png`.
-- Store a simplified `cover_spec` that reflects what was rendered (title, palette, style_id, bible_id) so the admin UI shows something meaningful.
+1. Migration A: create kids tables, weights table, add `label_en` columns
+2. Migration B: seed English labels for existing age groups + themes
+3. Deploy new kids edge functions; keep old kids functions as thin adapters temporarily
+4. Build `/admin/kids` shell + route
+5. Weight matrix UI + recompute action
+6. English sweep (last so no rework)
+7. Verify build with `tsgo`; smoke via curl on `autopilot-kids-orchestrator`
 
-### 3. Kids thumbnail — render a real cover file, don't reuse the raw background
+## Technical notes
 
-Two changes:
+- Kids uses **its own** `generation_settings` row (id=2) so guardrails are independent
+- pipeline_status enum extended with kids-specific values if needed
+- All new tables: `GRANT SELECT,INSERT,UPDATE,DELETE ... TO authenticated; GRANT ALL ... TO service_role;` policies use `has_role(auth.uid(),'admin')`
+- Public read policy on `ebooks_kids WHERE listing_status='live'` for storefront (anon SELECT)
 
-- In `generate-cover`, when kids, also write the same square composited cover to `thumbnail.png` (skip `renderThumbnail`'s adult book-mockup entirely — it would break the storybook feel).
-- In `generate-store-thumbnail`, the passthrough already picks up `cover_url`; that now points at the properly composed kids cover, so `store_thumbnail_url` finally matches. No logic change needed beyond confirming the branch is hit (the current regex `kid|children|picture book|storybook…` already matches "Digital Picture Book (PDF)").
-
-### 4. Kids QC gate at composition time
-
-Replace the adult `COVER_QC_SYSTEM` call for kids with a small kids rubric (already scaffolded in `_shared/qc/kids.ts`) scoring:
-
-- character_consistency_with_bible ≥ 95
-- illustration_style_match ≥ 95
-- title_readable_on_illustration ≥ 90
-- palette_matches_bible ≥ 95
-- no_adult_chrome (no chips, no black field, no hairlines) = 100 (hard gate)
-- thumbnail_appeal_at_160px ≥ 90
-
-Auto-fix loop stays at max 3 attempts. Failure reasons feed back into either the illustration prompt (character/style drift → regenerate bg only) or the SVG overlay (title unreadable → shift zone/increase size).
-
-### 5. Recover the Nimble book
-
-Once the code is in, re-run `autopilot-kids` on `a0b0b35a-c06f-4e1c-ad0b-b98d4723697f` with `mode: "full"`. It's idempotent — manuscript stays, only cover + thumbnail regenerate and it advances to Shopify draft → publish live.
-
-### Files changed
-
-```text
-supabase/functions/_shared/covers/kids-cover-render.ts   (new — SVG builder)
-supabase/functions/_shared/qc/kids-cover-qc.ts           (new — 6-dim rubric + gate)
-supabase/functions/generate-cover/index.ts               (kids branch: skip adult template + QC)
-supabase/functions/generate-store-thumbnail/index.ts     (confirm passthrough picks up new cover)
-supabase/functions/_shared/covers/kids-cover.ts          (delete — replaced by renderer above)
-supabase/functions/_shared/thumbnails/kids-thumbnail.ts  (delete — passthrough is enough)
-```
-
-### Non-goals for this pass
-
-- Not touching the adult cover/thumbnail path.
-- Not changing the visual bible or manuscript logic — the illustration itself is already good; only the compositing was wrong.
-- No DB migration.
-
-Want me to build it?
+Confirm and I'll execute in the above order.
