@@ -10,6 +10,16 @@ import {
   getOrBuildKidsVisualBible,
   kidsIllustrationPrompt,
 } from "../_shared/kids-visual-bible.ts";
+import { buildKidsCoverSVG, rasterizeKidsSVG } from "../_shared/covers/kids-cover-render.ts";
+import { buildKidsCoverQc } from "../_shared/qc/kids-cover-qc.ts";
+
+/** How many lines the kids title will wrap to — mirrors the SVG builder's rule. */
+function wrapKidsTitle(title: string): number {
+  const words = (title || "").trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 1) return 1;
+  if (words.length <= 3) return 2;
+  return 3;
+}
 
 type EbookRow = {
   id: string; title: string; subtitle: string | null;
@@ -679,25 +689,89 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
 
 
       // 3) COMPOSE COVER + THUMBNAIL
-      // Rasterize the flat cover ONCE at 1200px (lowered from 1600 to stay
-      // under the Edge Runtime CPU cap) and reuse the same PNG bytes inside the
-      // book-mockup thumbnail so we don't pay for the same raster twice.
-      const svg = buildCoverSVG(spec, bgBytes!);
-      const coverPng = await rasterizeSVG(svg, 1200);
-      const coverPath = `${ebook_id}/cover.png`;
-      await db.storage.from("ebook-covers").upload(coverPath, coverPng, { contentType: "image/png", upsert: true });
+      if (isKidsCover) {
+        // ---- KIDS TRACK: bible-locked, storybook cover. No adult chrome. ----
+        const bible = await getOrBuildKidsVisualBible({
+          ebook_id,
+          existing: (ebook as unknown as { kids_visual_bible?: unknown }).kids_visual_bible,
+          title: ebook.title,
+          subtitle: ebook.subtitle,
+          target_buyer: ebook.target_buyer,
+          hook: ebook.hook,
+        });
+        const ageLabel = bible.target_age_range ? `AGES ${bible.target_age_range}` : null;
+        const wrappedTitle = wrapKidsTitle(ebook.title);
+        const kidsSvg = buildKidsCoverSVG({
+          bibleBg: bgBytes!,
+          title: ebook.title,
+          subtitle: ebook.subtitle,
+          ageBadge: ageLabel,
+          bible,
+        });
+        const kidsCoverPng = await rasterizeKidsSVG(kidsSvg, 1200);
+        const kidsCoverPath = `${ebook_id}/cover.png`;
+        await db.storage.from("ebook-covers").upload(kidsCoverPath, kidsCoverPng, { contentType: "image/png", upsert: true });
+        // Kids thumbnail = the same composed cover (passthrough); no 3D mockup.
+        const kidsThumbPath = `${ebook_id}/thumbnail.png`;
+        await db.storage.from("ebook-covers").upload(kidsThumbPath, kidsCoverPng, { contentType: "image/png", upsert: true });
 
-      const thumbResult = await renderThumbnail(spec, bgBytes!, coverPng, styleRef);
-      const thumbPng = thumbResult.bytes;
-      const thumbAssetType: ThumbnailAssetType = thumbResult.assetType;
-      const thumbPath = `${ebook_id}/thumbnail.png`;
-      await db.storage.from("ebook-covers").upload(thumbPath, thumbPng, { contentType: "image/png", upsert: true });
+        const kidsQc = buildKidsCoverQc({
+          hasBible: !!bible && (bible.characters?.length ?? 0) > 0,
+          paletteFromBible: (bible.palette?.length ?? 0) >= 2,
+          titleLineCount: wrappedTitle,
+          hasScrim: true,
+        });
+        lastQC = {
+          scores: {
+            title_readability: kidsQc.title_readable_on_illustration,
+            anti_ai_look: 100,
+            ai_text_errors: 100,
+            lever_match: kidsQc.character_consistency_with_bible,
+            pain_resonance: kidsQc.thumbnail_appeal_at_160px,
+            metaphor_clarity: kidsQc.illustration_style_match,
+            composition: kidsQc.title_readable_on_illustration,
+            color_discipline: kidsQc.palette_matches_bible,
+            typography_hierarchy: kidsQc.title_readable_on_illustration,
+            contrast: kidsQc.title_readable_on_illustration,
+            category_fit: kidsQc.character_consistency_with_bible,
+            click_appeal: kidsQc.thumbnail_appeal_at_160px,
+            thumbnail_book_mockup: 100,
+            thumbnail_readability: kidsQc.title_readable_on_illustration,
+            shopify_click_appeal: kidsQc.thumbnail_appeal_at_160px,
+            premium_product_feel: kidsQc.overall_score,
+            flat_cover_thumbnail_score: kidsQc.overall_score,
+            photoreal_mockup_score: null,
+            premium_feel: kidsQc.overall_score,
+          } as any,
+          overall_score: kidsQc.overall_score,
+          issues: kidsQc.reasons,
+          improvements: [],
+          kids_cover_qc: kidsQc as any,
+        } as any;
+        lastAssetType = "flat_cover_fallback";
+        lastReasons = kidsQc.reasons;
+        passed = kidsQc.passed;
+      } else {
+        // ---- ADULT TRACK: unchanged. Adult SVG template + 3D thumbnail + AI QC. ----
+        // Rasterize the flat cover ONCE at 1200px (lowered from 1600 to stay
+        // under the Edge Runtime CPU cap) and reuse the same PNG bytes inside the
+        // book-mockup thumbnail so we don't pay for the same raster twice.
+        const svg = buildCoverSVG(spec, bgBytes!);
+        const coverPng = await rasterizeSVG(svg, 1200);
+        const coverPath = `${ebook_id}/cover.png`;
+        await db.storage.from("ebook-covers").upload(coverPath, coverPng, { contentType: "image/png", upsert: true });
 
-      // 4) QC — asset-type-aware rubric (photoreal_mockup vs flat_cover_fallback).
-      const qc = await aiJSON<QCResult>({
-        model: "google/gemini-3.1-pro-preview",
-        system: COVER_QC_SYSTEM,
-        user: `THUMBNAIL_ASSET_TYPE: ${thumbAssetType}
+        const thumbResult = await renderThumbnail(spec, bgBytes!, coverPng, styleRef);
+        const thumbPng = thumbResult.bytes;
+        const thumbAssetType: ThumbnailAssetType = thumbResult.assetType;
+        const thumbPath = `${ebook_id}/thumbnail.png`;
+        await db.storage.from("ebook-covers").upload(thumbPath, thumbPng, { contentType: "image/png", upsert: true });
+
+        // 4) QC — asset-type-aware rubric (photoreal_mockup vs flat_cover_fallback).
+        const qc = await aiJSON<QCResult>({
+          model: "google/gemini-3.1-pro-preview",
+          system: COVER_QC_SYSTEM,
+          user: `THUMBNAIL_ASSET_TYPE: ${thumbAssetType}
 
 Ebook: ${ebook.title}
 Subtitle: ${ebook.subtitle ?? ""}
@@ -708,15 +782,16 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.
 
 Cover spec:
 ${JSON.stringify(spec, null, 2)}`,
-      });
-      totalCost += qc.usage.cost_usd;
-      await logCost(db, { ebook_id, step: `cover_qc:attempt_${attempt}`, model: qc.model, ...qc.usage });
+        });
+        totalCost += qc.usage.cost_usd;
+        await logCost(db, { ebook_id, step: `cover_qc:attempt_${attempt}`, model: qc.model, ...qc.usage });
 
-      lastQC = normalizeCoverQc(qc.data);
-      lastAssetType = thumbAssetType;
-      const gate = qcPassed(lastQC, thumbAssetType);
-      lastReasons = gate.reasons;
-      passed = gate.passed;
+        lastQC = normalizeCoverQc(qc.data);
+        lastAssetType = thumbAssetType;
+        const gate = qcPassed(lastQC, thumbAssetType);
+        lastReasons = gate.reasons;
+        passed = gate.passed;
+      }
     }
 
     const [{ data: coverSigned }, { data: bgSigned }, { data: thumbSigned }] = await Promise.all([

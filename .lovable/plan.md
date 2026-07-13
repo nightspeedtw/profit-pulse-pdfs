@@ -1,116 +1,79 @@
+## Why the kids cover/thumbnail comes out wrong
 
-# แยกระบบสร้าง Ebook: Kids Track vs Adult Track
+I traced the pipeline. The kids track was **half-decoupled** — the character/illustration is bible-locked, but the cover then gets composited through the adult template and QC'd with the adult rubric. Result: the AI paints a beautiful hero illustration, then the app wraps it in a near-black finance-book chrome (EBOOK chip, condensed uppercase sans title, hairline rules, 4 feature chips) and passes that same file through as the storefront thumbnail. It doesn't look like a picture book at all — and when QC judges it against the adult rubric, it either fails ("no hierarchy", "no accent chips") or passes but ships something off-brand.
 
-ตอนนี้ backend มีแค่ guard (`is-kids-book.ts`) กันไม่ให้ pipeline ผู้ใหญ่ทับหนังสือเด็ก แต่ logic กระจายอยู่ทั่วและ track เด็กยังไม่มี orchestrator ของตัวเอง แผนนี้แยกให้ชัดเจนทั้ง 4 ชั้น (Prompts + Outline / QC / Pipeline steps / Cover+Thumbnail) โดยใช้ **category_slug** เป็นตัวกำหนด track อัตโนมัติ
+Concretely, in `supabase/functions/generate-cover/index.ts`:
 
-## 1. Track Registry (แกนกลาง)
+- Lines ~640–652: kids branch swaps only the **background prompt** to the visual-bible-locked illustration.
+- Line 685: `buildCoverSVG(spec, bgBytes)` — always the adult template. There is no kids equivalent.
+- Line 690: `renderThumbnail(spec, bgBytes, coverPng, styleRef)` — always the adult book-mockup renderer.
+- Line 697+: `COVER_QC_SYSTEM` — adult rubric.
 
-สร้างไฟล์ `supabase/functions/_shared/track-registry.ts` เป็นแหล่งความจริงเดียว:
+And `generate-store-thumbnail/index.ts` (line ~96): the kids passthrough reads `cover_url`, which is the adult-styled composite — so the storefront thumbnail inherits the same problem. `_shared/covers/kids-cover.ts` and `_shared/thumbnails/kids-thumbnail.ts` are style-hint constants that nothing actually consumes.
 
-```text
-TRACKS = {
-  kids:  { slugs: ["parenting-kids"], product_types: ["kids-book","picture-book"] },
-  adult: { slugs: [<19 slugs ที่เหลือ>],  fallback: true }
-}
+Nimble's book is stuck at `listing_status=draft` for the same reason: cover step produces something that fails the QC gate under mismatched rules and the run halts.
 
-resolveTrack(ebook|idea) -> "kids" | "adult"
-  ├─ ถ้ามี kids_visual_bible / kids_scene_briefs_json → kids
-  ├─ match product_type → track
-  ├─ match category_slug → track
-  └─ default → adult
-```
+## The fix — finish the kids-track separation for the visual layer
 
-แทนที่ `isKidsBook()` เดิม (ยังคง export ไว้เพื่อ backward-compat แต่ให้เรียก `resolveTrack() === "kids"`)
+### 1. Dedicated kids cover renderer
 
-## 2. แยก Prompts + Outline Schema
+Add `supabase/functions/_shared/covers/kids-cover-render.ts` that builds a real picture-book cover:
 
-```text
-supabase/functions/_shared/
-├── prompts/
-│   ├── adult.ts     (ย้าย HARDSELL_COPYWRITER_SYSTEM, PREMIUM_WRITER_SYSTEM เดิม)
-│   └── kids.ts      (kids storyteller system + storybook consistency rules)
-└── outlines/
-    ├── adult-outline.ts  (10-chapter TOC + bonuses schema เดิม)
-    └── kids-outline.ts   (story bible + page-by-page storyboard schema)
-```
+- 1600×1600 square (industry standard for children's ebooks), NOT 2:3 hardcover.
+- Full-bleed hero illustration from the visual bible — no black field, no chips, no hairline rules, no "EBOOK" tag.
+- Title overlay: hand-lettered rounded storybook display face, warm cream fill with soft drop shadow, positioned in the reserved zone the illustration prompt already leaves (top third).
+- Optional small subtitle (age range) in the bottom-right in the same family, muted.
+- Palette pulled from `kids_visual_bible.color_palette` — never the finance gold/cyan accents.
+- Same `buildCoverSVG` → `rasterizeSVG` shape so nothing downstream changes API-wise, but the SVG structure is completely different.
 
-## 3. แยก QC Gates
+### 2. Kids compose branch in `generate-cover`
 
-```text
-supabase/functions/_shared/qc/
-├── adult.ts   (topicGate, outlineGate, chapterGate, productCopyGate, publishGate)
-└── kids.ts    (character_consistency ≥95, illustration_style ≥95,
-                story_continuity ≥95, age_appropriateness ≥95,
-                cover_to_interior_match ≥95)
-```
+In `index.ts` around lines 619–695:
 
-Threshold + prompt QC ของแต่ละ track แยกกันชัด ไม่ปนกัน
+- After `spec` is built, when `isKidsCover === true`, skip the adult spec normalization (feature chips, accent_key, EBOOK chip, black palette) and load the visual bible.
+- Call the new `buildKidsCoverSVG(bible, ebook.title, ebook.subtitle)` instead of `buildCoverSVG(spec, bgBytes)`.
+- Rasterize as usual and upload to `cover.png`.
+- Store a simplified `cover_spec` that reflects what was rendered (title, palette, style_id, bible_id) so the admin UI shows something meaningful.
 
-## 4. แยก Pipeline Orchestrator
+### 3. Kids thumbnail — render a real cover file, don't reuse the raw background
 
-```text
-supabase/functions/
-├── autopilot-orchestrator/   ← เดิม แต่ refactor เป็น "router only"
-│   └── route ตาม resolveTrack() → เรียก sub-orchestrator ที่ถูก track
-├── autopilot-adult/          ← ย้าย logic เดิมทั้งหมดมาที่นี่
-│   (topic QC → outline → chapters → editorial QC → copy → cover → shopify → publish)
-└── autopilot-kids/           ← สร้างใหม่
-    (story bible → manuscript → visual bible → per-spread illustrations →
-     kids QC gates → kids cover → shopify draft → publish)
-```
+Two changes:
 
-ทุก step function (`generate-outline`, `write-chapters`, `qc-fix`, `generate-cover`, `generate-store-thumbnail`) เปลี่ยน guard จาก `isKidsBook → kidsGuardResponse` เป็น:
-- ถ้า track ไม่ตรง → return `{ skipped: true, reason: "wrong-track", expected, got }`
-- ทำให้ track ผู้ใหญ่จะไม่ยิงเข้าเล่มเด็ก **และ** track เด็กจะไม่ยิงเข้าเล่มผู้ใหญ่ (ป้องกันทั้งสองทาง)
+- In `generate-cover`, when kids, also write the same square composited cover to `thumbnail.png` (skip `renderThumbnail`'s adult book-mockup entirely — it would break the storybook feel).
+- In `generate-store-thumbnail`, the passthrough already picks up `cover_url`; that now points at the properly composed kids cover, so `store_thumbnail_url` finally matches. No logic change needed beyond confirming the branch is hit (the current regex `kid|children|picture book|storybook…` already matches "Digital Picture Book (PDF)").
 
-## 5. แยก Cover + Thumbnail Style
+### 4. Kids QC gate at composition time
+
+Replace the adult `COVER_QC_SYSTEM` call for kids with a small kids rubric (already scaffolded in `_shared/qc/kids.ts`) scoring:
+
+- character_consistency_with_bible ≥ 95
+- illustration_style_match ≥ 95
+- title_readable_on_illustration ≥ 90
+- palette_matches_bible ≥ 95
+- no_adult_chrome (no chips, no black field, no hairlines) = 100 (hard gate)
+- thumbnail_appeal_at_160px ≥ 90
+
+Auto-fix loop stays at max 3 attempts. Failure reasons feed back into either the illustration prompt (character/style drift → regenerate bg only) or the SVG overlay (title unreadable → shift zone/increase size).
+
+### 5. Recover the Nimble book
+
+Once the code is in, re-run `autopilot-kids` on `a0b0b35a-c06f-4e1c-ad0b-b98d4723697f` with `mode: "full"`. It's idempotent — manuscript stays, only cover + thumbnail regenerate and it advances to Shopify draft → publish live.
+
+### Files changed
 
 ```text
-supabase/functions/_shared/covers/
-├── adult-cover.ts       (typographic hard-sell, current template)
-└── kids-cover.ts        (illustrated cover + character reference lock)
-
-supabase/functions/_shared/thumbnails/
-├── adult-thumbnail.ts   (book mockup with perspective — เดิม)
-└── kids-thumbnail.ts    (soft frame + illustration-forward)
+supabase/functions/_shared/covers/kids-cover-render.ts   (new — SVG builder)
+supabase/functions/_shared/qc/kids-cover-qc.ts           (new — 6-dim rubric + gate)
+supabase/functions/generate-cover/index.ts               (kids branch: skip adult template + QC)
+supabase/functions/generate-store-thumbnail/index.ts     (confirm passthrough picks up new cover)
+supabase/functions/_shared/covers/kids-cover.ts          (delete — replaced by renderer above)
+supabase/functions/_shared/thumbnails/kids-thumbnail.ts  (delete — passthrough is enough)
 ```
 
-`generate-cover` และ `generate-store-thumbnail` อ่าน track แล้วเลือก template
+### Non-goals for this pass
 
-## 6. Routing (autopilot ทำงานเงียบ)
+- Not touching the adult cover/thumbnail path.
+- Not changing the visual bible or manuscript logic — the illustration itself is already good; only the compositing was wrong.
+- No DB migration.
 
-- `autopilot-tick` / `autopilot-orchestrator` โหลด ebook → `resolveTrack()` → invoke `autopilot-kids` หรือ `autopilot-adult`
-- `generate-idea` เพิ่ม field `track` ลงใน idea (derive จาก category_slug ตอนสร้าง) เพื่อให้ downstream ไม่ต้อง resolve ซ้ำ
-- ไม่ต้องแก้ UI ฝั่ง admin — ยังกดปุ่มเดิม แต่หลังบ้าน route แยกแล้ว
-
-## Technical details
-
-**ไฟล์ใหม่**
-- `_shared/track-registry.ts`
-- `_shared/prompts/{adult,kids}.ts`
-- `_shared/outlines/{adult,kids}-outline.ts`
-- `_shared/qc/{adult,kids}.ts`
-- `_shared/covers/{adult,kids}-cover.ts`
-- `_shared/thumbnails/{adult,kids}-thumbnail.ts`
-- `autopilot-adult/index.ts` (ย้ายจาก orchestrator เดิม)
-- `autopilot-kids/index.ts` (สร้างใหม่ ใช้ `rewrite-kids-manuscript` + `generate-interior-visuals` + `kids-visual-bible` ที่มีอยู่แล้ว)
-
-**ไฟล์แก้**
-- `autopilot-orchestrator/index.ts` → กลายเป็น router (~80 บรรทัด)
-- `generate-outline`, `write-chapters`, `qc-fix`, `generate-cover`, `generate-store-thumbnail`, `generate-shopify-package`, `auto-list-ebook`, `list-storefront`, `render-pdf` → เปลี่ยน guard เป็น track-aware
-- `_shared/is-kids-book.ts` → wrapper รอบ `resolveTrack()` (keep backward-compat)
-- `generate-idea/index.ts` → set `ebook_ideas.track` ตอน insert
-
-**ไม่มี DB migration** (ใช้ column `category_slug` + `product_type` เดิม; ถ้าจำเป็นจะเพิ่ม `ebooks.track` เป็น generated column ใน iteration ถัดไป)
-
-**Rollout ปลอดภัย**
-- Adult track = ย้ายโค้ดเดิม 1:1 ไม่เปลี่ยน behavior
-- Kids track = wire สิ่งที่มีอยู่ (`rewrite-kids-manuscript`, `kids-visual-bible`) เข้า orchestrator เท่านั้น
-- ทุก step function เพิ่ม log `{ track, ebook_id, step }` ให้ debug ง่าย
-
-## ผลลัพธ์
-
-- Logic เขียนหนังสือเด็ก vs ธุรกิจ/การเงิน แยกไฟล์ แยก prompt แยก QC แยก orchestrator ชัดเจน — แก้ track หนึ่งไม่กระทบอีก track
-- Autopilot route อัตโนมัติจาก `category_slug` (parenting-kids → kids, ที่เหลือ → adult)
-- ป้องกันการทับกัน 2 ทาง (kids guard + adult guard) ไม่ใช่ทางเดียวเหมือนตอนนี้
-- เพิ่ม track ใหม่ในอนาคต (เช่น workbook, finance เฉพาะ) แค่เพิ่ม entry ใน `TRACKS` + สร้างโฟลเดอร์ prompt/qc/orchestrator
+Want me to build it?
