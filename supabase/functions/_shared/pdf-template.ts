@@ -930,6 +930,14 @@ export function buildKidsPictureBookHtml(data: PdfData): string {
       <div class="kb-end__mark">The End</div>
       <div class="kb-end__tag">A bedtime story · SECRET PDF</div>
     </div>
+  </section>
+  <section class="kb-page kb-about">
+    <div class="kb-about__inner">
+      <div class="kb-about__title">About this story</div>
+      ${subtitle ? `<div class="kb-about__sub">${subtitle}</div>` : ""}
+      <p class="kb-about__body">A read-aloud picture book for little ones ages 4–7. Every page is illustrated in a single warm storybook style so ${title} feels like one cozy bedtime world from cover to cover.</p>
+      <div class="kb-about__brand">SECRET PDF · Storybook Series</div>
+    </div>
   </section>`;
 
   return `<!doctype html>
