@@ -10,7 +10,7 @@ import {
   getOrBuildKidsVisualBible,
   kidsIllustrationPrompt,
 } from "../_shared/kids-visual-bible.ts";
-import { buildKidsCoverSVG } from "../_shared/covers/kids-cover-render.ts";
+import { buildKidsCoverSVG, rasterizeKidsSVG } from "../_shared/covers/kids-cover-render.ts";
 import { buildKidsCoverQc } from "../_shared/qc/kids-cover-qc.ts";
 
 /** How many lines the kids title will wrap to — mirrors the SVG builder's rule. */
