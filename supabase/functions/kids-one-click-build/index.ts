@@ -137,43 +137,50 @@ async function pollUntilResolved(
   deadline: number,
 ): Promise<{ outcome: 'published' | 'shelved_story' | 'shelved_art' | 'shelved_qc' | 'system_error' | 'timeout'; ebook?: Record<string, unknown>; reason?: string }> {
   const pollInterval = 15_000;
+  let supervisorDispatchedAt = 0;
+  const SUPERVISOR_COOLDOWN_MS = 90_000;
+
+  function classifyShelve(reason: string): 'shelved_story' | 'shelved_art' | 'shelved_qc' {
+    if (/pdf|glyph|character|vision|art|cover|style/i.test(reason)) return 'shelved_art';
+    if (/qc/i.test(reason)) return 'shelved_qc';
+    return 'shelved_story';
+  }
+
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, pollInterval));
     const { data: e } = await db.from('ebooks_kids').select('id, listing_status, sellable, pipeline_status, blocker_reason, qc_scorecard, storefront_meta').eq('id', ebookId).single();
     if (!e) continue;
+
     if (e.listing_status === 'live' && e.sellable) {
       return { outcome: 'published', ebook: e };
     }
+
+    // Terminal shelve signal — supervisor already gave up on this child.
+    const sm = (e.storefront_meta as Record<string, unknown> | null) ?? {};
+    if (sm.shelved) {
+      const shelved = sm.shelved as { reason?: string };
+      const reason = String(shelved.reason ?? e.blocker_reason ?? 'shelved');
+      return { outcome: classifyShelve(reason), ebook: e, reason };
+    }
+
     if (e.pipeline_status === 'human_review_required') {
       const blocker = String(e.blocker_reason ?? '');
-      // Try supervisor once per detection to route repairs.
-      await invoke('kids-repair-supervisor', { ebook_id: ebookId, run_id: runId }, 145_000);
-      // Re-read after supervisor.
-      const { data: e2 } = await db.from('ebooks_kids').select('id, listing_status, sellable, pipeline_status, blocker_reason, storefront_meta').eq('id', ebookId).single();
-      if (e2?.listing_status === 'live' && e2?.sellable) return { outcome: 'published', ebook: e2 };
-      // Check if supervisor shelved.
-      const sm = (e2?.storefront_meta as Record<string, unknown> | null) ?? {};
-      if (sm.shelved) {
-        const shelved = sm.shelved as { reason?: string };
-        const reason = String(shelved.reason ?? blocker);
-        if (/story|concept/i.test(reason)) return { outcome: 'shelved_story', ebook: e2, reason };
-        if (/pdf|glyph|character|vision|art|cover|style/i.test(reason)) return { outcome: 'shelved_art', ebook: e2, reason };
-        if (/qc/i.test(reason)) return { outcome: 'shelved_qc', ebook: e2, reason };
-        return { outcome: 'shelved_story', ebook: e2, reason };
+      const now = Date.now();
+      if (now - supervisorDispatchedAt > SUPERVISOR_COOLDOWN_MS) {
+        supervisorDispatchedAt = now;
+        // Fire-and-forget so we don't block the poll loop on the supervisor.
+        invoke('kids-repair-supervisor', { ebook_id: ebookId, run_id: runId }, 145_000)
+          .catch(err => console.error('supervisor dispatch error', err));
+        await saveParent(db, parentRunId, {
+          status: /story_gate|needs_concept/i.test(blocker) ? 'repairing_story' : 'building_assets',
+          last_blocker: blocker.slice(0, 200),
+        });
       }
-      // Still human_review after supervisor — treat as shelved by class.
-      if (/story_gate|needs_concept/i.test(blocker)) {
-        return { outcome: 'shelved_story', ebook: e2 ?? e, reason: blocker };
-      }
-      if (/glyph|character|vision|cover|style|pdf/i.test(blocker)) {
-        return { outcome: 'shelved_art', ebook: e2 ?? e, reason: blocker };
-      }
-      if (/qc/i.test(blocker)) {
-        return { outcome: 'shelved_qc', ebook: e2 ?? e, reason: blocker };
-      }
-      // Unknown — return generic system error to stop looping this child.
-      return { outcome: 'system_error', ebook: e2 ?? e, reason: blocker || 'unknown_blocker' };
+      // Don't return yet — keep polling. Only storefront_meta.shelved OR the
+      // deadline should end the wait for this child.
+      continue;
     }
+
     // Update parent job status label based on current pipeline stage.
     const stage = String(e.pipeline_status ?? '');
     const status: ParentStatus =
