@@ -47,8 +47,7 @@ type StepRow = {
 type EbookRow = {
   id: string;
   title: string | null;
-  shopify_status: string | null;
-  shopify_product_id: string | null;
+  listing_status: string | null;
   final_quality_score: number | null;
   cover_url: string | null;
   cover_approved: boolean | null;
@@ -63,8 +62,8 @@ const ACTIVE = ["starting", "running", "auto_fixing"];
 
 // display status derived from run + ebook
 type DisplayStatus =
-  | "queued" | "running" | "auto_fixing" | "rendering_pdf" | "uploading_shopify"
-  | "verifying_shopify" | "draft_uploaded" | "ready_to_publish"
+  | "queued" | "running" | "auto_fixing" | "rendering_pdf" | "publishing"
+  | "draft_uploaded" | "ready_to_publish"
   | "needs_admin" | "failed" | "paused" | "completed";
 
 function displayStatus(run: RunRow, ebook: EbookRow | undefined): DisplayStatus {
@@ -72,16 +71,15 @@ function displayStatus(run: RunRow, ebook: EbookRow | undefined): DisplayStatus 
   if (run.status === "failed") return "failed";
   if (run.status === "paused") return "paused";
   if (run.status === "completed") {
-    if (ebook?.shopify_status === "published") return "ready_to_publish";
-    if (ebook?.shopify_product_id) return "draft_uploaded";
+    if (ebook?.listing_status === "live") return "ready_to_publish";
+    if (ebook?.listing_status === "draft") return "draft_uploaded";
     return "completed";
   }
   if (run.status === "auto_fixing") return "auto_fixing";
   if (run.status === "starting") return "queued";
   const step = run.current_step ?? "";
   if (step === "pdf_render" || step === "pdf_layout") return "rendering_pdf";
-  if (step === "shopify_draft") return "uploading_shopify";
-  if (step === "shopify_verify") return "verifying_shopify";
+  if (step === "publish_live") return "publishing";
   return "running";
 }
 
@@ -90,8 +88,7 @@ const STATUS_STYLE: Record<DisplayStatus, { label: string; badge: string; border
   running:            { label: "Running",             badge: "bg-sky-100 text-sky-900 border-sky-700",             border: "border-sky-700",     bar: "bg-sky-600" },
   auto_fixing:        { label: "Auto-Fixing",         badge: "bg-orange-100 text-orange-900 border-orange-700",    border: "border-orange-700",  bar: "bg-orange-500" },
   rendering_pdf:      { label: "Rendering PDF",       badge: "bg-sky-100 text-sky-900 border-sky-700",             border: "border-sky-700",     bar: "bg-sky-600" },
-  uploading_shopify:  { label: "Uploading Shopify",   badge: "bg-sky-100 text-sky-900 border-sky-700",             border: "border-sky-700",     bar: "bg-sky-600" },
-  verifying_shopify:  { label: "Verifying Shopify",   badge: "bg-sky-100 text-sky-900 border-sky-700",             border: "border-sky-700",     bar: "bg-sky-600" },
+  publishing:  { label: "Publishing",   badge: "bg-sky-100 text-sky-900 border-sky-700",             border: "border-sky-700",     bar: "bg-sky-600" },
   draft_uploaded:     { label: "Draft Uploaded",      badge: "bg-emerald-100 text-emerald-900 border-emerald-700", border: "border-emerald-700", bar: "bg-emerald-600" },
   ready_to_publish:   { label: "Ready to Publish",    badge: "bg-emerald-200 text-emerald-950 border-emerald-800", border: "border-emerald-700", bar: "bg-emerald-600" },
   needs_admin:        { label: "Needs Admin",         badge: "bg-red-100 text-red-900 border-red-700",             border: "border-red-700",     bar: "bg-red-600" },
@@ -195,12 +192,12 @@ export function AutopilotStatusCenter() {
     enriched.forEach(({ ds, run }) => {
       if (ds === "queued") c.queued++;
       else if (ds === "auto_fixing") c.auto_fixing++;
-      else if (["running", "rendering_pdf", "uploading_shopify", "verifying_shopify"].includes(ds)) c.running++;
+      else if (["running", "rendering_pdf", "publishing"].includes(ds)) c.running++;
       else if (ds === "draft_uploaded" || ds === "ready_to_publish") c.draft_uploaded++;
       else if (ds === "needs_admin") c.needs_admin++;
       else if (ds === "failed") c.failed++;
       else if (ds === "completed") c.completed++;
-      if (["running", "rendering_pdf", "uploading_shopify", "verifying_shopify", "auto_fixing"].includes(ds)) {
+      if (["running", "rendering_pdf", "publishing", "auto_fixing"].includes(ds)) {
         activeCount++;
         activeSum += run.progress_percent ?? 0;
       }
@@ -213,7 +210,7 @@ export function AutopilotStatusCenter() {
     const list = enriched.filter(({ ds }) => {
       switch (filter) {
         case "all": return true;
-        case "running": return ["running", "rendering_pdf", "uploading_shopify", "verifying_shopify"].includes(ds);
+        case "running": return ["running", "rendering_pdf", "publishing"].includes(ds);
         case "auto_fixing": return ds === "auto_fixing";
         case "draft_uploaded": return ds === "draft_uploaded" || ds === "ready_to_publish";
         case "needs_admin": return ds === "needs_admin";
@@ -223,7 +220,7 @@ export function AutopilotStatusCenter() {
     });
     const rank: Record<DisplayStatus, number> = {
       needs_admin: 0, failed: 1, auto_fixing: 2,
-      running: 3, rendering_pdf: 3, uploading_shopify: 3, verifying_shopify: 3,
+      running: 3, rendering_pdf: 3, publishing: 3,
       queued: 4, paused: 5, completed: 6, draft_uploaded: 7, ready_to_publish: 7,
     };
     return list.sort((a, b) => {
@@ -262,7 +259,7 @@ export function AutopilotStatusCenter() {
             <SummaryTile label="Auto-Fixing" value={counts.auto_fixing} tone={counts.auto_fixing ? "text-orange-800" : ""} />
             <SummaryTile label="Needs Admin" value={counts.needs_admin} tone={counts.needs_admin ? "text-red-800" : ""} />
             <SummaryTile label="Failed" value={counts.failed} tone={counts.failed ? "text-red-800" : ""} />
-            <SummaryTile label="Shopify Drafts" value={counts.draft_uploaded} tone={counts.draft_uploaded ? "text-emerald-800" : ""} />
+            <SummaryTile label="Drafts" value={counts.draft_uploaded} tone={counts.draft_uploaded ? "text-emerald-800" : ""} />
             <SummaryTile label="Avg Progress" value={`${counts.avgProgress}%`} />
             <SummaryTile label="AI Cost Today" value={`$${costToday.toFixed(2)}`} />
           </div>
@@ -385,8 +382,8 @@ function RunCard({
           {ebook?.final_quality_score != null && (
             <p>QC score: <span className="font-mono">{ebook.final_quality_score}</span></p>
           )}
-          {ebook?.shopify_product_id && (
-            <p>Shopify: <span className="font-mono">{ebook.shopify_status ?? "draft"}</span></p>
+          {ebook?.listing_status && (
+            <p>Listing: <span className="font-mono">{ebook.listing_status}</span></p>
           )}
         </div>
 
@@ -510,7 +507,7 @@ function RunTable({ rows, now }: { rows: RunRowData[]; now: number }) {
             <th className="p-2 text-left">Step</th>
             <th className="p-2 text-left">Current Action</th>
             <th className="p-2 text-left">Auto-Fix</th>
-            <th className="p-2 text-left">Shopify</th>
+            <th className="p-2 text-left">Listing</th>
             <th className="p-2 text-left">Preview</th>
             <th className="p-2 text-left">Updated</th>
             <th className="p-2 text-right">Action</th>
@@ -556,7 +553,7 @@ function RunTable({ rows, now }: { rows: RunRowData[]; now: number }) {
                   {subtask && <p className="text-[10px] text-muted-foreground line-clamp-1">↳ {subtask}</p>}
                 </td>
                 <td className="p-2">{attempts > 0 ? <span className="text-orange-800">{attempts}/{maxAttempts}</span> : "—"}</td>
-                <td className="p-2 font-mono">{ebook?.shopify_status ?? (ebook?.shopify_product_id ? "draft" : "—")}</td>
+                <td className="p-2 font-mono">{ebook?.listing_status ?? "—"}</td>
                 <td className="p-2">
                   <div className="flex flex-col gap-0.5 text-[10px]">
                     {ebook?.cover_url

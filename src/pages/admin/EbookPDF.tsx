@@ -205,7 +205,7 @@ export default function EbookPDF() {
             <CardContent className="p-4 space-y-2">
               <p className="font-mono uppercase tracking-widest text-xs text-muted-foreground">Approval</p>
               <p className="text-xs text-muted-foreground">
-                Publishing to Shopify is blocked until the PDF is approved <em>and</em> Final PDF Premium Score ≥ 85.
+                Listing the ebook is blocked until the PDF is approved <em>and</em> Final PDF Premium Score ≥ 85.
               </p>
               <div className="flex gap-2 flex-wrap">
                 <Button disabled={busy === "Approve" || !passed || score < 85} onClick={() => approve(true)}>
@@ -220,7 +220,6 @@ export default function EbookPDF() {
               <div className="text-sm pt-2 space-x-4">
                 <Link to={`/admin/ebook/${ebook.id}/writing`} className="underline text-muted-foreground">← Writing</Link>
                 <Link to={`/admin/ebook/${ebook.id}/cover`} className="underline text-muted-foreground">← Cover</Link>
-                <Link to={`/admin/ebook/${ebook.id}/shopify`} className="underline text-muted-foreground">Shopify Draft →</Link>
               </div>
             </CardContent>
           </Card>

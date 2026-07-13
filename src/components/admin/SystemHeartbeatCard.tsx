@@ -159,7 +159,7 @@ export function SystemHeartbeatCard() {
                 <>
                   <div className="text-base font-semibold">✅ ระบบว่าง</div>
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    ไม่มีเล่มในคิว {totalReady > 0 ? `· ${totalReady} เล่มพร้อมอัปโหลด Shopify` : ""}
+                    ไม่มีเล่มในคิว {totalReady > 0 ? `· ${totalReady} เล่มพร้อมเผยแพร่` : ""}
                   </div>
                 </>
               )}
@@ -176,7 +176,7 @@ export function SystemHeartbeatCard() {
           <Stat label="รอ retry" value={`${live.waiting.length} เล่ม`} count={live.waiting.length} tone="muted" />
           <Stat label="Auto-fix" value={`${live.auto_fixing.length} เล่ม`} count={live.auto_fixing.length} tone="amber" />
           <Stat label="ติดปัญหา" value={`${totalBlocked} เล่ม`} count={totalBlocked} tone={totalBlocked > 0 ? "red" : "muted"} />
-          <Stat label="พร้อมขึ้น Shopify" value={`${totalReady} เล่ม`} count={totalReady} tone={totalReady > 0 ? "green" : "muted"} />
+          <Stat label="พร้อมเผยแพร่" value={`${totalReady} เล่ม`} count={totalReady} tone={totalReady > 0 ? "green" : "muted"} />
         </div>
       </CardContent>
     </Card>

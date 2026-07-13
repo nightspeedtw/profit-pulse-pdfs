@@ -1,10 +1,9 @@
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { fetchAdminData } from "@/lib/adminData";
 import { Button } from "@/components/ui/button";
-import { Gauge, Factory, Package, Settings as SettingsIcon, LogOut, Sparkles, Rocket, Zap, Store, Activity, Radio } from "lucide-react";
+import { Gauge, Factory, Package, Settings as SettingsIcon, LogOut, Sparkles, Zap, Store, Activity, Radio } from "lucide-react";
 import { useEffect, useState } from "react";
 import { FocusBadge } from "@/components/admin/FocusBadge";
-import { FEATURES } from "@/config/features";
 
 const PASSCODE_KEY = "admin_passcode_ok";
 
@@ -15,7 +14,6 @@ const nav = [
   { to: "/admin/store", label: "Internal Store", icon: Store },
   { to: "/admin/smoke-test", label: "Smoke Test Live", icon: Activity },
   { to: "/admin/autopilot", label: "Autopilot 24/7", icon: Radio },
-  ...(FEATURES.SHOPIFY_UPLOAD ? [{ to: "/admin/ready-shopify", label: "Ready to Shopify", icon: Rocket }] : []),
   { to: "/admin/products", label: "Products", icon: Package },
   { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ];

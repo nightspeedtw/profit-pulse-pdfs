@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 // Canonical pipeline statuses surfaced in the admin UI.
 export type EbookBadgeKind =
   | "ready" | "writing" | "auto_fixing" | "repairing_dependency"
-  | "waiting_for_shopify_quota" | "waiting_for_ai_budget" | "waiting_for_worker_slot"
+  | "waiting_for_ai_budget" | "waiting_for_worker_slot"
   | "waiting_for_browserless_slot" | "queued_for_production"
   | "production_running" | "rendering_pdf"
   | "draft_upload_queued"
@@ -17,7 +17,6 @@ const STYLES: Record<EbookBadgeKind, { label: string; cls: string }> = {
   writing:                      { label: "Writing",                     cls: "bg-sky-100 text-sky-900 border-sky-700" },
   auto_fixing:                  { label: "Auto-Fixing",                 cls: "bg-blue-100 text-blue-900 border-blue-700" },
   repairing_dependency:         { label: "Repairing Dependency",        cls: "bg-blue-100 text-blue-900 border-blue-700" },
-  waiting_for_shopify_quota:    { label: "Waiting for Shopify Quota",   cls: "bg-cyan-100 text-cyan-900 border-cyan-700" },
   waiting_for_ai_budget:        { label: "Waiting for AI Budget",       cls: "bg-cyan-100 text-cyan-900 border-cyan-700" },
   waiting_for_worker_slot:      { label: "Waiting for Worker",          cls: "bg-cyan-100 text-cyan-900 border-cyan-700" },
   waiting_for_browserless_slot: { label: "Waiting for Browserless Slot — will retry automatically", cls: "bg-cyan-100 text-cyan-900 border-cyan-700" },
@@ -40,11 +39,11 @@ const STYLES: Record<EbookBadgeKind, { label: string; cls: string }> = {
   completed:                    { label: "Completed",                   cls: "bg-emerald-200 text-emerald-950 border-emerald-800" },
 };
 
-// Maps the raw autopilot_state / shopify_status to a single display kind.
+// Maps the raw autopilot_state / listing_status to a single display kind.
 export function resolveEbookBadge(e: {
   autopilot_state?: string | null;
   canonical_status?: string | null;
-  shopify_status?: string | null;
+  listing_status?: string | null;
   manuscript_qc_status?: string | null;
   pdf_status?: string | null;
   blocker_class?: string | null;
@@ -53,15 +52,13 @@ export function resolveEbookBadge(e: {
   const canon = e.canonical_status ?? null;
   if (canon === "needs_code_fix") return "needs_code_fix";
   if (canon === "completed") return "completed";
-  if (canon === "waiting_for_shopify_quota") return "waiting_for_shopify_quota";
   if (canon === "waiting_for_browserless_slot") return "waiting_for_browserless_slot";
   if (canon === "queued_for_production") return "queued_for_production";
   if (canon === "auto_fixing") return "auto_fixing";
   if (canon === "needs_admin_attention") return "needs_admin_attention";
   if (canon === "failed_non_recoverable") return "failed_non_recoverable";
   const s = e.autopilot_state ?? "idle";
-  if (e.shopify_status === "published") return "published";
-  if (s === "waiting_for_shopify_quota") return "waiting_for_shopify_quota";
+  if (e.listing_status === "live") return "published";
   if (s === "waiting_for_ai_budget") return "waiting_for_ai_budget";
   if (s === "waiting_for_worker_slot") return "waiting_for_worker_slot";
   if (s === "waiting_for_browserless_slot") return "waiting_for_browserless_slot";
@@ -80,7 +77,7 @@ export function resolveEbookBadge(e: {
     return "needs_review";
   }
   if (s === "awaiting_cover_approval" || s === "awaiting_pdf_approval") return "needs_review";
-  if (s === "ready_to_publish") return e.shopify_status === "draft" ? "draft_uploaded" : "ready";
+  if (s === "ready_to_publish") return e.listing_status === "draft" ? "draft_uploaded" : "ready";
   if (s === "done") return "published";
   if (s === "running" || s.startsWith("writing") || ["outline", "qc_topic", "qc_outline", "qc_editorial", "product_copy", "cover", "build_pdf"].includes(s)) return "writing";
   return "idle";

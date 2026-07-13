@@ -17,7 +17,7 @@ import { LiveProductionQueue } from "@/components/admin/LiveProductionQueue";
 type Ebook = {
   id: string; title: string;
   autopilot_state: string | null;
-  shopify_status: string | null;
+  listing_status: string | null;
   manuscript_qc_status: string | null;
   pdf_status: string | null;
   final_quality_score: number | null;
@@ -69,7 +69,7 @@ export default function CommandCenter() {
       { count: failedToday },
     ] = await Promise.all([
       supabase.from("ebooks")
-        .select("id,title,autopilot_state,shopify_status,manuscript_qc_status,pdf_status,final_quality_score,updated_at,qc_status,failed_gate,failed_score,required_score,auto_fix_attempt_count,max_auto_fix_attempts,last_auto_fix_action")
+        .select("id,title,autopilot_state,listing_status,manuscript_qc_status,pdf_status,final_quality_score,updated_at,qc_status,failed_gate,failed_score,required_score,auto_fix_attempt_count,max_auto_fix_attempts,last_auto_fix_action")
         .order("updated_at", { ascending: false }).limit(8),
       supabase.from("generation_settings")
         .select("paused, autopilot_mode, daily_quota, daily_budget_usd, cost_limit_reached, cost_limit_reason")
@@ -77,7 +77,7 @@ export default function CommandCenter() {
       supabase.from("ebooks").select("id", { count: "exact", head: true })
         .gte("created_at", since.toISOString()),
       supabase.from("ebooks").select("id", { count: "exact", head: true })
-        .eq("shopify_status", "draft"),
+        .eq("listing_status", "draft"),
       supabase.from("ebooks").select("id", { count: "exact", head: true })
         .in("autopilot_state", ["needs_review", "awaiting_cover_approval", "awaiting_pdf_approval"]),
       supabase.from("cost_log").select("cost_usd").gte("created_at", since.toISOString()),
@@ -172,27 +172,19 @@ export default function CommandCenter() {
     } finally { setBusy(null); }
   }
 
-  async function repushLatestShopifyDraft() {
-    const target = ebooks.find((e) => e.shopify_status === "error" || e.autopilot_state === "needs_review")
-      ?? ebooks[0];
-    if (!target) { toast.error("No recent ebook to re-push."); return; }
+  async function republishLatest() {
+    const target = ebooks.find((e) => e.autopilot_state === "needs_review") ?? ebooks[0];
+    if (!target) { toast.error("No recent ebook to republish."); return; }
     setBusy("repush");
     try {
-      const { data: test } = await supabase.functions.invoke("shopify-test-connection", { body: {} });
-      if (!(test as { ok?: boolean })?.ok) {
-        toast.error("Shopify connection failed — fix credentials in Settings first.");
-        return;
-      }
-      const { data, error } = await supabase.functions.invoke("shopify-draft-upload", {
-        body: { ebook_id: target.id, retry: true },
+      const { error } = await supabase.functions.invoke("autopilot-pipeline", {
+        body: { ebook_id: target.id, mode: settings?.autopilot_mode ?? "safe" },
       });
-      if (error || (data as { error?: string } | null)?.error) {
-        throw new Error(error?.message ?? (data as { error?: string }).error);
-      }
-      toast.success("Shopify draft re-pushed");
+      if (error) throw error;
+      toast.success("Republish queued");
       load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Re-push failed");
+      toast.error(err instanceof Error ? err.message : "Republish failed");
     } finally { setBusy(null); }
   }
 
@@ -252,7 +244,7 @@ export default function CommandCenter() {
               Mode: <span className="font-mono">{settings?.autopilot_mode ?? "safe"}</span> —{" "}
               {settings?.autopilot_mode === "full"
                 ? "will attempt live publish if gates pass and Auto-publish is on."
-                : "uploads Shopify draft only. Never auto-publishes."}
+                : "creates a draft listing only. Never auto-publishes."}
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -262,7 +254,7 @@ export default function CommandCenter() {
                 : <Rocket className="size-4 mr-1" />}
               Run Premium PDF Autopilot
             </Button>
-            <Button variant="outline" onClick={repushLatestShopifyDraft} disabled={busy === "repush" || ebooks.length === 0}>
+            <Button variant="outline" onClick={republishLatest} disabled={busy === "repush" || ebooks.length === 0}>
               {busy === "repush"
                 ? <Loader2 className="size-4 animate-spin mr-1" />
                 : <RefreshCw className="size-4 mr-1" />}

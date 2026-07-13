@@ -13,7 +13,6 @@ import { Loader2, ArrowLeft } from "lucide-react";
 import { downloadAdminPdf } from "@/lib/pdf";
 import { PdfWizard } from "@/components/admin/PdfWizard";
 import { FinalApproval } from "@/components/admin/FinalApproval";
-import ShopifyStatus from "@/components/admin/ShopifyStatus";
 import { StoreActionsPanel } from "@/components/admin/StoreActionsPanel";
 import { FEATURES } from "@/config/features";
 
@@ -52,12 +51,10 @@ interface Ebook {
     final_pdf_premium_score?: number; blocked_for_publish?: boolean; notes?: string[];
   } | null;
   conversion_score: number | null; final_quality_score: number | null;
-  compliance_safety_score: number | null; shopify_status: string | null;
-  shopify_events: { at: string; kind: "queued" | "success" | "failed"; action: "push" | "publish"; message?: string; error?: string; meta?: Record<string, unknown> }[];
-  shopify_last_error: string | null; shopify_handle: string | null;
+  compliance_safety_score: number | null;
   auto_approved: boolean; auto_publish: boolean; final_approved: boolean;
   word_count: number; qc: Record<string, unknown>; price: number; vendor: string;
-  product_type: string; shopify_product_id: string | null; status: string;
+  product_type: string; status: string;
   cost_usd: number; updated_at: string;
 }
 
@@ -389,16 +386,6 @@ export default function EbookReview() {
           ))}
         </CardContent>
       </Card>
-
-      <ShopifyStatus
-        ebookId={e.id}
-        status={e.shopify_status}
-        events={(e.shopify_events ?? []) as never}
-        lastError={e.shopify_last_error}
-        productId={e.shopify_product_id}
-        handle={e.shopify_handle}
-        onChanged={load}
-      />
 
       <div className="sticky bottom-0 border-2 border-foreground bg-card p-4 flex flex-wrap gap-2">
         <Button onClick={save} disabled={busy === "save"}>{busy === "save" && <Loader2 className="size-4 animate-spin" />} Save edits</Button>
