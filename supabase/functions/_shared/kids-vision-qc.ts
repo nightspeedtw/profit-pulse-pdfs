@@ -117,7 +117,7 @@ export async function runKidsVisionQc(opts: RunKidsVisionOpts): Promise<VisionRe
     ? `Character bible: ${JSON.stringify(opts.characterBible).slice(0, 500)}`
     : "";
 
-  const conc = Math.max(1, Math.min(4, opts.concurrency ?? 3));
+  const conc = Math.max(1, Math.min(8, opts.concurrency ?? 6));
   const queue = [...opts.interior];
   async function worker() {
     while (queue.length) {
