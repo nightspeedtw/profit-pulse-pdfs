@@ -1,28 +1,31 @@
 // Kids interior illustration generator.
 //
-// Given a manuscript, character bible, style bible, and cover master URL,
-// this module:
-//   1. Splits the manuscript into N scene beats (>= 12 for high illustration
-//      intensity picture books).
-//   2. Builds a strict, style-locked prompt per scene that repeats the
-//      invariant character description and style suffix on every call.
-//   3. Renders each illustration via Fal (Flux Schnell for speed/consistency).
-//   4. Uploads results to ebook-covers storage and returns a structured
-//      records array suitable for persisting to
-//      ebooks_kids.interior_illustrations.
+// Strategy:
+//   A. Reference-conditioned (preferred): if a coverReferenceUrl is supplied,
+//      call Lovable AI Gateway's Gemini image model with the cover pinned to
+//      every spread call so Luna + palette + line quality lock across pages.
+//   B. Text-only fallback: if reference conditioning is unavailable or fails,
+//      fall back to Fal Flux Schnell using the same locked-style paragraph on
+//      every call.
+//
+// Dedupe guard: after generation we compare sha256 of each spread's bytes.
+// Any duplicate/collision triggers up to 2 reroll attempts per page (with
+// added scene-specific detail and, for reference-conditioned, a small nudge
+// in composition guidance).
 
 import { falFluxSchnell } from "./fal.ts";
+import { generateWithReference } from "./kids-image-gen.ts";
 
 export interface SceneRecord {
-  index: number;         // 1-based
-  page_number: number;   // page in the final book (starts at 3 after cover+title)
-  scene: string;         // one-sentence scene summary
-  prompt: string;        // full prompt sent to the model
-  url: string;           // signed URL of the uploaded PNG
-  path: string;          // storage path
-  model: string;         // model identifier
-  bytes: number;         // asset size
-  hash: string;          // sha-256 hex of bytes
+  index: number;
+  page_number: number;
+  scene: string;
+  prompt: string;
+  url: string;
+  path: string;
+  model: string;
+  bytes: number;
+  hash: string;
 }
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
@@ -30,10 +33,7 @@ const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 async function callGemini(prompt: string, system: string): Promise<string> {
   const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${LOVABLE_API_KEY}`,
-    },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
     body: JSON.stringify({
       model: "google/gemini-2.5-flash",
       messages: [
@@ -57,7 +57,6 @@ export interface BuildScenePlanOpts {
   manuscript_md: string;
   min_scenes: number;
 }
-
 export interface ScenePlan {
   scenes: Array<{ scene: string; emotion: string; setting: string }>;
 }
@@ -79,7 +78,6 @@ Return exactly ${target} scenes.`,
   );
   const parsed = JSON.parse(raw) as ScenePlan;
   if (!Array.isArray(parsed.scenes) || parsed.scenes.length < target) {
-    // Fallback: pad by splitting the manuscript deterministically.
     const paras = opts.manuscript_md.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
     const chunkSize = Math.max(1, Math.ceil(paras.length / target));
     parsed.scenes = [];
@@ -87,8 +85,7 @@ Return exactly ${target} scenes.`,
       const chunk = paras.slice(i * chunkSize, (i + 1) * chunkSize).join(" ");
       parsed.scenes.push({
         scene: chunk.slice(0, 240) || `Story beat ${i + 1}`,
-        emotion: "warm",
-        setting: "storybook world",
+        emotion: "warm", setting: "storybook world",
       });
     }
   }
@@ -105,55 +102,109 @@ export interface RenderInteriorOpts {
       };
     };
   };
-  characterDescription: string;   // e.g. "small brown owl named Luna wearing a blue scarf"
-  styleSuffix: string;            // shared style directive locked from the style bible
+  characterDescription: string;
+  styleSuffix: string;
   negativePrompt: string;
   scenes: ScenePlan["scenes"];
-  startPageNumber: number;        // page in the final PDF where interior begins
+  startPageNumber: number;
+  concurrency?: number;
+  /** When set, use reference-conditioned Gemini image model with this cover
+   *  URL pinned to every spread call. If the call fails, that page falls back
+   *  to Fal Flux Schnell text-only. */
+  coverReferenceUrl?: string | null;
+  /** Optional additional reference (e.g. a locked Luna character sheet). */
+  extraReferenceUrls?: string[];
 }
 
-export async function renderInteriorIllustrations(opts: RenderInteriorOpts & { concurrency?: number }): Promise<SceneRecord[]> {
+function buildScenePrompt(
+  s: ScenePlan["scenes"][number],
+  charDesc: string,
+  styleSuffix: string,
+  extraNudge = "",
+): string {
+  return [
+    `Whimsical illustrated children's picture book interior illustration.`,
+    `Hero character (must remain visually identical to the attached reference on every page): ${charDesc}.`,
+    `Scene: ${s.scene}`,
+    `Setting: ${s.setting}. Emotional beat: ${s.emotion}.`,
+    `Composition: character clearly visible, warm painterly lighting, cozy storybook mood, generous negative space at the bottom for caption text.`,
+    `Style lock (do not deviate): ${styleSuffix}.`,
+    `ABSOLUTELY NO TEXT of any kind — no letters, no words, no captions, no speech bubbles.`,
+    `Avoid AI clichés: no six-finger hands, no melted faces, no glossy 3d blobs, no stock photography look.`,
+    extraNudge,
+  ].filter(Boolean).join(" ").slice(0, 1900);
+}
+
+async function renderOneReference(
+  s: ScenePlan["scenes"][number],
+  charDesc: string,
+  styleSuffix: string,
+  refs: string[],
+  attempt: number,
+): Promise<{ bytes: Uint8Array; model: string; prompt: string }> {
+  const nudge = attempt > 0
+    ? `Vary the camera angle, distance, and framing significantly from any previous page. Emphasize: ${s.scene}.`
+    : "";
+  const prompt = buildScenePrompt(s, charDesc, styleSuffix, nudge);
+  const bytes = await generateWithReference({
+    prompt, referenceUrls: refs, model: "google/gemini-3.1-flash-image",
+  });
+  return { bytes, model: "google/gemini-3.1-flash-image", prompt };
+}
+
+async function renderOneFal(
+  s: ScenePlan["scenes"][number],
+  charDesc: string,
+  styleSuffix: string,
+  negativePrompt: string,
+  attempt: number,
+): Promise<{ bytes: Uint8Array; model: string; prompt: string }> {
+  const nudge = attempt > 0
+    ? `Distinct composition ${attempt + 1}: unique camera angle and framing, unique background details for: ${s.scene}.`
+    : "";
+  const prompt = buildScenePrompt(s, charDesc, styleSuffix, nudge);
+  const bytes = await falFluxSchnell({
+    prompt, image_size: "landscape_4_3",
+    negative_prompt: `${negativePrompt}, text, letters, words, caption, watermark, logo, deformed hands, six fingers, extra fingers, off-model character`,
+  });
+  return { bytes, model: "fal-ai/flux/schnell", prompt };
+}
+
+export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Promise<SceneRecord[]> {
   const records: SceneRecord[] = new Array(opts.scenes.length);
-  const conc = Math.max(1, Math.min(6, opts.concurrency ?? 4));
+  const conc = Math.max(1, Math.min(4, opts.concurrency ?? 3));
   let cursor = 0;
 
-  async function renderOne(i: number) {
-    const s = opts.scenes[i];
-    const prompt = [
-      `Whimsical illustrated children's picture book interior illustration.`,
-      `Hero character (must remain visually identical every page): ${opts.characterDescription}.`,
-      `Scene: ${s.scene}`,
-      `Setting: ${s.setting}. Emotional beat: ${s.emotion}.`,
-      `Composition: character clearly visible, warm painterly lighting, cozy storybook mood, generous negative space at the bottom for caption text.`,
-      `Style lock (do not deviate): ${opts.styleSuffix}.`,
-      `ABSOLUTELY NO TEXT of any kind — no letters, no words, no captions, no speech bubbles.`,
-      `Avoid AI clichés: no six-finger hands, no melted faces, no glossy 3d blobs, no stock photography look.`,
-    ].join(" ").slice(0, 1900);
+  const refs = opts.coverReferenceUrl
+    ? [opts.coverReferenceUrl, ...(opts.extraReferenceUrls ?? [])]
+    : [];
+  const useReference = refs.length > 0;
 
-    const bytes = await falFluxSchnell({
-      prompt,
-      image_size: "landscape_4_3",
-      negative_prompt: `${opts.negativePrompt}, text, letters, words, caption, watermark, logo, deformed hands, six fingers, extra fingers, off-model character`,
-    });
-    const hash = await sha256Hex(bytes);
+  async function generateOne(i: number, attempt: number): Promise<{ bytes: Uint8Array; model: string; prompt: string }> {
+    const s = opts.scenes[i];
+    if (useReference) {
+      try {
+        return await renderOneReference(s, opts.characterDescription, opts.styleSuffix, refs, attempt);
+      } catch (e) {
+        console.warn(`ref-gen page ${i + 1} failed, falling back to fal:`, (e as Error).message);
+        return await renderOneFal(s, opts.characterDescription, opts.styleSuffix, opts.negativePrompt, attempt);
+      }
+    }
+    return await renderOneFal(s, opts.characterDescription, opts.styleSuffix, opts.negativePrompt, attempt);
+  }
+
+  async function persistOne(i: number, bytes: Uint8Array, model: string, prompt: string, hash: string) {
+    const s = opts.scenes[i];
     const path = `kids/${opts.ebookId}/interior/page-${String(i + 1).padStart(2, "0")}.png`;
     const up = await opts.db.storage.from("ebook-covers").upload(path, bytes, {
       contentType: "image/png", upsert: true,
     });
     if (up.error) throw up.error;
-    const { data: signed } = await opts.db.storage.from("ebook-covers")
-      .createSignedUrl(path, 60 * 60 * 24 * 365);
+    const { data: signed } = await opts.db.storage.from("ebook-covers").createSignedUrl(path, 60 * 60 * 24 * 365);
     if (!signed?.signedUrl) throw new Error(`no signed url for ${path}`);
     records[i] = {
-      index: i + 1,
-      page_number: opts.startPageNumber + i,
-      scene: s.scene,
-      prompt,
-      url: signed.signedUrl,
-      path,
-      model: "fal-ai/flux/schnell",
-      bytes: bytes.length,
-      hash,
+      index: i + 1, page_number: opts.startPageNumber + i, scene: s.scene,
+      prompt, url: signed.signedUrl, path, model, bytes: bytes.length, hash,
     };
   }
 
@@ -161,9 +212,41 @@ export async function renderInteriorIllustrations(opts: RenderInteriorOpts & { c
     while (true) {
       const i = cursor++;
       if (i >= opts.scenes.length) return;
-      await renderOne(i);
+      let attempt = 0;
+      // First pass — no dedupe yet, just generate.
+      const first = await generateOne(i, attempt);
+      const hash = await sha256Hex(first.bytes);
+      await persistOne(i, first.bytes, first.model, first.prompt, hash);
     }
   }
   await Promise.all(Array.from({ length: conc }, () => worker()));
+
+  // ---- Dedupe reroll pass ----
+  // After all pages exist, detect any duplicate hashes and reroll those pages
+  // up to 2 times each with progressively stronger scene-differentiating nudges.
+  for (let round = 0; round < 2; round++) {
+    const byHash: Record<string, number[]> = {};
+    for (const r of records) (byHash[r.hash] ??= []).push(r.index - 1);
+    const dupIdxs: number[] = [];
+    for (const idxs of Object.values(byHash)) {
+      if (idxs.length > 1) {
+        // Keep the first, reroll the rest.
+        for (const i of idxs.slice(1)) dupIdxs.push(i);
+      }
+    }
+    if (dupIdxs.length === 0) break;
+    console.log(`dedupe round ${round + 1}: rerolling pages ${dupIdxs.map((i) => i + 1).join(",")}`);
+    for (const i of dupIdxs) {
+      try {
+        const attempt = round + 1;
+        const regen = await generateOne(i, attempt);
+        const h = await sha256Hex(regen.bytes);
+        await persistOne(i, regen.bytes, regen.model, regen.prompt, h);
+      } catch (e) {
+        console.warn(`dedupe reroll page ${i + 1} failed:`, (e as Error).message);
+      }
+    }
+  }
+
   return records;
 }
