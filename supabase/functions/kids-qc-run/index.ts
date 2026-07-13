@@ -179,6 +179,8 @@ Deno.serve(async (req) => {
         reasons: verdict.reasons,
         vision_report: visionReport,
         story_report: storyReport,
+        title_treatment: treatmentMeta,
+        title_spelling: spelling,
         computed_at: new Date().toISOString(),
       },
       human_review_reason: verdict.sellable ? null : verdict.reasons.join(" | "),
