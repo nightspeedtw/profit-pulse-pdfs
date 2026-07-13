@@ -10,6 +10,16 @@ import {
   getOrBuildKidsVisualBible,
   kidsIllustrationPrompt,
 } from "../_shared/kids-visual-bible.ts";
+import { buildKidsCoverSVG } from "../_shared/covers/kids-cover-render.ts";
+import { buildKidsCoverQc } from "../_shared/qc/kids-cover-qc.ts";
+
+/** How many lines the kids title will wrap to — mirrors the SVG builder's rule. */
+function wrapKidsTitle(title: string): number {
+  const words = (title || "").trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 1) return 1;
+  if (words.length <= 3) return 2;
+  return 3;
+}
 
 type EbookRow = {
   id: string; title: string; subtitle: string | null;
