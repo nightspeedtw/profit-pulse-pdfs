@@ -880,3 +880,122 @@ export function buildFooterTemplate(): string {
     <span><span class="pageNumber"></span> / <span class="totalPages"></span></span>
   </div>`;
 }
+
+// ---------------------------------------------------------------------------
+// Kids Picture Book template
+// Square 8.5x8.5 layout: full-bleed cover image → quiet copyright page →
+// one 2-page spread per chapter (illustration LEFT / story text RIGHT) →
+// "The End" back page. No worksheets, no action plan, no bonus section, no
+// running header/footer, no page numbers, no cover text overlays.
+// ---------------------------------------------------------------------------
+export function buildKidsPictureBookHtml(data: PdfData): string {
+  const year = data.copyright_year ?? new Date().getFullYear();
+  const title = esc(data.title ?? "");
+  const subtitle = esc(data.subtitle ?? "");
+
+  const coverPage = data.cover_url
+    ? `<section class="kb-page kb-cover"><img src="${esc(data.cover_url)}" alt=""/></section>`
+    : `<section class="kb-page kb-cover kb-cover--fallback"><h1>${title}</h1></section>`;
+
+  const copyrightPage = `<section class="kb-page kb-copyright">
+    <div class="kb-copyright__inner">
+      <div class="kb-copyright__title">${title}</div>
+      ${subtitle ? `<div class="kb-copyright__sub">${subtitle}</div>` : ""}
+      <div class="kb-copyright__line">© ${year} SECRET PDF · A Storybook</div>
+      <div class="kb-copyright__fine">All rights reserved. This story is a work of fiction.<br/>
+      Illustrations and text may not be reproduced without permission.</div>
+    </div>
+  </section>`;
+
+  const spreads = (data.chapters ?? []).map((c) => {
+    const illo = c.illustration?.url
+      ? `<img src="${esc(c.illustration.url)}" alt=""/>`
+      : `<div class="kb-illo--missing"></div>`;
+    const paragraphs = (c.content ?? "")
+      .replace(/\r\n/g, "\n")
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter(Boolean)
+      // Strip markdown headings, list bullets, and stray asterisks so the
+      // storybook page reads as clean narrative prose.
+      .map((p) => p.replace(/^#+\s*/gm, "").replace(/^[-*]\s+/gm, "").replace(/\*\*/g, "").replace(/`/g, ""))
+      .map((p) => `<p>${esc(p)}</p>`)
+      .join("");
+    return `<section class="kb-page kb-illo">${illo}</section>
+<section class="kb-page kb-text"><div class="kb-text__inner">${paragraphs}</div></section>`;
+  }).join("\n");
+
+  const backPage = `<section class="kb-page kb-end">
+    <div class="kb-end__inner">
+      <div class="kb-end__mark">The End</div>
+      <div class="kb-end__tag">A bedtime story · SECRET PDF</div>
+    </div>
+  </section>`;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>${title}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500;700&family=Nunito:wght@600;800&display=swap');
+
+  /* Square picture-book trim, full-bleed. */
+  @page { size: 8.5in 8.5in; margin: 0; }
+
+  html, body { margin: 0; padding: 0; background: #fdf6e6; color: #2b1f14;
+    font-family: 'Fraunces', Georgia, serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  .kb-page { width: 8.5in; height: 8.5in; page-break-after: always;
+    break-after: page; overflow: hidden; position: relative; box-sizing: border-box; }
+  .kb-page:last-child { page-break-after: auto; break-after: auto; }
+
+  /* Cover — pure image, no text overlays. */
+  .kb-cover { background: #1a1408; }
+  .kb-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .kb-cover--fallback { display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(160deg, #f4dfa5, #d97742); }
+  .kb-cover--fallback h1 { font-family: 'Nunito', sans-serif; font-weight: 800;
+    font-size: 56pt; color: #3b2a1a; text-align: center; padding: 0.6in; }
+
+  /* Copyright — quiet cream page. */
+  .kb-copyright { background: #fdf6e6; display: flex; align-items: center; justify-content: center; padding: 0.9in; }
+  .kb-copyright__inner { text-align: center; max-width: 6in; }
+  .kb-copyright__title { font-family: 'Fraunces', serif; font-weight: 700; font-size: 22pt; color: #2b1f14; margin-bottom: 6pt; }
+  .kb-copyright__sub { font-family: 'Fraunces', serif; font-style: italic; font-size: 13pt; color: #6b5236; margin-bottom: 28pt; }
+  .kb-copyright__line { font-family: 'Nunito', sans-serif; font-size: 10pt; letter-spacing: 0.12em; text-transform: uppercase; color: #6b5236; margin-bottom: 18pt; }
+  .kb-copyright__fine { font-family: 'Nunito', sans-serif; font-size: 9pt; color: #8a7554; line-height: 1.6; }
+
+  /* Illustration page — full-bleed. */
+  .kb-illo { background: #f4e3b8; }
+  .kb-illo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .kb-illo--missing { width: 100%; height: 100%; background: linear-gradient(160deg, #f4e3b8, #e0b976); }
+
+  /* Story text page — large, generous, centered. */
+  .kb-text { background: #fdf6e6; display: flex; align-items: center; justify-content: center; padding: 0.85in 0.9in; }
+  .kb-text__inner { max-width: 6.2in; font-family: 'Fraunces', Georgia, serif;
+    font-size: 17pt; line-height: 1.55; color: #2b1f14; text-align: left; }
+  .kb-text__inner p { margin: 0 0 14pt; text-indent: 0; }
+  .kb-text__inner p:first-child::first-letter {
+    font-family: 'Fraunces', serif; font-weight: 700; font-size: 42pt;
+    float: left; line-height: 0.9; margin: 4pt 8pt 0 0; color: #a04a1e;
+  }
+
+  /* Back page. */
+  .kb-end { background: #fdf6e6; display: flex; align-items: center; justify-content: center; }
+  .kb-end__inner { text-align: center; }
+  .kb-end__mark { font-family: 'Fraunces', serif; font-weight: 700; font-style: italic;
+    font-size: 44pt; color: #a04a1e; margin-bottom: 18pt; }
+  .kb-end__tag { font-family: 'Nunito', sans-serif; font-size: 10pt; letter-spacing: 0.2em;
+    text-transform: uppercase; color: #8a7554; }
+</style>
+</head>
+<body>
+${coverPage}
+${copyrightPage}
+${spreads}
+${backPage}
+</body>
+</html>`;
+}
+
