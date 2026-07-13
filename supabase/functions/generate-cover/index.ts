@@ -16,6 +16,11 @@ type EbookRow = {
   category_id: string | null;
 };
 
+function isKidsPictureBook(input: { title?: string | null; category?: string | null }) {
+  const haystack = [input.title, input.category].filter(Boolean).join(" ").toLowerCase();
+  return /kid|kids|child|children|picture\s*book|storybook|illustrated\s*story|nursery|bedtime/.test(haystack);
+}
+
 const COVER_DESIGNER_SYSTEM = `You are a world-class ebook cover designer, premium brand strategist, buyer psychology expert, and conversion-focused digital product marketer for USA Shopify.
 
 You combine elite nonfiction cover design, high-converting digital-product packaging, buyer psychology, behavioral marketing, premium typography, editorial layout, color psychology, thumbnail conversion strategy, category-specific visual positioning, and luxury digital product presentation.
@@ -538,6 +543,7 @@ async function processCover(ebook: EbookRow, opts: ProcessOpts) {
     const category = ebook.category_id
       ? (await db.from("categories").select("name").eq("id", ebook.category_id).maybeSingle()).data?.name
       : null;
+    const isKidsCover = isKidsPictureBook({ title: ebook.title, category });
 
     const styleRef = await loadActiveStyleReference(db);
 
@@ -694,7 +700,8 @@ ${JSON.stringify(spec, null, 2)}`,
     ]);
 
     const finalAssetType: ThumbnailAssetType = lastAssetType ?? "flat_cover_fallback";
-    const finalQc = completeThumbnailQcContract(lastQC, thumbSigned?.signedUrl, finalAssetType);
+    const finalThumbnailUrl = isKidsCover ? coverSigned?.signedUrl : thumbSigned?.signedUrl;
+    const finalQc = completeThumbnailQcContract(lastQC, finalThumbnailUrl, finalAssetType);
     const finalGate = qcPassed(finalQc, finalAssetType);
     passed = finalGate.passed;
     lastReasons = finalGate.reasons;
@@ -704,7 +711,7 @@ ${JSON.stringify(spec, null, 2)}`,
       thumbnail_asset_type: finalAssetType,
       ...finalQc,
       ...finalQc.scores,
-      thumbnail_url: thumbSigned?.signedUrl,
+      thumbnail_url: finalThumbnailUrl,
       passed,
       photoreal_mockup_score: finalAssetType === "photoreal_mockup" ? finalQc.scores.photoreal_mockup_score : null,
       flat_cover_thumbnail_score: finalAssetType === "flat_cover_fallback" ? finalQc.scores.flat_cover_thumbnail_score : null,
@@ -725,7 +732,8 @@ ${JSON.stringify(spec, null, 2)}`,
       cover_url: coverSigned?.signedUrl,
       cover_bg_url: bgSigned?.signedUrl,
       cover_image_url: coverSigned?.signedUrl,
-      thumbnail_url: thumbSigned?.signedUrl,
+      thumbnail_url: finalThumbnailUrl,
+      ...(isKidsCover ? { store_thumbnail_url: coverSigned?.signedUrl, thumbnail_needs_review: false } : {}),
       cover_spec: spec as unknown as never,
       cover_qc: coverQcForDb as unknown as never,
       cover_score: overall,
