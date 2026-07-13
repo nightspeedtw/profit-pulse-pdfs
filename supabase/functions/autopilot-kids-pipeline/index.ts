@@ -378,11 +378,32 @@ async function generateCover(ctx: Ctx): Promise<StepResult> {
   const bibleNeedsChar = !bible || !bible.character_bible_json || Object.keys((bible.character_bible_json as Record<string, unknown>) ?? {}).length === 0;
   if (bibleNeedsChar) {
     const style = await pickStyle(db);
+    // IMPORTANT: seed the character bible from the actual MANUSCRIPT, not from
+    // ctx.ebook.title / description. Repair passes rewrite manuscript_md but
+    // may leave stale title/description behind, which previously caused the
+    // bible to lock the wrong hero (e.g. "Barnaby Bear" for a Tali story).
+    const manuscriptExcerpt = String(ctx.ebook.manuscript_md ?? '').slice(0, 2000);
     const bibleText = await callAI(
-      `Create a character bible JSON for the hero of "${ctx.ebook.title}". Description: ${ctx.ebook.description}. Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":"","outfit":"","accessory":"","personality":"","forbidden_changes":["never change hair color","never change outfit"]}`,
-      "You are a picture-book art director. English only. JSON only, no markdown."
+      `Create a character bible JSON for the HERO of the following children's picture book MANUSCRIPT. The hero MUST be the character who is actually named and acts throughout the manuscript text below — do NOT invent a new hero from the title or description. Use the exact hero name that appears in the manuscript.
+
+MANUSCRIPT:
+"""
+${manuscriptExcerpt}
+"""
+
+Title (for context only, may be stale): ${ctx.ebook.title}
+Description (for context only, may be stale): ${ctx.ebook.description}
+
+Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":"","outfit":"","accessory":"","personality":"","forbidden_changes":["never change hair color","never change outfit"]}`,
+      "You are a picture-book art director. English only. JSON only, no markdown. The hero name MUST appear verbatim in the manuscript."
     );
     const cbJson = JSON.parse(bibleText.replace(/^```(?:json)?\s*|\s*```$/g, '').trim());
+    // Post-validate: hero name must appear in manuscript, else abort so the
+    // caller can decide (do not spend image cost on a wrong hero).
+    const heroName = String(cbJson?.name ?? '').trim();
+    if (heroName && manuscriptExcerpt && !new RegExp(`\\b${heroName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\b`, 'i').test(manuscriptExcerpt)) {
+      throw new Error(`BIBLE_STORY_MISMATCH: generated hero "${heroName}" is not present in manuscript. Refusing to spend image cost. Update title/description or manuscript so they align.`);
+    }
     const patch = {
       character_bible_json: cbJson,
       style_bible_json: { style_slug: style.slug, style_label: style.label },
