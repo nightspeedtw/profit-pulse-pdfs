@@ -35,13 +35,12 @@ async function logStep(
   try {
     await db.from("pipeline_step_logs").insert({
       ebook_id,
-      step,
+      step_name: step,
       status,
-      track: "kids",
-      payload: extra as any,
+      payload: { track: "kids", ...extra } as any,
+      error_message: status === "fail" ? String((extra as any).error ?? "").slice(0, 500) : null,
     });
   } catch (_) {
-    // fall back if column shape differs — never break the pipeline for logging
     console.log("kids-log", ebook_id, step, status, extra);
   }
 }
