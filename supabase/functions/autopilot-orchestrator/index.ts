@@ -5,8 +5,8 @@
 // Idempotent: can be called multiple times for the same ebook_id. Uses
 // `ebooks.autopilot_state` as the resume cursor.
 import { corsHeaders, admin, requireAdmin, aiJSON, aiText, pickModel, logCost } from "../_shared/ai.ts";
-import { HARDSELL_COPYWRITER_SYSTEM, PREMIUM_WRITER_SYSTEM } from "../_shared/prompts.ts";
-import { isKidsBook, kidsGuardResponse } from "../_shared/is-kids-book.ts";
+import { HARDSELL_COPYWRITER_SYSTEM, PREMIUM_WRITER_SYSTEM } from "../_shared/prompts/adult.ts";
+import { resolveTrack } from "../_shared/track-registry.ts";
 import {
   TH, logRun,
   scoreTopic, topicGate, rewriteTopic,
@@ -66,10 +66,6 @@ Deno.serve(async (req) => {
     if (ebook_id) {
       const { data } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
       if (!data) throw new Error("Ebook not found");
-      if (isKidsBook(data)) {
-        console.log("autopilot-orchestrator: skipping kids book", { ebook_id });
-        return kidsGuardResponse(ebook_id, corsHeaders);
-      }
       ebook = data;
       if (data.idea_id) {
         const { data: i } = await db.from("ebook_ideas").select("*").eq("id", data.idea_id).single();
@@ -79,6 +75,34 @@ Deno.serve(async (req) => {
       const { data } = await db.from("ebook_ideas").select("*").eq("id", idea_id).single();
       if (!data) throw new Error("Idea not found");
       idea = data;
+    }
+
+    // ---------- TRACK ROUTER ----------
+    // Look up category slug so resolveTrack has full input regardless of
+    // whether we started from an idea or an existing ebook.
+    const categoryRow = (idea?.category_id || ebook?.category_id)
+      ? (await db.from("categories").select("slug, default_price")
+          .eq("id", idea?.category_id ?? ebook?.category_id).maybeSingle()).data
+      : null;
+    const track = resolveTrack((ebook ?? idea) as any, categoryRow?.slug ?? null);
+    if (track === "kids") {
+      console.log("autopilot-orchestrator: routing to kids track", { ebook_id: ebook?.id, idea_id: idea?.id });
+      if (!ebook?.id) {
+        return new Response(JSON.stringify({
+          error: "kids track requires an existing ebook_id (create the kids ebook first, then trigger autopilot)",
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/autopilot-kids`;
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${auth}` },
+        body: JSON.stringify({ ebook_id: ebook.id, mode }),
+      });
+      const text = await r.text();
+      return new Response(text, {
+        status: r.status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
     const { data: settings } = await db.from("generation_settings").select("*").eq("id", 1).maybeSingle();
     const genMode = settings?.mode ?? "hybrid";
