@@ -67,6 +67,9 @@ Deno.serve(async (req) => {
   const publish = body.publish !== false;
   const targetIllos = Math.max(12, Math.min(16, (body.target_illustrations as number) ?? 12));
   const runInBackground = body.background !== false;
+  const skipStoryGate = body.skip_story_gate === true;
+  const storyMaxAttempts = Math.max(1, Math.min(3, (body.story_max_attempts as number) ?? 2));
+  let storyGatePassed = false;
 
   const log: Array<Record<string, unknown>> = [];
   const startedAt = new Date().toISOString();
