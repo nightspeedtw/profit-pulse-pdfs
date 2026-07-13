@@ -25,23 +25,34 @@ export interface StorefrontEbook {
   sales_count: number;
   listed_at: string | null;
   preview_images: string[] | null;
+  is_bestseller?: boolean;
+  series_id?: string | null;
+  age_group_slugs?: string[];
+  theme_slugs?: string[];
 }
 
+export interface FetchStorefrontOpts {
+  limit?: number;
+  category?: string;
+  category_slug?: string;
+  q?: string;
+  id?: string;
+  age?: string;
+  themes?: string;
+  bestseller?: boolean;
+  series_id?: string;
+  sort?: "new" | "sales";
+}
 
 const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/list-storefront`;
 const ANON = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
-export async function fetchStorefront(opts: {
-  limit?: number;
-  category?: string;
-  q?: string;
-  id?: string;
-} = {}): Promise<StorefrontEbook[]> {
+export async function fetchStorefront(opts: FetchStorefrontOpts = {}): Promise<StorefrontEbook[]> {
   const params = new URLSearchParams();
-  if (opts.limit) params.set("limit", String(opts.limit));
-  if (opts.category) params.set("category", opts.category);
-  if (opts.q) params.set("q", opts.q);
-  if (opts.id) params.set("id", opts.id);
+  for (const [k, v] of Object.entries(opts)) {
+    if (v === undefined || v === null || v === "") continue;
+    params.set(k, typeof v === "boolean" ? String(v) : String(v));
+  }
   const res = await fetch(`${FN_URL}?${params.toString()}`, {
     headers: { apikey: ANON, Authorization: `Bearer ${ANON}` },
   });

@@ -367,6 +367,39 @@ export type Database = {
           },
         ]
       }
+      book_series: {
+        Row: {
+          cover_image_url: string | null
+          created_at: string
+          description: string | null
+          id: string
+          slug: string
+          sort_order: number
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          cover_image_url?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          slug: string
+          sort_order?: number
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          cover_image_url?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          slug?: string
+          sort_order?: number
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       categories: {
         Row: {
           cover_style_prompt: string | null
@@ -870,6 +903,72 @@ export type Database = {
           },
         ]
       }
+      ebook_kids_ages: {
+        Row: {
+          age_group_id: string
+          created_at: string
+          ebook_id: string
+        }
+        Insert: {
+          age_group_id: string
+          created_at?: string
+          ebook_id: string
+        }
+        Update: {
+          age_group_id?: string
+          created_at?: string
+          ebook_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ebook_kids_ages_age_group_id_fkey"
+            columns: ["age_group_id"]
+            isOneToOne: false
+            referencedRelation: "kids_age_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ebook_kids_ages_ebook_id_fkey"
+            columns: ["ebook_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ebook_kids_themes: {
+        Row: {
+          created_at: string
+          ebook_id: string
+          theme_id: string
+        }
+        Insert: {
+          created_at?: string
+          ebook_id: string
+          theme_id: string
+        }
+        Update: {
+          created_at?: string
+          ebook_id?: string
+          theme_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ebook_kids_themes_ebook_id_fkey"
+            columns: ["ebook_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ebook_kids_themes_theme_id_fkey"
+            columns: ["theme_id"]
+            isOneToOne: false
+            referencedRelation: "kids_themes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ebooks: {
         Row: {
           action_plan_json: Json | null
@@ -939,6 +1038,7 @@ export type Database = {
           inside_illustration_relevance_score: number | null
           inside_illustrations_json: Json | null
           interior_visuals: Json | null
+          is_bestseller: boolean
           key_benefits: Json | null
           kids_scene_briefs_json: Json | null
           kids_visual_bible: Json | null
@@ -1020,6 +1120,7 @@ export type Database = {
           selling_hook: string | null
           seo_meta: string | null
           seo_title: string | null
+          series_id: string | null
           shopify_draft_url: string | null
           shopify_events: Json
           shopify_handle: string | null
@@ -1133,6 +1234,7 @@ export type Database = {
           inside_illustration_relevance_score?: number | null
           inside_illustrations_json?: Json | null
           interior_visuals?: Json | null
+          is_bestseller?: boolean
           key_benefits?: Json | null
           kids_scene_briefs_json?: Json | null
           kids_visual_bible?: Json | null
@@ -1214,6 +1316,7 @@ export type Database = {
           selling_hook?: string | null
           seo_meta?: string | null
           seo_title?: string | null
+          series_id?: string | null
           shopify_draft_url?: string | null
           shopify_events?: Json
           shopify_handle?: string | null
@@ -1327,6 +1430,7 @@ export type Database = {
           inside_illustration_relevance_score?: number | null
           inside_illustrations_json?: Json | null
           interior_visuals?: Json | null
+          is_bestseller?: boolean
           key_benefits?: Json | null
           kids_scene_briefs_json?: Json | null
           kids_visual_bible?: Json | null
@@ -1408,6 +1512,7 @@ export type Database = {
           selling_hook?: string | null
           seo_meta?: string | null
           seo_title?: string | null
+          series_id?: string | null
           shopify_draft_url?: string | null
           shopify_events?: Json
           shopify_handle?: string | null
@@ -1466,6 +1571,13 @@ export type Database = {
             columns: ["idea_id"]
             isOneToOne: false
             referencedRelation: "ebook_ideas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ebooks_series_id_fkey"
+            columns: ["series_id"]
+            isOneToOne: false
+            referencedRelation: "book_series"
             referencedColumns: ["id"]
           },
         ]
@@ -1671,6 +1783,69 @@ export type Database = {
           stuck_run_ttl_min?: number
           tick_enabled?: boolean
           updated_at?: string
+        }
+        Relationships: []
+      }
+      kids_age_groups: {
+        Row: {
+          created_at: string
+          id: string
+          label_en: string
+          label_th: string
+          max_age: number
+          min_age: number
+          slug: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label_en: string
+          label_th: string
+          max_age: number
+          min_age: number
+          slug: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label_en?: string
+          label_th?: string
+          max_age?: number
+          min_age?: number
+          slug?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
+      kids_themes: {
+        Row: {
+          created_at: string
+          icon_name: string | null
+          id: string
+          label_en: string
+          label_th: string
+          slug: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          icon_name?: string | null
+          id?: string
+          label_en: string
+          label_th: string
+          slug: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          icon_name?: string | null
+          id?: string
+          label_en?: string
+          label_th?: string
+          slug?: string
+          sort_order?: number
         }
         Relationships: []
       }
