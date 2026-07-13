@@ -127,17 +127,33 @@ Deno.serve(async (req) => {
     const items = (data ?? []).map((row: any) => {
       const raw = row.inside_illustrations_json;
       let preview_images: string[] = [];
+      let preview_spreads: Array<{ page: number; image_url: string; text: string | null; caption: string | null }> = [];
+      let total_spreads = 0;
       if (raw && typeof raw === "object") {
-        preview_images = Object.entries(raw)
-          .sort(([a], [b]) => Number(a) - Number(b))
-          .map(([, v]: any) => v?.url)
+        const entries = Object.entries(raw)
+          .map(([k, v]: any) => [Number(k), v] as [number, any])
+          .filter(([n, v]) => Number.isFinite(n) && v && typeof v === "object")
+          .sort(([a], [b]) => a - b);
+        total_spreads = entries.length;
+        preview_images = entries
+          .map(([, v]) => v?.url)
           .filter((u: any): u is string => typeof u === "string" && u.length > 0)
           .slice(0, 4);
+        preview_spreads = entries
+          .filter(([, v]) => typeof v?.url === "string" && v.url.length > 0)
+          .map(([page, v]) => ({
+            page,
+            image_url: v.url as string,
+            text: typeof v.text === "string" ? v.text : null,
+            caption: typeof v.caption === "string" ? v.caption : null,
+          }));
       }
       const { inside_illustrations_json, ...rest } = row;
       return {
         ...rest,
         preview_images,
+        preview_spreads,
+        total_spreads,
         age_group_slugs: ageBy[row.id] ?? [],
         theme_slugs: themeBy[row.id] ?? [],
       };
