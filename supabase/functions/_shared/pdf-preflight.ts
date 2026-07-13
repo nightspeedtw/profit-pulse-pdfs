@@ -1,6 +1,9 @@
 // QC v2 — real PDF preflight. Measures the actual bytes, never trusts the model.
 // Produces findings with rule_id + measured_value + threshold + evidence.
 
+import { PDFDocument } from "npm:pdf-lib@1.17.1";
+
+
 export interface RawFinding {
   rule_id: string;
   category: string;
