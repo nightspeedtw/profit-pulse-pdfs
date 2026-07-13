@@ -69,6 +69,21 @@ Deno.serve(async (req) => {
   const runInBackground = body.background !== false;
   const skipStoryGate = body.skip_story_gate === true;
   const storyMaxAttempts = Math.max(1, Math.min(3, (body.story_max_attempts as number) ?? 2));
+  const premiseLane = (body.premise_lane as string | undefined) ?? null;
+  const premiseSpec = (body.premise_spec as string | undefined) ?? null;
+  const newSubtitle = (body.new_subtitle as string | undefined) ?? null;
+  const forbiddenPatterns = Array.isArray(body.forbidden_patterns)
+    ? (body.forbidden_patterns as string[])
+    : [
+        "moon watches children sleep",
+        "moon collects sleepy sighs",
+        "moon cradles stars",
+        "moon hums lullabies",
+        "moon as mother bird / nest of star-chicks",
+        "vague cozy bedtime magic",
+        "the moon helps everyone sleep",
+      ];
+  const retireOnFail = body.retire_on_fail === true;
   let storyGatePassed = false;
 
   const log: Array<Record<string, unknown>> = [];
@@ -107,7 +122,12 @@ Deno.serve(async (req) => {
     // ============================================================
     if (runAll || phase === "story") {
       const title = eb.title as string;
-      const subtitle = (eb.subtitle as string | null) ?? null;
+      let subtitle = (eb.subtitle as string | null) ?? null;
+      if (newSubtitle && newSubtitle !== subtitle) {
+        await db.from("ebooks_kids").update({ subtitle: newSubtitle }).eq("id", ebook_id);
+        subtitle = newSubtitle;
+        log.push({ step: "subtitle_updated", subtitle });
+      }
 
       // Skip initial judge when forced — save ~15s
       let currentPass = false;
@@ -153,18 +173,31 @@ CRITICAL REPAIR NOTES (previous attempt failed):
 `
             : "";
 
-          const rewriteUser = `Rewrite the manuscript for the following picture book. Preserve the title, subtitle, and hero name "Luna". This is a cozy bedtime book with gentle wonder.
+          const laneBlock = premiseLane || premiseSpec
+            ? `
+
+DIFFERENTIATED PREMISE LANE (MANDATORY — do NOT default back to generic cozy-moon):
+${premiseLane ? `Lane: ${premiseLane}` : ""}
+${premiseSpec ?? ""}
+
+FORBIDDEN GENERIC PATTERNS (auto-fail if used — the story judge already rejected these):
+${forbiddenPatterns.map((p) => `- ${p}`).join("\n")}
+The moon's secret must be concrete, surprising, visual, and specific — a thing the moon DOES (repairs, sorts, folds, delivers, tunes), not a vague feeling.
+`
+            : "";
+
+          const rewriteUser = `Rewrite the manuscript for the following picture book. Preserve the title and hero name "Luna". This is a cozy bedtime book with gentle wonder but a DISTINCTIVE, non-generic premise.
 
 Title: "${title}"
 Subtitle: "${subtitle ?? ""}"
 Hero: Luna, a small child in cozy star pajamas
-Theme: bedtime, gentle wonder, emotional calm, moon's secret
-Tone: warm, whimsical, sleepy, emotionally reassuring
+Theme: bedtime, gentle wonder, emotional calm, moon's SPECIFIC secret
+Tone: warm, whimsical, sleepy, emotionally reassuring${laneBlock}
 
 REQUIREMENTS (all mandatory):
 - ${targetIllos} distinct illustrated spreads, one paragraph per spread
 - 40-70 words per spread, 500-800 words total
-- Distinctive premise (the moon's secret must be specific, surprising, tender)
+- Distinctive premise (the moon's secret must be specific, surprising, tender, and VISUAL)
 - Luna has a clear emotional need at page 1
 - Rising wonder in middle pages, quiet climax where Luna discovers the moon's secret
 - Satisfying, specific, earned emotional payoff on the last spread
@@ -250,10 +283,17 @@ Return JSON:
       // Hard gate: do not touch art if the story judge did not pass.
       if (!storyGatePassed && !skipStoryGate && runAll) {
         log.push({ step: "aborted_before_art", reason: "story_judge_failed", note: "no image cost spent; fix story then re-invoke" });
-        await db.from("ebooks_kids").update({
+        const patch: Record<string, unknown> = {
           listing_status: "draft", status: "needs_revision", pipeline_status: "human_review_required",
-        }).eq("id", ebook_id);
-        await persistLog({ status: "story_gate_blocked" });
+        };
+        await db.from("ebooks_kids").update(patch).eq("id", ebook_id);
+        const extra: Record<string, unknown> = { status: "story_gate_blocked" };
+        if (retireOnFail) {
+          extra.retire_recommended = true;
+          extra.retire_reason = "story judge could not clear generic_story_risk<=25 after differentiated premise repair; recommend starting fresh with a more distinctive concept";
+          log.push({ step: "retire_recommended", reason: extra.retire_reason });
+        }
+        await persistLog(extra);
         return;
       }
     }
