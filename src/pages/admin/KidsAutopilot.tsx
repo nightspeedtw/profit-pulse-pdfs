@@ -8,6 +8,15 @@ import { RefreshCw, Play, Sparkles, Zap } from "lucide-react";
 import { listAgeGroups, listThemes, type KidsAgeGroup, type KidsTheme } from "@/lib/kidsTaxonomy";
 import { BuildKidsBookButton } from "@/components/admin/BuildKidsBookButton";
 
+interface ParentJob {
+  status?: string;
+  final_reason?: string;
+  concept_batch_count?: number;
+  attempt_count?: number;
+  child_attempts?: Array<{ outcome?: string; lane?: string }>;
+  published_ebook_id?: string;
+}
+
 interface KidsRun {
   id: string;
   status: string;
@@ -16,6 +25,7 @@ interface KidsRun {
   blocker_reason: string | null;
   ebook_kids_id: string | null;
   created_at: string;
+  metadata: { parent_job?: ParentJob; parent_run_id?: string } | null;
 }
 
 interface Weight {
@@ -26,6 +36,17 @@ interface Weight {
   sales_last_30d: number;
   auto_managed: boolean;
 }
+
+const PARENT_FRIENDLY: Record<string, { label: string; tone: "info" | "success" | "warn" | "error" }> = {
+  searching_for_concept: { label: "Searching for a strong concept", tone: "info" },
+  writing_story: { label: "Writing story", tone: "info" },
+  repairing_story: { label: "Story repair in progress", tone: "info" },
+  building_assets: { label: "Building cover and illustrations", tone: "info" },
+  running_qc: { label: "Running final QC", tone: "info" },
+  published: { label: "Published", tone: "success" },
+  exhausted: { label: "Stopped: quality budget exhausted", tone: "warn" },
+  failed_system_error: { label: "System error: needs admin attention", tone: "error" },
+};
 
 export default function KidsAutopilot() {
   const [ages, setAges] = useState<KidsAgeGroup[]>([]);
@@ -44,13 +65,15 @@ export default function KidsAutopilot() {
       supabase.from("kids_category_weights").select("*"),
       supabase
         .from("autopilot_kids_runs")
-        .select("id, status, current_step_label, progress_percent, blocker_reason, ebook_kids_id, created_at")
+        .select("id, status, current_step_label, progress_percent, blocker_reason, ebook_kids_id, created_at, metadata")
         .order("created_at", { ascending: false })
-        .limit(20),
+        .limit(30),
     ]);
     setAges(a); setThemes(t);
     setWeights((w.data ?? []) as Weight[]);
-    setRuns((r.data ?? []) as KidsRun[]);
+    // Hide child runs spawned by a parent job — they surface inside the parent row.
+    const rows = ((r.data ?? []) as KidsRun[]).filter(row => !row.metadata?.parent_run_id);
+    setRuns(rows);
   }, []);
 
   useEffect(() => { load(); }, [load]);
