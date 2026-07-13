@@ -1,4 +1,4 @@
-// Public storefront listing — returns ebooks marked as listed for sale.
+// Public storefront listing — returns ebooks marked as listed for sale. (redeploy v2)
 // Supports optional kids-taxonomy filters (age, themes), bestseller flag, and sort order.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/stripe.ts";
