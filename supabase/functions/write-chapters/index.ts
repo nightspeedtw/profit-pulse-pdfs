@@ -4,6 +4,7 @@
 import { corsHeaders, admin, aiText, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 import { PREMIUM_WRITER_SYSTEM } from "../_shared/prompts.ts";
 import { scoreChapter, chapterGate, TH, logRun } from "../_shared/qc.ts";
+import { isKidsBook, kidsGuardResponse } from "../_shared/is-kids-book.ts";
 
 interface OutlineChapter {
   index: number;
@@ -152,6 +153,10 @@ Deno.serve(async (req) => {
 
     const { data: ebook, error } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
     if (error || !ebook) throw new Error("Ebook not found");
+    if (isKidsBook(ebook)) {
+      console.log("write-chapters: skipping kids book", { ebook_id });
+      return kidsGuardResponse(ebook_id, corsHeaders);
+    }
     const outline = ebook.outline_json as any;
     if (!outline?.chapters?.length) throw new Error("No outline yet — run generate-outline first.");
 
