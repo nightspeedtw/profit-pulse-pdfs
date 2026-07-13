@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
 
     const { data: e, error } = await supabase
       .from("ebooks")
-      .select("id, title, subtitle, category_slug, category_id, price, store_thumbnail_url, cover_url, key_benefits, benefit_bullets, product_format, product_type")
+      .select("id, title, subtitle, category_slug, category_id, price, store_thumbnail_url, cover_url, key_benefits, benefit_bullets, product_type")
       .eq("id", ebookId)
       .maybeSingle();
     if (error) throw error;
@@ -91,7 +91,7 @@ Deno.serve(async (req) => {
       title: e.title,
       categorySlug: categorySlug ?? category?.slug ?? null,
       categoryName: category?.name ?? null,
-      productFormat: (e as any).product_format ?? (e as any).product_type ?? null,
+      productFormat: (e as any).product_type ?? null,
     })) {
       const coverUrl = await signIfNeeded(e.cover_url);
       if (!coverUrl) throw new Error("Kids picture books need a finished illustrated cover before creating a storefront thumbnail.");
