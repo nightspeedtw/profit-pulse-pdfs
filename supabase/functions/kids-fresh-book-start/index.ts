@@ -138,43 +138,50 @@ Deno.serve(async (req) => {
     const ageBand: string = body.age_band ?? '4-6';
     const ageGroupId: string = body.age_group_id ?? AGE_4_6;
     const themeIds: string[] = body.theme_ids ?? [THEME_HUMOR];
+    const useEbookId: string | undefined = body.use_ebook_id;
+    const lockedConcept: Record<string, unknown> | undefined = body.locked_concept;
+    const lockedScores: Record<string, unknown> | undefined = body.locked_scores;
+    const skipPreflight: boolean = Boolean(body.skip_preflight);
+    const parentRunId: string | undefined = body.parent_run_id;
 
-    // Create placeholder ebook row.
-    const { data: ebook, error: ebookErr } = await db.from('ebooks_kids').insert({
-      title: 'Fresh kids book (preflight in progress)',
-      subtitle: '',
-      description: '',
-      age_group_id: ageGroupId,
-      theme_ids: themeIds,
-      status: 'concept_preflight',
-      listing_status: 'draft',
-      pipeline_status: 'concept_preflight',
-      sellable: false,
-      locked: false,
-      price_cents: 799,
-    }).select('id').single();
-    if (ebookErr || !ebook) throw new Error(`create ebook failed: ${ebookErr?.message}`);
+    let ebookId: string;
+    if (useEbookId) {
+      ebookId = useEbookId;
+    } else {
+      const { data: ebook, error: ebookErr } = await db.from('ebooks_kids').insert({
+        title: 'Fresh kids book (preflight in progress)',
+        subtitle: '',
+        description: '',
+        age_group_id: ageGroupId,
+        theme_ids: themeIds,
+        status: 'concept_preflight',
+        listing_status: 'draft',
+        pipeline_status: 'concept_preflight',
+        sellable: false,
+        locked: false,
+        price_cents: 799,
+      }).select('id').single();
+      if (ebookErr || !ebook) throw new Error(`create ebook failed: ${ebookErr?.message}`);
+      ebookId = ebook.id;
+    }
 
     const { data: run, error: runErr } = await db.from('autopilot_kids_runs').insert({
-      ebook_kids_id: ebook.id,
+      ebook_kids_id: ebookId,
       status: 'queued',
-      current_step: 'concept_preflight',
-      current_step_label: 'Concept preflight',
+      current_step: skipPreflight ? 'story_generation' : 'concept_preflight',
+      current_step_label: skipPreflight ? 'Writing story' : 'Concept preflight',
       progress_percent: 0,
+      metadata: parentRunId ? { parent_run_id: parentRunId } : {},
     }).select('id').single();
     if (runErr || !run) throw new Error(`create run failed: ${runErr?.message}`);
 
     // Fire the background task (Deno EdgeRuntime.waitUntil pattern).
     // deno-lint-ignore no-explicit-any
     const rt = (globalThis as any).EdgeRuntime;
-    if (rt?.waitUntil) {
-      rt.waitUntil(runBackground(ebook.id, run.id, ageBand));
-    } else {
-      // Best-effort fire-and-forget.
-      runBackground(ebook.id, run.id, ageBand).catch(e => console.error('bg', e));
-    }
+    const task = runBackground(ebookId, run.id, ageBand, { lockedConcept, lockedScores, skipPreflight, parentRunId });
+    if (rt?.waitUntil) rt.waitUntil(task); else task.catch(e => console.error('bg', e));
 
-    return json({ ok: true, ebook_id: ebook.id, run_id: run.id, age_band: ageBand });
+    return json({ ok: true, ebook_id: ebookId, run_id: run.id, age_band: ageBand });
   } catch (e) {
     console.error('kids-fresh-book-start error', e);
     return json({ ok: false, error: String((e as Error)?.message ?? e) }, 500);
