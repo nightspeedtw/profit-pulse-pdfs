@@ -284,6 +284,65 @@ Return JSON:
         storyGatePassed = judgePassed;
         log.push({ step: "story_rewrite_done", best_composite: bestScore, story_gate_passed: judgePassed, last_scores: lastJudge });
         await persistLog({ story_gate_passed: judgePassed });
+
+        // METADATA SYNC: when the story rewrite passes (or produces a better
+        // manuscript), regenerate title/subtitle/description + storefront_meta
+        // from the NEW manuscript so downstream steps never seed the bible /
+        // cover from a stale prior-book title (root cause of Barnaby Bear bug).
+        if (judgePassed) {
+          try {
+            const { data: freshEb } = await db.from("ebooks_kids").select("manuscript_md, story_bible, storefront_meta").eq("id", ebook_id).single();
+            const manuscript = String(freshEb?.manuscript_md ?? "");
+            const storyBible = (freshEb?.story_bible ?? {}) as Record<string, unknown>;
+            const metaSys = "You are a picture-book editor. English only. Return ONLY JSON. Titles and descriptions must reflect the manuscript's actual hero and premise — never invent a new hero.";
+            const metaPrompt = `Read this manuscript and produce aligned commercial metadata.
+
+MANUSCRIPT:
+"""
+${manuscript.slice(0, 4000)}
+"""
+
+Story bible hints: refrain="${String(storyBible.refrain ?? "")}", premise="${String(storyBible.premise ?? "")}".
+
+Return JSON exactly:
+{
+  "title": "playful title 3-8 words that names or clearly implies the hero + premise; age 4-6; no colon subtitle",
+  "subtitle": "one short line, may be empty string",
+  "description": "1-2 sentence back-cover blurb that names the actual hero from the manuscript and captures the core premise; include the refrain if there is one",
+  "hero_name": "hero name exactly as it appears in the manuscript",
+  "story_engine": "1 sentence describing the core story mechanic",
+  "locked_premise": "1 sentence locked premise",
+  "refrain": "the story's repeated chantable line or empty string"
+}`;
+            const metaRaw = await ai("google/gemini-2.5-flash", metaSys, metaPrompt);
+            const meta = JSON.parse(metaRaw) as Record<string, string>;
+            const hero = String(meta.hero_name ?? "").trim();
+            if (hero && new RegExp(`\\b${hero.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\b`, "i").test(manuscript)) {
+              const existingMeta = (freshEb?.storefront_meta ?? {}) as Record<string, unknown>;
+              const syncHash = await hashString(manuscript);
+              await db.from("ebooks_kids").update({
+                title: String(meta.title ?? "").trim() || undefined,
+                subtitle: (String(meta.subtitle ?? "").trim() || null),
+                description: String(meta.description ?? "").trim() || undefined,
+                storefront_meta: {
+                  ...existingMeta,
+                  hero_name: hero,
+                  story_engine: String(meta.story_engine ?? ""),
+                  locked_premise: String(meta.locked_premise ?? ""),
+                  refrain: String(meta.refrain ?? storyBible.refrain ?? ""),
+                  metadata_synced_from_manuscript: true,
+                  metadata_sync_hash: syncHash,
+                  metadata_synced_at: new Date().toISOString(),
+                },
+              }).eq("id", ebook_id);
+              log.push({ step: "metadata_synced_from_manuscript", hero, title: meta.title });
+            } else {
+              log.push({ step: "metadata_sync_skipped", reason: "hero not found in manuscript", hero });
+            }
+          } catch (e) {
+            log.push({ step: "metadata_sync_failed", error: String((e as Error).message).slice(0, 200) });
+          }
+        }
       } else {
         storyGatePassed = true;
         log.push({ step: "story_rewrite_skipped", reason: "initial_judge_passed" });
