@@ -1,155 +1,116 @@
 
-# Kids Book Taxonomy & Dual-Filter Storefront
+# แยกระบบสร้าง Ebook: Kids Track vs Adult Track
 
-เพิ่มระบบจัดหมวดหมู่ 3 แกน (อายุ / แนวเรื่อง / แท็กการตลาด) พร้อมหน้า Kids Hub ที่มี Dual Filter ใช้งานได้จริง โดยไม่ทำลาย categories เดิมของสินค้าอื่น
+ตอนนี้ backend มีแค่ guard (`is-kids-book.ts`) กันไม่ให้ pipeline ผู้ใหญ่ทับหนังสือเด็ก แต่ logic กระจายอยู่ทั่วและ track เด็กยังไม่มี orchestrator ของตัวเอง แผนนี้แยกให้ชัดเจนทั้ง 4 ชั้น (Prompts + Outline / QC / Pipeline steps / Cover+Thumbnail) โดยใช้ **category_slug** เป็นตัวกำหนด track อัตโนมัติ
 
----
+## 1. Track Registry (แกนกลาง)
 
-## 1. โครงสร้างข้อมูล (Backend)
+สร้างไฟล์ `supabase/functions/_shared/track-registry.ts` เป็นแหล่งความจริงเดียว:
 
-เพิ่ม **taxonomy แบบ tag-based** ผูกกับ `ebooks` ผ่านตารางกลาง เพื่อให้หนังสือเล่มเดียวเลือกได้หลายอายุ/หลายธีม
-
-### ตารางใหม่
-
-- `kids_age_groups` (id, slug, label_th, label_en, sort_order, min_age, max_age)
-  - seed: `0-3`, `4-6`, `7-9`, `9-12`, `13+` พร้อมชื่อไทย ("นิทานภาพ 4-6 ปี" ฯลฯ)
-- `kids_themes` (id, slug, label_th, label_en, icon_name, sort_order)
-  - seed: `bedtime`, `animals-nature`, `ef-life-skills`, `adventure-fantasy`, `friendship-family`, `humor-fun`, `stem-educational`
-- `ebook_kids_ages` (ebook_id, age_group_id) — many-to-many
-- `ebook_kids_themes` (ebook_id, theme_id) — many-to-many
-
-### ต่อยอดคอลัมน์ที่มีอยู่บน `ebooks`
-
-- `is_bestseller boolean default false` (แท็กจัดโดยแอดมิน; เกณฑ์อัตโนมัติจาก orders มาต่อยอดทีหลัง)
-- `series_id uuid null` + ตาราง `book_series` (id, slug, title, description, cover_image_url) — สำหรับ "จัดเซ็ต/ซีรีส์"
-- ใช้ `created_at` เดิมสำหรับ "มาใหม่" (ไม่ต้องเพิ่มคอลัมน์)
-
-### RLS / Grants
-
-- Public `SELECT` (anon + authenticated) ทุกตาราง taxonomy — เพื่อให้ storefront อ่านได้
-- Write เฉพาะ `service_role` (แอดมินจัดผ่าน edge function / admin UI ภายหลัง)
-- ทำตาม pattern เดิม: GRANT ในไฟล์ migration เดียวกับ CREATE TABLE
-
----
-
-## 2. Storefront UI
-
-### 2.1 หน้า Kids Hub ใหม่ `/kids`
-
-Route ใหม่ พร้อม nav link "Kids" ใน Header เมนู (แสดงเฉพาะเมื่อมีหนังสือใน `parenting-kids` ≥ 1)
-
-Layout:
 ```text
-┌─────────────────────────────────────────────┐
-│ HERO: "หนังสือเด็ก คัดตามวัย ตามแนวเรื่อง"  │
-├─────────────────────────────────────────────┤
-│ AGE TABS  [0-3][4-6][7-9][9-12][13+][ทั้งหมด]│  ← แกน 1 (ปุ่มใหญ่)
-├─────────────────────────────────────────────┤
-│ THEME CHIPS  🌙 ก่อนนอน  🐾 สัตว์  ...       │  ← แกน 2 (multi-select)
-├─────────────────────────────────────────────┤
-│ MARKETING RAIL: มาใหม่ | ขายดี | ซีรีส์      │
-├─────────────────────────────────────────────┤
-│ RESULT GRID (filtered)                       │
-└─────────────────────────────────────────────┘
+TRACKS = {
+  kids:  { slugs: ["parenting-kids"], product_types: ["kids-book","picture-book"] },
+  adult: { slugs: [<19 slugs ที่เหลือ>],  fallback: true }
+}
+
+resolveTrack(ebook|idea) -> "kids" | "adult"
+  ├─ ถ้ามี kids_visual_bible / kids_scene_briefs_json → kids
+  ├─ match product_type → track
+  ├─ match category_slug → track
+  └─ default → adult
 ```
 
-- Filter state เก็บใน URL query string (`?age=4-6&themes=bedtime,animals-nature`) เพื่อ SEO + แชร์ลิงก์ได้
-- เลือก age = **single-select** (radio), themes = **multi-select** (chips)
-- ถ้าไม่มีผลลัพธ์ → empty state พร้อมปุ่มล้างตัวกรอง
+แทนที่ `isKidsBook()` เดิม (ยังคง export ไว้เพื่อ backward-compat แต่ให้เรียก `resolveTrack() === "kids"`)
 
-### 2.2 Marketing Rails บน `/kids` (แนวนอน scroll)
+## 2. แยก Prompts + Outline Schema
 
-- **มาใหม่**: query `created_at desc limit 8`
-- **ขายดี**: query `is_bestseller = true`
-- **ซีรีส์**: การ์ดจาก `book_series` แต่ละอันลิงก์ไปหน้า `/series/:slug`
-
-### 2.3 Category page เดิม (`/category/parenting-kids`)
-
-- เพิ่มแบนเนอร์ "เข้าสู่ Kids Hub →" ลิงก์ไป `/kids` (ไม่รื้อของเดิม)
-
-### 2.4 Product page
-
-- ใต้ title แสดง badge อายุ + ธีม เป็น pill เล็ก ๆ (ลิงก์ไป `/kids?age=...` / `?themes=...`)
-- ใช้ semantic tokens เดิม ไม่ hardcode สี
-
----
-
-## 3. Data Layer
-
-- ไฟล์ใหม่ `src/lib/kidsTaxonomy.ts`:
-  - `listAgeGroups()`, `listThemes()`
-  - `listKidsBooks({ age?, themes?[], marketingTag?, seriesId?, limit? })` — join ผ่าน `ebook_kids_ages` / `ebook_kids_themes` + filter `category_slug = 'parenting-kids'`
-  - `listSeries()`, `getSeries(slug)`
-- อัปเดต `src/lib/storefront.ts` เฉพาะการเพิ่ม field `age_group_slugs[]`, `theme_slugs[]`, `series_id` ในผลลัพธ์ (ไม่แตะฟังก์ชันเดิม)
-
----
-
-## 4. Admin (ขั้นต่ำ พอใช้)
-
-- ในหน้า admin ที่แก้ ebook อยู่แล้ว เพิ่ม 3 กลุ่ม toggle:
-  - Age groups (checkbox list)
-  - Themes (checkbox list)
-  - Series (dropdown) + `is_bestseller` toggle
-- Save เขียนลง join tables ผ่าน `supabase.from(...).upsert/delete`
-
-หากยังไม่มี admin ebook editor แยก — สร้าง section เล็กใน `ProductionCommandCenter` หรือ `Settings.tsx` (ยืนยันจุดที่เหมาะสมตอนสร้าง)
-
----
-
-## 5. Seed & Backfill
-
-Migration seed:
-- ใส่ age groups + themes ตามลิสต์ผู้ใช้
-- Backfill: หนังสือเด็กที่มีอยู่ (เช่น "Nimble and the Whispering Star", "Barnaby") จับคู่ default:
-  - Nimble → age `4-6`, themes `adventure-fantasy` + `ef-life-skills`
-  - Barnaby → age `4-6`, themes `bedtime` + `friendship-family`
-
-(รายชื่ออื่น ๆ ให้แอดมินติ๊กเพิ่มภายหลังผ่าน UI)
-
----
-
-## 6. Out of scope (รอบนี้ยังไม่ทำ)
-
-- คำนวณ Best Seller อัตโนมัติจาก orders (ตอนนี้ใช้ toggle มือ)
-- หน้า `/series/:slug` แบบเต็ม (จะทำต่อรอบถัดไปถ้าต้องการ)
-- ระบบแนะนำ "ลูกค้าที่ซื้อเล่มนี้ยังซื้อ..."
-- Admin UI แบบเต็ม (ทำแค่ขั้นต่ำพอผูกข้อมูล)
-- ไม่แตะ categories อื่น (Business, Finance ฯลฯ) และไม่แก้ Product template ที่เพิ่ง refactor
-
----
-
-## รายละเอียดทางเทคนิค
-
-**ไฟล์ที่จะสร้าง**
-- `supabase/migrations/<ts>_kids_taxonomy.sql` — 4 ตาราง + 2 คอลัมน์ + seed + GRANT + RLS
-- `src/lib/kidsTaxonomy.ts`
-- `src/pages/Kids.tsx` (route `/kids`)
-- `src/components/kids/AgeGroupTabs.tsx`
-- `src/components/kids/ThemeChips.tsx`
-- `src/components/kids/MarketingRail.tsx`
-- `src/components/kids/KidsFilterBar.tsx` (wrapper อ่าน/เขียน URL params)
-
-**ไฟล์ที่จะแก้**
-- `src/App.tsx` — เพิ่ม route `/kids`
-- `src/components/Header.tsx` — เพิ่มลิงก์ "Kids"
-- `src/pages/Category.tsx` — แบนเนอร์ลิงก์ไป `/kids` เฉพาะ slug `parenting-kids`
-- `src/pages/Product.tsx` — เพิ่ม badge อายุ/ธีม
-- `src/lib/storefront.ts` — เพิ่ม field taxonomy ในผลลัพธ์ (backward-compat)
-
-**Query filter (แนวคิด)**
-```sql
-select e.* from ebooks e
-where e.category_slug = 'parenting-kids' and e.status = 'published'
-  and (:age is null or exists (
-     select 1 from ebook_kids_ages a
-     join kids_age_groups g on g.id = a.age_group_id
-     where a.ebook_id = e.id and g.slug = :age))
-  and (:themes is null or exists (
-     select 1 from ebook_kids_themes t
-     join kids_themes k on k.id = t.theme_id
-     where t.ebook_id = e.id and k.slug = any(:themes)));
+```text
+supabase/functions/_shared/
+├── prompts/
+│   ├── adult.ts     (ย้าย HARDSELL_COPYWRITER_SYSTEM, PREMIUM_WRITER_SYSTEM เดิม)
+│   └── kids.ts      (kids storyteller system + storybook consistency rules)
+└── outlines/
+    ├── adult-outline.ts  (10-chapter TOC + bonuses schema เดิม)
+    └── kids-outline.ts   (story bible + page-by-page storyboard schema)
 ```
-(ใน client ใช้ 2 query: ดึง ebook_ids ที่ match filter ก่อน แล้วค่อย `in()`; หรือทำเป็น RPC ตัวเดียว — เลือก RPC เพื่อลด round-trip)
 
-**Design system**
-ทุก component ใช้ tokens ที่มี (`bg-highlight`, `bg-accent`, `border-foreground`, `font-display`, `brutal-card`) — ไม่ hardcode สี ตาม memory ของโปรเจกต์
+## 3. แยก QC Gates
+
+```text
+supabase/functions/_shared/qc/
+├── adult.ts   (topicGate, outlineGate, chapterGate, productCopyGate, publishGate)
+└── kids.ts    (character_consistency ≥95, illustration_style ≥95,
+                story_continuity ≥95, age_appropriateness ≥95,
+                cover_to_interior_match ≥95)
+```
+
+Threshold + prompt QC ของแต่ละ track แยกกันชัด ไม่ปนกัน
+
+## 4. แยก Pipeline Orchestrator
+
+```text
+supabase/functions/
+├── autopilot-orchestrator/   ← เดิม แต่ refactor เป็น "router only"
+│   └── route ตาม resolveTrack() → เรียก sub-orchestrator ที่ถูก track
+├── autopilot-adult/          ← ย้าย logic เดิมทั้งหมดมาที่นี่
+│   (topic QC → outline → chapters → editorial QC → copy → cover → shopify → publish)
+└── autopilot-kids/           ← สร้างใหม่
+    (story bible → manuscript → visual bible → per-spread illustrations →
+     kids QC gates → kids cover → shopify draft → publish)
+```
+
+ทุก step function (`generate-outline`, `write-chapters`, `qc-fix`, `generate-cover`, `generate-store-thumbnail`) เปลี่ยน guard จาก `isKidsBook → kidsGuardResponse` เป็น:
+- ถ้า track ไม่ตรง → return `{ skipped: true, reason: "wrong-track", expected, got }`
+- ทำให้ track ผู้ใหญ่จะไม่ยิงเข้าเล่มเด็ก **และ** track เด็กจะไม่ยิงเข้าเล่มผู้ใหญ่ (ป้องกันทั้งสองทาง)
+
+## 5. แยก Cover + Thumbnail Style
+
+```text
+supabase/functions/_shared/covers/
+├── adult-cover.ts       (typographic hard-sell, current template)
+└── kids-cover.ts        (illustrated cover + character reference lock)
+
+supabase/functions/_shared/thumbnails/
+├── adult-thumbnail.ts   (book mockup with perspective — เดิม)
+└── kids-thumbnail.ts    (soft frame + illustration-forward)
+```
+
+`generate-cover` และ `generate-store-thumbnail` อ่าน track แล้วเลือก template
+
+## 6. Routing (autopilot ทำงานเงียบ)
+
+- `autopilot-tick` / `autopilot-orchestrator` โหลด ebook → `resolveTrack()` → invoke `autopilot-kids` หรือ `autopilot-adult`
+- `generate-idea` เพิ่ม field `track` ลงใน idea (derive จาก category_slug ตอนสร้าง) เพื่อให้ downstream ไม่ต้อง resolve ซ้ำ
+- ไม่ต้องแก้ UI ฝั่ง admin — ยังกดปุ่มเดิม แต่หลังบ้าน route แยกแล้ว
+
+## Technical details
+
+**ไฟล์ใหม่**
+- `_shared/track-registry.ts`
+- `_shared/prompts/{adult,kids}.ts`
+- `_shared/outlines/{adult,kids}-outline.ts`
+- `_shared/qc/{adult,kids}.ts`
+- `_shared/covers/{adult,kids}-cover.ts`
+- `_shared/thumbnails/{adult,kids}-thumbnail.ts`
+- `autopilot-adult/index.ts` (ย้ายจาก orchestrator เดิม)
+- `autopilot-kids/index.ts` (สร้างใหม่ ใช้ `rewrite-kids-manuscript` + `generate-interior-visuals` + `kids-visual-bible` ที่มีอยู่แล้ว)
+
+**ไฟล์แก้**
+- `autopilot-orchestrator/index.ts` → กลายเป็น router (~80 บรรทัด)
+- `generate-outline`, `write-chapters`, `qc-fix`, `generate-cover`, `generate-store-thumbnail`, `generate-shopify-package`, `auto-list-ebook`, `list-storefront`, `render-pdf` → เปลี่ยน guard เป็น track-aware
+- `_shared/is-kids-book.ts` → wrapper รอบ `resolveTrack()` (keep backward-compat)
+- `generate-idea/index.ts` → set `ebook_ideas.track` ตอน insert
+
+**ไม่มี DB migration** (ใช้ column `category_slug` + `product_type` เดิม; ถ้าจำเป็นจะเพิ่ม `ebooks.track` เป็น generated column ใน iteration ถัดไป)
+
+**Rollout ปลอดภัย**
+- Adult track = ย้ายโค้ดเดิม 1:1 ไม่เปลี่ยน behavior
+- Kids track = wire สิ่งที่มีอยู่ (`rewrite-kids-manuscript`, `kids-visual-bible`) เข้า orchestrator เท่านั้น
+- ทุก step function เพิ่ม log `{ track, ebook_id, step }` ให้ debug ง่าย
+
+## ผลลัพธ์
+
+- Logic เขียนหนังสือเด็ก vs ธุรกิจ/การเงิน แยกไฟล์ แยก prompt แยก QC แยก orchestrator ชัดเจน — แก้ track หนึ่งไม่กระทบอีก track
+- Autopilot route อัตโนมัติจาก `category_slug` (parenting-kids → kids, ที่เหลือ → adult)
+- ป้องกันการทับกัน 2 ทาง (kids guard + adult guard) ไม่ใช่ทางเดียวเหมือนตอนนี้
+- เพิ่ม track ใหม่ในอนาคต (เช่น workbook, finance เฉพาะ) แค่เพิ่ม entry ใน `TRACKS` + สร้างโฟลเดอร์ prompt/qc/orchestrator
