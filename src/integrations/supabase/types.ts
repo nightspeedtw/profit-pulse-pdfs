@@ -1874,6 +1874,47 @@ export type Database = {
           },
         ]
       }
+      product_reviews: {
+        Row: {
+          comment: string | null
+          created_at: string
+          ebook_id: string
+          id: string
+          rating: number
+          reviewer_name: string
+          updated_at: string
+          verified_purchase: boolean
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          ebook_id: string
+          id?: string
+          rating: number
+          reviewer_name: string
+          updated_at?: string
+          verified_purchase?: boolean
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          ebook_id?: string
+          id?: string
+          rating?: number
+          reviewer_name?: string
+          updated_at?: string
+          verified_purchase?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_reviews_ebook_id_fkey"
+            columns: ["ebook_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       production_locks: {
         Row: {
           acquired_at: string
@@ -2256,7 +2297,22 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      product_review_stats: {
+        Row: {
+          average_rating: number | null
+          ebook_id: string | null
+          review_count: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_reviews_ebook_id_fkey"
+            columns: ["ebook_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       release_lock: {
