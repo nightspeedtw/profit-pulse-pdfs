@@ -52,26 +52,28 @@ export function BuildKidsBookButton({ onStarted }: Props) {
   const start = async () => {
     setBusy(true);
     try {
-      // Self-healing production flow: preflight concept → seed ebook → pipeline
-      // → auto-repair loop → publish only on strict measured QC. No admin
-      // intervention required for known recoverable blockers.
-      const { data, error } = await supabase.functions.invoke("kids-fresh-book-start", {
+      // One-click parent production job. Internally cycles concept →
+      // manuscript → story gate → art → PDF → QC, self-healing within
+      // bounded budgets. Concept/story misses are recorded as internal
+      // attempts, not surfaced as red FAILED rows.
+      const { data, error } = await supabase.functions.invoke("kids-one-click-build", {
         body: {
           age_band: ageSlug === "all" ? "4-6" : ageSlug,
           theme_slugs: themeSlugs,
+          preferred_lanes: [
+            "food_kitchen_chaos",
+            "tiny_detective",
+            "animal_buddy_mechanical",
+            "neighborhood_micro_adventure",
+            "shop_library_museum_logic",
+          ],
         },
       });
       if (error) throw error;
-      const started = data as { ebook_id?: string; run_id?: string };
-      if (started?.ebook_id && started?.run_id) {
-        // Kick the self-healing tick loop (bounded, server-side).
-        await supabase.functions.invoke("kids-repair-tick", {
-          body: { ebook_id: started.ebook_id, run_id: started.run_id },
-        });
-      }
+      const started = data as { parent_run_id?: string; ebook_id?: string };
       toast({
-        title: "Self-healing build started",
-        description: `Ebook ${started?.ebook_id?.slice(0, 8)}… running preflight + auto-repair loop.`,
+        title: "Kids build started",
+        description: `One parent job running (up to 5 concept batches, self-healing repairs, publish only on strict QC).`,
       });
       setOpen(false);
       onStarted?.();
