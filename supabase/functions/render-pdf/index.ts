@@ -291,7 +291,7 @@ Deno.serve(async (req) => {
           // fixed size, breaking full-bleed A4 covers.
           printBackground: true,
           preferCSSPageSize: true,
-          displayHeaderFooter: true,
+          displayHeaderFooter: !kidsBook,
           headerTemplate: headerTpl,
           footerTemplate: footerTpl,
           margin: { top: "0", bottom: "0", left: "0", right: "0" },
