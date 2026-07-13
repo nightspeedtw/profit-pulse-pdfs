@@ -8,6 +8,15 @@ import { RefreshCw, Play, Sparkles, Zap } from "lucide-react";
 import { listAgeGroups, listThemes, type KidsAgeGroup, type KidsTheme } from "@/lib/kidsTaxonomy";
 import { BuildKidsBookButton } from "@/components/admin/BuildKidsBookButton";
 
+interface ParentJob {
+  status?: string;
+  final_reason?: string;
+  concept_batch_count?: number;
+  attempt_count?: number;
+  child_attempts?: Array<{ outcome?: string; lane?: string }>;
+  published_ebook_id?: string;
+}
+
 interface KidsRun {
   id: string;
   status: string;
@@ -16,6 +25,7 @@ interface KidsRun {
   blocker_reason: string | null;
   ebook_kids_id: string | null;
   created_at: string;
+  metadata: { parent_job?: ParentJob; parent_run_id?: string } | null;
 }
 
 interface Weight {
@@ -26,6 +36,17 @@ interface Weight {
   sales_last_30d: number;
   auto_managed: boolean;
 }
+
+const PARENT_FRIENDLY: Record<string, { label: string; tone: "info" | "success" | "warn" | "error" }> = {
+  searching_for_concept: { label: "Searching for a strong concept", tone: "info" },
+  writing_story: { label: "Writing story", tone: "info" },
+  repairing_story: { label: "Story repair in progress", tone: "info" },
+  building_assets: { label: "Building cover and illustrations", tone: "info" },
+  running_qc: { label: "Running final QC", tone: "info" },
+  published: { label: "Published", tone: "success" },
+  exhausted: { label: "Stopped: quality budget exhausted", tone: "warn" },
+  failed_system_error: { label: "System error: needs admin attention", tone: "error" },
+};
 
 export default function KidsAutopilot() {
   const [ages, setAges] = useState<KidsAgeGroup[]>([]);
@@ -44,13 +65,15 @@ export default function KidsAutopilot() {
       supabase.from("kids_category_weights").select("*"),
       supabase
         .from("autopilot_kids_runs")
-        .select("id, status, current_step_label, progress_percent, blocker_reason, ebook_kids_id, created_at")
+        .select("id, status, current_step_label, progress_percent, blocker_reason, ebook_kids_id, created_at, metadata")
         .order("created_at", { ascending: false })
-        .limit(20),
+        .limit(30),
     ]);
     setAges(a); setThemes(t);
     setWeights((w.data ?? []) as Weight[]);
-    setRuns((r.data ?? []) as KidsRun[]);
+    // Hide child runs spawned by a parent job — they surface inside the parent row.
+    const rows = ((r.data ?? []) as KidsRun[]).filter(row => !row.metadata?.parent_run_id);
+    setRuns(rows);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -94,17 +117,18 @@ export default function KidsAutopilot() {
     } finally { setRunning(false); }
   };
 
-  const forceFinish = async (runId: string) => {
+  // "Next repair tick" — never force publishes; runs the supervisor once.
+  const runRepairTick = async (runId: string, ebookId: string | null) => {
     setForcing(runId);
     try {
-      const { data, error } = await supabase.functions.invoke("autopilot-kids-pipeline", {
-        body: { run_id: runId, force_finish: true },
+      const { data, error } = await supabase.functions.invoke("kids-repair-supervisor", {
+        body: { run_id: runId, ebook_id: ebookId },
       });
       if (error) throw error;
-      toast({ title: "Force-finish complete", description: JSON.stringify(data).slice(0, 200) });
+      toast({ title: "Next repair tick queued", description: JSON.stringify(data).slice(0, 200) });
       await load();
     } catch (e) {
-      toast({ title: "Force-finish failed", description: String(e), variant: "destructive" });
+      toast({ title: "Repair tick failed", description: String(e), variant: "destructive" });
     } finally { setForcing(null); }
   };
 
@@ -183,21 +207,47 @@ export default function KidsAutopilot() {
         ) : (
           <div className="space-y-2">
             {runs.map((r) => {
-              const canForce = r.status === "failed" || r.status === "running";
+              const parent = r.metadata?.parent_job;
+              const parentStatus = parent?.status;
+              const friendly = parentStatus ? PARENT_FRIENDLY[parentStatus] : null;
+              const showLabel = friendly?.label ?? r.current_step_label ?? "—";
+              const badgeText = friendly ? friendly.label.split(":")[0] : r.status;
+              const badgeClass = friendly
+                ? friendly.tone === "success" ? "bg-green-500/20 text-green-700"
+                : friendly.tone === "warn" ? "bg-yellow-500/20 text-yellow-700"
+                : friendly.tone === "error" ? "bg-red-500/20 text-red-700"
+                : "bg-muted"
+                : r.status === "completed" ? "bg-green-500/20 text-green-700"
+                : r.status === "failed" ? "bg-red-500/20 text-red-700"
+                : r.status === "running" ? "bg-yellow-500/20 text-yellow-700"
+                : "bg-muted";
+              const canRepair = r.status === "failed" || r.status === "running";
+              const attempts = parent?.attempt_count ?? 0;
+              const batches = parent?.concept_batch_count ?? 0;
+              const childCount = parent?.child_attempts?.length ?? 0;
               return (
                 <div key={r.id} className="flex items-center gap-3 p-2 border border-foreground/20 rounded text-sm">
-                  <span className={`px-2 py-0.5 rounded text-xs font-mono uppercase ${
-                    r.status === "completed" ? "bg-green-500/20 text-green-700" :
-                    r.status === "failed" ? "bg-red-500/20 text-red-700" :
-                    r.status === "running" ? "bg-yellow-500/20 text-yellow-700" :
-                    "bg-muted"
-                  }`}>{r.status}</span>
+                  <span className={`px-2 py-0.5 rounded text-xs font-mono uppercase ${badgeClass}`}>{badgeText}</span>
                   <span className="flex-1 truncate">
-                    <span className="text-muted-foreground">{r.current_step_label ?? "—"}</span>
-                    <span className="mx-2">·</span>
-                    <span className="tabular-nums">{r.progress_percent ?? 0}%</span>
-                    {r.blocker_reason && (
+                    <span className="text-muted-foreground">{showLabel}</span>
+                    {parent ? (
+                      <>
+                        <span className="mx-2">·</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {batches} concept batch{batches === 1 ? "" : "es"} · {attempts} ebook attempt{attempts === 1 ? "" : "s"} · {childCount} internal step{childCount === 1 ? "" : "s"}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="mx-2">·</span>
+                        <span className="tabular-nums">{r.progress_percent ?? 0}%</span>
+                      </>
+                    )}
+                    {!parent && r.blocker_reason && (
                       <span className="ml-2 text-red-600 text-xs truncate">⚠ {r.blocker_reason.slice(0, 80)}</span>
+                    )}
+                    {parent?.final_reason && parentStatus === "exhausted" && (
+                      <span className="ml-2 text-yellow-700 text-xs truncate">⚠ {parent.final_reason}</span>
                     )}
                   </span>
                   <span className="text-xs text-muted-foreground font-mono">
@@ -208,15 +258,16 @@ export default function KidsAutopilot() {
                       <a href={`/admin/kids/${r.ebook_kids_id}/qc`}>QC report</a>
                     </Button>
                   )}
-                  {canForce && (
+                  {canRepair && (
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => forceFinish(r.id)}
+                      onClick={() => runRepairTick(r.id, r.ebook_kids_id)}
                       disabled={forcing === r.id}
+                      title="Runs the next safe repair — never force-publishes."
                     >
                       <Zap className={`size-3 ${forcing === r.id ? "animate-pulse" : ""}`} />
-                      Force finish
+                      Next repair
                     </Button>
                   )}
                 </div>

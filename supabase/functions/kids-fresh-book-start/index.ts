@@ -20,36 +20,69 @@ function json(body: unknown, status = 200) {
   });
 }
 
-async function runBackground(ebookId: string, runId: string, ageBand: string) {
+async function runBackground(ebookId: string, runId: string, ageBand: string, options: {
+  lockedConcept?: Record<string, unknown>;
+  lockedScores?: Record<string, unknown>;
+  skipPreflight?: boolean;
+  parentRunId?: string;
+} = {}) {
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
   try {
-    // 1. concept preflight (calls sibling function)
-    const preflightRes = await fetch(`${SUPABASE_URL}/functions/v1/kids-concept-preflight`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-      body: JSON.stringify({ age_band: ageBand }),
-    });
-    const preflight = await preflightRes.json();
-    if (!preflight?.ok || !preflight?.winner?.concept?.title) {
-      await db.from('ebooks_kids').update({
-        pipeline_status: 'human_review_required',
-        status: 'needs_revision',
-        blocker_reason: `concept_preflight_failed: ${JSON.stringify(preflight?.error ?? 'no winner').slice(0, 400)}`,
-        storefront_meta: { concept_preflight: preflight },
-      }).eq('id', ebookId);
-      await db.from('autopilot_kids_runs').update({
-        status: 'failed',
-        blocker_reason: 'concept_preflight_failed',
-        completed_at: new Date().toISOString(),
-      }).eq('id', runId);
-      return;
-    }
+    let preflight: any;
+    let c: any;
+    let w: any;
 
-    const w = preflight.winner;
-    const c = w.concept;
+    if (options.skipPreflight && options.lockedConcept) {
+      // Concept was already preflighted by an outer orchestrator; skip.
+      c = options.lockedConcept;
+      w = { concept: c, concept_scores: options.lockedScores ?? {}, passed: true, decision: 'pass', blockers: [], banned_lane_hits: [] };
+      preflight = { ok: true, overall_passed: true, candidates: [w], winner: w, thresholds: {} };
+    } else {
+      const preflightRes = await fetch(`${SUPABASE_URL}/functions/v1/kids-concept-preflight`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+        body: JSON.stringify({ age_band: ageBand }),
+      });
+      preflight = await preflightRes.json();
+      if (!preflight?.ok || !preflight?.winner?.concept?.title) {
+        await db.from('ebooks_kids').update({
+          pipeline_status: 'human_review_required',
+          status: 'needs_revision',
+          blocker_reason: `concept_preflight_failed: ${JSON.stringify(preflight?.error ?? 'no winner').slice(0, 400)}`,
+          storefront_meta: { concept_preflight: preflight },
+        }).eq('id', ebookId);
+        await db.from('autopilot_kids_runs').update({
+          status: 'failed',
+          blocker_reason: 'concept_preflight_failed',
+          completed_at: new Date().toISOString(),
+        }).eq('id', runId);
+        return;
+      }
+      w = preflight.winner;
+      c = w.concept;
+    }
 
     // 2. Seed ebook with concept so pipeline's generate_idea step is skipped.
     const conceptDescription = `${c.core_story_engine ?? c.story_engine ?? ''} Hero: ${c.hero}. Setting: ${c.setting}. Central problem: ${c.central_problem ?? ''}. Story rule: ${c.story_rule ?? ''}. Refrain: "${c.refrain}". Callbacks: ${c.callback_1}; ${c.callback_2}. Final payoff: ${c.final_page_payoff}. Why reread: ${c.why_child_will_reread ?? c.reread_hook ?? ''}. Buyer hook: ${c.parent_buyer_hook}. Why parent buys: ${c.why_parent_will_buy ?? ''}.`;
+
+    const storefrontMeta: Record<string, unknown> = {
+      main_character: c.hero,
+      concept_brief: c,
+      locked_concept: c,
+      concept_preflight: {
+        winner_concept: c,
+        winner_scores: w.concept_scores ?? w.scores,
+        winner_decision: w.decision,
+        winner_passed: w.passed,
+        winner_blockers: w.blockers,
+        winner_banned_lane_hits: w.banned_lane_hits,
+        candidates: preflight.candidates,
+        candidates_scored: preflight.candidates?.length ?? 0,
+        overall_passed: preflight.overall_passed,
+        thresholds: preflight.thresholds,
+      },
+    };
+    if (options.parentRunId) storefrontMeta.parent_run_id = options.parentRunId;
 
     await db.from('ebooks_kids').update({
       title: c.title,
@@ -57,23 +90,7 @@ async function runBackground(ebookId: string, runId: string, ageBand: string) {
       description: conceptDescription,
       storefront_title: c.title,
       storefront_subtitle: c.subtitle,
-      storefront_meta: {
-        main_character: c.hero,
-        concept_brief: c,
-        locked_concept: c,
-        concept_preflight: {
-          winner_concept: c,
-          winner_scores: w.concept_scores ?? w.scores,
-          winner_decision: w.decision,
-          winner_passed: w.passed,
-          winner_blockers: w.blockers,
-          winner_banned_lane_hits: w.banned_lane_hits,
-          candidates: preflight.candidates,
-          candidates_scored: preflight.candidates?.length ?? 0,
-          overall_passed: preflight.overall_passed,
-          thresholds: preflight.thresholds,
-        },
-      },
+      storefront_meta: storefrontMeta,
       status: preflight.overall_passed ? 'writing' : 'needs_revision',
       pipeline_status: preflight.overall_passed ? 'story_generation' : 'human_review_required',
     }).eq('id', ebookId);
@@ -121,43 +138,50 @@ Deno.serve(async (req) => {
     const ageBand: string = body.age_band ?? '4-6';
     const ageGroupId: string = body.age_group_id ?? AGE_4_6;
     const themeIds: string[] = body.theme_ids ?? [THEME_HUMOR];
+    const useEbookId: string | undefined = body.use_ebook_id;
+    const lockedConcept: Record<string, unknown> | undefined = body.locked_concept;
+    const lockedScores: Record<string, unknown> | undefined = body.locked_scores;
+    const skipPreflight: boolean = Boolean(body.skip_preflight);
+    const parentRunId: string | undefined = body.parent_run_id;
 
-    // Create placeholder ebook row.
-    const { data: ebook, error: ebookErr } = await db.from('ebooks_kids').insert({
-      title: 'Fresh kids book (preflight in progress)',
-      subtitle: '',
-      description: '',
-      age_group_id: ageGroupId,
-      theme_ids: themeIds,
-      status: 'concept_preflight',
-      listing_status: 'draft',
-      pipeline_status: 'concept_preflight',
-      sellable: false,
-      locked: false,
-      price_cents: 799,
-    }).select('id').single();
-    if (ebookErr || !ebook) throw new Error(`create ebook failed: ${ebookErr?.message}`);
+    let ebookId: string;
+    if (useEbookId) {
+      ebookId = useEbookId;
+    } else {
+      const { data: ebook, error: ebookErr } = await db.from('ebooks_kids').insert({
+        title: 'Fresh kids book (preflight in progress)',
+        subtitle: '',
+        description: '',
+        age_group_id: ageGroupId,
+        theme_ids: themeIds,
+        status: 'concept_preflight',
+        listing_status: 'draft',
+        pipeline_status: 'concept_preflight',
+        sellable: false,
+        locked: false,
+        price_cents: 799,
+      }).select('id').single();
+      if (ebookErr || !ebook) throw new Error(`create ebook failed: ${ebookErr?.message}`);
+      ebookId = ebook.id;
+    }
 
     const { data: run, error: runErr } = await db.from('autopilot_kids_runs').insert({
-      ebook_kids_id: ebook.id,
+      ebook_kids_id: ebookId,
       status: 'queued',
-      current_step: 'concept_preflight',
-      current_step_label: 'Concept preflight',
+      current_step: skipPreflight ? 'story_generation' : 'concept_preflight',
+      current_step_label: skipPreflight ? 'Writing story' : 'Concept preflight',
       progress_percent: 0,
+      metadata: parentRunId ? { parent_run_id: parentRunId } : {},
     }).select('id').single();
     if (runErr || !run) throw new Error(`create run failed: ${runErr?.message}`);
 
     // Fire the background task (Deno EdgeRuntime.waitUntil pattern).
     // deno-lint-ignore no-explicit-any
     const rt = (globalThis as any).EdgeRuntime;
-    if (rt?.waitUntil) {
-      rt.waitUntil(runBackground(ebook.id, run.id, ageBand));
-    } else {
-      // Best-effort fire-and-forget.
-      runBackground(ebook.id, run.id, ageBand).catch(e => console.error('bg', e));
-    }
+    const task = runBackground(ebookId, run.id, ageBand, { lockedConcept, lockedScores, skipPreflight, parentRunId });
+    if (rt?.waitUntil) rt.waitUntil(task); else task.catch(e => console.error('bg', e));
 
-    return json({ ok: true, ebook_id: ebook.id, run_id: run.id, age_band: ageBand });
+    return json({ ok: true, ebook_id: ebookId, run_id: run.id, age_band: ageBand });
   } catch (e) {
     console.error('kids-fresh-book-start error', e);
     return json({ ok: false, error: String((e as Error)?.message ?? e) }, 500);
