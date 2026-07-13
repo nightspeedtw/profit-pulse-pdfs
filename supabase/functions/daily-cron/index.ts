@@ -100,9 +100,7 @@ Deno.serve(async (req) => {
     }
 
     // --- B) SCHEDULED PUBLISH ---
-    // Auto-publish now targets the Internal Store. Shopify publishing is legacy
-    // and feature-flagged only (see FEATURES.SHOPIFY_UPLOAD); it must never be
-    // reached from the scheduled cron path.
+    // Auto-publish targets the native storefront only.
     const currentHour = new Date().getUTCHours();
     if (settings.auto_publish && mode === "full") {
       if (currentHour === publishHour) {
@@ -145,7 +143,7 @@ Deno.serve(async (req) => {
               (result.published as any[]).push({ ebook_id: e.id, title: e.title, ok: true, response: j });
             } else {
               // Internal Store publish failed — keep ebook in ready_to_publish
-              // so the admin can retry from /admin/store. Never fall back to Shopify.
+              // so the admin can retry from /admin/store.
               (result.published as any[]).push({
                 ebook_id: e.id, title: e.title, ok: false,
                 store_publish_failed: (j as any)?.error ?? `HTTP ${r.status}`,

@@ -13,7 +13,7 @@
 //   6. Save scores + signed URL to ebooks row. pdf_status flips to
 //      `rendered` (>=85 + critical checks pass) or `needs_review`.
 //
-// publishGate (qc.ts) already blocks Shopify publish unless cover_approved
+// publishGate (qc.ts) already blocks storefront publish unless cover_approved
 // and cover_score >= 85; we additionally require pdf_approved before publish.
 import { admin, corsHeaders, pickModel } from "../_shared/ai.ts";
 import { computeManuscriptHash } from "../_shared/manuscript-hash.ts";
@@ -686,8 +686,8 @@ Deno.serve(async (req) => {
       compliance_rewrites_json: compliance.changes.length ? { changes: compliance.changes } as unknown as Record<string, unknown> : null,
       inside_illustration_plan_json: plan as unknown as Record<string, unknown> | null,
       inside_illustrations_json: illustrationsByChapter as unknown as Record<string, unknown>,
-      // When PDF is rendered cleanly, advance pipeline to shopify_upload stage.
-      pipeline_status: passed ? "shopify_upload" : ebook.pipeline_status,
+      // When PDF is rendered cleanly, advance pipeline to publish stage.
+      pipeline_status: passed ? "ready_to_publish" : ebook.pipeline_status,
     }).eq("id", ebookId);
 
     await logRun(db, {

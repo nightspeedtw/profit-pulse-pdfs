@@ -34,7 +34,7 @@ interface BestConcept {
   status: string;
   recommended_admin_action: string;
 }
-interface ShopifyReady {
+interface StorefrontReady {
   product_title: string;
   meta_title: string;
   meta_description: string;
@@ -48,7 +48,7 @@ interface OneIdea {
   category: string;
   target_buyer: string;
   best_sellable_concept: BestConcept;
-  shopify_ready: ShopifyReady;
+  shopify_ready: StorefrontReady;
 }
 
 function mapStatus(s: string): "idea" | "rejected" {

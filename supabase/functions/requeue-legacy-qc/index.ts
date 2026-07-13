@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
   const { data: ebooks, error } = await supabase
     .from("ebooks")
     .select(
-      "id,title,pdf_qc,cover_qc,reader_experience_qc,pdf_score,cover_score,reader_experience_score,reader_experience_status,reader_experience_fix_count,shopify_status,qc_ready_for_storefront,re_render_count",
+      "id,title,pdf_qc,cover_qc,reader_experience_qc,pdf_score,cover_score,reader_experience_score,reader_experience_status,reader_experience_fix_count,listing_status,qc_ready_for_storefront,re_render_count",
     )
     .not("cover_url", "is", null);
   if (error) return json({ error: error.message }, 500);
@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
         qc_ready_for_storefront: false,
         canonical_status: "needs_action",
         pdf_status: "idle",
-        shopify_status: "queued_for_reqc",
+        listing_status: "queued_for_reqc",
       })
       .eq("id", item.id);
     results.push({ id: item.id, ok: !upErr, error: upErr?.message });

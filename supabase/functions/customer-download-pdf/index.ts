@@ -1,18 +1,12 @@
 // Customer-facing PDF download.
-// Verifies a Shopify order by order name (e.g. "#1001") + customer email,
-// then returns signed download URLs for every ebook product purchased.
+// Verifies a customer email against issued download grants (created at
+// checkout) and returns signed download URLs for every ebook purchased.
 //
-// POST { order: "#1001" | "1001", email: "buyer@example.com" }
+// POST { email: "buyer@example.com" }
 // → { ok: true, items: [{ ebook_id, title, download_url, expires_at }] }
 import { corsHeaders, admin } from "../_shared/ai.ts";
 
-const SHOPIFY_API_VERSION = "2025-07";
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24 h
-
-function shopName(): string {
-  // Same domain pattern used elsewhere in the project.
-  return Deno.env.get("SHOPIFY_STORE_DOMAIN") ?? "digital-wealth-hub-49qgj.myshopify.com";
-}
 
 function pathFromPdfUrl(pdfUrl: string | null | undefined): string | null {
   if (!pdfUrl) return null;
@@ -35,59 +29,35 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { order, email } = await req.json();
-    if (!order || !email) throw new Error("order and email are required");
-
-    const orderName = String(order).trim().startsWith("#")
-      ? String(order).trim()
-      : `#${String(order).trim()}`;
+    const { email } = await req.json();
+    if (!email) throw new Error("email is required");
     const cleanEmail = String(email).trim().toLowerCase();
 
-    const token = Deno.env.get("SHOPIFY_ADMIN_TOKEN");
-    if (!token) throw new Error("Shopify admin token not configured");
-
-    // Look up the order by name (e.g. "#1001"). Shopify accepts ?name=#1001
-    const shopify = `https://${shopName()}/admin/api/${SHOPIFY_API_VERSION}`;
-    const r = await fetch(
-      `${shopify}/orders.json?name=${encodeURIComponent(orderName)}&status=any&fields=id,name,email,line_items,financial_status,fulfillment_status`,
-      { headers: { "X-Shopify-Access-Token": token, "Content-Type": "application/json" } },
-    );
-    if (!r.ok) {
-      const txt = await r.text();
-      throw new Error(`Shopify lookup failed (${r.status}): ${txt.slice(0, 200)}`);
-    }
-    const { orders = [] } = await r.json();
-    const match = orders.find((o: any) =>
-      (o.email ?? "").toLowerCase() === cleanEmail
-    );
-    if (!match) {
-      return new Response(
-        JSON.stringify({ ok: false, error: "Order not found for that email." }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-    if (match.financial_status && !["paid", "partially_paid", "authorized"].includes(match.financial_status)) {
-      return new Response(
-        JSON.stringify({ ok: false, error: `Order is ${match.financial_status} — download unlocks after payment.` }),
-        { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    const productIds = (match.line_items ?? [])
-      .map((li: any) => String(li.product_id))
-      .filter(Boolean);
-    if (productIds.length === 0) {
-      return new Response(
-        JSON.stringify({ ok: false, error: "Order has no products." }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
     const db = admin();
+
+    // Grants are the source of truth for purchased access (issued by the
+    // payments webhook at checkout completion).
+    const { data: grants, error: grantsError } = await db
+      .from("download_grants")
+      .select("ebook_id, expires_at, buyer_email")
+      .ilike("buyer_email", cleanEmail);
+    if (grantsError) throw grantsError;
+
+    const activeGrants = (grants ?? []).filter(
+      (g) => !g.expires_at || new Date(g.expires_at).getTime() > Date.now(),
+    );
+    if (activeGrants.length === 0) {
+      return new Response(
+        JSON.stringify({ ok: false, error: "No purchase found for that email." }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const ebookIds = Array.from(new Set(activeGrants.map((g) => g.ebook_id)));
     const { data: ebooks, error } = await db
       .from("ebooks")
-      .select("id,title,pdf_url,shopify_product_id")
-      .in("shopify_product_id", productIds);
+      .select("id,title,pdf_url,listing_status")
+      .in("id", ebookIds);
     if (error) throw error;
 
     const items: Array<{
@@ -99,6 +69,17 @@ Deno.serve(async (req) => {
     }> = [];
 
     for (const e of ebooks ?? []) {
+      // Gate on listing_status='live' OR a valid (non-expired) download grant —
+      // the grant itself already proves purchase, so this just guards against
+      // serving a PDF that was pulled from the storefront after purchase.
+      const hasValidGrant = activeGrants.some((g) => g.ebook_id === e.id);
+      if (e.listing_status !== "live" && !hasValidGrant) {
+        items.push({
+          ebook_id: e.id, title: e.title, download_url: null, expires_at: null,
+          error: "This item is no longer available for download.",
+        });
+        continue;
+      }
       const path = pathFromPdfUrl(e.pdf_url);
       if (!path) {
         items.push({
@@ -128,7 +109,7 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ ok: true, order: match.name, items }),
+      JSON.stringify({ ok: true, items }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {

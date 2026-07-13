@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
         | "rebuild_pdf"
         | "autofix_gate";
       // Targeted gate for autofix_gate: which premium-ebook-master QC
-      // is currently blocking Shopify readiness.
+      // is currently blocking storefront readiness.
       gate?: "reader" | "cover_pdf" | "cover_thumb" | "formatter" | "any";
     };
     if (!ebook_id || !action) {
@@ -185,7 +185,7 @@ Deno.serve(async (req) => {
       }
 
       // Kick the exact producer immediately, then kick the pipeline so the
-      // canonical state machine continues to Shopify readiness.
+      // canonical state machine continues to storefront readiness.
       if (action === "autofix_gate" && g === "cover_thumb") {
         const coverMode = decision?.missingData ? "overlay" : "spec";
         fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-cover`, {

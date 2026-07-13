@@ -300,7 +300,7 @@ export async function persistQcSnapshot(db: any, ebook: Record<string, unknown>)
   const report = computeQcGates(source);
   await db.from("ebooks").update({
     qc_gates_json: report,
-    qc_ready_for_shopify: report.ready_for_storefront,
+    qc_ready_for_shopify: report.ready_for_storefront, // legacy status value: real DB column name, not renamed
   }).eq("id", ebookId || (ebook.id as string));
   // Once a producer fix makes a gate pass, retire the old Needs Code Fix row so
   // the dashboard stops showing stale bugs for that ebook. If the gate regresses

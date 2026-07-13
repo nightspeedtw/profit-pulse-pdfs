@@ -55,17 +55,6 @@ Deno.serve(async (req) => {
   const dry = !!body.dry_run;
 
   const { data: settings } = await db.from("generation_settings").select("*").eq("id", 1).maybeSingle();
-  const maxPerDay = Number(settings?.max_shopify_uploads_per_day ?? 20);
-
-  // How many Shopify uploads have completed today (UTC)?
-  const startOfDay = new Date();
-  startOfDay.setUTCHours(0, 0, 0, 0);
-  const { count: uploadedToday = 0 } = await db
-    .from("ebooks")
-    .select("id", { count: "exact", head: true })
-    .not("shopify_product_id", "is", null)
-    .gte("shopify_synced_at", startOfDay.toISOString());
-  const remaining = Math.max(0, maxPerDay - (uploadedToday ?? 0));
 
   const now = new Date().toISOString();
   const resumed: string[] = [];
@@ -73,61 +62,6 @@ Deno.serve(async (req) => {
   const reclassifiedRecoverable: string[] = [];
   const qcAutofixQueued: Array<{ ebook_id: string; gate: string; attempt: number }> = [];
   const qcEscalatedToCodeFix: Array<{ ebook_id: string; gate: string }> = [];
-
-  // 1) Shopify quota queue — resume when we have quota AND next_retry_at passed
-  const { data: queued } = await db
-    .from("shopify_upload_queue")
-    .select("id, ebook_id, status, next_retry_at, attempt_count, max_attempts")
-    .in("status", ["queued", "waiting_for_quota"])
-    .order("priority", { ascending: true })
-    .order("created_at", { ascending: true })
-    .limit(50);
-
-  for (const q of queued ?? []) {
-    const ready = !q.next_retry_at || q.next_retry_at <= now;
-    if (!ready) { stillWaiting.push(q.ebook_id); continue; }
-    if (remaining - resumed.length <= 0) { stillWaiting.push(q.ebook_id); continue; }
-    if ((q.attempt_count ?? 0) >= (q.max_attempts ?? 10)) {
-      if (!dry) await db.from("shopify_upload_queue").update({
-        status: "failed_needs_admin",
-        last_error: "max_attempts exceeded",
-      }).eq("id", q.id);
-      continue;
-    }
-    resumed.push(q.ebook_id);
-    if (dry) continue;
-    await db.from("shopify_upload_queue").update({
-      status: "uploading",
-      attempt_count: (q.attempt_count ?? 0) + 1,
-      last_error: null,
-    }).eq("id", q.id);
-    await db.from("ebooks").update({
-      autopilot_state: "running",
-      blocker_reason: null,
-      blocker_class: null,
-      next_retry_at: null,
-    }).eq("id", q.ebook_id);
-    // fire-and-forget; pipeline handles its own errors and re-enqueues on cap
-    invokePipeline(q.ebook_id).catch((e) =>
-      console.warn("[recovery] pipeline invoke failed", q.ebook_id, e?.message ?? e)
-    );
-  }
-
-  // 2) Ebooks marked waiting_for_shopify_quota but never enqueued
-  const { data: orphans } = await db
-    .from("ebooks")
-    .select("id")
-    .eq("autopilot_state", "waiting_for_shopify_quota")
-    .not("id", "in", `(${(queued ?? []).map((q) => `"${q.ebook_id}"`).join(",") || "''"})`)
-    .limit(50);
-  for (const o of orphans ?? []) {
-    if (!dry) await db.from("shopify_upload_queue").upsert({
-      ebook_id: o.id,
-      status: "waiting_for_quota",
-      blocker_reason: "daily_shopify_upload_cap_reached",
-      next_retry_at: nextUtcMidnight(),
-    }, { onConflict: "ebook_id" });
-  }
 
   // 3) Stalled heartbeats — runs stuck in "running" with no update in 15 min
   const stallCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
@@ -249,7 +183,6 @@ Deno.serve(async (req) => {
     .from("ebooks")
     .select("id, updated_at, auto_fix_attempt_count")
     .in("autopilot_state", ["needs_admin_attention", "needs_admin", "needs_action"])
-    .is("shopify_product_id", null)
     .lt("updated_at", new Date(Date.now() - 5 * 60 * 1000).toISOString())
     .limit(10);
   const adminNeededResumed: string[] = [];
@@ -274,14 +207,13 @@ Deno.serve(async (req) => {
   //     the UI button used to trigger. After 3 attempts, create a Lovable prompt
   //     and move the ebook to needs_code_fix instead of silently stalling.
   const qcCols = [
-    "id,title,autopilot_state,canonical_status,next_retry_at,shopify_product_id,pdf_url,cover_url",
+    "id,title,autopilot_state,canonical_status,next_retry_at,pdf_url,cover_url",
     "auto_fix_attempt_count,autofix_attempt,qc_ready_for_storefront,qc_gates_json",
     "pdf_qc,cover_qc,reader_experience_qc,pdf_score,cover_score,reader_experience_score,reader_experience_status,reader_experience_fix_count",
   ].join(",");
   const { data: qcCandidates } = await db
     .from("ebooks")
     .select(qcCols)
-    .is("shopify_product_id", null)
     .or([
       "autopilot_state.in.(needs_review,failed_non_recoverable,auto_fixing,needs_code_fix,ready_to_publish,completed)",
       "canonical_status.in.(needs_review,failed_non_recoverable,auto_fixing,needs_code_fix,ready_to_publish,completed)",
@@ -298,23 +230,23 @@ Deno.serve(async (req) => {
     if (!hasStartedAssets) continue;
     const report = await persistQcSnapshot(db, ebook as Record<string, unknown>);
     if (report.ready_for_storefront && ebook.pdf_url) {
-      const shopifyDraftEnabled = settings?.shopify_draft_upload_enabled !== false;
+      const autoPublishEnabled = settings?.autopublish_enabled !== false;
       if (!dry) await db.from("ebooks").update({
         autopilot_state: "ready_to_publish",
         canonical_status: "ready_to_publish",
         qc_status: "qc_passed",
         blocker_reason: null,
         blocker_class: null,
-        waiting_reason: shopifyDraftEnabled
-          ? "QC passed — resuming pipeline to upload Shopify draft automatically."
+        waiting_reason: autoPublishEnabled
+          ? "QC passed — resuming pipeline to publish automatically."
           : null,
         needs_review_reason: null,
-        next_recommended_action: shopifyDraftEnabled ? "shopify_draft_upload" : null,
+        next_recommended_action: autoPublishEnabled ? "publish_live" : null,
       }).eq("id", ebook.id);
-      if (shopifyDraftEnabled && !dry) {
+      if (autoPublishEnabled && !dry) {
         resumed.push(ebook.id);
         invokePipeline(ebook.id).catch((e) =>
-          console.warn("[recovery] ready-to-shopify resume failed", ebook.id, e?.message ?? e)
+          console.warn("[recovery] ready-to-publish resume failed", ebook.id, e?.message ?? e)
         );
       }
       continue;
@@ -414,10 +346,8 @@ Deno.serve(async (req) => {
   return new Response(JSON.stringify({
     ok: true,
     dry_run: dry,
-    shopify_quota_remaining_today: remaining,
-    shopify_uploads_resumed: resumed,
-    shopify_still_waiting: stillWaiting,
-    orphan_ebooks_enqueued: (orphans ?? []).length,
+    uploads_resumed: resumed,
+    still_waiting: stillWaiting,
     stalled_runs_resumed: stalledResumed,
     reclassified_recoverable_failures: reclassifiedRecoverable,
     browserless_waiters_resumed: browserlessResumed,

@@ -1,5 +1,5 @@
 // Generate exactly TWO stronger alternatives for an existing weak idea,
-// plus an AI-recommended winner with Shopify-ready metadata.
+// plus an AI-recommended winner with storefront-ready metadata.
 import { corsHeaders, admin, aiJSON, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 import { HARDSELL_COPYWRITER_SYSTEM } from "../_shared/prompts.ts";
 
@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
 
     const model = pickModel(settings?.mode ?? "hybrid", "marketing");
 
-    const sys = HARDSELL_COPYWRITER_SYSTEM + `\n\nThis call asks you to produce EXACTLY 2 stronger hard-sell alternatives to a weak idea, plus an AI-picked winner with Shopify-ready metadata. Each option must beat the current version on buyer identity, pain naming, emotional hook, premium feeling, hard-sell strength, and Shopify positioning.
+    const sys = HARDSELL_COPYWRITER_SYSTEM + `\n\nThis call asks you to produce EXACTLY 2 stronger hard-sell alternatives to a weak idea, plus an AI-picked winner with storefront-ready metadata. Each option must beat the current version on buyer identity, pain naming, emotional hook, premium feeling, hard-sell strength, and storefront positioning.
 
 Status rules for the recommended winner:
 - Appeal>=85 AND Premium>=85 AND HardSell>=85 AND Compliance<=3 → "Premium Featured / Ready to Generate"

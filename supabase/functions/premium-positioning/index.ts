@@ -1,5 +1,5 @@
 // Premium Positioning — generates 10 premium variants for an existing idea plus a best-pick
-// with Shopify-ready metadata. Returns inline; admin applies one variant to the idea.
+// with storefront-ready metadata. Returns inline; admin applies one variant to the idea.
 import { corsHeaders, admin, aiJSON, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 
 interface ValueBoosters {
@@ -18,7 +18,7 @@ interface PremiumOption {
   premium_score: number;
   why_it_feels_premium: string;
 }
-interface ShopifyReady {
+interface StorefrontReady {
   product_title: string;
   meta_title: string;
   meta_description: string;
@@ -34,7 +34,7 @@ interface BestChoice {
   recommended_price: string;
   buyer_appeal_score: number;
   premium_score: number;
-  shopify_ready: ShopifyReady;
+  shopify_ready: StorefrontReady;
 }
 interface Diagnosis {
   why_ordinary: string;
@@ -104,7 +104,7 @@ Rules:
 - NO guaranteed income, savings, investment returns, weight loss, health, legal, or relationship outcomes.
 - No medical/legal/financial advice language without educational framing.`;
 
-    const user = `Transform this ebook into 10 premium positioning options, then pick the best one with Shopify-ready metadata.
+    const user = `Transform this ebook into 10 premium positioning options, then pick the best one with storefront-ready metadata.
 
 Category: ${cat?.name ?? "n/a"} — ${cat?.description ?? ""}
 Planned price: $19–$29 · Planned word count: ~18,000 words (70–90 page PDF)
@@ -148,7 +148,7 @@ Return JSON exactly in this shape:
     "premium_title": "...",
     "premium_subtitle": "...",
     "primary_hook": "...",
-    "product_page_opening": "2-3 sentence opening for the Shopify product page",
+    "product_page_opening": "2-3 sentence opening for the storefront product page",
     "recommended_category": "${cat?.name ?? ""}",
     "recommended_price": "$19 | $24 | $29",
     "buyer_appeal_score": 1-100,
