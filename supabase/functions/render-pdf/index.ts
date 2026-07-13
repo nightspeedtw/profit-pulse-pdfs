@@ -26,7 +26,11 @@ import {
   type PdfQcReport,
 } from "../_shared/pdf-qc.ts";
 import { lintChapters } from "../_shared/compliance.ts";
-import { planIllustrations, type IllustrationPlan } from "../_shared/illustration-planner.ts";
+import { planIllustrations, planKidsIllustrations, type IllustrationPlan } from "../_shared/illustration-planner.ts";
+import {
+  isKidsPictureBook, getOrBuildKidsVisualBible, generateSceneBriefs,
+  kidsIllustrationPrompt, type KidsVisualBible,
+} from "../_shared/kids-visual-bible.ts";
 import { logRun } from "../_shared/qc.ts";
 import {
   LOCK_PDF, tryAcquireLock, releaseLock, browserlessBackoffAt,
