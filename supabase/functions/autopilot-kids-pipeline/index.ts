@@ -228,6 +228,64 @@ async function generateManuscript(ctx: Ctx): Promise<StepResult> {
   return { output: { word_count } };
 }
 
+// Story gate — runs BEFORE any art/PDF step so baseline never spends image cost on a rejected story.
+// Throws when the strict story judge does not pass; the pipeline loop then short-circuits.
+async function storyGate(ctx: Ctx): Promise<StepResult> {
+  const manuscript = String(ctx.ebook.manuscript_md ?? '').trim();
+  if (!manuscript) throw new Error(`${STORY_GATE_BLOCK}: manuscript missing`);
+  const ageBand = (ctx.ebook.storefront_meta as { admin_params?: { age_band?: string } } | null)?.admin_params?.age_band ?? '4-6';
+  const sb = (ctx.ebook.story_bible ?? {}) as { spreads?: Array<{ text?: string }> };
+  const pageTexts = Array.isArray(sb.spreads) ? sb.spreads.map((s) => String(s?.text ?? '')) : [];
+
+  const report = await runKidsStoryJudge({
+    title: String(ctx.ebook.title ?? ''),
+    subtitle: (ctx.ebook.subtitle as string | null) ?? null,
+    ageBand,
+    manuscript_md: manuscript,
+    page_texts: pageTexts,
+  });
+
+  // Persist scorecard even on pass so the admin UI can display subscores.
+  const sc = (ctx.ebook.qc_scorecard ?? {}) as Record<string, unknown>;
+  sc.story_gate = {
+    passed: report.story_qc_passed,
+    scores: {
+      age: report.age_appropriateness_score,
+      coh: report.story_coherence_score,
+      emo: report.emotional_payoff_score,
+      rer: report.reread_value_score,
+      lang: report.language_level_score,
+      buyer: report.parent_buyer_value_score,
+      generic_risk: report.generic_story_risk_score,
+    },
+    subscores: {
+      premise_specificity: report.premise_specificity_score,
+      story_engine_specificity: report.story_engine_specificity_score,
+      visual_hook_specificity: report.visual_hook_specificity_score,
+      retitle_resistance: report.retitle_resistance_score,
+      trope_dependency: report.trope_dependency_score,
+    },
+    generic_risk_analysis: report.generic_risk_analysis,
+    judge_version: report.judge_version,
+    computed_at: report.computed_at,
+  };
+  await ctx.supabase.from('ebooks_kids').update({ qc_scorecard: sc }).eq('id', ctx.ebookId);
+
+  if (!report.story_qc_passed) {
+    const blockers: string[] = [];
+    if (report.age_appropriateness_score < 90) blockers.push(`age=${report.age_appropriateness_score}<90`);
+    if (report.story_coherence_score < 90) blockers.push(`coh=${report.story_coherence_score}<90`);
+    if (report.emotional_payoff_score < 85) blockers.push(`emo=${report.emotional_payoff_score}<85`);
+    if (report.reread_value_score < 85) blockers.push(`rer=${report.reread_value_score}<85`);
+    if (report.language_level_score < 90) blockers.push(`lang=${report.language_level_score}<90`);
+    if (report.parent_buyer_value_score < 85) blockers.push(`buyer=${report.parent_buyer_value_score}<85`);
+    if (report.generic_story_risk_score > 25) blockers.push(`generic_risk=${report.generic_story_risk_score}>25`);
+    throw new Error(`${STORY_GATE_BLOCK}: ${blockers.join(', ')}`);
+  }
+  return { output: { passed: true, generic_risk: report.generic_story_risk_score, subscores: sc.story_gate } };
+}
+
+
 async function generateCover(ctx: Ctx): Promise<StepResult> {
   // 1. Pick / load style preset (auto-rotate across pool)
   // 2. Build character bible via AI
