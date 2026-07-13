@@ -2378,7 +2378,6 @@ export type Database = {
         | "cover_design"
         | "product_copy"
         | "final_qc"
-        | "shopify_draft"
         | "published"
         | "rejected"
     }
@@ -2522,7 +2521,6 @@ export const Constants = {
         "cover_design",
         "product_copy",
         "final_qc",
-        "shopify_draft",
         "published",
         "rejected",
       ],
