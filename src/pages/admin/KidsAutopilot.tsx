@@ -117,17 +117,18 @@ export default function KidsAutopilot() {
     } finally { setRunning(false); }
   };
 
-  const forceFinish = async (runId: string) => {
+  // "Next repair tick" — never force publishes; runs the supervisor once.
+  const runRepairTick = async (runId: string, ebookId: string | null) => {
     setForcing(runId);
     try {
-      const { data, error } = await supabase.functions.invoke("autopilot-kids-pipeline", {
-        body: { run_id: runId, force_finish: true },
+      const { data, error } = await supabase.functions.invoke("kids-repair-supervisor", {
+        body: { run_id: runId, ebook_id: ebookId },
       });
       if (error) throw error;
-      toast({ title: "Force-finish complete", description: JSON.stringify(data).slice(0, 200) });
+      toast({ title: "Next repair tick queued", description: JSON.stringify(data).slice(0, 200) });
       await load();
     } catch (e) {
-      toast({ title: "Force-finish failed", description: String(e), variant: "destructive" });
+      toast({ title: "Repair tick failed", description: String(e), variant: "destructive" });
     } finally { setForcing(null); }
   };
 
