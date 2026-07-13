@@ -22,9 +22,10 @@ async function ensureWasm() {
 // Storybook display + friendly body. Fredoka is round, warm, immediately reads
 // as a children's book. Baloo 2 is a friendly companion. Both are free/open.
 const KIDS_FONT_URLS: Record<string, string> = {
-  fredoka: "https://cdn.jsdelivr.net/npm/@fontsource/fredoka-one@5.0.13/files/fredoka-one-latin-400-normal.woff",
-  baloo: "https://cdn.jsdelivr.net/npm/@fontsource/baloo-2@5.0.20/files/baloo-2-latin-800-normal.woff",
-  baloobold: "https://cdn.jsdelivr.net/npm/@fontsource/baloo-2@5.0.20/files/baloo-2-latin-700-normal.woff",
+  fredokaHeavy: "https://cdn.jsdelivr.net/npm/@fontsource/fredoka@5.0.15/files/fredoka-latin-700-normal.woff2",
+  fredokaBold: "https://cdn.jsdelivr.net/npm/@fontsource/fredoka@5.0.15/files/fredoka-latin-600-normal.woff2",
+  balooExtra: "https://cdn.jsdelivr.net/npm/@fontsource/baloo-2@5.0.20/files/baloo-2-latin-800-normal.woff2",
+  balooBold: "https://cdn.jsdelivr.net/npm/@fontsource/baloo-2@5.0.20/files/baloo-2-latin-700-normal.woff2",
 };
 let kidsFontsCache: Uint8Array[] | null = null;
 async function loadKidsFonts(): Promise<Uint8Array[]> {
