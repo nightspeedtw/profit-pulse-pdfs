@@ -4,12 +4,14 @@ import { fetchStorefrontById, type StorefrontEbook } from "@/lib/storefront";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, Download } from "lucide-react";
 import { freeDownload } from "@/lib/freeDownload";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PlatformTrustSection from "@/components/PlatformTrustSection";
 import ProductRating from "@/components/product/ProductRating";
 import ProductPreview from "@/components/product/ProductPreview";
 import ProductReviews from "@/components/product/ProductReviews";
 import TrustBadges from "@/components/product/TrustBadges";
 import StickyBuyBar from "@/components/product/StickyBuyBar";
+import StoryPreviewReader from "@/components/product/StoryPreviewReader";
 
 export default function Product() {
   const { handle } = useParams();
@@ -43,7 +45,23 @@ export default function Product() {
 
   const price = product.price != null ? Number(product.price) : null;
   const isFree = price === 0 || price == null;
+  const priceText = isFree ? "FREE" : `$${price!.toFixed(2)}`;
   const previewImages = product.preview_images ?? [];
+  const previewSpreads = product.preview_spreads ?? [];
+  const totalPages = product.total_spreads ?? previewSpreads.length;
+  const hasStoryPreview = previewSpreads.length >= 2;
+
+  const hookText =
+    product.hook_description ||
+    product.short_hook ||
+    product.shopping_card_description ||
+    product.preview_blurb ||
+    "";
+  const fullDescription =
+    product.product_description ||
+    product.long_description ||
+    product.shopping_card_description ||
+    "Premium digital PDF, instant download.";
 
   const scrollToBuy = () => buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   const handleBuy = () => freeDownload(product.id, product.title);
@@ -102,16 +120,16 @@ export default function Product() {
 
           <div className="inline-block border-2 border-foreground bg-background px-4 py-2">
             <p className="font-display text-3xl md:text-4xl font-black text-foreground tracking-tight">
-              {isFree ? "FREE" : `$${price!.toFixed(2)}`}
+              {priceText}
             </p>
           </div>
 
-          <div className="prose prose-sm max-w-none whitespace-pre-wrap">
-            {product.product_description ||
-              product.shopping_card_description ||
-              product.short_hook ||
-              "Premium digital PDF, instant download."}
-          </div>
+          {hookText && (
+            <p className="text-base md:text-lg leading-relaxed font-serif border-l-4 border-accent-foreground pl-4">
+              {hookText}
+            </p>
+          )}
+
           {product.benefit_bullets && product.benefit_bullets.length > 0 && (
             <ul className="space-y-2 pt-2">
               {product.benefit_bullets.map((b, i) => (
@@ -134,7 +152,56 @@ export default function Product() {
       </div>
 
       <div className="mt-12 space-y-12">
-        <ProductPreview images={previewImages} onBuyClick={scrollToBuy} />
+        {hasStoryPreview ? (
+          <StoryPreviewReader
+            spreads={previewSpreads}
+            totalPages={totalPages}
+            previewPageCount={product.preview_page_count ?? 3}
+            cliffhangerHook={product.cliffhanger_hook ?? null}
+            priceLabel={priceText}
+            onBuy={handleBuy}
+          />
+        ) : (
+          <ProductPreview images={previewImages} onBuyClick={scrollToBuy} />
+        )}
+
+        <section className="space-y-4">
+          <h2 className="font-display text-2xl uppercase">รายละเอียดเพิ่มเติม</h2>
+          <Tabs defaultValue="description">
+            <TabsList>
+              <TabsTrigger value="description">คำอธิบาย</TabsTrigger>
+              {product.who_it_is_for && <TabsTrigger value="audience">เหมาะกับใคร</TabsTrigger>}
+              {product.what_you_get && product.what_you_get.length > 0 && (
+                <TabsTrigger value="contents">ในเล่มมีอะไร</TabsTrigger>
+              )}
+            </TabsList>
+            <TabsContent value="description">
+              <div className="prose prose-sm max-w-none whitespace-pre-wrap pt-4">
+                {fullDescription}
+              </div>
+            </TabsContent>
+            {product.who_it_is_for && (
+              <TabsContent value="audience">
+                <div className="prose prose-sm max-w-none whitespace-pre-wrap pt-4">
+                  {product.who_it_is_for}
+                </div>
+              </TabsContent>
+            )}
+            {product.what_you_get && product.what_you_get.length > 0 && (
+              <TabsContent value="contents">
+                <ul className="space-y-2 pt-4">
+                  {product.what_you_get.map((x, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <span className="mt-1 h-2 w-2 rounded-full bg-accent-foreground flex-shrink-0" />
+                      <span>{x}</span>
+                    </li>
+                  ))}
+                </ul>
+              </TabsContent>
+            )}
+          </Tabs>
+        </section>
+
         <ProductReviews ebookId={product.id} />
         <PlatformTrustSection />
       </div>
@@ -148,3 +215,4 @@ export default function Product() {
     </div>
   );
 }
+
