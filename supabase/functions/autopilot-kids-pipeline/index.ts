@@ -3,7 +3,9 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { falFluxSchnell, falRecraftV3 } from '../_shared/fal.ts';
 import { pickStyle, markStyleUsed } from '../_shared/style-picker.ts';
 import { buildScenePlan, renderInteriorIllustrations } from '../_shared/kids-interior.ts';
-import { buildPicturePdf } from '../_shared/kids-picture-pdf.ts';
+// PDF assembly is delegated to the multi-stage `kids-build-picture-pdf`
+// worker — no direct pdf-lib import needed here.
+
 import { runKidsStoryJudge } from '../_shared/kids-story-judge.ts';
 import { detectBibleStoryMismatch, detectMetadataStoryMismatch, METADATA_STORY_MISMATCH } from '../_shared/bible-story-mismatch.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
