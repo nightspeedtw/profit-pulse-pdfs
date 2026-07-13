@@ -75,6 +75,29 @@ export default function Product() {
             {product.title}
           </h1>
 
+          {((product.age_group_slugs?.length ?? 0) > 0 || (product.theme_slugs?.length ?? 0) > 0) && (
+            <div className="flex flex-wrap gap-2">
+              {product.age_group_slugs?.map((slug) => (
+                <Link
+                  key={`age-${slug}`}
+                  to={`/kids?age=${encodeURIComponent(slug)}`}
+                  className="inline-block px-3 py-1 border-2 border-foreground bg-highlight text-xs font-mono uppercase tracking-wide hover:shadow-brutal transition-all"
+                >
+                  อายุ {slug}
+                </Link>
+              ))}
+              {product.theme_slugs?.map((slug) => (
+                <Link
+                  key={`theme-${slug}`}
+                  to={`/kids?themes=${encodeURIComponent(slug)}`}
+                  className="inline-block px-3 py-1 border-2 border-foreground bg-accent text-accent-foreground text-xs font-mono uppercase tracking-wide hover:shadow-brutal transition-all"
+                >
+                  #{slug}
+                </Link>
+              ))}
+            </div>
+          )}
+
           <ProductRating ebookId={product.id} />
 
           <div className="inline-block border-2 border-foreground bg-background px-4 py-2">
