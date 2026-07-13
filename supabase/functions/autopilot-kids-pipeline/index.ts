@@ -28,6 +28,7 @@ type Ctx = { supabase: ReturnType<typeof createClient>; ebookId: string; ebook: 
 const STEPS: Step[] = [
   { name: 'generate_idea', label: 'Generate story idea', critical: true, run: generateIdea },
   { name: 'generate_manuscript', label: 'Write manuscript', critical: true, run: generateManuscript },
+  { name: 'story_gate', label: 'Story judge gate (before art)', critical: true, run: storyGate },
   { name: 'generate_cover', label: 'Design cover', run: generateCover },
   { name: 'generate_style_bible', label: 'Lock style bible', critical: true, run: generateStyleBible },
   { name: 'generate_interior', label: 'Illustrate interior', critical: true, run: generateInterior },
