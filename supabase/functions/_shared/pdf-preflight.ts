@@ -64,14 +64,18 @@ export async function preflightPdf(pdfUrl: string | null | undefined): Promise<R
     ));
   }
 
-  // 3. Page count — pdf-lib uses compressed object streams, so raw text scans
-  // for "/Type /Page" miss the individual page dicts. Prefer the Pages tree
-  // "/Count N" declaration when present; fall back to /Type /Page counts for
-  // older uncompressed PDFs.
+  // 3. Page count — pdf-lib uses compressed object streams so raw regex
+  // scans miss both /Type /Page and /Count. Parse with pdf-lib for a real
+  // page count, then fall back to regex for uncompressed producer output.
   let pageCount = 0;
-  const countMatch = asText.match(/\/Type\s*\/Pages[\s\S]{0,400}?\/Count\s+(\d+)/);
-  if (countMatch) pageCount = parseInt(countMatch[1], 10);
-  if (!pageCount) pageCount = (asText.match(/\/Type\s*\/Page(?!s)/g) ?? []).length;
+  try {
+    const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+    pageCount = doc.getPageCount();
+  } catch {
+    const countMatch = asText.match(/\/Type\s*\/Pages[\s\S]{0,400}?\/Count\s+(\d+)/);
+    if (countMatch) pageCount = parseInt(countMatch[1], 10);
+    if (!pageCount) pageCount = (asText.match(/\/Type\s*\/Page(?!s)/g) ?? []).length;
+  }
   if (pageCount < 1) {
     findings.push(critical(
       "MISSING_PAGE", "pdf_preflight",
