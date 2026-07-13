@@ -133,6 +133,15 @@ Deno.serve(async (req) => {
 
     const scorecard = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
 
+    let stage: Stage = resolveStage(body.stage as string | undefined, scorecard);
+    if (stage !== 'pdf_prepare') {
+      const exists = await db.storage.from('ebook-pdfs').download(INPROGRESS_PATH(ebook_id));
+      if (exists.error || !exists.data) {
+        console.warn(`kids-build-picture-pdf: resolved stage ${stage} but no in-progress pdf exists for ${ebook_id}; restarting from pdf_prepare`);
+        stage = 'pdf_prepare';
+      }
+    }
+
     async function fetchImage(url: string): Promise<Uint8Array> {
       const r = await fetch(url);
       if (!r.ok) throw new Error(`image fetch ${r.status}`);
