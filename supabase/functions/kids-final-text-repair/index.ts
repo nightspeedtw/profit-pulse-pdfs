@@ -85,7 +85,18 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const ebook_id = String(body.ebook_id ?? '');
     const publish = body.publish !== false;
+    const stage = String(body.stage ?? 'queue');
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
+
+    if (stage === 'queue') {
+      // @ts-expect-error EdgeRuntime is a Deno Deploy global.
+      EdgeRuntime.waitUntil(fetch(`${SUPABASE_URL}/functions/v1/kids-final-text-repair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+        body: JSON.stringify({ ebook_id, publish, stage: 'run' }),
+      }));
+      return json({ ok: true, queued: true, ebook_id, note: 'text-only repair queued; art untouched' });
+    }
 
     const { data: ebook, error } = await db.from('ebooks_kids').select(
       'id,title,subtitle,description,price_cents,manuscript_md,story_bible,interior_illustrations,cover_url,thumbnail_url,preview_page_urls,qc_scorecard,storefront_meta',
