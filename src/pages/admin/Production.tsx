@@ -211,8 +211,8 @@ export default function Production() {
             size="sm"
             onClick={async () => {
               if (!confirm(
-                "Re-QC ทุกเล่มที่ยังไม่ผ่าน premium gates?\n" +
-                  "ระบบจะดึงเล่มที่ค้างกลับไปเข้า Reader QC / Formatter QC / Cover QC ทีละเล่มตาม Sequential Safe Mode",
+                "Re-QC every book that hasn't passed premium gates?\n" +
+                  "Books will be re-queued through Reader QC / Formatter QC / Cover QC one at a time in Sequential Safe Mode",
               )) return;
               try {
                 const { data, error } = await supabase.functions.invoke(

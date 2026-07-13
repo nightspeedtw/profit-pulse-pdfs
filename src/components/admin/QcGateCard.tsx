@@ -35,10 +35,10 @@ export interface ReRenderInfo {
 }
 
 const GATE_LABEL: Record<string, { en: string; th: string }> = {
-  formatter: { en: "Formatter QC", th: "จัดหน้า" },
-  reader: { en: "Reader QC", th: "ผู้อ่าน" },
-  cover_pdf: { en: "Cover PDF (A4)", th: "หน้าปก PDF" },
-  cover_thumb: { en: "Cover Thumbnail", th: "หน้าปก Mockup" },
+  formatter: { en: "Formatter QC", th: "Format" },
+  reader: { en: "Reader QC", th: "Reader" },
+  cover_pdf: { en: "Cover PDF (A4)", th: "Cover PDF" },
+  cover_thumb: { en: "Cover Thumbnail", th: "Cover Mockup" },
 };
 
 function GateRow({
@@ -121,15 +121,15 @@ export function QcGateCard({
       if (error) throw error;
       const escalated = (data as { escalated?: boolean } | null)?.escalated;
       if (escalated) {
-        toast.warning("ส่งเข้า Needs Code Fix", {
-          description: `${gate} ไม่ผ่านหลัง auto-fix หลายครั้ง — สร้าง prompt ให้ Lovable แล้ว`,
+        toast.warning("Sent to Needs Code Fix", {
+          description: `${gate} failed after multiple auto-fix attempts — a Lovable prompt has been generated`,
         });
       } else if (!opts?.silent) {
-        toast.success(`Auto Fix เริ่มแล้ว · ${gate}`);
+        toast.success(`Auto Fix started · ${gate}`);
       }
     } catch (e) {
       if (!opts?.silent) {
-        toast.error("Auto Fix ล้มเหลว", { description: e instanceof Error ? e.message : String(e) });
+        toast.error("Auto Fix failed", { description: e instanceof Error ? e.message : String(e) });
       }
     } finally {
       setFixing(null);
@@ -178,12 +178,12 @@ export function QcGateCard({
         {ready ? (
           <Badge className="bg-emerald-600 text-white text-[10px] gap-1">
             <CheckCircle2 className="h-3 w-3" />
-            พร้อมเผยแพร่ · Ready
+            Ready to publish
           </Badge>
         ) : (
           <Badge variant="outline" className="text-[10px] gap-1 border-destructive/50 text-destructive">
             <XCircle className="h-3 w-3" />
-            ยังไม่ผ่าน · Blocked
+            Not passing · Blocked
           </Badge>
         )}
       </div>
@@ -202,7 +202,7 @@ export function QcGateCard({
       {!ready && blockingLabels && (
         <div className="pt-1 border-t space-y-1.5">
           <div className="text-[11px] text-destructive/90">
-            ติดที่: {blockingLabels}
+            Blocked at: {blockingLabels}
           </div>
           {ebookId && (
             <div className="flex flex-wrap gap-1.5">
@@ -214,7 +214,7 @@ export function QcGateCard({
                 onClick={() => autoFix("any")}
               >
                 {fixing === "any" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
-                Auto Fix ทันที
+                Auto Fix now
               </Button>
               {qc.blocking_gates.map((g) => {
                 const key = g as "reader" | "cover_pdf" | "cover_thumb" | "formatter";

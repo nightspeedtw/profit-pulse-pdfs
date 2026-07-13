@@ -121,7 +121,7 @@ export default function AutopilotRun() {
     <div className="max-w-5xl space-y-6 p-2">
       <div className="flex items-center gap-2 flex-wrap">
         <Link to="/admin"><Button size="sm" variant="ghost"><ArrowLeft className="size-4 mr-1" />Command Center</Button></Link>
-        <Link to="/admin#live"><Button size="sm" variant="default"><Activity className="size-4 mr-1" />ดูสถานะรันตอนนี้</Button></Link>
+        <Link to="/admin#live"><Button size="sm" variant="default"><Activity className="size-4 mr-1" />View current run status</Button></Link>
         <Button size="sm" variant="outline" onClick={rerun} disabled={rerunning || isActive}>
           {rerunning ? <Loader2 className="size-4 mr-1 animate-spin" /> : <RotateCcw className="size-4 mr-1" />}
           {run.ebook_id ? "Resume Pipeline" : "Rerun"}

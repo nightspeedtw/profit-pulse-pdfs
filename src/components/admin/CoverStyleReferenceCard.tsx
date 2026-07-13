@@ -90,7 +90,7 @@ export function CoverStyleReferenceCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          อัปโหลดภาพปกตัวอย่างที่ต้องการ ระบบจะดึง palette / lighting / layout ไปใช้กับทุกปกที่สร้างต่อจากนี้
+          Upload a reference cover image — the system extracts palette / lighting / layout and applies it to every cover generated from now on
         </p>
 
         <div className="flex flex-wrap items-end gap-2">

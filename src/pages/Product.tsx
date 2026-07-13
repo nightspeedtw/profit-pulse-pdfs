@@ -101,7 +101,7 @@ export default function Product() {
                   to={`/kids?age=${encodeURIComponent(slug)}`}
                   className="inline-block px-3 py-1 border-2 border-foreground bg-highlight text-xs font-mono uppercase tracking-wide hover:shadow-brutal transition-all"
                 >
-                  อายุ {slug}
+                  Age {slug}
                 </Link>
               ))}
               {product.theme_slugs?.map((slug) => (
@@ -166,13 +166,13 @@ export default function Product() {
         )}
 
         <section className="space-y-4">
-          <h2 className="font-display text-2xl uppercase">รายละเอียดเพิ่มเติม</h2>
+          <h2 className="font-display text-2xl uppercase">More details</h2>
           <Tabs defaultValue="description">
             <TabsList>
-              <TabsTrigger value="description">คำอธิบาย</TabsTrigger>
-              {product.who_it_is_for && <TabsTrigger value="audience">เหมาะกับใคร</TabsTrigger>}
+              <TabsTrigger value="description">Description</TabsTrigger>
+              {product.who_it_is_for && <TabsTrigger value="audience">Who it's for</TabsTrigger>}
               {product.what_you_get && product.what_you_get.length > 0 && (
-                <TabsTrigger value="contents">ในเล่มมีอะไร</TabsTrigger>
+                <TabsTrigger value="contents">What's inside</TabsTrigger>
               )}
             </TabsList>
             <TabsContent value="description">

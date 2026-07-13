@@ -1,6 +1,6 @@
 // System Heartbeat — plain-Thai "what is the system doing RIGHT NOW" summary.
 // Answers the four questions the operator keeps asking:
-//   1) กำลังทำเล่มไหน?  2) ทำไมหยุด?  3) ต่อไปคืออะไร?  4) ต้องช่วยไหม?
+// 1) Which book is running?  2) Why did it stop?  3) What is next?  4) Need help?
 import { useEffect, useState } from "react";
 import { Activity, Loader2, PlayCircle, AlertCircle, Zap } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,9 +36,9 @@ type Live = {
 function ago(iso?: string | null): string {
   if (!iso) return "—";
   const sec = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (sec < 60) return `${sec}s ที่แล้ว`;
-  if (sec < 3600) return `${Math.floor(sec / 60)} นาทีที่แล้ว`;
-  return `${Math.floor(sec / 3600)} ชั่วโมงที่แล้ว`;
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.floor(sec / 60)} min ago`;
+  return `${Math.floor(sec / 3600)} hr ago`;
 }
 
 export function SystemHeartbeatCard() {
@@ -68,7 +68,7 @@ export function SystemHeartbeatCard() {
     try {
       const { error } = await supabase.functions.invoke("autopilot-recovery-worker", { body: {} });
       if (error) throw error;
-      if (!opts.silent) toast.success("Recovery worker started — เล่มถัดไปจะเริ่มใน <10 วินาที");
+      if (!opts.silent) toast.success("Recovery worker started — next book begins in <10 seconds");
     } catch (e) {
       if (!opts.silent) toast.error(e instanceof Error ? e.message : "Kick failed");
     } finally {
@@ -99,7 +99,7 @@ export function SystemHeartbeatCard() {
     return (
       <Card className="border-2 border-foreground bg-muted/30">
         <CardContent className="p-4 flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> กำลังโหลดสถานะระบบ…
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading system status…
         </CardContent>
       </Card>
     );
@@ -128,15 +128,15 @@ export function SystemHeartbeatCard() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-[11px] font-mono uppercase tracking-wide text-muted-foreground">
-                ระบบตอนนี้
+                System now
               </div>
               {running && current && (
                 <>
                   <div className="text-base font-semibold truncate">
-                    🟢 กำลังทำ: {current.title}
+                    🟢 Running: {current.title}
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    ขั้นตอน: <span className="font-mono">{current.current_step_label ?? current.current_step ?? "—"}</span>
+                    Step: <span className="font-mono">{current.current_step_label ?? current.current_step ?? "—"}</span>
                     {" · "}heartbeat {ago(current.last_heartbeat_at)}
                     {current.progress_pct != null && ` · ${current.progress_pct}%`}
                   </div>
@@ -148,18 +148,18 @@ export function SystemHeartbeatCard() {
               {stalled && (
                 <>
                   <div className="text-base font-semibold">
-                    🟡 ไม่มีเล่มกำลังทำ แต่มี {totalToDo} เล่มรออยู่
+                    🟡 No book running — {totalToDo} waiting in queue
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    ระบบจะ pick up เล่มถัดไปใน ≤ 60 วินาที (cron ทุกนาที) หรือกด "Kick Now" ทันที
+                    System picks up the next book in ≤ 60s (cron every minute) or hit "Kick Now"
                   </div>
                 </>
               )}
               {idle && (
                 <>
-                  <div className="text-base font-semibold">✅ ระบบว่าง</div>
+                  <div className="text-base font-semibold">✅ System idle</div>
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    ไม่มีเล่มในคิว {totalReady > 0 ? `· ${totalReady} เล่มพร้อมเผยแพร่` : ""}
+                    No books in queue {totalReady > 0 ? `· ${totalReady} ready to publish` : ""}
                   </div>
                 </>
               )}
@@ -172,11 +172,11 @@ export function SystemHeartbeatCard() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 pt-2 border-t">
-          <Stat label="ต่อไป" value={next?.title ?? "—"} count={live.queued.length} tone="default" />
-          <Stat label="รอ retry" value={`${live.waiting.length} เล่ม`} count={live.waiting.length} tone="muted" />
-          <Stat label="Auto-fix" value={`${live.auto_fixing.length} เล่ม`} count={live.auto_fixing.length} tone="amber" />
-          <Stat label="ติดปัญหา" value={`${totalBlocked} เล่ม`} count={totalBlocked} tone={totalBlocked > 0 ? "red" : "muted"} />
-          <Stat label="พร้อมเผยแพร่" value={`${totalReady} เล่ม`} count={totalReady} tone={totalReady > 0 ? "green" : "muted"} />
+          <Stat label="Next" value={next?.title ?? "—"} count={live.queued.length} tone="default" />
+          <Stat label="Waiting retry" value={`${live.waiting.length}`} count={live.waiting.length} tone="muted" />
+          <Stat label="Auto-fix" value={`${live.auto_fixing.length}`} count={live.auto_fixing.length} tone="amber" />
+          <Stat label="Blocked" value={`${totalBlocked}`} count={totalBlocked} tone={totalBlocked > 0 ? "red" : "muted"} />
+          <Stat label="Ready" value={`${totalReady}`} count={totalReady} tone={totalReady > 0 ? "green" : "muted"} />
         </div>
       </CardContent>
     </Card>
