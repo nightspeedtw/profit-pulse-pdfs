@@ -141,12 +141,31 @@ function detectBannedLaneHits(c: Concept): string[] {
   return BANNED_LANES.filter(b => hay.includes(b));
 }
 
-async function generateConcept(ageBand: string, avoidList: string[], attemptLabel: string): Promise<Concept> {
+const LANE_DIRECTIVES: Record<string, string> = {
+  food_kitchen_chaos: 'ALL candidates must sit in the food/kitchen chaos lane: a specific edible object escalates chaos across a real kitchen with concrete rules (whisks, batter, jars, timers, aprons).',
+  tiny_detective: 'ALL candidates must sit in the tiny detective lane: a small hero investigates unusual physical evidence (crumb trails, missing buttons, odd footprints) with a visual logic game.',
+  animal_buddy_mechanical: 'ALL candidates must sit in the animal buddy mechanical problem lane: an animal helper fixes a concrete mechanical/physical malfunction (wobbly wheel, stuck lid, broken bell).',
+  neighborhood_micro_adventure: 'ALL candidates must sit in the neighborhood micro-adventure lane: a route/map/errand through a specific local block with concrete objects (mailbox, corner shop, park bench).',
+  shop_library_museum_logic: 'ALL candidates must sit in the shop/library/museum mishap lane with a visual logic game (mislabeled shelves, out-of-order exhibits, price-tag swap).',
+};
+
+async function generateConcept(ageBand: string, avoidList: string[], attemptLabel: string, batchLane?: string): Promise<Concept> {
   const avoidBlock = avoidList.length
     ? `\n\nDo NOT repeat/rehash these previously-tried concepts:\n${avoidList.map(a => `- ${a}`).join('\n')}`
     : '';
 
+  const laneDirective = batchLane && LANE_DIRECTIVES[batchLane]
+    ? `\n\nBATCH LANE (STRICT): ${LANE_DIRECTIVES[batchLane]} If your concept does not fit this lane, REGENERATE inside the lane.`
+    : '';
+
   const system = `You are a bestselling picture-book concept designer for ages ${ageBand}. Invent ONE original, distinctive, giftable picture-book concept.
+
+CRITICAL ORDER OF INVENTION (do not skip):
+1. Invent the STORY ENGINE first (the escalating mechanism/rule).
+2. Invent the CALLBACKS second (two concrete planted objects that pay off).
+3. Invent the FINAL PAGE PAYOFF third (specific reveal tying both callbacks).
+4. Only THEN write the TITLE. The title must describe the mechanism, not just a funny name.
+Reject concepts that are funny-name-first with no mechanism.${laneDirective}
 
 Reply as STRICT JSON only (no markdown fences), matching EXACTLY this schema:
 {
@@ -208,6 +227,7 @@ DO NOT PRODUCE:
 - portal/wormhole
 - sock sorter (already used), farm fiddle / barnyard boogaloo (already shelved)
 - "everyone learns they are special" without a concrete mechanism
+- funny-name-first concepts without a real mechanism (e.g., "The Wobbly-Wumpus" with no engine)
 
 Aim WEIRD, SPECIFIC, MEMORABLE. Title must be unswappable with any other picture book.
 Attempt label: ${attemptLabel}.`;
