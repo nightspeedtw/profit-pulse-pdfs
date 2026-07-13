@@ -239,8 +239,22 @@ export default function KidsAutopilot() {
         <h2 className="font-display text-xl uppercase mb-3 flex items-center gap-2">
           <Zap className="size-5" /> Recent runs
         </h2>
-        {runs.length === 0 ? (
+        {loadingRuns ? (
+          <p className="text-sm text-muted-foreground">Loading recent runs…</p>
+        ) : authState === "signed_out" ? (
+          <p className="text-sm text-muted-foreground">
+            Sign in as an admin to see recent runs.{" "}
+            <a href="/auth" className="underline">Sign in</a>
+          </p>
+        ) : authState === "not_admin" ? (
+          <p className="text-sm text-muted-foreground">
+            This account isn't an admin — recent runs are admin-only.
+          </p>
+        ) : loadError ? (
+          <p className="text-sm text-red-600">Failed to load runs: {loadError}</p>
+        ) : runs.length === 0 ? (
           <p className="text-sm text-muted-foreground">No runs yet.</p>
+
         ) : (
           <div className="space-y-2">
             {runs.map((r) => {
