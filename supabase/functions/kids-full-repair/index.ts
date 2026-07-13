@@ -173,18 +173,31 @@ CRITICAL REPAIR NOTES (previous attempt failed):
 `
             : "";
 
-          const rewriteUser = `Rewrite the manuscript for the following picture book. Preserve the title, subtitle, and hero name "Luna". This is a cozy bedtime book with gentle wonder.
+          const laneBlock = premiseLane || premiseSpec
+            ? `
+
+DIFFERENTIATED PREMISE LANE (MANDATORY — do NOT default back to generic cozy-moon):
+${premiseLane ? `Lane: ${premiseLane}` : ""}
+${premiseSpec ?? ""}
+
+FORBIDDEN GENERIC PATTERNS (auto-fail if used — the story judge already rejected these):
+${forbiddenPatterns.map((p) => `- ${p}`).join("\n")}
+The moon's secret must be concrete, surprising, visual, and specific — a thing the moon DOES (repairs, sorts, folds, delivers, tunes), not a vague feeling.
+`
+            : "";
+
+          const rewriteUser = `Rewrite the manuscript for the following picture book. Preserve the title and hero name "Luna". This is a cozy bedtime book with gentle wonder but a DISTINCTIVE, non-generic premise.
 
 Title: "${title}"
 Subtitle: "${subtitle ?? ""}"
 Hero: Luna, a small child in cozy star pajamas
-Theme: bedtime, gentle wonder, emotional calm, moon's secret
-Tone: warm, whimsical, sleepy, emotionally reassuring
+Theme: bedtime, gentle wonder, emotional calm, moon's SPECIFIC secret
+Tone: warm, whimsical, sleepy, emotionally reassuring${laneBlock}
 
 REQUIREMENTS (all mandatory):
 - ${targetIllos} distinct illustrated spreads, one paragraph per spread
 - 40-70 words per spread, 500-800 words total
-- Distinctive premise (the moon's secret must be specific, surprising, tender)
+- Distinctive premise (the moon's secret must be specific, surprising, tender, and VISUAL)
 - Luna has a clear emotional need at page 1
 - Rising wonder in middle pages, quiet climax where Luna discovers the moon's secret
 - Satisfying, specific, earned emotional payoff on the last spread
