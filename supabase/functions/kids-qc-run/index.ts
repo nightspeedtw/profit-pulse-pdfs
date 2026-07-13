@@ -1,10 +1,15 @@
 // QC v2 — evidence-based QC run for a kids book.
-// Downloads the actual PDF, checks it, writes qc_findings, computes score,
-// updates ebooks_kids.sellable / overall_qc_score / qc_scorecard.
+// Runs: PDF preflight, glyph check, asset preflight, VISION consistency
+// (cover vs each interior + duplicate detection), and STORY LLM judge
+// (age/coherence/reread/emotional payoff/language/parent buyer value).
+// Missing measured QC = KIDS_MEASURED_QC_MISSING critical failure.
+
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { languageCheck, preflightCover, preflightPdf, type RawFinding } from "../_shared/pdf-preflight.ts";
 import { preflightKidsAssets, preflightPdfGlyphs, kidsThresholdsForAge } from "../_shared/kids-preflight.ts";
+import { runKidsVisionQc, visionReportToFindings } from "../_shared/kids-vision-qc.ts";
+import { runKidsStoryJudge, storyReportToFindings } from "../_shared/kids-story-judge.ts";
 import { computeVerdict } from "../_shared/qc/sellable.ts";
 import { QC_RULE_VERSION } from "../_shared/qc/weights.ts";
 
@@ -16,23 +21,22 @@ Deno.serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
   try {
-    const { ebook_id, run_id } = await req.json();
+    const { ebook_id, run_id, skip_vision = false, skip_story = false } = await req.json();
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
 
     const { data: ebook, error } = await supabase
       .from("ebooks_kids")
-      .select("id, title, cover_url, pdf_url, manuscript_md, page_count, thumbnail_url, preview_page_urls, interior_illustrations, style_bible_json")
+      .select("id, title, subtitle, age_band, cover_url, pdf_url, manuscript_md, page_count, thumbnail_url, preview_page_urls, interior_illustrations, style_bible_json")
       .eq("id", ebook_id)
       .single();
     if (error || !ebook) return json({ error: "ebook not found" }, 404);
 
-    // Also fetch style bible from the kids_book_bibles table as a fallback.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: bible } = await (supabase.from("kids_book_bibles") as any)
-      .select("style_bible_json").eq("ebook_id", ebook_id).maybeSingle();
-    const styleBible = (ebook.style_bible_json ?? bible?.style_bible_json) as unknown;
+      .select("style_bible_json, character_bible_json").eq("ebook_id", ebook_id).maybeSingle();
+    const styleBible = (ebook.style_bible_json ?? bible?.style_bible_json) as Record<string, unknown> | null;
+    const characterBible = (bible?.character_bible_json ?? null) as Record<string, unknown> | null;
 
-    // Clear prior findings for this book/run so this becomes the source of truth.
     await supabase.from("qc_findings").delete().eq("ebook_id", ebook_id);
 
     const thresholds = kidsThresholdsForAge(null, "high");
@@ -52,7 +56,76 @@ Deno.serve(async (req) => {
       min_previews: thresholds.min_previews,
     }));
 
-    // Persist findings
+    // ---- VISION QC ----
+    let visionReport: unknown = null;
+    const illos = Array.isArray(ebook.interior_illustrations) ? (ebook.interior_illustrations as Array<Record<string, unknown>>) : [];
+    if (!skip_vision && ebook.cover_url && illos.length > 0) {
+      try {
+        const v = await runKidsVisionQc({
+          coverUrl: ebook.cover_url as string,
+          interior: illos.map((r, i) => ({
+            index: (r.index as number) ?? i + 1,
+            page_number: (r.page_number as number) ?? i + 3,
+            scene: r.scene as string | undefined,
+            url: r.url as string,
+            hash: r.hash as string | undefined,
+          })).filter((p) => typeof p.url === "string" && p.url.length > 8),
+          styleBible,
+          characterBible,
+        });
+        visionReport = v;
+        raw.push(...visionReportToFindings(v));
+      } catch (e) {
+        raw.push({
+          rule_id: "KIDS_MEASURED_QC_MISSING", category: "character_consistency",
+          severity: "critical", passed: false,
+          measured_value: { subsystem: "vision", error: String((e as Error).message ?? e).slice(0, 300) },
+          threshold: { must: "vision_report_present" },
+          repair_action: "rerun_vision_qc",
+        });
+      }
+    } else if (!skip_vision) {
+      raw.push({
+        rule_id: "KIDS_MEASURED_QC_MISSING", category: "character_consistency",
+        severity: "critical", passed: false,
+        measured_value: { subsystem: "vision", cover: !!ebook.cover_url, interior_count: illos.length },
+        threshold: { must: "vision_report_present" },
+        repair_action: "generate_cover_and_interior",
+      });
+    }
+
+    // ---- STORY JUDGE ----
+    let storyReport: unknown = null;
+    if (!skip_story && (ebook.manuscript_md as string | null)?.trim()) {
+      try {
+        const s = await runKidsStoryJudge({
+          title: (ebook.title as string) ?? "",
+          subtitle: (ebook.subtitle as string | null) ?? null,
+          ageBand: (ebook.age_band as string | null) ?? null,
+          manuscript_md: (ebook.manuscript_md as string) ?? "",
+          page_texts: illos.map((r) => (r.scene as string | undefined) ?? "").filter(Boolean),
+        });
+        storyReport = s;
+        raw.push(...storyReportToFindings(s));
+      } catch (e) {
+        raw.push({
+          rule_id: "KIDS_MEASURED_QC_MISSING", category: "story_structure",
+          severity: "critical", passed: false,
+          measured_value: { subsystem: "story_judge", error: String((e as Error).message ?? e).slice(0, 300) },
+          threshold: { must: "story_report_present" },
+          repair_action: "rerun_story_judge",
+        });
+      }
+    } else if (!skip_story) {
+      raw.push({
+        rule_id: "KIDS_MEASURED_QC_MISSING", category: "story_structure",
+        severity: "critical", passed: false,
+        measured_value: { subsystem: "story_judge", manuscript_present: false },
+        threshold: { must: "manuscript_present" },
+        repair_action: "generate_manuscript",
+      });
+    }
+
     if (raw.length) {
       const rows = raw.map((f) => ({
         ebook_id, run_id: run_id ?? null, ebook_track: "kids",
@@ -80,12 +153,14 @@ Deno.serve(async (req) => {
         critical_errors: verdict.critical_errors,
         failed_categories: verdict.failed_categories,
         reasons: verdict.reasons,
+        vision_report: visionReport,
+        story_report: storyReport,
         computed_at: new Date().toISOString(),
       },
       human_review_reason: verdict.sellable ? null : verdict.reasons.join(" | "),
     }).eq("id", ebook_id);
 
-    return json({ ok: true, verdict, finding_count: raw.length });
+    return json({ ok: true, verdict, finding_count: raw.length, vision_report: visionReport, story_report: storyReport });
   } catch (e) {
     console.error(e);
     return json({ ok: false, error: String(e) }, 500);
