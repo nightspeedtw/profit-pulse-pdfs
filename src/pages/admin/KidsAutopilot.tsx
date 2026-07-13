@@ -93,6 +93,21 @@ export default function KidsAutopilot() {
     } finally { setRunning(false); }
   };
 
+  const forceFinish = async (runId: string) => {
+    setForcing(runId);
+    try {
+      const { data, error } = await supabase.functions.invoke("autopilot-kids-pipeline", {
+        body: { run_id: runId, force_finish: true },
+      });
+      if (error) throw error;
+      toast({ title: "Force-finish complete", description: JSON.stringify(data).slice(0, 200) });
+      await load();
+    } catch (e) {
+      toast({ title: "Force-finish failed", description: String(e), variant: "destructive" });
+    } finally { setForcing(null); }
+  };
+
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
