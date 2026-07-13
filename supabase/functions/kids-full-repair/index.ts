@@ -317,27 +317,39 @@ Return JSON:
     // ============================================================
     if (runAll || phase === "bibles") {
       if (!eb2!.cover_url) throw new Error("cover_url required to lock bibles");
+      // Derive hero name from THIS book's story bible / manuscript. Never
+      // hardcode "Luna" here — that was the root cause of BIBLE_STORY_MISMATCH
+      // (Sock Sorter inheriting a bear-cub bible from a bedtime book).
+      const sbRelock = (eb2!.story_bible ?? {}) as Record<string, unknown>;
+      const heroFromBible = ((sbRelock.hero as string) ?? "").split(/[,\s—-]/)[0]?.trim();
+      const manuscriptForRelock = String(eb2!.manuscript_md ?? "");
+      const properNouns = (manuscriptForRelock.match(/\b[A-Z][a-z]{2,}\b/g) ?? [])
+        .filter((n) => !/^(The|A|An|And|Or|But|In|On|At|To|From|With|Once|Then|Suddenly|Ta|Clink|Clank)$/.test(n));
+      const freq = new Map<string, number>();
+      for (const n of properNouns) freq.set(n, (freq.get(n) ?? 0) + 1);
+      const heroFromManuscript = [...freq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+      const heroName = heroFromBible || heroFromManuscript || "the hero";
       const system = `You are an art director locking a picture-book character + style bible. You look at the cover image and extract the EXACT visible features of the hero character and the illustration style. Return only what is visible; do not invent. Integer palette hexes.`;
-      const user = `Book title: "${eb2!.title}". Hero name: Luna. Look at the attached cover image.
+      const user = `Book title: "${eb2!.title}". Hero name: ${heroName}. Look at the attached cover image.
 
 Return JSON exactly:
 {
   "character_bible": {
-    "name": "Luna",
-    "species": "human child",
+    "name": "${heroName}",
+    "species": "<what the hero actually is in this book — human child, animal, robot, etc. Do NOT default to bear cub.>",
     "skin_tone_hex": "#",
-    "skin_tone_words": "<e.g. warm tan / fair peach>",
+    "skin_tone_words": "<e.g. warm tan / fair peach / brown fur>",
     "hair_color": "",
-    "hair_style": "<e.g. two soft pigtails with waves / single loose bun>",
+    "hair_style": "<e.g. two soft pigtails with waves / single loose bun / n/a>",
     "eye_shape": "",
     "eye_color": "",
-    "outfit": "<full description of pajamas including sleeves, collar, length>",
-    "outfit_pattern": "<e.g. embroidered gold star motif on chest / all-over printed stars>",
+    "outfit": "<full description of what the hero wears in the cover>",
+    "outfit_pattern": "<pattern details>",
     "outfit_colors_hex": ["#","#"],
     "signature_prop": "<if any>",
     "body_proportions": "<age appearance, head/body ratio>",
-    "invariant_features": "<one-sentence lock line>",
-    "forbidden_variations": ["do not change skin tone", "do not change star embroidery to printed stars", "do not change hair style"]
+    "invariant_features": "<one-sentence lock line describing ${heroName}>",
+    "forbidden_variations": ["do not change species", "do not change skin/fur tone", "do not change outfit colors"]
   },
   "style_bible": {
     "line_quality": "",
