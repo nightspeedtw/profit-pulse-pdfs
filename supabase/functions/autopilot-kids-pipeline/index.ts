@@ -5,7 +5,7 @@ import { pickStyle, markStyleUsed } from '../_shared/style-picker.ts';
 import { buildScenePlan, renderInteriorIllustrations } from '../_shared/kids-interior.ts';
 import { buildPicturePdf } from '../_shared/kids-picture-pdf.ts';
 import { runKidsStoryJudge } from '../_shared/kids-story-judge.ts';
-import { detectBibleStoryMismatch } from '../_shared/bible-story-mismatch.ts';
+import { detectBibleStoryMismatch, detectMetadataStoryMismatch, METADATA_STORY_MISMATCH } from '../_shared/bible-story-mismatch.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
