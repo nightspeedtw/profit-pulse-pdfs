@@ -112,3 +112,106 @@ export function detectBibleStoryMismatch(input: {
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+/**
+ * Extract dominant premise "terms" from a manuscript — non-stopword tokens
+ * appearing 2+ times, lowercased. Used to compare against title/description.
+ */
+export function extractManuscriptTerms(manuscript: string, minCount = 2): string[] {
+  if (!manuscript) return [];
+  const tokens = manuscript.toLowerCase().match(/\b[a-z][a-z-]{3,}\b/g) ?? [];
+  const stop = new Set([
+    "the","and","was","were","with","from","this","that","have","said","just",
+    "then","some","when","what","your","them","they","into","their","been",
+    "here","there","little","would","could","should","about","which","like",
+    "over","onto","upon","also","very","really","because","around","again",
+    "still","after","before","every","many","much","more","most","only","even",
+    "such","other","another","across","along","among","between","without",
+    "into","under","above","below","being","doing","going","having","made",
+    "make","make","tali","said",
+  ]);
+  const counts = new Map<string, number>();
+  for (const t of tokens) {
+    if (stop.has(t)) continue;
+    counts.set(t, (counts.get(t) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .filter(([, n]) => n >= minCount)
+    .sort((a, b) => b[1] - a[1])
+    .map(([t]) => t)
+    .slice(0, 40);
+}
+
+export interface MetadataMismatchReport {
+  mismatch: boolean;
+  reason: string;
+  manuscript_hero: string | null;
+  metadata_hero: string | null;
+  manuscript_terms: string[];
+  stale_metadata_terms: string[];
+  repair_action: "auto_sync" | "hard_block" | "none";
+}
+
+/**
+ * Compare storefront title/description/storefront_meta against the manuscript.
+ * If metadata references a hero name not present in the manuscript, or none of
+ * the top manuscript terms appear in the title+description, flag mismatch.
+ * `repair_action=auto_sync` means the caller can safely regenerate metadata
+ * from the manuscript (manuscript is trusted). `hard_block` means metadata
+ * evidence is contradictory AND no clear manuscript hero exists to sync from.
+ */
+export function detectMetadataStoryMismatch(input: {
+  manuscript: string;
+  title?: string | null;
+  description?: string | null;
+  storefrontMeta?: Record<string, unknown> | null;
+}): MetadataMismatchReport {
+  const manuscript = input.manuscript ?? "";
+  const candidates = extractManuscriptCharacterNames(manuscript);
+  const manuscriptHero = candidates[0] ?? null;
+  const title = String(input.title ?? "");
+  const description = String(input.description ?? "");
+  const metaBlob = `${title} ${description}`.trim();
+  const metaHeroCandidates = extractManuscriptCharacterNames(metaBlob + "\n" + metaBlob);
+  const metadataHero = metaHeroCandidates[0] ?? null;
+
+  const manuscriptTerms = extractManuscriptTerms(manuscript);
+  const metaLower = metaBlob.toLowerCase();
+  const staleTerms: string[] = [];
+  // Terms that appear in metadata but never in the manuscript.
+  for (const t of extractManuscriptTerms(metaBlob, 1)) {
+    if (t.length < 4) continue;
+    if (!new RegExp(`\\b${escapeRegex(t)}\\b`).test(manuscript.toLowerCase())) {
+      staleTerms.push(t);
+    }
+  }
+  // Metadata hero must appear in manuscript.
+  const heroInManuscript = metadataHero
+    ? new RegExp(`\\b${escapeRegex(metadataHero)}\\b`, "i").test(manuscript)
+    : true;
+  // Top manuscript terms must appear in metadata (at least 1 of top 5).
+  const topInMeta = manuscriptTerms.slice(0, 5).some((t) =>
+    new RegExp(`\\b${escapeRegex(t)}\\b`).test(metaLower)
+  );
+
+  if (heroInManuscript && topInMeta) {
+    return {
+      mismatch: false, reason: "metadata aligns with manuscript",
+      manuscript_hero: manuscriptHero, metadata_hero: metadataHero,
+      manuscript_terms: manuscriptTerms, stale_metadata_terms: staleTerms,
+      repair_action: "none",
+    };
+  }
+  const canAutoSync = !!manuscriptHero && manuscriptTerms.length >= 3;
+  return {
+    mismatch: true,
+    reason: !heroInManuscript
+      ? `metadata hero "${metadataHero}" is not present in manuscript (manuscript hero: "${manuscriptHero}")`
+      : `no top manuscript terms appear in metadata; likely stale storefront copy`,
+    manuscript_hero: manuscriptHero,
+    metadata_hero: metadataHero,
+    manuscript_terms: manuscriptTerms,
+    stale_metadata_terms: staleTerms,
+    repair_action: canAutoSync ? "auto_sync" : "hard_block",
+  };
+}
