@@ -142,7 +142,9 @@ Deno.serve(async (req) => {
   const auth = req.headers.get("authorization") ?? "";
   const bypass = req.headers.get("x-admin-bypass");
   const authorized =
-    auth === `Bearer ${SERVICE_ROLE}` || (ADMIN_BYPASS && bypass === ADMIN_BYPASS);
+    auth === `Bearer ${SERVICE_ROLE}` ||
+    auth === `Bearer ${LOVABLE_API_KEY}` ||
+    (ADMIN_BYPASS && bypass === ADMIN_BYPASS);
   if (!authorized) {
     return new Response(JSON.stringify({ error: "unauthorized" }), {
       status: 401,
