@@ -2036,6 +2036,8 @@ export type Database = {
           locked_at: string | null
           locked_by: string | null
           style_bible_json: Json
+          style_preset_id: string | null
+          style_slug: string | null
           updated_at: string
         }
         Insert: {
@@ -2047,6 +2049,8 @@ export type Database = {
           locked_at?: string | null
           locked_by?: string | null
           style_bible_json?: Json
+          style_preset_id?: string | null
+          style_slug?: string | null
           updated_at?: string
         }
         Update: {
@@ -2058,6 +2062,8 @@ export type Database = {
           locked_at?: string | null
           locked_by?: string | null
           style_bible_json?: Json
+          style_preset_id?: string | null
+          style_slug?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -2066,6 +2072,13 @@ export type Database = {
             columns: ["ebook_id"]
             isOneToOne: true
             referencedRelation: "ebooks_kids"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kids_book_bibles_style_preset_id_fkey"
+            columns: ["style_preset_id"]
+            isOneToOne: false
+            referencedRelation: "kids_style_presets"
             referencedColumns: ["id"]
           },
         ]
@@ -2234,6 +2247,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      kids_style_presets: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          label: string
+          last_used_at: string | null
+          negative_prompt: string | null
+          prompt_suffix: string
+          slug: string
+          times_used: number
+          updated_at: string
+          weight: number
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          label: string
+          last_used_at?: string | null
+          negative_prompt?: string | null
+          prompt_suffix: string
+          slug: string
+          times_used?: number
+          updated_at?: string
+          weight?: number
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          label?: string
+          last_used_at?: string | null
+          negative_prompt?: string | null
+          prompt_suffix?: string
+          slug?: string
+          times_used?: number
+          updated_at?: string
+          weight?: number
+        }
+        Relationships: []
       }
       kids_themes: {
         Row: {

@@ -1,5 +1,7 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { falFluxSchnell, falRecraftV3 } from '../_shared/fal.ts';
+import { pickStyle, markStyleUsed } from '../_shared/style-picker.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -201,32 +203,94 @@ async function generateManuscript(ctx: Ctx): Promise<StepResult> {
 }
 
 async function generateCover(ctx: Ctx): Promise<StepResult> {
-  // NO fallback-as-pass. If image generation fails after retries the step MUST fail
-  // so QC records the defect and the run ends up in human_review_required.
-  const res = await fetch('https://ai.gateway.lovable.dev/v1/images/generations', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
-    body: JSON.stringify({
-      model: 'google/gemini-2.5-flash-image-preview',
-      prompt: `Children's book cover for "${ctx.ebook.title}". Warm, colorful, professional illustration, portrait orientation. ${ctx.ebook.description ?? ''}. English text on cover only if any.`,
-      n: 1, size: '1024x1536',
-    }),
+  // 1. Pick / load style preset (auto-rotate across pool)
+  // 2. Build character bible via AI
+  // 3. Generate character reference sheet with Fal Flux Schnell (fast, cheap)
+  // 4. Generate final cover with Fal Recraft V3 using ref image (i2i for consistency)
+  const db = ctx.supabase;
+
+  // Load or create bible row
+  const { data: existingBible } = await db.from('kids_book_bibles')
+    .select('*').eq('ebook_kids_id', ctx.ebookId).maybeSingle();
+
+  let bible = existingBible as Record<string, unknown> | null;
+
+  if (!bible) {
+    const style = await pickStyle(db);
+    const bibleText = await callAI(
+      `Create a character bible JSON for the hero of "${ctx.ebook.title}". Description: ${ctx.ebook.description}. Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":"","outfit":"","accessory":"","personality":"","forbidden_changes":["never change hair color","never change outfit"]}`,
+      "You are a picture-book art director. English only. JSON only, no markdown."
+    );
+    const cbJson = JSON.parse(bibleText.replace(/^```(?:json)?\s*|\s*```$/g, '').trim());
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ins = await (db.from('kids_book_bibles') as any).insert({
+      ebook_kids_id: ctx.ebookId,
+      character_bible_json: cbJson,
+      style_bible_json: { style_slug: style.slug, style_label: style.label },
+      style_preset_id: style.id,
+      style_slug: style.slug,
+    }).select('*').single();
+    bible = ins.data;
+    await markStyleUsed(db, style.id);
+  }
+
+  const cb = (bible!.character_bible_json ?? {}) as Record<string, string>;
+  const styleSlug = bible!.style_slug as string | null;
+  const { data: stylePreset } = await db.from('kids_style_presets')
+    .select('prompt_suffix, negative_prompt').eq('slug', styleSlug ?? '').maybeSingle();
+  const styleSuffix = (stylePreset?.prompt_suffix as string | undefined) ?? 'children\'s picture book illustration';
+  const negativePrompt = (stylePreset?.negative_prompt as string | undefined) ?? 'text, watermark, scary';
+
+  const charDesc = [
+    cb.name && `named ${cb.name}`,
+    cb.species && `(${cb.species})`,
+    cb.hair && `${cb.hair} hair`,
+    cb.eyes && `${cb.eyes} eyes`,
+    cb.skin && `${cb.skin} skin`,
+    cb.outfit && `wearing ${cb.outfit}`,
+    cb.accessory && `with ${cb.accessory}`,
+  ].filter(Boolean).join(', ');
+
+  // Step: character reference sheet (only if we don't have one yet)
+  let refUrl = bible!.character_reference_image_url as string | null;
+  if (!refUrl) {
+    const refPrompt = `Character reference sheet: a friendly children's book hero ${charDesc}. Full body, front view, neutral pose, plain white background, clear features, ${styleSuffix}`;
+    const refBytes = await falFluxSchnell({ prompt: refPrompt, image_size: 'square_hd' });
+    const refPath = `kids/${ctx.ebookId}/character-ref.png`;
+    const up = await db.storage.from('ebook-covers').upload(refPath, refBytes, {
+      contentType: 'image/png', upsert: true,
+    });
+    if (up.error) throw up.error;
+    const { data: refSigned } = await db.storage.from('ebook-covers').createSignedUrl(refPath, 60 * 60 * 24 * 365);
+    refUrl = refSigned?.signedUrl ?? null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (db.from('kids_book_bibles') as any).update({
+      character_reference_image_url: refUrl,
+    }).eq('ebook_kids_id', ctx.ebookId);
+  }
+
+  // Step: final cover with Recraft V3 + image-to-image on reference
+  const coverPrompt = `Children's book cover illustration for "${ctx.ebook.title}". Hero ${charDesc}. Dynamic emotional composition, portrait orientation, room reserved at top for title. ${ctx.ebook.description ?? ''}. ${styleSuffix}`;
+
+  const coverBytes = await falRecraftV3({
+    prompt: coverPrompt,
+    image_url: refUrl ?? undefined,
+    strength: 0.55,
+    image_size: 'portrait_4_3',
+    negative_prompt: negativePrompt,
   });
-  if (!res.ok) throw new Error(`Image AI ${res.status}: ${await res.text()}`);
-  const j = await res.json();
-  const b64 = j?.data?.[0]?.b64_json;
-  if (!b64) throw new Error('no image');
-  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+
   const path = `kids/${ctx.ebookId}/cover.png`;
-  const up = await ctx.supabase.storage.from('ebook-covers').upload(path, bytes, {
+  const up = await db.storage.from('ebook-covers').upload(path, coverBytes, {
     contentType: 'image/png', upsert: true,
   });
   if (up.error) throw up.error;
-  const { data: pub } = await ctx.supabase.storage.from('ebook-covers').createSignedUrl(path, 60 * 60 * 24 * 365);
-  await ctx.supabase.from('ebooks_kids').update({
+  const { data: pub } = await db.storage.from('ebook-covers').createSignedUrl(path, 60 * 60 * 24 * 365);
+  await db.from('ebooks_kids').update({
     cover_url: pub?.signedUrl ?? null, status: 'rendering', pipeline_status: 'rendering',
   }).eq('id', ctx.ebookId);
-  return { output: { path } };
+  return { output: { path, style: styleSlug, ref_used: !!refUrl } };
 }
 
 async function renderPdf(ctx: Ctx): Promise<StepResult> {
