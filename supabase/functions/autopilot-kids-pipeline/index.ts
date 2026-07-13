@@ -201,102 +201,174 @@ async function generateManuscript(ctx: Ctx): Promise<StepResult> {
 }
 
 async function generateCover(ctx: Ctx): Promise<StepResult> {
-  try {
-    const res = await fetch('https://ai.gateway.lovable.dev/v1/images/generations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash-image-preview',
-        prompt: `Children's book cover for "${ctx.ebook.title}". Warm, colorful, professional illustration, portrait orientation. ${ctx.ebook.description ?? ''}. English text on cover only if any.`,
-        n: 1, size: '1024x1536',
-      }),
-    });
-    if (!res.ok) throw new Error(`Image AI ${res.status}: ${await res.text()}`);
-    const j = await res.json();
-    const b64 = j?.data?.[0]?.b64_json;
-    if (!b64) throw new Error('no image');
-    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    const path = `kids/${ctx.ebookId}/cover.png`;
-    const up = await ctx.supabase.storage.from('ebook-covers').upload(path, bytes, {
-      contentType: 'image/png', upsert: true,
-    });
-    if (up.error) throw up.error;
-    const { data: pub } = await ctx.supabase.storage.from('ebook-covers').createSignedUrl(path, 60 * 60 * 24 * 365);
-    await ctx.supabase.from('ebooks_kids').update({
-      cover_url: pub?.signedUrl ?? null, status: 'rendering', pipeline_status: 'rendering',
-    }).eq('id', ctx.ebookId);
-    return { output: { path } };
-  } catch (aiErr) {
-    // Fallback: upload an SVG placeholder cover so the pipeline can continue.
-    console.warn('cover fallback engaged:', String(aiErr));
-    const title = String(ctx.ebook.title ?? 'A Kids Book').replace(/[<>&"]/g, '');
-    const subtitle = String(ctx.ebook.subtitle ?? '').replace(/[<>&"]/g, '');
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1536" width="1024" height="1536">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FFD07A"/>
-      <stop offset="1" stop-color="#F27A9A"/>
-    </linearGradient>
-  </defs>
-  <rect width="1024" height="1536" fill="url(#g)"/>
-  <g fill="#1a1a2e" font-family="Georgia, serif" text-anchor="middle">
-    <text x="512" y="720" font-size="88" font-weight="bold">${title.slice(0, 40)}</text>
-    <text x="512" y="820" font-size="42">${subtitle.slice(0, 60)}</text>
-    <text x="512" y="1420" font-size="28" opacity="0.7">A Little Story</text>
-  </g>
-</svg>`;
-    const bytes = new TextEncoder().encode(svg);
-    const path = `kids/${ctx.ebookId}/cover.svg`;
-    const up = await ctx.supabase.storage.from('ebook-covers').upload(path, bytes, {
-      contentType: 'image/svg+xml', upsert: true,
-    });
-    if (up.error) throw up.error;
-    const { data: pub } = await ctx.supabase.storage.from('ebook-covers').createSignedUrl(path, 60 * 60 * 24 * 365);
-    await ctx.supabase.from('ebooks_kids').update({
-      cover_url: pub?.signedUrl ?? null, status: 'rendering', pipeline_status: 'rendering',
-    }).eq('id', ctx.ebookId);
-    return { output: { path, fallback: true, reason: String(aiErr).slice(0, 200) }, fallbackUsed: true };
-  }
+  // NO fallback-as-pass. If image generation fails after retries the step MUST fail
+  // so QC records the defect and the run ends up in human_review_required.
+  const res = await fetch('https://ai.gateway.lovable.dev/v1/images/generations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
+    body: JSON.stringify({
+      model: 'google/gemini-2.5-flash-image-preview',
+      prompt: `Children's book cover for "${ctx.ebook.title}". Warm, colorful, professional illustration, portrait orientation. ${ctx.ebook.description ?? ''}. English text on cover only if any.`,
+      n: 1, size: '1024x1536',
+    }),
+  });
+  if (!res.ok) throw new Error(`Image AI ${res.status}: ${await res.text()}`);
+  const j = await res.json();
+  const b64 = j?.data?.[0]?.b64_json;
+  if (!b64) throw new Error('no image');
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const path = `kids/${ctx.ebookId}/cover.png`;
+  const up = await ctx.supabase.storage.from('ebook-covers').upload(path, bytes, {
+    contentType: 'image/png', upsert: true,
+  });
+  if (up.error) throw up.error;
+  const { data: pub } = await ctx.supabase.storage.from('ebook-covers').createSignedUrl(path, 60 * 60 * 24 * 365);
+  await ctx.supabase.from('ebooks_kids').update({
+    cover_url: pub?.signedUrl ?? null, status: 'rendering', pipeline_status: 'rendering',
+  }).eq('id', ctx.ebookId);
+  return { output: { path } };
 }
 
 async function renderPdf(ctx: Ctx): Promise<StepResult> {
+  // Build a REAL PDF (not HTML with a lying content-type).
+  const md = (ctx.ebook.manuscript_md as string) ?? '';
+  if (!md || md.length < 200) throw new Error('manuscript too short to render');
+  const paragraphs = md.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
+  const pdfBytes = buildMinimalPdf(String(ctx.ebook.title ?? ''), paragraphs);
   const path = `kids/${ctx.ebookId}/book.pdf`;
-  const md = (ctx.ebook.manuscript_md as string) ?? 'Story pending.';
-  const html = `<!doctype html><meta charset="utf-8"><title>${ctx.ebook.title}</title><style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;padding:0 24px;line-height:1.7}</style><h1>${ctx.ebook.title ?? ''}</h1><p><em>${ctx.ebook.subtitle ?? ''}</em></p>${md.split(/\n\n+/).map(p => `<p>${p.replace(/\n/g, '<br/>')}</p>`).join('')}`;
-  const bytes = new TextEncoder().encode(html);
-  const up = await ctx.supabase.storage.from('ebook-pdfs').upload(path, bytes, {
+  const up = await ctx.supabase.storage.from('ebook-pdfs').upload(path, pdfBytes, {
     contentType: 'application/pdf', upsert: true,
   });
   if (up.error) throw up.error;
   const { data: pub } = await ctx.supabase.storage.from('ebook-pdfs').createSignedUrl(path, 60 * 60 * 24 * 365);
-  const page_count = Math.max(8, Math.ceil(md.length / 1200));
   await ctx.supabase.from('ebooks_kids').update({
-    pdf_url: pub?.signedUrl ?? null, page_count, status: 'qc', pipeline_status: 'qc',
+    pdf_url: pub?.signedUrl ?? null, status: 'qc', pipeline_status: 'pdf_preflight',
   }).eq('id', ctx.ebookId);
-  return { output: { path, page_count } };
+  return { output: { path, byte_size: pdfBytes.length } };
 }
 
 async function runQc(ctx: Ctx): Promise<StepResult> {
-  const scores = {
-    character_consistency: 92, story_continuity: 94, age_appropriateness: 96,
-    illustration_style_consistency: 90, cover_to_interior_match: 91, final_children_book_quality: 92,
-  };
-  const passed = Object.values(scores).every(v => v >= 85);
+  // Evidence-based: delegate to kids-qc-run.
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/kids-qc-run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify({ ebook_id: ctx.ebookId }),
+  });
+  const body = await res.json();
+  if (!res.ok || !body?.ok) throw new Error(`qc failed: ${JSON.stringify(body).slice(0, 300)}`);
+  const verdict = body.verdict;
   await ctx.supabase.from('ebooks_kids').update({
-    qc_scores: scores, status: passed ? 'ready' : 'needs_revision',
-    pipeline_status: passed ? 'ready' : 'needs_revision',
+    pipeline_status: verdict.sellable ? 'sellable' : 'human_review_required',
+    status: verdict.sellable ? 'ready' : 'needs_revision',
   }).eq('id', ctx.ebookId);
-  return { output: { scores, passed }, fallbackUsed: !passed };
+  if (!verdict.sellable) {
+    // Bubble up as a hard failure so publish_live is skipped and the run is
+    // marked failed → operator can inspect the QC report and repair.
+    throw new Error(`NOT_SELLABLE: ${verdict.reasons.join('; ')}`);
+  }
+  return { output: verdict };
 }
 
 async function publishLive(ctx: Ctx): Promise<StepResult> {
-  const canPublish = !!ctx.ebook.cover_url && !!ctx.ebook.pdf_url;
+  // Real gate: read the latest sellable flag from the DB. Never publish otherwise.
+  const { data: fresh } = await ctx.supabase.from('ebooks_kids').select('sellable, cover_url, pdf_url').eq('id', ctx.ebookId).single();
+  if (!fresh?.sellable) throw new Error('refuse_publish: not sellable');
   await ctx.supabase.from('ebooks_kids').update({
-    listing_status: canPublish ? 'live' : 'ready',
-    status: canPublish ? 'live' : 'ready',
-    pipeline_status: canPublish ? 'live' : 'ready',
+    listing_status: 'live', status: 'live', pipeline_status: 'published',
   }).eq('id', ctx.ebookId);
-  return { output: { published: canPublish }, fallbackUsed: !canPublish };
+  return { output: { published: true } };
+}
+
+// -------- Minimal real PDF builder (avoids the fake-mime-type defect) --------
+// Emits a genuine %PDF-1.4 with one page per paragraph chunk, using the built-in
+// Helvetica font. Content is embedded as text operators — good enough to pass the
+// preflight header/pages checks; visual QC still enforces typography rules.
+function buildMinimalPdf(title: string, paragraphs: string[]): Uint8Array {
+  const pageWidth = 612;   // 8.5in @ 72dpi
+  const pageHeight = 792;  // 11in
+  const marginX = 72;      // 1in
+  const marginY = 72;
+  const bodySize = 18;
+  const lineHeight = bodySize * 1.4;
+  const maxCharsPerLine = 60;
+  const linesPerPage = Math.floor((pageHeight - marginY * 2) / lineHeight) - 3;
+
+  const pages: string[][] = [];
+  let current: string[] = [`${title}`, ""];
+  for (const p of paragraphs) {
+    const wrapped = wrap(p, maxCharsPerLine);
+    for (const line of wrapped) {
+      if (current.length >= linesPerPage) { pages.push(current); current = []; }
+      current.push(line);
+    }
+    if (current.length >= linesPerPage) { pages.push(current); current = []; }
+    else current.push("");
+  }
+  if (current.length) pages.push(current);
+  if (!pages.length) pages.push([title]);
+
+  const objects: string[] = [];
+  const push = (s: string) => { objects.push(s); return objects.length; };
+
+  // 1: catalog, 2: pages, then per page: page object + contents. Font last.
+  const catalogId = 1;
+  const pagesId = 2;
+  objects.push("", ""); // reserve
+
+  const pageIds: number[] = [];
+  const contentIds: number[] = [];
+  for (const lines of pages) {
+    const stream = pageStream(lines, pageWidth, pageHeight, marginX, marginY, bodySize, lineHeight);
+    const contentId = push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    contentIds.push(contentId);
+    const pageId = push(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 999 0 R >> >> /Contents ${contentId} 0 R >>`);
+    pageIds.push(pageId);
+  }
+  const fontId = push(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`);
+  // fixup page /F1 999 → real font id
+  for (const pid of pageIds) {
+    objects[pid - 1] = objects[pid - 1].replace("999 0 R", `${fontId} 0 R`);
+  }
+
+  objects[0] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
+  objects[1] = `<< /Type /Pages /Kids [${pageIds.map(i => `${i} 0 R`).join(" ")}] /Count ${pageIds.length} >>`;
+
+  // Assemble
+  const header = "%PDF-1.4\n%\u00e2\u00e3\u00cf\u00d3\n";
+  let body = header;
+  const offsets: number[] = [];
+  for (let i = 0; i < objects.length; i++) {
+    offsets.push(body.length);
+    body += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+  const xrefOffset = body.length;
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const off of offsets) body += `${String(off).padStart(10, "0")} 00000 n \n`;
+  body += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new TextEncoder().encode(body);
+}
+
+function wrap(text: string, max: number): string[] {
+  const words = text.split(/\s+/);
+  const out: string[] = [];
+  let line = "";
+  for (const w of words) {
+    if ((line + " " + w).trim().length > max) { if (line) out.push(line); line = w; }
+    else line = (line ? line + " " : "") + w;
+  }
+  if (line) out.push(line);
+  return out;
+}
+
+function pageStream(lines: string[], pw: number, _ph: number, mx: number, my: number, size: number, lh: number): string {
+  const startY = _ph - my;
+  const escape = (s: string) => s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+  let s = `BT /F1 ${size} Tf ${mx} ${startY} Td ${lh} TL\n`;
+  for (const line of lines) {
+    s += `(${escape(line)}) Tj T*\n`;
+  }
+  s += "ET";
+  return s;
 }
 
 function json(body: unknown, status = 200) {
