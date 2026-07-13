@@ -30,7 +30,10 @@ async function callFal(endpoint: string, body: Record<string, unknown>): Promise
   return new Uint8Array(await imgRes.arrayBuffer());
 }
 
-/** Flux Schnell — ~4 steps, ~$0.003, good for drafts / character reference sheets. */
+/** Flux Schnell — ~4 steps, ~$0.003, good for drafts / character reference sheets.
+ *  image_url is accepted for API compatibility but ignored — fal's public
+ *  schnell endpoint is text-to-image only. Character fidelity relies on a
+ *  detailed prompt describing the invariant character traits. */
 export function falFluxSchnell(opts: FalImageOpts): Promise<Uint8Array> {
   const body: Record<string, unknown> = {
     prompt: opts.prompt,
@@ -39,11 +42,6 @@ export function falFluxSchnell(opts: FalImageOpts): Promise<Uint8Array> {
     num_images: 1,
     enable_safety_checker: true,
   };
-  if (opts.image_url) {
-    body.image_url = opts.image_url;
-    body.strength = opts.strength ?? 0.65;
-    return callFal("fal-ai/flux/schnell/image-to-image", body);
-  }
   return callFal("fal-ai/flux/schnell", body);
 }
 
