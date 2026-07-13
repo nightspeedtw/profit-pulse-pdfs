@@ -705,83 +705,43 @@ async function generatePreviews(ctx: Ctx): Promise<StepResult> {
   return { output: { count: urls.length, urls } };
 }
 
-// ---------- Real picture-book PDF (cover + title + illustrated spreads) ----------
-async function renderPdf(ctx: Ctx): Promise<StepResult> {
-  const md = (ctx.ebook.manuscript_md as string) ?? '';
+// ---------- Dispatch multi-stage PDF builder + QC + publish ----------
+// This is the proven flow that shipped `The Sneeze-Powered Sock Sorter`.
+// We hand off to `kids-build-picture-pdf` which chains itself through
+// pdf_prepare → pdf_pages_1_4 → pdf_pages_5_8 → pdf_pages_9_12 → pdf_finalize,
+// then invokes `kids-publish-if-qc-passed` which runs measured QC and only
+// flips listing_status=live when every critical gate passes. This keeps every
+// Edge worker small (avoids WORKER_RESOURCE_LIMIT) and enforces the
+// publish-only-on-QC-pass guardrail centrally.
+async function dispatchPdfQcPublish(ctx: Ctx): Promise<StepResult> {
+  const md = String(ctx.ebook.manuscript_md ?? '');
   if (!md || md.length < 200) throw new Error('manuscript too short to render');
   const coverUrl = ctx.ebook.cover_url as string | null;
-  const illos = (Array.isArray(ctx.ebook.interior_illustrations) ? ctx.ebook.interior_illustrations : []) as Array<{ url: string; scene?: string }>;
+  const illos = Array.isArray(ctx.ebook.interior_illustrations) ? ctx.ebook.interior_illustrations : [];
   if (!coverUrl) throw new Error('cover_url required for picture PDF');
   if (illos.length < MIN_INTERIOR) throw new Error(`interior illustrations missing: ${illos.length}/${MIN_INTERIOR}`);
 
-  const coverBytes = new Uint8Array(await (await fetch(coverUrl)).arrayBuffer());
-  const spreadImages: Uint8Array[] = [];
-  for (const il of illos) {
-    const b = new Uint8Array(await (await fetch(il.url)).arrayBuffer());
-    spreadImages.push(b);
-  }
-
-  // Split manuscript into N caption blocks matching the spread count.
-  const paras = md.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
-  const chunkSize = Math.max(1, Math.ceil(paras.length / illos.length));
-  const captions: string[] = [];
-  for (let i = 0; i < illos.length; i++) {
-    captions.push(paras.slice(i * chunkSize, (i + 1) * chunkSize).join(' ') || (illos[i].scene ?? ''));
-  }
-
-  const pdfBytes = await buildPicturePdf({
-    title: String(ctx.ebook.title ?? ''),
-    subtitle: (ctx.ebook.subtitle as string | null) ?? null,
-    coverPng: coverBytes,
-    spreads: illos.map((_, i) => ({ caption: captions[i], imagePng: spreadImages[i] })),
-  });
-
-  const path = `kids/${ctx.ebookId}/book.pdf`;
-  const up = await ctx.supabase.storage.from('ebook-pdfs').upload(path, pdfBytes, {
-    contentType: 'application/pdf', upsert: true,
-  });
-  if (up.error) throw up.error;
-  const { data: pub } = await ctx.supabase.storage.from('ebook-pdfs').createSignedUrl(path, 60 * 60 * 24 * 365);
-  const pageCount = 2 + illos.length + 1; // cover + title + spreads + end
   await ctx.supabase.from('ebooks_kids').update({
-    pdf_url: pub?.signedUrl ?? null,
-    page_count: pageCount,
-    status: 'qc', pipeline_status: 'pdf_preflight',
+    status: 'qc', pipeline_status: 'pdf_building',
   }).eq('id', ctx.ebookId);
-  return { output: { path, byte_size: pdfBytes.length, page_count: pageCount } };
-}
 
-async function runQc(ctx: Ctx): Promise<StepResult> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/kids-qc-run`, {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/kids-build-picture-pdf`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-    body: JSON.stringify({ ebook_id: ctx.ebookId }),
+    body: JSON.stringify({ ebook_id: ctx.ebookId, stage: 'pdf_prepare', publish: true, run_qc_after: true }),
   });
-  const body = await res.json();
-  if (!res.ok || !body?.ok) throw new Error(`qc failed: ${JSON.stringify(body).slice(0, 300)}`);
-  const verdict = body.verdict;
-  await ctx.supabase.from('ebooks_kids').update({
-    pipeline_status: verdict.sellable ? 'sellable' : 'human_review_required',
-    status: verdict.sellable ? 'ready' : 'needs_revision',
-  }).eq('id', ctx.ebookId);
-  if (!verdict.sellable) throw new Error(`NOT_SELLABLE: ${verdict.reasons.join('; ')}`);
-  return { output: verdict };
-}
-
-async function publishLive(ctx: Ctx): Promise<StepResult> {
-  const { data: fresh } = await ctx.supabase.from('ebooks_kids')
-    .select('sellable, cover_url, pdf_url, thumbnail_url, interior_illustrations, preview_page_urls')
-    .eq('id', ctx.ebookId).single();
-  if (!fresh?.sellable) throw new Error('refuse_publish: not sellable');
-  // Belt-and-braces asset check even after QC.
-  if (!fresh.cover_url || !fresh.pdf_url || !fresh.thumbnail_url) throw new Error('refuse_publish: missing assets');
-  const illoCount = Array.isArray(fresh.interior_illustrations) ? fresh.interior_illustrations.length : 0;
-  const previewCount = Array.isArray(fresh.preview_page_urls) ? fresh.preview_page_urls.length : 0;
-  if (illoCount < MIN_INTERIOR || previewCount < MIN_PREVIEWS) throw new Error('refuse_publish: missing illustrations/previews');
-  await ctx.supabase.from('ebooks_kids').update({
-    listing_status: 'live', status: 'live', pipeline_status: 'published',
-  }).eq('id', ctx.ebookId);
-  return { output: { published: true } };
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body?.ok === false) {
+    throw new Error(`pdf builder dispatch failed: ${JSON.stringify(body).slice(0, 300)}`);
+  }
+  return {
+    output: {
+      dispatched: true,
+      note: 'multi-stage PDF → measured QC → publish-if-qc-passed running asynchronously',
+      first_stage: body?.stage ?? 'pdf_prepare',
+      next_stage: body?.next_stage ?? 'pdf_pages_1_4',
+    },
+  };
 }
 
 function json(body: unknown, status = 200) {
@@ -789,3 +749,4 @@ function json(body: unknown, status = 200) {
     status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }
+
