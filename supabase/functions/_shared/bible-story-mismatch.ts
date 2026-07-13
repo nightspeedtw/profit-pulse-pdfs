@@ -13,6 +13,7 @@
 // responsible for deciding whether to wipe the bible or hard-fail.
 
 export const BIBLE_STORY_MISMATCH = "BIBLE_STORY_MISMATCH";
+export const METADATA_STORY_MISMATCH = "METADATA_STORY_MISMATCH";
 
 const STOPWORDS = new Set([
   "The", "A", "An", "And", "Or", "But", "In", "On", "At", "To", "From", "With",
