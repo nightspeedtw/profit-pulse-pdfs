@@ -112,9 +112,12 @@ export interface RenderInteriorOpts {
   startPageNumber: number;        // page in the final PDF where interior begins
 }
 
-export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Promise<SceneRecord[]> {
-  const records: SceneRecord[] = [];
-  for (let i = 0; i < opts.scenes.length; i++) {
+export async function renderInteriorIllustrations(opts: RenderInteriorOpts & { concurrency?: number }): Promise<SceneRecord[]> {
+  const records: SceneRecord[] = new Array(opts.scenes.length);
+  const conc = Math.max(1, Math.min(6, opts.concurrency ?? 4));
+  let cursor = 0;
+
+  async function renderOne(i: number) {
     const s = opts.scenes[i];
     const prompt = [
       `Whimsical illustrated children's picture book interior illustration.`,
@@ -141,7 +144,7 @@ export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Pro
     const { data: signed } = await opts.db.storage.from("ebook-covers")
       .createSignedUrl(path, 60 * 60 * 24 * 365);
     if (!signed?.signedUrl) throw new Error(`no signed url for ${path}`);
-    records.push({
+    records[i] = {
       index: i + 1,
       page_number: opts.startPageNumber + i,
       scene: s.scene,
@@ -151,7 +154,16 @@ export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Pro
       model: "fal-ai/flux/schnell",
       bytes: bytes.length,
       hash,
-    });
+    };
   }
+
+  async function worker() {
+    while (true) {
+      const i = cursor++;
+      if (i >= opts.scenes.length) return;
+      await renderOne(i);
+    }
+  }
+  await Promise.all(Array.from({ length: conc }, () => worker()));
   return records;
 }
