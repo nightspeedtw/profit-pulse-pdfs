@@ -8,6 +8,7 @@
 // and moral stay consistent with the cover and existing illustrations.
 
 import { admin, aiJSON, corsHeaders, logCost } from "../_shared/ai.ts";
+import { resolveTrack, wrongTrackResponse } from "../_shared/track-registry.ts";
 
 type Spread = {
   spread_number: number;
@@ -28,9 +29,21 @@ Deno.serve(async (req) => {
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
 
     const { data: ebook, error } = await db.from("ebooks").select(
-      "id, title, subtitle, shopify_title, shopify_subtitle, hook, product_description, target_buyer, kids_visual_bible"
+      "id, title, subtitle, shopify_title, shopify_subtitle, hook, product_description, target_buyer, kids_visual_bible, kids_scene_briefs_json, product_type, category_id"
     ).eq("id", ebook_id).maybeSingle();
     if (error || !ebook) return json({ error: "ebook not found" }, 404);
+
+    // Track guard — refuse to rewrite adult ebooks as kids picture books.
+    let categorySlug: string | null = null;
+    if ((ebook as any).category_id) {
+      const { data: cat } = await db.from("categories").select("slug").eq("id", (ebook as any).category_id).maybeSingle();
+      categorySlug = cat?.slug ?? null;
+    }
+    const track = resolveTrack(ebook as any, categorySlug);
+    if (track !== "kids") {
+      console.log("rewrite-kids-manuscript: refusing non-kids ebook", { ebook_id, track });
+      return wrongTrackResponse(ebook_id, "kids", track, corsHeaders, "rewrite-kids-manuscript");
+    }
 
     const title = ebook.shopify_title || ebook.title || "Untitled";
     const subtitle = ebook.shopify_subtitle || ebook.subtitle || "";
