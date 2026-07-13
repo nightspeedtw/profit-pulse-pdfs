@@ -180,7 +180,7 @@ export async function generateSceneBriefs(input: {
     .join("\n");
 
   const ai = await aiJSON<{ briefs: { chapter_index: number; brief: string }[] }>({
-    model: "google/gemini-3.1-flash-preview",
+    model: "google/gemini-3-flash-preview",
     system: SCENE_BRIEF_SYSTEM,
     user: `Hero character: ${heroName}
 Bible characters allowed: ${input.bible.characters.map((c) => c.name).join(", ")}
