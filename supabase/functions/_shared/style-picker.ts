@@ -48,15 +48,10 @@ export async function pickStyle(db: Db): Promise<StylePreset> {
 }
 
 export async function markStyleUsed(db: Db, id: string): Promise<void> {
+  const { data } = await db.from("kids_style_presets").select("times_used").eq("id", id).single();
+  const t = ((data as { times_used?: number } | null)?.times_used ?? 0) + 1;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (db.from("kids_style_presets") as any)
-    .update({ last_used_at: new Date().toISOString(), times_used: undefined })
+    .update({ last_used_at: new Date().toISOString(), times_used: t })
     .eq("id", id);
-  // increment separately
-  await db.rpc("noop_ignore").catch(() => {});
-  await db.from("kids_style_presets").select("times_used").eq("id", id).single().then(async (r) => {
-    const t = ((r.data as { times_used?: number } | null)?.times_used ?? 0) + 1;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (db.from("kids_style_presets") as any).update({ times_used: t }).eq("id", id);
-  });
 }
