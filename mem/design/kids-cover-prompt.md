@@ -6,6 +6,24 @@ type: design
 
 **Core rule:** Every kids picture book cover must ship with a **custom illustrated title logo** designed specifically for that book (Peppa Pig / Bluey / Paddington / Gruffalo tier). Never use an existing font — not even hand-drawn fonts. The lettering IS artwork, painted in the same medium as the illustration.
 
+## Preferred workflow — TWO PASS (mandatory)
+
+Do NOT try to generate the illustration + logo title in one shot. It always crowds the art or degrades the title. Split:
+
+**Pass 1 — Base illustration only** (`imagegen--generate_image`, premium, 1024×1280)
+- Soft watercolor + gouache storybook style, atmospheric, cozy, painterly
+- Full character + setting + palette + lighting locked
+- Reserve a clear negative-space zone (usually upper third) for the title
+- Prompt MUST say: "no text, no letters, no title, no typography — leave clean space for hand-painted title to be added later"
+
+**Pass 2 — Overlay custom illustrated title logo** (`imagegen--edit_image` on the Pass 1 file)
+- Prompt opens with: "Keep the entire illustration EXACTLY as it is — same character, pose, background, palette, lighting, composition. Do NOT redraw the scene."
+- Then describe ONLY the title logo (letter-by-letter decoration, emotion-word distortion, paint medium matches illustration)
+- Add subtitle in small matching handcrafted script
+
+This preserves the v2-quality atmospheric illustration while getting v3-quality logo typography. Never sacrifice illustration atmosphere for busier title decoration — the base must stay clean.
+
+
 ## Three-layer prompt structure
 
 ### Layer A — Illustration base
