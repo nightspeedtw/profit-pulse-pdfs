@@ -125,6 +125,127 @@ export type Database = {
         }
         Relationships: []
       }
+      autopilot_kids_runs: {
+        Row: {
+          attempts: number
+          blocker_reason: string | null
+          completed_at: string | null
+          cost_usd: number | null
+          created_at: string
+          current_step: string | null
+          current_step_label: string | null
+          ebook_kids_id: string | null
+          error_details: Json | null
+          id: string
+          metadata: Json
+          progress_percent: number | null
+          started_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          blocker_reason?: string | null
+          completed_at?: string | null
+          cost_usd?: number | null
+          created_at?: string
+          current_step?: string | null
+          current_step_label?: string | null
+          ebook_kids_id?: string | null
+          error_details?: Json | null
+          id?: string
+          metadata?: Json
+          progress_percent?: number | null
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          blocker_reason?: string | null
+          completed_at?: string | null
+          cost_usd?: number | null
+          created_at?: string
+          current_step?: string | null
+          current_step_label?: string | null
+          ebook_kids_id?: string | null
+          error_details?: Json | null
+          id?: string
+          metadata?: Json
+          progress_percent?: number | null
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "autopilot_kids_runs_ebook_kids_id_fkey"
+            columns: ["ebook_kids_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks_kids"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      autopilot_kids_steps: {
+        Row: {
+          attempts: number
+          completed_at: string | null
+          cost_usd: number | null
+          created_at: string
+          duration_ms: number | null
+          error_message: string | null
+          id: string
+          output: Json | null
+          run_id: string
+          started_at: string | null
+          status: string
+          step_label: string | null
+          step_name: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          completed_at?: string | null
+          cost_usd?: number | null
+          created_at?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: string
+          output?: Json | null
+          run_id: string
+          started_at?: string | null
+          status?: string
+          step_label?: string | null
+          step_name: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          completed_at?: string | null
+          cost_usd?: number | null
+          created_at?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          id?: string
+          output?: Json | null
+          run_id?: string
+          started_at?: string | null
+          status?: string
+          step_label?: string | null
+          step_name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "autopilot_kids_steps_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "autopilot_kids_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       autopilot_pipeline_runs: {
         Row: {
           admin_needed_reason: string | null
@@ -1564,6 +1685,95 @@ export type Database = {
           },
         ]
       }
+      ebooks_kids: {
+        Row: {
+          age_group_id: string | null
+          blocker_reason: string | null
+          cover_url: string | null
+          created_at: string
+          description: string | null
+          id: string
+          listing_status: string
+          locked: boolean
+          manuscript_md: string | null
+          page_count: number | null
+          pdf_url: string | null
+          pipeline_status: string
+          price_cents: number
+          qc_scores: Json | null
+          status: string
+          storefront_meta: Json
+          storefront_subtitle: string | null
+          storefront_title: string | null
+          story_bible: Json | null
+          subtitle: string | null
+          theme_ids: string[]
+          title: string
+          updated_at: string
+          word_count: number | null
+        }
+        Insert: {
+          age_group_id?: string | null
+          blocker_reason?: string | null
+          cover_url?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          listing_status?: string
+          locked?: boolean
+          manuscript_md?: string | null
+          page_count?: number | null
+          pdf_url?: string | null
+          pipeline_status?: string
+          price_cents?: number
+          qc_scores?: Json | null
+          status?: string
+          storefront_meta?: Json
+          storefront_subtitle?: string | null
+          storefront_title?: string | null
+          story_bible?: Json | null
+          subtitle?: string | null
+          theme_ids?: string[]
+          title?: string
+          updated_at?: string
+          word_count?: number | null
+        }
+        Update: {
+          age_group_id?: string | null
+          blocker_reason?: string | null
+          cover_url?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          listing_status?: string
+          locked?: boolean
+          manuscript_md?: string | null
+          page_count?: number | null
+          pdf_url?: string | null
+          pipeline_status?: string
+          price_cents?: number
+          qc_scores?: Json | null
+          status?: string
+          storefront_meta?: Json
+          storefront_subtitle?: string | null
+          storefront_title?: string | null
+          story_bible?: Json | null
+          subtitle?: string | null
+          theme_ids?: string[]
+          title?: string
+          updated_at?: string
+          word_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ebooks_kids_age_group_id_fkey"
+            columns: ["age_group_id"]
+            isOneToOne: false
+            referencedRelation: "kids_age_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       generation_jobs: {
         Row: {
           attempts: number
@@ -1791,6 +2001,171 @@ export type Database = {
           sort_order?: number
         }
         Relationships: []
+      }
+      kids_category_weights: {
+        Row: {
+          age_group_id: string
+          auto_managed: boolean
+          created_at: string
+          id: string
+          sales_last_30d: number
+          theme_id: string
+          updated_at: string
+          weight: number
+        }
+        Insert: {
+          age_group_id: string
+          auto_managed?: boolean
+          created_at?: string
+          id?: string
+          sales_last_30d?: number
+          theme_id: string
+          updated_at?: string
+          weight?: number
+        }
+        Update: {
+          age_group_id?: string
+          auto_managed?: boolean
+          created_at?: string
+          id?: string
+          sales_last_30d?: number
+          theme_id?: string
+          updated_at?: string
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kids_category_weights_age_group_id_fkey"
+            columns: ["age_group_id"]
+            isOneToOne: false
+            referencedRelation: "kids_age_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kids_category_weights_theme_id_fkey"
+            columns: ["theme_id"]
+            isOneToOne: false
+            referencedRelation: "kids_themes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      kids_download_grants: {
+        Row: {
+          created_at: string
+          download_count: number
+          ebook_kids_id: string
+          email: string
+          expires_at: string
+          id: string
+          last_downloaded_at: string | null
+          max_downloads: number
+          order_id: string | null
+          token: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          download_count?: number
+          ebook_kids_id: string
+          email: string
+          expires_at?: string
+          id?: string
+          last_downloaded_at?: string | null
+          max_downloads?: number
+          order_id?: string | null
+          token: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          download_count?: number
+          ebook_kids_id?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          last_downloaded_at?: string | null
+          max_downloads?: number
+          order_id?: string | null
+          token?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kids_download_grants_ebook_kids_id_fkey"
+            columns: ["ebook_kids_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks_kids"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      kids_production_queue: {
+        Row: {
+          age_group_id: string | null
+          attempts: number
+          claimed_at: string | null
+          completed_at: string | null
+          created_at: string
+          ebook_kids_id: string | null
+          id: string
+          last_error: string | null
+          priority: number
+          status: string
+          theme_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          age_group_id?: string | null
+          attempts?: number
+          claimed_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          ebook_kids_id?: string | null
+          id?: string
+          last_error?: string | null
+          priority?: number
+          status?: string
+          theme_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          age_group_id?: string | null
+          attempts?: number
+          claimed_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          ebook_kids_id?: string | null
+          id?: string
+          last_error?: string | null
+          priority?: number
+          status?: string
+          theme_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kids_production_queue_age_group_id_fkey"
+            columns: ["age_group_id"]
+            isOneToOne: false
+            referencedRelation: "kids_age_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kids_production_queue_ebook_kids_id_fkey"
+            columns: ["ebook_kids_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks_kids"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kids_production_queue_theme_id_fkey"
+            columns: ["theme_id"]
+            isOneToOne: false
+            referencedRelation: "kids_themes"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       kids_themes: {
         Row: {
@@ -2345,6 +2720,13 @@ export type Database = {
       }
     }
     Functions: {
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
       release_lock: {
         Args: { p_holder: string; p_name: string }
         Returns: boolean
