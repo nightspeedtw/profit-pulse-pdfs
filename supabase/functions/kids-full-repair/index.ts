@@ -122,7 +122,12 @@ Deno.serve(async (req) => {
     // ============================================================
     if (runAll || phase === "story") {
       const title = eb.title as string;
-      const subtitle = (eb.subtitle as string | null) ?? null;
+      let subtitle = (eb.subtitle as string | null) ?? null;
+      if (newSubtitle && newSubtitle !== subtitle) {
+        await db.from("ebooks_kids").update({ subtitle: newSubtitle }).eq("id", ebook_id);
+        subtitle = newSubtitle;
+        log.push({ step: "subtitle_updated", subtitle });
+      }
 
       // Skip initial judge when forced — save ~15s
       let currentPass = false;
