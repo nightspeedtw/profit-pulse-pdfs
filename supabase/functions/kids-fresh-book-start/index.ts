@@ -49,7 +49,7 @@ async function runBackground(ebookId: string, runId: string, ageBand: string) {
     const c = w.concept;
 
     // 2. Seed ebook with concept so pipeline's generate_idea step is skipped.
-    const conceptDescription = `${c.story_engine} Hero: ${c.hero}. Setting: ${c.setting}. Refrain: "${c.refrain}". Callbacks: ${c.callback_1}; ${c.callback_2}. Final payoff: ${c.final_page_payoff}. Reread hook: ${c.reread_hook}. Buyer hook: ${c.parent_buyer_hook}.`;
+    const conceptDescription = `${c.core_story_engine ?? c.story_engine ?? ''} Hero: ${c.hero}. Setting: ${c.setting}. Central problem: ${c.central_problem ?? ''}. Story rule: ${c.story_rule ?? ''}. Refrain: "${c.refrain}". Callbacks: ${c.callback_1}; ${c.callback_2}. Final payoff: ${c.final_page_payoff}. Why reread: ${c.why_child_will_reread ?? c.reread_hook ?? ''}. Buyer hook: ${c.parent_buyer_hook}. Why parent buys: ${c.why_parent_will_buy ?? ''}.`;
 
     await db.from('ebooks_kids').update({
       title: c.title,
@@ -60,12 +60,18 @@ async function runBackground(ebookId: string, runId: string, ageBand: string) {
       storefront_meta: {
         main_character: c.hero,
         concept_brief: c,
+        locked_concept: c,
         concept_preflight: {
-          winner_scores: w.scores,
+          winner_concept: c,
+          winner_scores: w.concept_scores ?? w.scores,
+          winner_decision: w.decision,
           winner_passed: w.passed,
           winner_blockers: w.blockers,
+          winner_banned_lane_hits: w.banned_lane_hits,
+          candidates: preflight.candidates,
           candidates_scored: preflight.candidates?.length ?? 0,
           overall_passed: preflight.overall_passed,
+          thresholds: preflight.thresholds,
         },
       },
       status: preflight.overall_passed ? 'writing' : 'needs_revision',
@@ -73,14 +79,17 @@ async function runBackground(ebookId: string, runId: string, ageBand: string) {
     }).eq('id', ebookId);
 
     if (!preflight.overall_passed) {
-      // Don't proceed to art or manuscript — shelve.
+      // Don't proceed to art or manuscript — shelve as needs_concept.
       await db.from('autopilot_kids_runs').update({
         status: 'failed',
-        blocker_reason: `concept_preflight_did_not_pass: ${(w.blockers ?? []).join(', ')}`,
+        current_step: 'needs_concept',
+        current_step_label: 'Concept preflight did not pass',
+        blocker_reason: `needs_concept: ${(w.blockers ?? []).join(', ').slice(0, 400)}`,
         completed_at: new Date().toISOString(),
       }).eq('id', runId);
       return;
     }
+
 
     // 3. Kick off the canonical kids pipeline. generate_idea will short-circuit
     //    because title+description are already populated.

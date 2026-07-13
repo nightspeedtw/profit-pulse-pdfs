@@ -1,12 +1,11 @@
-// Kids concept preflight.
+// Kids concept preflight — STRICT gate before manuscript generation.
 //
-// Given an age band and optional theme hint, generate ONE rich concept brief
-// (with refrain / planted callbacks / final payoff / buyer hook), then score
-// it against a strict rubric. If it fails, generate exactly TWO alternatives,
-// score them, and return the best of the three (may still fail, in which case
-// caller should shelve).
+// Generates ONE strong concept using the required rich schema (hero, story
+// engine, refrain, two callbacks, final payoff, buyer hook, 12 visual beats,
+// concept scores). If it fails the strict thresholds, generates EXACTLY TWO
+// improved alternatives, scores them, and returns the best passing one.
 //
-// This is a story-only cheap step — no image cost, no ebook rows created.
+// No image cost, no ebook rows. Story-only cheap step.
 
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 
@@ -15,10 +14,11 @@ const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
 const BANNED_LANES = [
   'lost object mystery',
   'dance party ending',
-  'generic teamwork lesson',
+  'generic teamwork',
   'bedtime',
   'moon',
-  'star',
+  'star ',
+  'stars ',
   'emotional regulation',
   'tooth',
   'toothbrush',
@@ -27,59 +27,75 @@ const BANNED_LANES = [
   'portal',
   'wormhole',
   'sock sorter',
-  'sock',
   'farm fiddle',
-  'fiddle',
+  'barnyard boogaloo',
+  'everyone is special',
 ];
 
 const PREFERRED_LANES = [
-  'food/kitchen chaos with a highly specific object',
+  'food/kitchen chaos with a specific object and escalating rules',
   'animal buddy comedy with a concrete mechanical problem',
-  'tiny detective mystery with an unusual evidence trail',
-  'silly invention with a non-repeated object',
-  'neighborhood micro-adventure',
+  'tiny detective mystery with unusual evidence and callbacks',
+  'silly invention with a fresh object',
+  'neighborhood micro-adventure with a concrete route/map/object',
+  'shop/market/library/museum mishap with a visual logic game',
 ];
+
+interface VisualBeat { spread: number; visual_beat: string; callback_seed: string }
 
 interface Concept {
   title: string;
   subtitle: string;
   hero: string;
+  hero_specificity: string;
   setting: string;
-  story_engine: string;
+  core_story_engine: string;
+  central_problem: string;
+  story_rule: string;
   refrain: string;
   callback_1: string;
   callback_2: string;
   final_page_payoff: string;
-  reread_hook: string;
+  emotional_payoff_seed: string;
   parent_buyer_hook: string;
-  visual_spread_plan_seed: string[];
+  why_child_will_reread: string;
+  why_parent_will_buy: string;
+  twelve_spread_visual_plan_seed: VisualBeat[];
+  forbidden_similarity_check: string[];
   lane: string;
 }
 
 interface ConceptScores {
-  distinctiveness: number;
-  reread_potential: number;
-  parent_buyer_value: number;
-  visual_hook_strength: number;
-  age_fit: number;
-  generic_risk: number;
+  distinctiveness_score: number;
+  story_engine_score: number;
+  reread_mechanism_score: number;
+  parent_buyer_value_score: number;
+  emotional_payoff_seed_score: number;
+  visual_spread_potential_score: number;
+  age_fit_score: number;
+  generic_risk_score: number;
+  final_concept_score: number;
 }
 
 interface JudgedConcept {
   concept: Concept;
-  scores: ConceptScores;
+  concept_scores: ConceptScores;
+  decision: 'pass' | 'rewrite' | 'reject';
   passed: boolean;
   blockers: string[];
   banned_lane_hits: string[];
 }
 
-const THRESHOLDS = {
-  distinctiveness: 85,
-  reread_potential: 85,
-  parent_buyer_value: 85,
-  visual_hook_strength: 80,
-  age_fit: 90,
-  generic_risk: 25, // <=
+const T = {
+  distinctiveness_score: 90,
+  story_engine_score: 90,
+  reread_mechanism_score: 90,
+  parent_buyer_value_score: 90,
+  emotional_payoff_seed_score: 90,
+  visual_spread_potential_score: 90,
+  age_fit_score: 90,
+  generic_risk_score: 25, // <=
+  final_concept_score: 90,
 };
 
 function json(body: unknown, status = 200) {
@@ -94,6 +110,7 @@ async function callGemini(system: string, user: string, model = 'google/gemini-2
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
     body: JSON.stringify({
       model,
+      response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
@@ -102,107 +119,177 @@ async function callGemini(system: string, user: string, model = 'google/gemini-2
   });
   if (!res.ok) throw new Error(`AI ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const j = await res.json();
-  return String(j?.choices?.[0]?.message?.content ?? '').replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+  const raw = String(j?.choices?.[0]?.message?.content ?? '').replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+  return raw;
+}
+
+function safeJson<T>(raw: string): T {
+  try { return JSON.parse(raw) as T; } catch {
+    const s = raw.indexOf('{'); const e = raw.lastIndexOf('}');
+    if (s >= 0 && e > s) return JSON.parse(raw.slice(s, e + 1)) as T;
+    throw new Error(`bad json: ${raw.slice(0, 200)}`);
+  }
 }
 
 function detectBannedLaneHits(c: Concept): string[] {
   const hay = [
-    c.title, c.subtitle, c.hero, c.setting, c.story_engine, c.refrain,
-    c.callback_1, c.callback_2, c.final_page_payoff, c.reread_hook, c.parent_buyer_hook, c.lane,
+    c.title, c.subtitle, c.hero, c.hero_specificity, c.setting, c.core_story_engine,
+    c.central_problem, c.story_rule, c.refrain, c.callback_1, c.callback_2,
+    c.final_page_payoff, c.emotional_payoff_seed, c.parent_buyer_hook,
+    c.why_child_will_reread, c.why_parent_will_buy, c.lane,
   ].join(' \n ').toLowerCase();
   return BANNED_LANES.filter(b => hay.includes(b));
 }
 
-async function generateConcept(ageBand: string, avoidList: string[]): Promise<Concept> {
+async function generateConcept(ageBand: string, avoidList: string[], attemptLabel: string): Promise<Concept> {
   const avoidBlock = avoidList.length
-    ? `\n\nDo NOT repeat these previously-tried concepts:\n${avoidList.map(a => `- ${a}`).join('\n')}`
+    ? `\n\nDo NOT repeat/rehash these previously-tried concepts:\n${avoidList.map(a => `- ${a}`).join('\n')}`
     : '';
 
-  const system = `You are a bestselling picture-book concept designer. You invent one original, distinctive kids' picture-book concept for ${ageBand}-year-olds.
-Reply as strict JSON only (no markdown fences, no explanations). Schema:
+  const system = `You are a bestselling picture-book concept designer for ages ${ageBand}. Invent ONE original, distinctive, giftable picture-book concept.
+
+Reply as STRICT JSON only (no markdown fences), matching EXACTLY this schema:
 {
   "title": "",
   "subtitle": "",
   "hero": "",
+  "hero_specificity": "",
   "setting": "",
-  "story_engine": "",
+  "core_story_engine": "",
+  "central_problem": "",
+  "story_rule": "",
   "refrain": "",
   "callback_1": "",
   "callback_2": "",
   "final_page_payoff": "",
-  "reread_hook": "",
+  "emotional_payoff_seed": "",
   "parent_buyer_hook": "",
-  "visual_spread_plan_seed": ["spread 1...", "..."],
+  "why_child_will_reread": "",
+  "why_parent_will_buy": "",
+  "twelve_spread_visual_plan_seed": [
+    {"spread": 1, "visual_beat": "", "callback_seed": ""},
+    {"spread": 2, "visual_beat": "", "callback_seed": ""},
+    {"spread": 3, "visual_beat": "", "callback_seed": ""},
+    {"spread": 4, "visual_beat": "", "callback_seed": ""},
+    {"spread": 5, "visual_beat": "", "callback_seed": ""},
+    {"spread": 6, "visual_beat": "", "callback_seed": ""},
+    {"spread": 7, "visual_beat": "", "callback_seed": ""},
+    {"spread": 8, "visual_beat": "", "callback_seed": ""},
+    {"spread": 9, "visual_beat": "", "callback_seed": ""},
+    {"spread": 10, "visual_beat": "", "callback_seed": ""},
+    {"spread": 11, "visual_beat": "", "callback_seed": ""},
+    {"spread": 12, "visual_beat": "", "callback_seed": ""}
+  ],
+  "forbidden_similarity_check": [],
   "lane": ""
 }
-The concept MUST:
-- Have a distinctive story engine that cannot be retitled into a generic book.
-- Have a repeated chantable refrain a 4-6-year-old will shout on rereads (4-8 words, 4-beat).
-- Have TWO planted callbacks (small concrete objects/sounds/actions) introduced by spread 4 that PAY OFF on the final spread.
-- Final page payoff is a specific joke/reveal tied to BOTH callbacks.
-- Give an implicit warm parent-buyer takeaway (never preachy/moral speech).
-- Offer 12 visually varied spread ideas (list at least 12 short beats).
-- Fit one of these lanes: ${PREFERRED_LANES.join('; ')}.
 
-The concept MUST NOT be about:
+REQUIREMENTS (all mandatory):
+- concrete hero with a SPECIFIC want/problem (hero_specificity must name one concrete quirk/skill/object)
+- core_story_engine that produces page-turn ACTIONS (not a theme statement)
+- central_problem is a concrete, physical, escalating problem
+- story_rule is a one-line rule the reader can predict from (e.g. "every time X happens, Y")
+- refrain is 4-8 words, chantable, 4-beat, memorable — a child WILL shout it
+- callback_1 and callback_2 are small concrete objects/sounds/actions planted by spread 4 that PAY OFF on the final spread
+- final_page_payoff is a specific joke/reveal tying BOTH callbacks together
+- emotional_payoff_seed is warm and specific (not "everyone learns they are special")
+- parent_buyer_hook is specific and giftable (occasion, value, moment)
+- why_child_will_reread names the exact reread mechanic
+- why_parent_will_buy names the exact buyer motivation
+- twelve_spread_visual_plan_seed has 12 DISTINCT visual beats, each with a callback_seed
+- lane MUST be one of: ${PREFERRED_LANES.join(' | ')}
+- forbidden_similarity_check must list 3-5 famous books/concepts this concept does NOT copy
+
+DO NOT PRODUCE:
 - lost object mystery, dance party ending, generic teamwork lesson
-- bedtime, moon, stars, tooth/bathroom lanes
-- portals/wormholes
-- sock sorters (already used)
-- farm-fiddle boogaloo (already used and shelved)
+- bedtime, moon, stars
+- emotional-regulation-only concepts
+- tooth/bathroom/potty
+- portal/wormhole
+- sock sorter (already used), farm fiddle / barnyard boogaloo (already shelved)
+- "everyone learns they are special" without a concrete mechanism
 
-Aim for weird, specific, memorable. The title should be un-swappable with any other picture book.`;
+Aim WEIRD, SPECIFIC, MEMORABLE. Title must be unswappable with any other picture book.
+Attempt label: ${attemptLabel}.`;
 
   const user = `Generate ONE fresh concept for ages ${ageBand}. English only. Strict JSON only.${avoidBlock}`;
   const raw = await callGemini(system, user);
-  return JSON.parse(raw) as Concept;
+  return safeJson<Concept>(raw);
 }
 
 async function scoreConcept(c: Concept, ageBand: string): Promise<ConceptScores> {
-  const system = `You are a strict calibrated children's-book concept judge. You score a proposed concept on 6 dimensions (0-100). Return STRICT JSON only, no markdown, matching:
+  const system = `You are a STRICT calibrated children's-book concept judge. Score the concept on the following dimensions (0-100). Return STRICT JSON only:
 {
-  "distinctiveness": 0,
-  "reread_potential": 0,
-  "parent_buyer_value": 0,
-  "visual_hook_strength": 0,
-  "age_fit": 0,
-  "generic_risk": 0
+  "distinctiveness_score": 0,
+  "story_engine_score": 0,
+  "reread_mechanism_score": 0,
+  "parent_buyer_value_score": 0,
+  "emotional_payoff_seed_score": 0,
+  "visual_spread_potential_score": 0,
+  "age_fit_score": 0,
+  "generic_risk_score": 0,
+  "final_concept_score": 0
 }
+
 Polarity:
-- distinctiveness: higher = more unique, unswappable
-- reread_potential: higher = a child will demand rereads
-- parent_buyer_value: higher = a parent wants to buy/gift (WITHOUT moral speech)
-- visual_hook_strength: higher = 12 spreads offer variety and comic visual payoff
-- age_fit: higher = perfect for ${ageBand}
-- generic_risk: HIGHER = MORE GENERIC (bad). Penalize lost-object mysteries, dance-party endings, generic teamwork lessons, bedtime, tooth/bathroom, portal, moon/star lanes.
+- distinctiveness_score: higher = more unique, unswappable title
+- story_engine_score: higher = page-turn actions (not a theme)
+- reread_mechanism_score: higher = refrain + callbacks reward rereading
+- parent_buyer_value_score: higher = specific giftable buyer hook (no preaching)
+- emotional_payoff_seed_score: higher = specific warm payoff (not generic)
+- visual_spread_potential_score: higher = 12 varied visual beats with comic payoff
+- age_fit_score: higher = perfect for ${ageBand}
+- generic_risk_score: HIGHER = MORE GENERIC (BAD). Penalize lost-object/dance-party/teamwork/bedtime/tooth/portal/moon lanes.
+- final_concept_score: overall weighted score (25% distinctiveness, 20% reread, 20% parent_buyer, 15% story_engine, 10% visual, 10% emotional_payoff)
 
-Be strict. If refrain is not truly chantable, penalize reread_potential. If callbacks are vague or the final payoff does not tie to BOTH, penalize distinctiveness AND reread_potential. If the takeaway sounds preachy, penalize parent_buyer_value.`;
+BE STRICT. If the refrain is not truly chantable → reread_mechanism_score <80. If callbacks don't tie together on the final page → distinctiveness AND reread mechanism <80. If buyer hook is vague → parent_buyer_value_score <80. If title could belong to any generic kids book → distinctiveness <70 and generic_risk >60.`;
 
-  const user = `CONCEPT TO SCORE:\n${JSON.stringify(c, null, 2)}\n\nReturn strict JSON only.`;
+  const user = `CONCEPT:\n${JSON.stringify(c, null, 2)}\n\nReturn strict JSON only.`;
   const raw = await callGemini(system, user);
-  return JSON.parse(raw) as ConceptScores;
+  return safeJson<ConceptScores>(raw);
 }
 
-function evaluate(scores: ConceptScores, bannedHits: string[]): { passed: boolean; blockers: string[] } {
+function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): { passed: boolean; blockers: string[]; decision: 'pass' | 'rewrite' | 'reject' } {
   const blockers: string[] = [];
-  if (scores.distinctiveness < THRESHOLDS.distinctiveness) blockers.push(`distinctiveness=${scores.distinctiveness}<${THRESHOLDS.distinctiveness}`);
-  if (scores.reread_potential < THRESHOLDS.reread_potential) blockers.push(`reread_potential=${scores.reread_potential}<${THRESHOLDS.reread_potential}`);
-  if (scores.parent_buyer_value < THRESHOLDS.parent_buyer_value) blockers.push(`parent_buyer_value=${scores.parent_buyer_value}<${THRESHOLDS.parent_buyer_value}`);
-  if (scores.visual_hook_strength < THRESHOLDS.visual_hook_strength) blockers.push(`visual_hook_strength=${scores.visual_hook_strength}<${THRESHOLDS.visual_hook_strength}`);
-  if (scores.age_fit < THRESHOLDS.age_fit) blockers.push(`age_fit=${scores.age_fit}<${THRESHOLDS.age_fit}`);
-  if (scores.generic_risk > THRESHOLDS.generic_risk) blockers.push(`generic_risk=${scores.generic_risk}>${THRESHOLDS.generic_risk}`);
+  const push = (k: keyof typeof T, v: number, cmp: '>=' | '<=') => {
+    if (cmp === '>=' && v < T[k]) blockers.push(`${k}=${v}<${T[k]}`);
+    if (cmp === '<=' && v > T[k]) blockers.push(`${k}=${v}>${T[k]}`);
+  };
+  push('distinctiveness_score', scores.distinctiveness_score, '>=');
+  push('story_engine_score', scores.story_engine_score, '>=');
+  push('reread_mechanism_score', scores.reread_mechanism_score, '>=');
+  push('parent_buyer_value_score', scores.parent_buyer_value_score, '>=');
+  push('emotional_payoff_seed_score', scores.emotional_payoff_seed_score, '>=');
+  push('visual_spread_potential_score', scores.visual_spread_potential_score, '>=');
+  push('age_fit_score', scores.age_fit_score, '>=');
+  push('generic_risk_score', scores.generic_risk_score, '<=');
+  push('final_concept_score', scores.final_concept_score, '>=');
   if (bannedHits.length) blockers.push(`banned_lane_hits=[${bannedHits.join(',')}]`);
-  return { passed: blockers.length === 0, blockers };
+  if (!c.twelve_spread_visual_plan_seed || c.twelve_spread_visual_plan_seed.length < 12) {
+    blockers.push(`visual_plan_seed<12 (got ${c.twelve_spread_visual_plan_seed?.length ?? 0})`);
+  }
+  if (!c.callback_1 || !c.callback_2 || !c.final_page_payoff) {
+    blockers.push('missing_callbacks_or_final_payoff');
+  }
+  if (!c.refrain || c.refrain.split(/\s+/).length < 3) {
+    blockers.push('refrain_too_short');
+  }
+  const passed = blockers.length === 0;
+  const decision: 'pass' | 'rewrite' | 'reject' = passed
+    ? 'pass'
+    : (scores.final_concept_score >= 75 && scores.generic_risk_score <= 40 ? 'rewrite' : 'reject');
+  return { passed, blockers, decision };
 }
 
 function compositeScore(s: ConceptScores): number {
-  // Weighted composite for ranking; heavier weight on reread + distinctiveness + buyer.
-  return s.distinctiveness * 0.25
-    + s.reread_potential * 0.25
-    + s.parent_buyer_value * 0.20
-    + s.visual_hook_strength * 0.10
-    + s.age_fit * 0.10
-    + (100 - s.generic_risk) * 0.10;
+  return s.final_concept_score
+    || (s.distinctiveness_score * 0.25
+      + s.reread_mechanism_score * 0.20
+      + s.parent_buyer_value_score * 0.20
+      + s.story_engine_score * 0.15
+      + s.visual_spread_potential_score * 0.10
+      + s.emotional_payoff_seed_score * 0.10
+      - Math.max(0, s.generic_risk_score - 25) * 0.5);
 }
 
 Deno.serve(async (req) => {
@@ -217,31 +304,36 @@ Deno.serve(async (req) => {
     // Attempt 1
     let c1: Concept;
     try {
-      c1 = await generateConcept(ageBand, []);
+      c1 = await generateConcept(ageBand, [], 'primary');
     } catch (e) {
       return json({ ok: false, error: `concept1_gen_failed: ${(e as Error).message.slice(0, 200)}` }, 500);
     }
     triedTitles.push(c1.title);
     const s1 = await scoreConcept(c1, ageBand);
     const b1 = detectBannedLaneHits(c1);
-    const e1 = evaluate(s1, b1);
-    judged.push({ concept: c1, scores: s1, passed: e1.passed, blockers: e1.blockers, banned_lane_hits: b1 });
+    const e1 = evaluate(s1, b1, c1);
+    judged.push({ concept: c1, concept_scores: s1, decision: e1.decision, passed: e1.passed, blockers: e1.blockers, banned_lane_hits: b1 });
 
+    // Exactly TWO alternatives if first fails
     if (!e1.passed) {
-      // Two alternatives, capped.
       for (let i = 0; i < 2; i++) {
         try {
-          const cN = await generateConcept(ageBand, triedTitles);
+          const cN = await generateConcept(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`);
           triedTitles.push(cN.title);
           const sN = await scoreConcept(cN, ageBand);
           const bN = detectBannedLaneHits(cN);
-          const eN = evaluate(sN, bN);
-          judged.push({ concept: cN, scores: sN, passed: eN.passed, blockers: eN.blockers, banned_lane_hits: bN });
+          const eN = evaluate(sN, bN, cN);
+          judged.push({ concept: cN, concept_scores: sN, decision: eN.decision, passed: eN.passed, blockers: eN.blockers, banned_lane_hits: bN });
           if (eN.passed) break;
         } catch (e) {
           judged.push({
             concept: {} as Concept,
-            scores: { distinctiveness: 0, reread_potential: 0, parent_buyer_value: 0, visual_hook_strength: 0, age_fit: 0, generic_risk: 100 },
+            concept_scores: {
+              distinctiveness_score: 0, story_engine_score: 0, reread_mechanism_score: 0,
+              parent_buyer_value_score: 0, emotional_payoff_seed_score: 0, visual_spread_potential_score: 0,
+              age_fit_score: 0, generic_risk_score: 100, final_concept_score: 0,
+            },
+            decision: 'reject',
             passed: false,
             blockers: [`alt${i + 1}_gen_failed: ${(e as Error).message.slice(0, 160)}`],
             banned_lane_hits: [],
@@ -250,11 +342,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Pick the winner: prefer any passed; else highest composite.
-    const passed = judged.filter(j => j.passed);
-    const winner = passed.length > 0
-      ? passed.sort((a, b) => compositeScore(b.scores) - compositeScore(a.scores))[0]
-      : judged.sort((a, b) => compositeScore(b.scores) - compositeScore(a.scores))[0];
+    const passedList = judged.filter(j => j.passed);
+    const winner = passedList.length > 0
+      ? passedList.sort((a, b) => compositeScore(b.concept_scores) - compositeScore(a.concept_scores))[0]
+      : judged.sort((a, b) => compositeScore(b.concept_scores) - compositeScore(a.concept_scores))[0];
 
     return json({
       ok: true,
@@ -262,6 +353,7 @@ Deno.serve(async (req) => {
       candidates: judged,
       winner,
       overall_passed: winner.passed,
+      thresholds: T,
     });
   } catch (e) {
     console.error('kids-concept-preflight error', e);
