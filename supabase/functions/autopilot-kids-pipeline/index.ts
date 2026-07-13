@@ -2,16 +2,21 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { falFluxSchnell, falRecraftV3 } from '../_shared/fal.ts';
 import { pickStyle, markStyleUsed } from '../_shared/style-picker.ts';
+import { buildScenePlan, renderInteriorIllustrations } from '../_shared/kids-interior.ts';
+import { buildPicturePdf } from '../_shared/kids-picture-pdf.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
 
+const MIN_INTERIOR = 12;
+const MIN_PREVIEWS = 3;
+
 type StepResult = { output: Record<string, unknown>; fallbackUsed?: boolean };
 type Step = {
   name: string;
   label: string;
-  critical?: boolean; // if true, run is marked failed if fallback also fails
+  critical?: boolean;
   run: (ctx: Ctx) => Promise<StepResult>;
 };
 type Ctx = { supabase: ReturnType<typeof createClient>; ebookId: string; ebook: Record<string, unknown> };
@@ -20,8 +25,12 @@ const STEPS: Step[] = [
   { name: 'generate_idea', label: 'Generate story idea', critical: true, run: generateIdea },
   { name: 'generate_manuscript', label: 'Write manuscript', critical: true, run: generateManuscript },
   { name: 'generate_cover', label: 'Design cover', run: generateCover },
-  { name: 'render_pdf', label: 'Render PDF', run: renderPdf },
-  { name: 'qc', label: 'Quality check', run: runQc },
+  { name: 'generate_style_bible', label: 'Lock style bible', critical: true, run: generateStyleBible },
+  { name: 'generate_interior', label: 'Illustrate interior', critical: true, run: generateInterior },
+  { name: 'generate_thumbnail', label: 'Store thumbnail', run: generateThumbnail },
+  { name: 'generate_previews', label: 'Preview pages', run: generatePreviews },
+  { name: 'render_pdf', label: 'Render picture PDF', critical: true, run: renderPdf },
+  { name: 'qc', label: 'Measured QC', run: runQc },
   { name: 'publish_live', label: 'Publish live', run: publishLive },
 ];
 
