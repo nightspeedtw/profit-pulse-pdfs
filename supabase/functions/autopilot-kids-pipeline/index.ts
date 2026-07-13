@@ -5,6 +5,7 @@ import { pickStyle, markStyleUsed } from '../_shared/style-picker.ts';
 import { buildScenePlan, renderInteriorIllustrations } from '../_shared/kids-interior.ts';
 import { buildPicturePdf } from '../_shared/kids-picture-pdf.ts';
 import { runKidsStoryJudge } from '../_shared/kids-story-judge.ts';
+import { detectBibleStoryMismatch, BIBLE_STORY_MISMATCH } from '../_shared/bible-story-mismatch.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -29,6 +30,7 @@ const STEPS: Step[] = [
   { name: 'generate_idea', label: 'Generate story idea', critical: true, run: generateIdea },
   { name: 'generate_manuscript', label: 'Write manuscript', critical: true, run: generateManuscript },
   { name: 'story_gate', label: 'Story judge gate (before art)', critical: true, run: storyGate },
+  { name: 'bible_check', label: 'Bible/story hero match check', critical: true, run: bibleCheck },
   { name: 'generate_cover', label: 'Design cover', run: generateCover },
   { name: 'generate_style_bible', label: 'Lock style bible', critical: true, run: generateStyleBible },
   { name: 'generate_interior', label: 'Illustrate interior', critical: true, run: generateInterior },
