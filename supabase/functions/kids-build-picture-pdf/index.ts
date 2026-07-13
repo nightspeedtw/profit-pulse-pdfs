@@ -113,7 +113,6 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const ebook_id: string = body.ebook_id;
-    const stage: Stage = (body.stage as Stage) ?? 'pdf_prepare';
     const publish: boolean = body.publish !== false;
     const runQcAfter: boolean = body.run_qc_after !== false;
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
