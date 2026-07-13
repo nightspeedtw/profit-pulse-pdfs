@@ -4,10 +4,14 @@ import { falFluxSchnell, falRecraftV3 } from '../_shared/fal.ts';
 import { pickStyle, markStyleUsed } from '../_shared/style-picker.ts';
 import { buildScenePlan, renderInteriorIllustrations } from '../_shared/kids-interior.ts';
 import { buildPicturePdf } from '../_shared/kids-picture-pdf.ts';
+import { runKidsStoryJudge } from '../_shared/kids-story-judge.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
+
+// Sentinel error that the pipeline loop recognizes to short-circuit before art.
+const STORY_GATE_BLOCK = 'STORY_GATE_BLOCK';
 
 const MIN_INTERIOR = 12;
 const MIN_PREVIEWS = 3;
