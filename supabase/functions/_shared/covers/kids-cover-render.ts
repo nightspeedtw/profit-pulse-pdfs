@@ -124,10 +124,18 @@ export function buildKidsCoverSVG(input: KidsCoverInputs): string {
 
   // Title layout — up to 3 lines, centered in top third reserved zone.
   const lines = wrapTitle(title, 3);
-  const titleY0 = 260;  // baseline of first line
-  const lineGap = 170;
+  const titleY0 = 240;
+  const lineGap = 148;
   const longestLine = Math.max(...lines.map((l) => l.length));
-  const titleFontSize = longestLine > 14 ? 130 : longestLine > 10 ? 156 : 180;
+  // Fit longest line into ~1080px with 60px padding each side of the 1200px canvas.
+  const targetPx = 1080;
+  const approxCharWidth = 0.62; // Fredoka bold cap width factor
+  let titleFontSize = Math.floor(targetPx / (longestLine * approxCharWidth));
+  titleFontSize = Math.max(72, Math.min(titleFontSize, 176));
+
+  // Only render subtitle if short enough to fit one line comfortably.
+  const trimmedSubtitle = (subtitle ?? "").trim();
+  const showSubtitle = trimmedSubtitle.length > 0 && trimmedSubtitle.length <= 32;
 
   // Fonts are loaded into resvg via rasterizeKidsSVG (below). Use inline
   // attributes only — resvg-wasm's CSS class parsing on <text> is unreliable.
@@ -135,17 +143,17 @@ export function buildKidsCoverSVG(input: KidsCoverInputs): string {
   const bodyFontFamily = "Baloo 2";
   const titleTspans = lines
     .map((line, i) => `<text x="${W / 2}" y="${titleY0 + i * lineGap}" text-anchor="middle"
-      font-family="${titleFontFamily}" font-weight="400" font-size="${titleFontSize}"
-      fill="${fill}" stroke="${stroke}" stroke-width="10" paint-order="stroke fill"
+      font-family="${titleFontFamily}" font-weight="700" font-size="${titleFontSize}"
+      fill="${fill}" stroke="${stroke}" stroke-width="${Math.max(6, Math.round(titleFontSize * 0.06))}" paint-order="stroke fill"
       letter-spacing="1" filter="url(#titleShadow)">${esc(line)}</text>`)
     .join("\n");
 
-  const subtitleY = titleY0 + lines.length * lineGap + 60;
-  const subtitleEl = subtitle && subtitle.trim().length > 0
+  const subtitleY = titleY0 + lines.length * lineGap + 48;
+  const subtitleEl = showSubtitle
     ? `<text x="${W / 2}" y="${subtitleY}" text-anchor="middle"
-        font-family="${bodyFontFamily}" font-weight="800" font-size="56"
-        fill="${fill}" stroke="${stroke}" stroke-width="4" paint-order="stroke fill"
-        letter-spacing="2">${esc(subtitle.trim())}</text>`
+        font-family="${bodyFontFamily}" font-weight="800" font-size="46"
+        fill="${fill}" stroke="${stroke}" stroke-width="3" paint-order="stroke fill"
+        letter-spacing="2">${esc(trimmedSubtitle)}</text>`
     : "";
 
   const ageBadgeEl = ageBadge
