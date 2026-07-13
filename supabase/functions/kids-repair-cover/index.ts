@@ -37,21 +37,22 @@ Deno.serve(async (req) => {
       cb.accessory && `with ${cb.accessory}`,
     ].filter(Boolean).join(', ');
 
-    // ----- Step 1: textless master -----
+    // ----- Step 1: textless master (Recraft caps prompt at 1000 chars) -----
     let masterUrl: string | null = bible?.cover_master_url ?? null;
     if (regenerate_master || !masterUrl) {
+      const hero = charDesc || 'a friendly child in cozy pajamas';
+      const heroShort = hero.length > 300 ? hero.slice(0, 300) : hero;
       const masterPrompt = [
-        `Whimsical illustrated children's picture book COVER ARTWORK — full-bleed background scene ONLY.`,
-        `Hero: ${charDesc || 'a friendly child character in cozy pajamas'}.`,
-        `Warm painterly storybook illustration, soft golden lighting, cozy inviting atmosphere, rich background, expressive character face.`,
-        `Portrait orientation. Reserve the top 25% as calm sky/background space so a title can be added later.`,
-        `NEGATIVE: absolutely NO text, NO letters, NO numbers, NO words, NO title, NO subtitle, NO signature, NO watermark, NO logo, NO caption, NO typography of ANY kind, NO speech bubbles, NO signs with writing, NO book covers within the scene.`,
-        `Avoid AI clichés: no purple/indigo gradients on white, no glossy 3D blobs, no melted shapes, no deformed hands, no six fingers.`,
-      ].join(' ');
+        `Whimsical illustrated children's picture book cover artwork — full-bleed background scene only.`,
+        `Hero: ${heroShort}.`,
+        `Warm painterly storybook illustration, soft golden lighting, cozy atmosphere, rich background, expressive character face.`,
+        `Portrait orientation. Reserve the top 25% as calm sky so a title can be added later.`,
+        `Textless artwork only — no letters, no words, no title, no signage, no writing anywhere.`,
+      ].join(' ').slice(0, 990);
       const masterBytes = await falRecraftV3({
         prompt: masterPrompt,
         image_size: 'portrait_4_3',
-        negative_prompt: 'text, letters, numbers, words, title, subtitle, typography, watermark, logo, signature, caption, book, sign, writing, speech bubble, calligraphy, hallucinated text, gibberish, garbled text, deformed hands, six fingers, extra fingers, stock photo, glossy 3d blob',
+        negative_prompt: 'text, letters, numbers, words, title, subtitle, typography, watermark, logo, signature, caption, book, sign, writing, speech bubble, calligraphy, gibberish, garbled text, deformed hands, six fingers, extra fingers, stock photo, glossy 3d blob',
       });
       const masterPath = `kids/${ebook_id}/cover-master.png`;
       const up = await db.storage.from('ebook-covers').upload(masterPath, masterBytes, {
