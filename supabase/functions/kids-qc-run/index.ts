@@ -229,6 +229,7 @@ Deno.serve(async (req) => {
       overall_qc_score: verdict.overall_score,
       qc_rule_version: QC_RULE_VERSION,
       qc_scorecard: {
+        ...(((ebook.storefront_meta as Record<string, unknown> | null)?.last_text_repair_log as Record<string, unknown> | null) ? { final_text_repair: (ebook.storefront_meta as Record<string, unknown>).last_text_repair_log } : {}),
         version: QC_RULE_VERSION,
         overall_score: verdict.overall_score,
         category_scores: verdict.category_scores,
