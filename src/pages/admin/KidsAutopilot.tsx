@@ -171,6 +171,54 @@ export default function KidsAutopilot() {
       <p className="text-xs text-muted-foreground">
         Weight = base + sales boost (auto cells refresh when you press Recompute). Set weight to 0 to disable a cell entirely.
       </p>
+
+      <Card className="p-4 border-2 border-foreground">
+        <h2 className="font-display text-xl uppercase mb-3 flex items-center gap-2">
+          <Zap className="size-5" /> Recent runs
+        </h2>
+        {runs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No runs yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {runs.map((r) => {
+              const canForce = r.status === "failed" || r.status === "running";
+              return (
+                <div key={r.id} className="flex items-center gap-3 p-2 border border-foreground/20 rounded text-sm">
+                  <span className={`px-2 py-0.5 rounded text-xs font-mono uppercase ${
+                    r.status === "completed" ? "bg-green-500/20 text-green-700" :
+                    r.status === "failed" ? "bg-red-500/20 text-red-700" :
+                    r.status === "running" ? "bg-yellow-500/20 text-yellow-700" :
+                    "bg-muted"
+                  }`}>{r.status}</span>
+                  <span className="flex-1 truncate">
+                    <span className="text-muted-foreground">{r.current_step_label ?? "—"}</span>
+                    <span className="mx-2">·</span>
+                    <span className="tabular-nums">{r.progress_percent ?? 0}%</span>
+                    {r.blocker_reason && (
+                      <span className="ml-2 text-red-600 text-xs truncate">⚠ {r.blocker_reason.slice(0, 80)}</span>
+                    )}
+                  </span>
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {new Date(r.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  {canForce && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => forceFinish(r.id)}
+                      disabled={forcing === r.id}
+                    >
+                      <Zap className={`size-3 ${forcing === r.id ? "animate-pulse" : ""}`} />
+                      Force finish
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
     </div>
   );
 }
