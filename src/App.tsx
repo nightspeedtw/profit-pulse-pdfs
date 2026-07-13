@@ -12,6 +12,7 @@ import Product from "./pages/Product.tsx";
 import Bundles from "./pages/Bundles.tsx";
 import About from "./pages/About.tsx";
 import Download from "./pages/Download.tsx";
+import Kids from "./pages/Kids.tsx";
 import Checkout from "./pages/Checkout.tsx";
 import CheckoutReturn from "./pages/CheckoutReturn.tsx";
 import NotFound from "./pages/NotFound.tsx";
@@ -48,6 +49,7 @@ const App = () => (
             <Route path="/categories" element={<Categories />} />
             <Route path="/category/:slug" element={<Category />} />
             <Route path="/product/:handle" element={<Product />} />
+            <Route path="/kids" element={<Kids />} />
             <Route path="/bundles" element={<Bundles />} />
             <Route path="/about" element={<About />} />
             <Route path="/download" element={<Download />} />

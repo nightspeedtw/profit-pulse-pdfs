@@ -6,6 +6,7 @@ import logoHorizontal from "@/assets/secretpdf-horizontal.png";
 
 const NAV = [
   { label: "Library", to: "/library" },
+  { label: "Kids", to: "/kids" },
   { label: "Categories", to: "/categories" },
   { label: "Bundles", to: "/bundles" },
   { label: "About", to: "/about" },
