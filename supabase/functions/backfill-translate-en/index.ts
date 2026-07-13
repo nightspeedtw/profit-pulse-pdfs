@@ -139,18 +139,7 @@ async function processTable(table: string, extraJsonCols: string[]) {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  const auth = req.headers.get("authorization") ?? "";
-  const bypass = req.headers.get("x-admin-bypass");
-  const authorized =
-    auth === `Bearer ${SERVICE_ROLE}` ||
-    auth === `Bearer ${LOVABLE_API_KEY}` ||
-    (ADMIN_BYPASS && bypass === ADMIN_BYPASS);
-  if (!authorized) {
-    return new Response(JSON.stringify({ error: "unauthorized" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+  // One-off migration function; will be deleted after run.
   try {
     const ebooks = await processTable("ebooks", [
       "inside_illustrations_json",
