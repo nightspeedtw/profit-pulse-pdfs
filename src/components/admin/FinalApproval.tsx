@@ -1,6 +1,5 @@
 // QC Report panel (formerly "Final approval").
 // Hands-off Autopilot: no manual approve button. Gates auto-pass via QC scores.
-// Admin only sees the AdminNeededPanel when auto-fix has exhausted attempts.
 import { useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,8 +39,7 @@ interface EbookLike extends AdminNeededState {
   cover_score: number | null;
   pdf_url: string | null;
   product_description: string | null;
-  shopify_product_id: string | null;
-  shopify_status?: string | null;
+  listing_status?: string | null;
   conversion_score?: number | null;
   final_quality_score?: number | null;
   compliance_safety_score?: number | null;
@@ -93,13 +91,13 @@ export function FinalApproval({ ebook, onChanged }: Props) {
   const finalScore = pick(qc.finalPdfPremiumScore, qc.final_pdf_premium_score, r.final_pdf_premium_score, ebook.final_quality_score ?? undefined);
   const productScore = pick(qc.productValueScore, qc.product_value_score, ebook.conversion_score ?? undefined);
   const pdfReady = qc.pdf_status === "pdf_ready";
+  const isLive = ebook.listing_status === "live";
 
   const gates = useMemo(() => ([
     { label: "PDF passed premium auto-QC", pass: pdfReady && !qc.blocked_for_publish, detail: pdfReady ? `pdf_ready · score ${finalScore ?? "—"}` : `pdf_status=${qc.pdf_status ?? "—"}` },
     { label: `Cover ≥ ${THRESHOLDS.cover}`, pass: (coverScore ?? 0) >= THRESHOLDS.cover && !!ebook.cover_url, detail: `score ${coverScore ?? "—"}` },
     { label: `Product page ≥ ${THRESHOLDS.product}`, pass: (productScore ?? 0) >= THRESHOLDS.product, detail: `score ${productScore ?? "—"}` },
-    { label: "Shopify description present", pass: !!ebook.product_description, detail: ebook.product_description ? "OK" : "missing" },
-    { label: "Shopify draft created", pass: !!ebook.shopify_product_id, detail: ebook.shopify_product_id ? `id ${ebook.shopify_product_id}` : "pending" },
+    { label: "Product description present", pass: !!ebook.product_description, detail: ebook.product_description ? "OK" : "missing" },
   ]), [ebook, qc, productScore, finalScore, pdfReady, coverScore]);
 
   const allPass = gates.every((g) => g.pass);
@@ -109,7 +107,7 @@ export function FinalApproval({ ebook, onChanged }: Props) {
     ebook.qc_status === "auto_fix_failed" ||
     ebook.autopilot_state === "needs_review" ||
     ebook.autopilot_state === "failed";
-  const canPublish = allPass && !needsAdmin && ebook.shopify_status !== "published";
+  const canPublish = allPass && !needsAdmin && !isLive;
 
   const update = async (patch: Partial<EbookLike>) => {
     setBusy("save");
@@ -122,11 +120,12 @@ export function FinalApproval({ ebook, onChanged }: Props) {
   const publish = async () => {
     setBusy("publish");
     try {
-      const { data, error } = await supabase.functions.invoke("shopify-publish", { body: { ebook_id: ebook.id } });
+      const { error } = await supabase
+        .from("ebooks")
+        .update({ listing_status: "live", status: "live" } as never)
+        .eq("id", ebook.id);
       if (error) throw error;
-      const errMsg = (data as { error?: string } | null)?.error;
-      if (errMsg) throw new Error(errMsg);
-      toast.success("Published to Shopify");
+      toast.success("Published live on store");
       await onChanged();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Publish failed");
@@ -137,7 +136,6 @@ export function FinalApproval({ ebook, onChanged }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Top of page: Admin Needed panel ONLY when system is stuck */}
       <AdminNeededPanel ebook={ebook} onChanged={onChanged} />
 
       <Card className="border-2 border-foreground">
@@ -149,8 +147,7 @@ export function FinalApproval({ ebook, onChanged }: Props) {
             <div className="flex items-center gap-2">
               {allPass && !needsAdmin && <Badge className="bg-green-600">Auto-approved by QC</Badge>}
               {needsAdmin && <Badge variant="destructive">Needs Admin Attention</Badge>}
-              {ebook.shopify_status === "draft" && <Badge variant="outline">Draft uploaded</Badge>}
-              {ebook.shopify_status === "published" && <Badge className="bg-green-600">Live on Shopify</Badge>}
+              {isLive && <Badge className="bg-green-600">Live on Store</Badge>}
             </div>
           </CardTitle>
         </CardHeader>
@@ -169,12 +166,11 @@ export function FinalApproval({ ebook, onChanged }: Props) {
             </div>
           </div>
 
-          {/* Auto-publish toggle only — no manual approve switches */}
           <label className="flex items-center justify-between gap-3 border-2 border-foreground/20 p-3">
             <div>
               <Label className="text-sm">Auto Publish</Label>
               <p className="text-xs text-muted-foreground">
-                When ON, the pipeline publishes to Shopify automatically once all gates pass.
+                When ON, the pipeline sets the book live on the store automatically once all gates pass.
                 When OFF (default), the job stops at "Ready to Publish" and an admin clicks Publish.
               </p>
             </div>
@@ -185,7 +181,6 @@ export function FinalApproval({ ebook, onChanged }: Props) {
             />
           </label>
 
-          {/* Gate list — read-only; no per-gate approve buttons */}
           <ul className="space-y-1 border-2 border-foreground/15 p-3">
             {gates.map((g) => (
               <li key={g.label} className="flex items-start gap-2 text-sm py-1">
@@ -206,8 +201,7 @@ export function FinalApproval({ ebook, onChanged }: Props) {
             )}
           </ul>
 
-          {/* Single action: Publish (only when ready). No "Final approve" button. */}
-          {ebook.shopify_status !== "published" && (
+          {!isLive && (
             <div className="flex flex-wrap gap-2 pt-1 items-center">
               <Button
                 onClick={publish}
@@ -217,7 +211,7 @@ export function FinalApproval({ ebook, onChanged }: Props) {
                 {busy === "publish"
                   ? <Loader2 className="size-4 animate-spin mr-1" />
                   : canPublish ? <Send className="size-4 mr-1" /> : <Lock className="size-4 mr-1" />}
-                Publish to Shopify
+                Publish Live
               </Button>
               {!allPass && !needsAdmin && (
                 <p className="text-xs text-muted-foreground">
