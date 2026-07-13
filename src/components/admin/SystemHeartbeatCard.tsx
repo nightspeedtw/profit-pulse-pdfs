@@ -1,6 +1,6 @@
 // System Heartbeat — plain-Thai "what is the system doing RIGHT NOW" summary.
 // Answers the four questions the operator keeps asking:
-//   1) กำลังทำเล่มไหน?  2) ทำไมหยุด?  3) ต่อไปคืออะไร?  4) ต้องช่วยไหม?
+// 1) Which book is running?  2) Why did it stop?  3) What is next?  4) Need help?
 import { useEffect, useState } from "react";
 import { Activity, Loader2, PlayCircle, AlertCircle, Zap } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,9 +36,9 @@ type Live = {
 function ago(iso?: string | null): string {
   if (!iso) return "—";
   const sec = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (sec < 60) return `${sec}s ที่แล้ว`;
-  if (sec < 3600) return `${Math.floor(sec / 60)} นาทีที่แล้ว`;
-  return `${Math.floor(sec / 3600)} ชั่วโมงที่แล้ว`;
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.floor(sec / 60)} min ago`;
+  return `${Math.floor(sec / 3600)} hr ago`;
 }
 
 export function SystemHeartbeatCard() {

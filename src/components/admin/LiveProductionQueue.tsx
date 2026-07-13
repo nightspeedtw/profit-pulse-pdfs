@@ -327,7 +327,7 @@ function SectionB({ items, currentTitle }: { items: QueueEbook[]; currentTitle: 
                 {currentTitle ? ` — starts after "${currentTitle}"` : ""}
               </div>
             </div>
-            <Badge variant="outline">รอคิว</Badge>
+            <Badge variant="outline">Queued</Badge>
           </li>
         ))}
       </ul>
