@@ -1703,6 +1703,7 @@ export type Database = {
           description: string | null
           human_review_reason: string | null
           id: string
+          interior_illustrations: Json | null
           listing_status: string
           locked: boolean
           manuscript_md: string | null
@@ -1710,6 +1711,7 @@ export type Database = {
           page_count: number | null
           pdf_url: string | null
           pipeline_status: string
+          preview_page_urls: Json | null
           price_cents: number
           qc_rule_version: string | null
           qc_scorecard: Json
@@ -1720,8 +1722,10 @@ export type Database = {
           storefront_subtitle: string | null
           storefront_title: string | null
           story_bible: Json | null
+          style_bible_json: Json | null
           subtitle: string | null
           theme_ids: string[]
+          thumbnail_url: string | null
           title: string
           updated_at: string
           word_count: number | null
@@ -1734,6 +1738,7 @@ export type Database = {
           description?: string | null
           human_review_reason?: string | null
           id?: string
+          interior_illustrations?: Json | null
           listing_status?: string
           locked?: boolean
           manuscript_md?: string | null
@@ -1741,6 +1746,7 @@ export type Database = {
           page_count?: number | null
           pdf_url?: string | null
           pipeline_status?: string
+          preview_page_urls?: Json | null
           price_cents?: number
           qc_rule_version?: string | null
           qc_scorecard?: Json
@@ -1751,8 +1757,10 @@ export type Database = {
           storefront_subtitle?: string | null
           storefront_title?: string | null
           story_bible?: Json | null
+          style_bible_json?: Json | null
           subtitle?: string | null
           theme_ids?: string[]
+          thumbnail_url?: string | null
           title?: string
           updated_at?: string
           word_count?: number | null
@@ -1765,6 +1773,7 @@ export type Database = {
           description?: string | null
           human_review_reason?: string | null
           id?: string
+          interior_illustrations?: Json | null
           listing_status?: string
           locked?: boolean
           manuscript_md?: string | null
@@ -1772,6 +1781,7 @@ export type Database = {
           page_count?: number | null
           pdf_url?: string | null
           pipeline_status?: string
+          preview_page_urls?: Json | null
           price_cents?: number
           qc_rule_version?: string | null
           qc_scorecard?: Json
@@ -1782,8 +1792,10 @@ export type Database = {
           storefront_subtitle?: string | null
           storefront_title?: string | null
           story_bible?: Json | null
+          style_bible_json?: Json | null
           subtitle?: string | null
           theme_ids?: string[]
+          thumbnail_url?: string | null
           title?: string
           updated_at?: string
           word_count?: number | null

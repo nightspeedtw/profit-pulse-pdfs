@@ -4,6 +4,7 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { languageCheck, preflightCover, preflightPdf, type RawFinding } from "../_shared/pdf-preflight.ts";
+import { preflightKidsAssets, preflightPdfGlyphs, kidsThresholdsForAge } from "../_shared/kids-preflight.ts";
 import { computeVerdict } from "../_shared/qc/sellable.ts";
 import { QC_RULE_VERSION } from "../_shared/qc/weights.ts";
 
@@ -20,19 +21,36 @@ Deno.serve(async (req) => {
 
     const { data: ebook, error } = await supabase
       .from("ebooks_kids")
-      .select("id, title, cover_url, pdf_url, manuscript_md, page_count")
+      .select("id, title, cover_url, pdf_url, manuscript_md, page_count, thumbnail_url, preview_page_urls, interior_illustrations, style_bible_json")
       .eq("id", ebook_id)
       .single();
     if (error || !ebook) return json({ error: "ebook not found" }, 404);
 
+    // Also fetch style bible from the kids_book_bibles table as a fallback.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: bible } = await (supabase.from("kids_book_bibles") as any)
+      .select("style_bible_json").eq("ebook_id", ebook_id).maybeSingle();
+    const styleBible = (ebook.style_bible_json ?? bible?.style_bible_json) as unknown;
+
     // Clear prior findings for this book/run so this becomes the source of truth.
     await supabase.from("qc_findings").delete().eq("ebook_id", ebook_id);
 
+    const thresholds = kidsThresholdsForAge(null, "high");
     const raw: RawFinding[] = [];
     raw.push(...await preflightPdf(ebook.pdf_url as string | null));
+    raw.push(...await preflightPdfGlyphs(ebook.pdf_url as string | null));
     raw.push(...preflightCover(ebook.cover_url as string | null, (ebook.title as string) ?? ""));
     raw.push(...languageCheck((ebook.manuscript_md as string) ?? null));
     raw.push(...languageCheck((ebook.title as string) ?? null));
+    raw.push(...preflightKidsAssets({
+      interior_illustrations: ebook.interior_illustrations,
+      thumbnail_url: (ebook.thumbnail_url as string | null) ?? null,
+      preview_page_urls: ebook.preview_page_urls,
+      cover_url: (ebook.cover_url as string | null) ?? null,
+      style_bible_json: styleBible,
+      min_interior: thresholds.min_interior,
+      min_previews: thresholds.min_previews,
+    }));
 
     // Persist findings
     if (raw.length) {
