@@ -633,7 +633,22 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
           r.includes("category_fit") || r.includes("ai_text_errors") ||
           r.includes("premium_feel"));
         if (bgFailure || !bgBytes) {
-          const bg = await generateBackgroundPNG(spec.background_image_prompt_no_text || ebook.cover_prompt || `Premium editorial cover for "${ebook.title}"`, styleRef);
+          // Kids picture books: swap the finance-template prompt for a
+          // bible-locked storybook prompt so the cover character matches the
+          // interior illustrations (same species, fur, outfit, art medium).
+          let bgPrompt = spec.background_image_prompt_no_text || ebook.cover_prompt || `Premium editorial cover for "${ebook.title}"`;
+          if (isKidsCover) {
+            const bible = await getOrBuildKidsVisualBible({
+              ebook_id,
+              existing: (ebook as unknown as { kids_visual_bible?: unknown }).kids_visual_bible,
+              title: ebook.title,
+              subtitle: ebook.subtitle,
+              target_buyer: ebook.target_buyer,
+              hook: ebook.hook,
+            });
+            bgPrompt = kidsIllustrationPrompt(bible, "front cover hero scene: the primary character in a signature story moment, warm afternoon light, storybook charm, cinematic composition", { role: "cover", reservedZone: "top third" });
+          }
+          const bg = await generateBackgroundPNG(bgPrompt, styleRef);
           totalCost += bg.cost;
           bgBytes = bg.bytes;
           const { error } = await db.storage.from("ebook-covers").upload(bgPath, bgBytes, { contentType: "image/png", upsert: true });
