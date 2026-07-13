@@ -1,0 +1,1 @@
+ALTER TABLE public.kids_book_bibles ADD COLUMN IF NOT EXISTS cover_master_url text;

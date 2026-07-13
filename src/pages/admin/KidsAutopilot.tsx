@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
 import { RefreshCw, Play, Sparkles, Zap } from "lucide-react";
 import { listAgeGroups, listThemes, type KidsAgeGroup, type KidsTheme } from "@/lib/kidsTaxonomy";
+import { BuildKidsBookButton } from "@/components/admin/BuildKidsBookButton";
 
 interface KidsRun {
   id: string;
@@ -115,12 +116,13 @@ export default function KidsAutopilot() {
           <h1 className="font-display text-3xl uppercase flex items-center gap-2"><Sparkles className="size-6" /> Kids Autopilot</h1>
           <p className="text-sm text-muted-foreground">Weighted-by-demand picker. Higher weight or recent sales = more likely to be generated next.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <BuildKidsBookButton onStarted={load} />
           <Button onClick={recompute} disabled={busy} variant="outline">
             <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} /> Recompute from sales
           </Button>
-          <Button onClick={runNow} disabled={running}>
-            <Play className={`size-4 ${running ? "animate-pulse" : ""}`} /> Start one book now
+          <Button onClick={runNow} disabled={running} variant="secondary">
+            <Play className={`size-4 ${running ? "animate-pulse" : ""}`} /> Weighted auto-pick
           </Button>
         </div>
       </div>

@@ -2030,6 +2030,7 @@ export type Database = {
         Row: {
           character_bible_json: Json
           character_reference_image_url: string | null
+          cover_master_url: string | null
           created_at: string
           ebook_id: string
           id: string
@@ -2043,6 +2044,7 @@ export type Database = {
         Insert: {
           character_bible_json?: Json
           character_reference_image_url?: string | null
+          cover_master_url?: string | null
           created_at?: string
           ebook_id: string
           id?: string
@@ -2056,6 +2058,7 @@ export type Database = {
         Update: {
           character_bible_json?: Json
           character_reference_image_url?: string | null
+          cover_master_url?: string | null
           created_at?: string
           ebook_id?: string
           id?: string
