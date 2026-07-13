@@ -79,24 +79,21 @@ function toB64(bytes: Uint8Array): string {
   return btoa(bin);
 }
 
-/** Break the title on natural word boundaries into ≤3 balanced lines. */
+/** Distribute words into ≤ maxLines balanced lines. */
 function wrapTitle(title: string, maxLines = 3): string[] {
   const words = title.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return [""];
   if (words.length === 1) return [words[0]];
-  const target = Math.ceil(words.length / Math.min(maxLines, Math.ceil(words.length / 2)));
+  // Number of lines: enough to keep each line ≤ ~14 chars.
+  const totalLen = title.length;
+  const wantLines = Math.min(maxLines, Math.max(1, Math.ceil(totalLen / 14)));
+  const wordsPerLine = Math.ceil(words.length / wantLines);
   const lines: string[] = [];
-  let cur: string[] = [];
-  for (const w of words) {
-    cur.push(w);
-    if (cur.join(" ").length >= 16 || cur.length >= target) {
-      lines.push(cur.join(" "));
-      cur = [];
-      if (lines.length >= maxLines - 1) break;
-    }
+  for (let i = 0; i < wantLines; i++) {
+    const slice = words.slice(i * wordsPerLine, (i + 1) * wordsPerLine);
+    if (slice.length) lines.push(slice.join(" "));
   }
-  if (cur.length) lines.push(cur.join(" "));
-  return lines.slice(0, maxLines);
+  return lines;
 }
 
 /** Pick a warm cream / off-white title colour if palette doesn't offer one. */
