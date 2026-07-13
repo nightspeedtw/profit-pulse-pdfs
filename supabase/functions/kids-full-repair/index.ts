@@ -182,24 +182,33 @@ ${premiseSpec ?? ""}
 
 FORBIDDEN GENERIC PATTERNS (auto-fail if used — the story judge already rejected these):
 ${forbiddenPatterns.map((p) => `- ${p}`).join("\n")}
-The moon's secret must be concrete, surprising, visual, and specific — a thing the moon DOES (repairs, sorts, folds, delivers, tunes), not a vague feeling.
+The premise must be concrete, surprising, visual, and specific — a thing the hero DOES or DISCOVERS, not a vague feeling.
 `
             : "";
 
-          const rewriteUser = `Rewrite the manuscript for the following picture book. Preserve the title and hero name "Luna". This is a cozy bedtime book with gentle wonder but a DISTINCTIVE, non-generic premise.
+          // Pull hero/world/theme from stored story_bible so non-Luna, non-moon books
+          // don't get contaminated by the old hardcoded defaults.
+          const sb = (eb.story_bible ?? {}) as Record<string, unknown>;
+          const heroDesc = (sb.hero as string) || (body.hero as string) || "the hero named in the title";
+          const worldDesc = (sb.world as string) || (body.world as string) || "a warm, whimsical setting appropriate to the premise";
+          const themeDesc = (sb.premise as string) || (body.theme as string) || premiseSpec || "the distinctive premise stated above";
+          const heroNameGuess = String(heroDesc).split(/[,\s—-]/)[0] || "the hero";
+
+          const rewriteUser = `Rewrite the manuscript for the following picture book. Preserve the title and the established hero. This is a warm, whimsical picture book with a DISTINCTIVE, non-generic premise.
 
 Title: "${title}"
 Subtitle: "${subtitle ?? ""}"
-Hero: Luna, a small child in cozy star pajamas
-Theme: bedtime, gentle wonder, emotional calm, moon's SPECIFIC secret
-Tone: warm, whimsical, sleepy, emotionally reassuring${laneBlock}
+Hero: ${heroDesc}
+World: ${worldDesc}
+Theme / premise anchor: ${themeDesc}
+Tone: warm, whimsical, emotionally reassuring${laneBlock}
 
 REQUIREMENTS (all mandatory):
 - ${targetIllos} distinct illustrated spreads, one paragraph per spread
 - 40-70 words per spread, 500-800 words total
-- Distinctive premise (the moon's secret must be specific, surprising, tender, and VISUAL)
-- Luna has a clear emotional need at page 1
-- Rising wonder in middle pages, quiet climax where Luna discovers the moon's secret
+- Distinctive premise (specific, surprising, tender, and VISUAL — as described above; do NOT drift into moon/bedtime-magic archetypes unless the premise itself names them)
+- ${heroNameGuess} has a clear emotional need at page 1
+- Rising wonder in middle pages, quiet climax where ${heroNameGuess} discovers or names the secret at the heart of the premise
 - Satisfying, specific, earned emotional payoff on the last spread
 - A repeated cozy refrain phrase (2-3 SIMPLE words) that appears on at least 4 spreads
 - Short read-aloud sentences, grade K-1 vocabulary, concrete sensory words
@@ -215,6 +224,7 @@ Return JSON:
     { "index": 1, "text": "<spread text>", "scene": "<one-sentence visual description>", "emotion": "<beat>", "setting": "<place>" }
   ]
 }`;
+
 
           const modelChain = escalated
             ? ["google/gemini-2.5-pro", "google/gemini-2.5-flash"] as const
