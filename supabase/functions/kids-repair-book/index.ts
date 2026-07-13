@@ -165,15 +165,68 @@ Return JSON: {"line_quality":"","palette":["#","#","#","#","#"],"lighting":"","m
     }).eq('id', ebook_id);
     log.push({ step: 'pdf', status: 'rerendered', detail: { bytes: pdfBytes.length, page_count: pageCount } });
 
-    // ---------- 6. Measured QC ----------
-    const qcRes = await fetch(`${SUPABASE_URL}/functions/v1/kids-qc-run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-      body: JSON.stringify({ ebook_id }),
-    });
-    const qcBody = await qcRes.json();
-    log.push({ step: 'qc', status: qcRes.ok ? 'ok' : 'fail', detail: qcBody });
+    // ---------- 6. Measured QC (vision + story + preflight) ----------
+    async function runQc() {
+      const qcRes = await fetch(`${SUPABASE_URL}/functions/v1/kids-qc-run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+        body: JSON.stringify({ ebook_id }),
+      });
+      return { ok: qcRes.ok, body: await qcRes.json() };
+    }
+    let qc = await runQc();
+    log.push({ step: 'qc', status: qc.ok ? 'ok' : 'fail', detail: qc.body });
 
+    // ---------- 6b. Targeted repair — regen up to 3 failing pages ----------
+    const vision = qc.body?.vision_report as { pages?: Array<{ index: number; page_number: number; character_match_score: number; protagonist_face_body_score: number; cover_interior_match_score: number; scene?: string }> } | null;
+    const failingPages = (vision?.pages ?? []).filter((p) => {
+      const pc = Math.round((p.character_match_score + p.protagonist_face_body_score) / 2);
+      return pc < 82 || p.cover_interior_match_score < 82;
+    });
+    if (failingPages.length > 0 && failingPages.length <= 3 && illos.length >= MIN_INTERIOR) {
+      const cb = (bible.character_bible_json ?? {}) as Record<string, string>;
+      const charDesc = [cb.name && `named ${cb.name}`, cb.species && `(${cb.species})`, cb.outfit && `wearing ${cb.outfit}`, cb.accessory && `with ${cb.accessory}`].filter(Boolean).join(', ') || 'the story hero';
+      const styleParts = [styleBible.line_quality && `line quality: ${styleBible.line_quality}`, styleBible.lighting && `lighting: ${styleBible.lighting}`, styleBible.mood && `mood: ${styleBible.mood}`, Array.isArray(styleBible.palette) ? `palette: ${(styleBible.palette as string[]).join(', ')}` : null].filter(Boolean).join('; ') || 'warm whimsical storybook illustration';
+      const { renderInteriorIllustrations } = await import('../_shared/kids-interior.ts');
+      const regenScenes = failingPages.map((p) => ({ scene: p.scene ?? `Story beat ${p.index}`, emotion: 'warm', setting: 'storybook world' }));
+      const regen = await renderInteriorIllustrations({
+        ebookId: ebook_id, db, characterDescription: charDesc, styleSuffix: styleParts,
+        negativePrompt: 'text, watermark, off-model character, deformed hands',
+        scenes: regenScenes, startPageNumber: failingPages[0].page_number,
+      });
+      // Splice replacements into the illos array by index.
+      const updated = [...illos];
+      for (let i = 0; i < failingPages.length; i++) {
+        const idxInArray = updated.findIndex((x) => (x as { index: number }).index === failingPages[i].index);
+        if (idxInArray >= 0) {
+          const orig = updated[idxInArray] as Record<string, unknown>;
+          updated[idxInArray] = { ...regen[i], index: orig.index as number, page_number: orig.page_number as number };
+        }
+      }
+      illos = updated as typeof illos;
+      await db.from('ebooks_kids').update({ interior_illustrations: illos }).eq('id', ebook_id);
+      log.push({ step: 'targeted_repair', status: 'regenerated', detail: { count: failingPages.length, pages: failingPages.map((p) => p.page_number) } });
+
+      // Re-render PDF with new spreads.
+      const spreadImages2: Uint8Array[] = [];
+      for (const il of illos) spreadImages2.push(new Uint8Array(await (await fetch((il as { url: string }).url)).arrayBuffer()));
+      const pdfBytes2 = await buildPicturePdf({
+        title: String(ebook.title ?? ''), subtitle: (ebook.subtitle as string | null) ?? null,
+        coverPng: coverBytes,
+        spreads: illos.map((_, i) => ({ caption: captions[i], imagePng: spreadImages2[i] })),
+      });
+      const up2 = await db.storage.from('ebook-pdfs').upload(path, pdfBytes2, { contentType: 'application/pdf', upsert: true });
+      if (up2.error) throw up2.error;
+      const { data: pub2 } = await db.storage.from('ebook-pdfs').createSignedUrl(path, 60 * 60 * 24 * 365);
+      await db.from('ebooks_kids').update({ pdf_url: pub2?.signedUrl ?? null }).eq('id', ebook_id);
+
+      qc = await runQc();
+      log.push({ step: 'qc_rerun', status: qc.ok ? 'ok' : 'fail', detail: qc.body });
+    } else if (failingPages.length > 3) {
+      log.push({ step: 'targeted_repair', status: 'skipped_too_many_failures', detail: { count: failingPages.length } });
+    }
+
+    const qcBody = qc.body;
     let publishState = 'not_attempted';
     if (publish_if_sellable && qcBody?.verdict?.sellable) {
       await db.from('ebooks_kids').update({
