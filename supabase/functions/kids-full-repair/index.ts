@@ -69,6 +69,21 @@ Deno.serve(async (req) => {
   const runInBackground = body.background !== false;
   const skipStoryGate = body.skip_story_gate === true;
   const storyMaxAttempts = Math.max(1, Math.min(3, (body.story_max_attempts as number) ?? 2));
+  const premiseLane = (body.premise_lane as string | undefined) ?? null;
+  const premiseSpec = (body.premise_spec as string | undefined) ?? null;
+  const newSubtitle = (body.new_subtitle as string | undefined) ?? null;
+  const forbiddenPatterns = Array.isArray(body.forbidden_patterns)
+    ? (body.forbidden_patterns as string[])
+    : [
+        "moon watches children sleep",
+        "moon collects sleepy sighs",
+        "moon cradles stars",
+        "moon hums lullabies",
+        "moon as mother bird / nest of star-chicks",
+        "vague cozy bedtime magic",
+        "the moon helps everyone sleep",
+      ];
+  const retireOnFail = body.retire_on_fail === true;
   let storyGatePassed = false;
 
   const log: Array<Record<string, unknown>> = [];
