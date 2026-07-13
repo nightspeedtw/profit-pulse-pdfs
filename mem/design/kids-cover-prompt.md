@@ -23,6 +23,10 @@ Do NOT try to generate the illustration + logo title in one shot. It always crow
 
 This preserves the v2-quality atmospheric illustration while getting v3-quality logo typography. Never sacrifice illustration atmosphere for busier title decoration — the base must stay clean.
 
+## Storefront / thumbnail rule (mandatory)
+
+For kids picture books, the final hand-painted cover is the storefront image. After shipping the finished cover to `ebooks.cover_url`, also set `ebooks.store_thumbnail_url` and `ebooks.thumbnail_url` to that exact same cover URL. Do not generate, upload, or accept a generic 3D book mockup/template thumbnail for children’s covers — especially the yellow book mockup with stars and an “ILLUSTRATED STORY” badge. It makes the product look like a template and hides the custom illustration/logo work.
+
 
 ## Three-layer prompt structure
 

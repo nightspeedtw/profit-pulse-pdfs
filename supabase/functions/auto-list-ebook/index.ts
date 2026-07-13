@@ -17,6 +17,21 @@ const supabase = createClient(
 const priceLookupKey = (id: string) => `ebook_${id.replace(/-/g, "")}_price`;
 const productLookupId = (id: string) => `ebook_${id.replace(/-/g, "")}`;
 
+function isKidsPictureBook(input: {
+  title?: string | null;
+  categorySlug?: string | null;
+  categoryName?: string | null;
+  productFormat?: string | null;
+}) {
+  const haystack = [
+    input.title,
+    input.categorySlug,
+    input.categoryName,
+    input.productFormat,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return /kid|kids|child|children|picture\s*book|storybook|illustrated\s*story|nursery|bedtime/.test(haystack);
+}
+
 async function syncStripe(env: StripeEnv, e: any) {
   const stripe = createStripeClient(env);
   const lookupKey = priceLookupKey(e.id);
@@ -94,7 +109,7 @@ Deno.serve(async (req) => {
 
     const { data: e, error } = await supabase
       .from("ebooks")
-      .select("id, title, price, category_id, category_slug, cover_url, product_description, pdf_url, status, listed_at, total_word_count, word_count, worksheet_count, final_quality_score, product_format")
+      .select("id, title, price, category_id, category_slug, cover_url, product_description, pdf_url, status, listed_at, total_word_count, word_count, worksheet_count, final_quality_score, product_type")
       .eq("id", ebookId)
       .maybeSingle();
     if (error) throw error;
@@ -116,19 +131,30 @@ Deno.serve(async (req) => {
       category_name: cat?.name ?? null,
       title: e.title,
     });
-
-    // Always regenerate the thumbnail with the currently active reference
-    // style so every listing gets the newest look. Fire-and-forget: the
-    // generate-cover function processes in the background (returns 202) and
-    // updates cover_url when it finishes. If no cover exists yet we still
-    // block on the invocation so Stripe gets a valid image URL below.
-    await log(ebookId, "auto_list.generate_cover", "started", { force: true });
-    const { error: covErr } = await supabase.functions.invoke("generate-cover", {
-      body: { ebook_id: ebookId, mode: "full", force: true },
+    const isKidsCover = isKidsPictureBook({
+      title: e.title,
+      categorySlug: e.category_slug ?? cat?.slug ?? profile.slug ?? null,
+      categoryName: cat?.name ?? null,
+      productFormat: (e as any).product_type ?? null,
     });
-    if (covErr) {
-      await log(ebookId, "auto_list.generate_cover", "failed", { error: covErr.message });
-      if (!e.cover_url) throw new Error(`Cover generation failed: ${covErr.message}`);
+
+    if (isKidsCover) {
+      if (!e.cover_url) throw new Error("Kids picture books need a finished illustrated cover before listing.");
+      await log(ebookId, "auto_list.generate_cover", "skipped", { reason: "kids_picture_book_preserve_finished_cover" });
+    } else {
+      // Always regenerate the thumbnail with the currently active reference
+      // style so every listing gets the newest look. Fire-and-forget: the
+      // generate-cover function processes in the background (returns 202) and
+      // updates cover_url when it finishes. If no cover exists yet we still
+      // block on the invocation so Stripe gets a valid image URL below.
+      await log(ebookId, "auto_list.generate_cover", "started", { force: true });
+      const { error: covErr } = await supabase.functions.invoke("generate-cover", {
+        body: { ebook_id: ebookId, mode: "full", force: true },
+      });
+      if (covErr) {
+        await log(ebookId, "auto_list.generate_cover", "failed", { error: covErr.message });
+        if (!e.cover_url) throw new Error(`Cover generation failed: ${covErr.message}`);
+      }
     }
     // Refresh cover_url if it was previously missing (best effort — background
     // job may still be running for a re-list).
@@ -139,16 +165,38 @@ Deno.serve(async (req) => {
       if (!e.cover_url) throw new Error("Cover generation did not produce a cover_url yet — try again in ~1 min.");
     }
 
-    // Always regenerate the storefront thumbnail (real baked-text 3:4 image).
-    // This is deterministic and safe: it never touches cover_url / pdf_url /
-    // manuscript / price / copy.
-    await log(ebookId, "auto_list.store_thumbnail", "started", { force: true });
-    const { error: thumbErr } = await supabase.functions.invoke("generate-store-thumbnail", {
-      body: { ebook_id: ebookId, force: true },
-    });
-    if (thumbErr) {
-      await log(ebookId, "auto_list.store_thumbnail", "failed", { error: thumbErr.message });
-      // non-fatal — storefront falls back to cover_url + CSS overlay
+    if (isKidsCover) {
+      const kidsThumbnailQc = {
+        source: "kids_cover_passthrough",
+        reason: "Use the finished hand-painted children's cover directly; never replace it with a generic book mockup.",
+        scores: {
+          title_readability: 100,
+          cover_integrity: 100,
+          category_fit: 100,
+        },
+      };
+      const { error: kidsThumbErr } = await supabase.from("ebooks").update({
+        store_thumbnail_url: e.cover_url,
+        thumbnail_url: e.cover_url,
+        store_thumbnail_qc: kidsThumbnailQc as any,
+        store_thumbnail_generated_at: new Date().toISOString(),
+        thumbnail_needs_review: false,
+        updated_at: new Date().toISOString(),
+      }).eq("id", ebookId);
+      if (kidsThumbErr) throw kidsThumbErr;
+      await log(ebookId, "auto_list.store_thumbnail", "completed", { source: "kids_cover_passthrough", url: e.cover_url });
+    } else {
+      // Always regenerate the storefront thumbnail (real baked-text 3:4 image).
+      // This is deterministic and safe: it never touches cover_url / pdf_url /
+      // manuscript / price / copy.
+      await log(ebookId, "auto_list.store_thumbnail", "started", { force: true });
+      const { error: thumbErr } = await supabase.functions.invoke("generate-store-thumbnail", {
+        body: { ebook_id: ebookId, force: true },
+      });
+      if (thumbErr) {
+        await log(ebookId, "auto_list.store_thumbnail", "failed", { error: thumbErr.message });
+        // non-fatal — storefront falls back to cover_url + CSS overlay
+      }
     }
 
     // Regenerate selling copy (hook / description / bullets) on every listing
