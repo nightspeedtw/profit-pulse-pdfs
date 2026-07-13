@@ -5,7 +5,7 @@ import { pickStyle, markStyleUsed } from '../_shared/style-picker.ts';
 import { buildScenePlan, renderInteriorIllustrations } from '../_shared/kids-interior.ts';
 import { buildPicturePdf } from '../_shared/kids-picture-pdf.ts';
 import { runKidsStoryJudge } from '../_shared/kids-story-judge.ts';
-import { detectBibleStoryMismatch } from '../_shared/bible-story-mismatch.ts';
+import { detectBibleStoryMismatch, detectMetadataStoryMismatch, METADATA_STORY_MISMATCH } from '../_shared/bible-story-mismatch.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -31,6 +31,7 @@ const STEPS: Step[] = [
   { name: 'generate_idea', label: 'Generate story idea', critical: true, run: generateIdea },
   { name: 'generate_manuscript', label: 'Write manuscript', critical: true, run: generateManuscript },
   { name: 'story_gate', label: 'Story judge gate (before art)', critical: true, run: storyGate },
+  { name: 'metadata_gate', label: 'Metadata/manuscript alignment gate', critical: true, run: metadataGate },
   { name: 'bible_check', label: 'Bible/story hero match check', critical: true, run: bibleCheck },
   { name: 'generate_cover', label: 'Design cover', run: generateCover },
   { name: 'generate_style_bible', label: 'Lock style bible', critical: true, run: generateStyleBible },
@@ -139,16 +140,17 @@ Deno.serve(async (req) => {
         break;
       }
 
-      // Hard stop: bible/story mismatch means any downstream art would use the
-      // wrong character. Halt and require human_review so we do not spend image cost.
-      if (step.name === 'bible_check' && outcome.status === 'failed') {
+      // Hard stop: bible/story or metadata/story mismatch means any downstream
+      // art would use the wrong character/premise. Halt and require
+      // human_review so we do not spend image cost.
+      if ((step.name === 'bible_check' || step.name === 'metadata_gate') && outcome.status === 'failed') {
         await supabase.from('ebooks_kids').update({
           listing_status: 'draft',
           status: 'needs_revision',
           pipeline_status: 'human_review_required',
-          human_review_reason: outcome.error ?? 'BIBLE_STORY_MISMATCH',
+          human_review_reason: outcome.error ?? (step.name === 'metadata_gate' ? METADATA_STORY_MISMATCH : 'BIBLE_STORY_MISMATCH'),
         }).eq('id', ctx.ebookId);
-        console.log(`bible_check blocked pipeline: ${outcome.error}`);
+        console.log(`${step.name} blocked pipeline: ${outcome.error}`);
         break;
       }
 
@@ -299,6 +301,64 @@ async function storyGate(ctx: Ctx): Promise<StepResult> {
     throw new Error(`${STORY_GATE_BLOCK}: ${blockers.join(', ')}`);
   }
   return { output: { passed: true, generic_risk: report.generic_story_risk_score, subscores: sc.story_gate } };
+}
+
+// Metadata/manuscript alignment guardrail. Runs BEFORE bible_check so that
+// stale title/description (left over from a prior book or a superseded
+// storyline) cannot seed the character bible with the wrong hero. If the
+// mismatch is safe to auto-repair (manuscript has a clear hero + terms), we
+// regenerate title/description from the manuscript in-place and let the
+// pipeline continue. If unsafe, we hard-fail so a human can intervene.
+async function metadataGate(ctx: Ctx): Promise<StepResult> {
+  const db = ctx.supabase;
+  const manuscript = String(ctx.ebook.manuscript_md ?? '').trim();
+  if (!manuscript) {
+    // Nothing to compare against; skip. bible_check will still guard.
+    return { output: { skipped: true, reason: 'no manuscript' } };
+  }
+  const report = detectMetadataStoryMismatch({
+    manuscript,
+    title: (ctx.ebook.title as string | null) ?? null,
+    description: (ctx.ebook.description as string | null) ?? null,
+    storefrontMeta: (ctx.ebook.storefront_meta as Record<string, unknown> | null) ?? null,
+  });
+  if (!report.mismatch) {
+    return { output: { ok: true, ...report } };
+  }
+  if (report.repair_action === 'hard_block') {
+    throw new Error(`${METADATA_STORY_MISMATCH}: ${report.reason}`);
+  }
+  // Safe auto-sync: regenerate title/description from the manuscript so the
+  // downstream bible prompt sees aligned inputs.
+  console.warn(`metadata_gate auto-sync: ${report.reason}`);
+  try {
+    const sysMsg = "You are a picture-book editor. English only. JSON only, no markdown. The hero name MUST appear verbatim in the manuscript.";
+    const userMsg = `Read this manuscript and produce aligned commercial metadata.\n\nMANUSCRIPT:\n"""\n${manuscript.slice(0, 4000)}\n"""\n\nReturn JSON exactly: {"title":"","subtitle":"","description":"","hero_name":""}`;
+    const raw = await callAI(userMsg, sysMsg);
+    const meta = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, '').trim()) as Record<string, string>;
+    const hero = String(meta.hero_name ?? '').trim();
+    if (!hero || !new RegExp(`\\b${hero.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\b`, 'i').test(manuscript)) {
+      throw new Error(`${METADATA_STORY_MISMATCH}: auto-sync produced hero "${hero}" not in manuscript`);
+    }
+    const existingMeta = (ctx.ebook.storefront_meta ?? {}) as Record<string, unknown>;
+    await db.from('ebooks_kids').update({
+      title: String(meta.title ?? '').trim() || (ctx.ebook.title as string) || 'Untitled',
+      subtitle: (String(meta.subtitle ?? '').trim() || null),
+      description: String(meta.description ?? '').trim() || (ctx.ebook.description as string) || '',
+      storefront_meta: {
+        ...existingMeta,
+        hero_name: hero,
+        metadata_synced_from_manuscript: true,
+        metadata_synced_at: new Date().toISOString(),
+      },
+    }).eq('id', ctx.ebookId);
+    // Reload ebook so next step sees synced state.
+    const { data: fresh } = await db.from('ebooks_kids').select('*').eq('id', ctx.ebookId).single();
+    if (fresh) ctx.ebook = fresh;
+    return { output: { ok: true, auto_synced: true, new_title: meta.title, hero, ...report }, fallbackUsed: true };
+  } catch (e) {
+    throw new Error(`${METADATA_STORY_MISMATCH}: auto-sync failed: ${(e as Error).message}`);
+  }
 }
 
 // Bible/story hero-match guardrail. Runs after the story judge and BEFORE any
