@@ -1,5 +1,11 @@
 // LLM-based story/age/reread judge for kids picture books.
 // Reads the actual manuscript + page plan and returns evidence-backed scores.
+//
+// v2 CALIBRATION (2026-07-13): the earlier prompt never told the model the
+// polarity of `generic_story_risk_score` or what "generic" means, so the model
+// clustered mid-range (60-75) for every premise regardless of actual
+// distinctiveness. This version adds explicit polarity, rubric anchors,
+// familiar-object non-penalty rules, subscores, and few-shot examples.
 
 import type { RawFinding } from "./pdf-preflight.ts";
 
@@ -13,9 +19,22 @@ export interface StoryReport {
   language_level_score: number;
   page_turn_rhythm_score: number;
   parent_buyer_value_score: number;
-  generic_story_risk_score: number; // 0=unique, 100=generic
+  // Subscores that feed generic_story_risk_score (higher = more specific, EXCEPT trope_dependency where higher = worse).
+  premise_specificity_score: number;
+  story_engine_specificity_score: number;
+  visual_hook_specificity_score: number;
+  retitle_resistance_score: number;
+  trope_dependency_score: number;
+  generic_story_risk_score: number; // 0 = distinctive/unique, 100 = extremely generic
   story_qc_passed: boolean;
   evidence: Array<{ dimension: string; quote?: string; page?: number; reason: string; repair_action: string }>;
+  generic_risk_analysis?: {
+    distinctive_details: string[];
+    generic_details: string[];
+    could_be_retitled: boolean;
+    specific_page_turn_moments: string[];
+  };
+  judge_version?: string;
   computed_at: string;
 }
 
@@ -27,10 +46,77 @@ export interface RunStoryJudgeOpts {
   page_texts?: string[];
 }
 
-const SYSTEM = `You are a strict children's book editor and buyer. You judge a real manuscript, not marketing metadata.
+const JUDGE_VERSION = "v2-2026-07-13";
+
+const SYSTEM = `You are a strict but FAIR children's picture book editor and buyer.
+You judge a real manuscript, not marketing metadata.
 Assign integer 0-100 scores. Provide EVIDENCE for every dimension: a short quote and/or page number and a reason.
 Never give a score without evidence. If you cannot find evidence, score low and explain what is missing.
-Return ONLY JSON. No markdown fences.`;
+Return ONLY JSON. No markdown fences.
+
+CRITICAL SCORING RULES:
+
+1. POLARITY of generic_story_risk_score:
+   - 0  = highly distinctive, non-generic, hard to confuse with any other picture book
+   - 25 = clearly distinctive with a specific story engine and visual hook
+   - 50 = mixed: has some specific engine but plot could exist with different props
+   - 75 = generic: the story can be retitled around another object with little plot change
+   - 100 = extremely generic: pure trope with no distinctive engine (e.g. "child learns lesson from moon")
+   LOWER IS BETTER. Do NOT invert this scale.
+
+2. Do NOT penalize a story merely because it uses a familiar kid-friendly noun such as
+   moon, star, tooth, sock, sandwich, umbrella, button, jar, animal, kitchen, invention,
+   bedtime, or lunchbox. Penalize ONLY if the story ENGINE and PAGE-TURNS are
+   generic and interchangeable. Familiar categories are ALLOWED if the execution is specific.
+
+3. Distinguish:
+   - "familiar category" (bedtime, invention, cozy object) — NOT a penalty by itself
+   - "familiar object" (moon, tooth, sock) — NOT a penalty by itself
+   - "generic execution" (interchangeable plot beats, moral-of-the-story ending) — YES penalty
+   - "distinctive story engine" (a specific mechanic that drives every page-turn) — CREDIT
+   - "unique visual hook" (a concrete image repeated with variation) — CREDIT
+
+4. Subscores you must compute (higher is more specific, EXCEPT trope_dependency):
+   - premise_specificity_score (0-100, higher = premise cannot exist without its specific elements)
+   - story_engine_specificity_score (0-100, higher = the mechanic on each page requires this premise)
+   - visual_hook_specificity_score (0-100, higher = the visual image is concrete and repeatable)
+   - retitle_resistance_score (0-100, higher = swapping the noun would break the plot)
+   - trope_dependency_score (0-100, higher = more dependent on well-worn tropes)
+
+5. Derive generic_story_risk_score from the subscores. Rough formula:
+   generic_story_risk ≈ round( (100 - premise_specificity)*0.15
+                              + (100 - story_engine_specificity)*0.30
+                              + (100 - visual_hook_specificity)*0.15
+                              + (100 - retitle_resistance)*0.25
+                              + trope_dependency*0.15 )
+   Then adjust ±10 based on evidence. Never assign generic_story_risk without justifying it in generic_risk_analysis.
+
+RUBRIC ANCHORS with examples:
+
+--- generic_story_risk 0-25 (distinctive / low risk) ---
+Traits: a specific story engine that cannot be swapped without changing the plot;
+protagonist, object, world, conflict, and page-turn structure are tightly connected;
+concrete repeatable visual hook; NOT merely "a child learns a lesson" with interchangeable props.
+Familiar categories are allowed if the engine is specific.
+Examples:
+  A sneeze-powered sock sorter that creates mismatched sock characters and a sorting-by-story parade.
+  A lunch sandwich that rearranges itself into obstacle-course layers with specific food-character rules.
+  A tiny elevator inside a cereal box that takes siblings to different breakfast planets.
+  A wobbly tooth that is literally the physical KEY to a wormhole in the bathroom sink, escalating sink gags.
+
+--- generic_story_risk 40-60 (moderate risk) ---
+Traits: concrete object or setting exists, but the plot could still be retitled easily;
+some page-turns are specific but the emotional arc is common;
+familiar children's-book trope plus one twist.
+
+--- generic_story_risk 75-100 (high risk / generic) ---
+Traits: the story can be retitled around another object with little plot change; interchangeable moral lesson.
+Examples:
+  Moon helps child sleep by watching over them.
+  Child names feelings with a comforting object.
+  Toy/animal learns it is okay to be different.
+  Generic "invention goes wrong, kid learns lesson" WITHOUT a specific mechanical rule.
+  Cozy bedtime object that hums lullabies.`;
 
 const SCHEMA_HINT = `Return JSON exactly like:
 {
@@ -41,7 +127,18 @@ const SCHEMA_HINT = `Return JSON exactly like:
  "language_level_score": 0,
  "page_turn_rhythm_score": 0,
  "parent_buyer_value_score": 0,
+ "premise_specificity_score": 0,
+ "story_engine_specificity_score": 0,
+ "visual_hook_specificity_score": 0,
+ "retitle_resistance_score": 0,
+ "trope_dependency_score": 0,
  "generic_story_risk_score": 0,
+ "generic_risk_analysis": {
+   "distinctive_details": ["what exact details make it distinctive"],
+   "generic_details": ["what exact details feel generic"],
+   "could_be_retitled": false,
+   "specific_page_turn_moments": ["page-turn moments that are specific to THIS premise"]
+ },
  "evidence": [
    {"dimension":"age_appropriateness","quote":"...","page":3,"reason":"...","repair_action":"none|rewrite_page|rewrite_ending|simplify_vocab|add_refrain|rewrite_manuscript"}
  ]
@@ -66,7 +163,9 @@ ${opts.manuscript_md.slice(0, 8000)}
 PAGE PLAN (if available):
 ${pagePlan || "(not available)"}
 
-Judge this book strictly. ${SCHEMA_HINT}`;
+Judge this book strictly and FAIRLY per the rubric above.
+Remember: LOW generic_story_risk_score means DISTINCTIVE. Do not default to mid-range if the story has a specific engine.
+${SCHEMA_HINT}`;
 
   const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
@@ -92,9 +191,16 @@ Judge this book strictly. ${SCHEMA_HINT}`;
     language_level_score: num(parsed.language_level_score),
     page_turn_rhythm_score: num(parsed.page_turn_rhythm_score),
     parent_buyer_value_score: num(parsed.parent_buyer_value_score),
+    premise_specificity_score: num(parsed.premise_specificity_score),
+    story_engine_specificity_score: num(parsed.story_engine_specificity_score),
+    visual_hook_specificity_score: num(parsed.visual_hook_specificity_score),
+    retitle_resistance_score: num(parsed.retitle_resistance_score),
+    trope_dependency_score: num(parsed.trope_dependency_score),
     generic_story_risk_score: num(parsed.generic_story_risk_score),
     story_qc_passed: false,
     evidence: Array.isArray(parsed.evidence) ? (parsed.evidence as StoryReport["evidence"]) : [],
+    generic_risk_analysis: (parsed.generic_risk_analysis ?? undefined) as StoryReport["generic_risk_analysis"],
+    judge_version: JUDGE_VERSION,
     computed_at: new Date().toISOString(),
   };
   report.story_qc_passed =
@@ -137,7 +243,17 @@ export function storyReportToFindings(s: StoryReport): RawFinding[] {
     category: "story_structure",
     severity: genericPassed ? "minor" : "critical",
     passed: genericPassed,
-    measured_value: { generic_story_risk: s.generic_story_risk_score },
+    measured_value: {
+      generic_story_risk: s.generic_story_risk_score,
+      subscores: {
+        premise_specificity: s.premise_specificity_score,
+        story_engine_specificity: s.story_engine_specificity_score,
+        visual_hook_specificity: s.visual_hook_specificity_score,
+        retitle_resistance: s.retitle_resistance_score,
+        trope_dependency: s.trope_dependency_score,
+      },
+      analysis: s.generic_risk_analysis,
+    },
     threshold: { max: 25 },
     repair_action: genericPassed ? undefined : "rewrite_manuscript_for_originality",
   });
