@@ -231,7 +231,7 @@ function BlockerSummary({ e }: { e: QueueEbook }) {
 
   return (
     <div className="rounded-md border border-amber-500/30 bg-amber-50/50 p-2 text-xs text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
-      <div className="font-medium">ติดตรงไหน / Current blocker</div>
+      <div className="font-medium">Current blocker</div>
       <div className="mt-1 space-y-0.5">
         {gate && (
           <div>
@@ -244,7 +244,7 @@ function BlockerSummary({ e }: { e: QueueEbook }) {
         {reason && <div>{reason}</div>}
         {e.blocker_class && <div>Type: {e.blocker_class}</div>}
         {action && <div>Auto action: {action}</div>}
-        {e.next_retry_at && <div>ลองใหม่: {untilRetry(e.next_retry_at)}</div>}
+        {e.next_retry_at && <div>Retry: {untilRetry(e.next_retry_at)}</div>}
       </div>
     </div>
   );
@@ -253,10 +253,10 @@ function BlockerSummary({ e }: { e: QueueEbook }) {
 function SectionA({ items }: { items: QueueEbook[] }) {
   return (
     <SectionShell
-      title="AI กำลังทำเล่มนี้อยู่ · Currently Working On"
+      title="Currently working on"
       icon={<Activity className="h-4 w-4 text-primary" />}
       count={items.length}
-      empty="ยังไม่มีเล่มที่กำลังผลิตอยู่ตอนนี้"
+      empty="No books in production right now"
     >
       <div className="space-y-3">
         {items.map((e) => {
@@ -279,7 +279,7 @@ function SectionA({ items }: { items: QueueEbook[] }) {
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
                     {view.label}
-                    {e.current_step ? ` · ขั้นตอน: ${e.current_step}` : ""}
+                    {e.current_step ? ` · Step: ${e.current_step}` : ""}
                     {e.current_subtask ? ` · ${e.current_subtask}` : ""}
                   </div>
                 </div>
@@ -310,10 +310,10 @@ function SectionA({ items }: { items: QueueEbook[] }) {
 function SectionB({ items, currentTitle }: { items: QueueEbook[]; currentTitle: string | null }) {
   return (
     <SectionShell
-      title="เล่มต่อคิว · Queued Next"
+      title="Queued next"
       icon={<Clock className="h-4 w-4 text-muted-foreground" />}
       count={items.length}
-      empty="ไม่มีเล่มรอคิวอยู่"
+      empty="No books queued"
     >
       <ul className="space-y-2">
         {items.map((e, i) => (
@@ -323,8 +323,8 @@ function SectionB({ items, currentTitle }: { items: QueueEbook[]; currentTitle: 
                 #{e.queue_position ?? i + 1} {e.title ?? `Ebook ${e.id.slice(0, 8)}`}
               </div>
               <div className="text-xs text-muted-foreground">
-                {e.waiting_reason ?? "รอช่องผลิตว่าง"}
-                {currentTitle ? ` — เริ่มหลังจาก "${currentTitle}"` : ""}
+                {e.waiting_reason ?? "Waiting for a production slot"}
+                {currentTitle ? ` — starts after "${currentTitle}"` : ""}
               </div>
             </div>
             <Badge variant="outline">รอคิว</Badge>
@@ -338,10 +338,10 @@ function SectionB({ items, currentTitle }: { items: QueueEbook[]; currentTitle: 
 function SectionC({ items }: { items: QueueEbook[] }) {
   return (
     <SectionShell
-      title="ติด limit แต่ระบบจะลองใหม่เอง · Waiting / Auto Retry"
+      title="Rate-limited · will auto retry"
       icon={<PauseCircle className="h-4 w-4 text-amber-600" />}
       count={items.length}
-      empty="ไม่มีเล่มที่ติด limit"
+      empty="No rate-limited books"
     >
       <ul className="space-y-2">
         {items.map((e) => {
@@ -353,7 +353,7 @@ function SectionC({ items }: { items: QueueEbook[] }) {
                 <Badge variant="secondary">{v.label}</Badge>
               </div>
               <div className="text-xs text-muted-foreground">
-                {v.helper ?? "ระบบจะลองใหม่ให้อัตโนมัติ"} — ลองใหม่ {untilRetry(e.next_retry_at)}
+                {v.helper ?? "System will retry automatically"} — retry {untilRetry(e.next_retry_at)}
               </div>
               <div className="mt-2">
                 <BlockerSummary e={e} />
@@ -369,17 +369,17 @@ function SectionC({ items }: { items: QueueEbook[] }) {
 function SectionD({ items }: { items: QueueEbook[] }) {
   return (
     <SectionShell
-      title="ระบบกำลังแก้เอง · Auto-Fixing"
+      title="Auto-fixing"
       icon={<Wrench className="h-4 w-4 text-amber-600" />}
       count={items.length}
-      empty="ไม่มีเล่มที่ต้องซ่อมอัตโนมัติ"
+      empty="No books need auto-fix"
     >
       <ul className="space-y-2">
         {items.map((e) => (
           <li key={e.id} className="rounded-md border p-2 text-sm">
             <div className="font-medium">{e.title ?? `Ebook ${e.id.slice(0, 8)}`}</div>
             <div className="text-xs text-muted-foreground">
-              {e.current_subtask ?? e.current_action_message ?? "กำลังแก้ปัญหา"} — ครั้งที่ {e.autofix_attempt ?? e.structured_error?.attempt ?? 1}/
+              {e.current_subtask ?? e.current_action_message ?? "Fixing issue"} — attempt {e.autofix_attempt ?? e.structured_error?.attempt ?? 1}/
               {e.autofix_max ?? 3}
             </div>
             <div className="mt-2">
@@ -416,9 +416,9 @@ function SectionE({
     setDismissed((prev) => new Set(prev).add(id));
     try {
       await fetchAdminData("dismiss_fix", { fix_id: id });
-      toast.success("Bug ปิดแล้ว — จะไม่แสดงอีก");
+      toast.success("Bug closed — hidden from view");
     } catch (e) {
-      toast.error(`ปิดไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(`Close failed: ${e instanceof Error ? e.message : String(e)}`);
       setDismissed((prev) => {
         const n = new Set(prev);
         n.delete(id);
@@ -431,13 +431,13 @@ function SectionE({
 
   const dismissAll = async () => {
     if (sortedFixes.length === 0) return;
-    if (!confirm(`ปิดบั๊กทั้งหมด ${sortedFixes.length} รายการ?`)) return;
+    if (!confirm(`Closed all ${sortedFixes.length} items?`)) return;
     setDismissed(new Set(sortedFixes.map((f) => f.id)));
     try {
       await fetchAdminData("dismiss_all_fixes");
-      toast.success(`ปิดบั๊กทั้งหมด ${sortedFixes.length} รายการแล้ว`);
+      toast.success(`Closed all ${sortedFixes.length} bugs`);
     } catch (e) {
-      toast.error(`ปิดไม่สำเร็จ: ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(`Close failed: ${e instanceof Error ? e.message : String(e)}`);
       setDismissed(new Set());
     }
   };
@@ -464,23 +464,23 @@ function SectionE({
 
   return (
     <SectionShell
-      title="ระบบเจอบั๊ก เขียน prompt ให้ Lovable แก้โค้ด · Needs Code Fix"
+      title="System found bugs · Needs Code Fix"
       icon={<AlertTriangle className="h-4 w-4 text-destructive" />}
       count={count}
-      empty="ไม่พบบั๊กระดับโค้ด — Autopilot ทำงานปกติ"
+      empty="No code-level bugs — Autopilot healthy"
     >
       <div className="space-y-3">
         {sortedFixes.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 p-2 text-xs">
             <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">เรียงลำดับ:</span>
+              <span className="text-muted-foreground">Sort:</span>
               <Button
                 size="sm"
                 variant={sortOrder === "oldest" ? "default" : "outline"}
                 className="h-7 px-2 text-xs"
                 onClick={() => setSortOrder("oldest")}
               >
-                เจอก่อน (เก่าสุด)
+                First seen (oldest)
               </Button>
               <Button
                 size="sm"
@@ -488,7 +488,7 @@ function SectionE({
                 className="h-7 px-2 text-xs"
                 onClick={() => setSortOrder("newest")}
               >
-                เจอหลัง (ใหม่สุด)
+                First seen (newest)
               </Button>
             </div>
             <div className="flex gap-2">
@@ -498,7 +498,7 @@ function SectionE({
                 </Button>
               )}
               <Button size="sm" variant="outline" onClick={dismissAll} className="h-7 gap-1 text-xs">
-                <CheckCircle2 className="h-3 w-3" /> ปิดทั้งหมด
+                <CheckCircle2 className="h-3 w-3" /> Close all
               </Button>
             </div>
           </div>
@@ -523,7 +523,7 @@ function SectionE({
                   disabled={busy === f.id}
                   onClick={() => dismiss(f.id)}
                 >
-                  <CheckCircle2 className="h-3 w-3" /> แก้แล้ว / ปิดบั๊กนี้
+                  <CheckCircle2 className="h-3 w-3" /> Fixed / close this bug
                 </Button>
               </div>
             </div>
@@ -533,7 +533,7 @@ function SectionE({
           <div key={e.id} className="rounded-md border p-2 text-sm">
             <div className="font-medium">{e.title ?? e.id}</div>
             <div className="text-xs text-muted-foreground">
-              {e.waiting_reason ?? "รอ Lovable แก้โค้ด"}
+              {e.waiting_reason ?? "Waiting for Lovable code fix"}
             </div>
             <div className="mt-2">
               <BlockerSummary e={e} />
@@ -562,17 +562,17 @@ function SectionE({
 function SectionF({ needsAdmin }: { needsAdmin: QueueEbook[] }) {
   return (
     <SectionShell
-      title="ต้องให้แอดมินช่วย · Needs Admin"
+      title="Needs admin"
       icon={<AlertTriangle className="h-4 w-4 text-destructive" />}
       count={needsAdmin.length}
-      empty="ไม่มีปัญหาที่ต้องให้แอดมินเข้ามาแก้"
+      empty="No issues need admin"
     >
       <ul className="space-y-1 text-sm">
         {needsAdmin.map((e) => (
           <li key={e.id} className="rounded-md border p-2">
             <div className="font-medium">{e.title ?? e.id}</div>
             <div className="text-xs text-muted-foreground">
-              {e.waiting_reason ?? "ระบบแก้เองไม่ได้ ต้องให้แอดมินตัดสินใจ"}
+              {e.waiting_reason ?? "System can't self-heal — needs admin decision"}
             </div>
             <div className="mt-2">
               <BlockerSummary e={e} />
@@ -636,10 +636,10 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
 
   return (
     <SectionShell
-      title="พร้อมพรีวิว · Ready to Publish (100%)"
+      title="Ready to publish (100%)"
       icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
       count={items.length}
-      empty="ยังไม่มีเล่มที่ผลิตเสร็จ 100%"
+      empty="No books at 100% yet"
     >
       <div className="mb-4">
         <CoverStyleReferenceCard />
@@ -674,7 +674,7 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge className="bg-emerald-600 text-white gap-1">
-                    <CheckCircle2 className="h-3 w-3" /> 100% — พร้อมพรีวิว
+                    <CheckCircle2 className="h-3 w-3" /> 100% — ready
                   </Badge>
                   <span className="font-semibold truncate">
                     {e.title ?? `Ebook ${e.id.slice(0, 8)}`}
@@ -687,7 +687,7 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
                   {e.word_count != null && (
                     <span>{e.word_count.toLocaleString()} words</span>
                   )}
-                  {!pdfReady && <span className="text-amber-600">PDF ยังไม่พร้อม</span>}
+                  {!pdfReady && <span className="text-amber-600">PDF not ready</span>}
                 </div>
               </div>
               <div className="w-full">
@@ -701,7 +701,7 @@ function SectionReady({ items }: { items: QueueEbook[] }) {
                   className="gap-2"
                 >
                   <Download className="h-4 w-4" />
-                  {busy === e.id ? "กำลังโหลด…" : "Download PDF"}
+                  {busy === e.id ? "Loading…" : "Download PDF"}
                 </Button>
                 <Button
                   size="sm"

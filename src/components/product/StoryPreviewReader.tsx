@@ -80,7 +80,7 @@ export default function StoryPreviewReader({
                   "..."}
               </p>
               <p className="mt-auto pt-4 font-mono text-xs text-muted-foreground">
-                — หน้า {currentSpread.page} / {total}
+                — page {currentSpread.page} / {total}
               </p>
             </div>
           </div>
@@ -103,14 +103,14 @@ export default function StoryPreviewReader({
           disabled={step === 0}
           className="gap-2"
         >
-          <ChevronLeft className="h-4 w-4" /> ก่อนหน้า
+          <ChevronLeft className="h-4 w-4" /> Previous
         </Button>
         <div className="flex gap-1.5">
           {Array.from({ length: stepsCount }).map((_, i) => (
             <button
               key={i}
               onClick={() => setStep(i)}
-              aria-label={`ไปหน้า ${i + 1}`}
+              aria-label={`Go to page ${i + 1}`}
               className={`h-2 w-6 border border-foreground transition-all ${
                 i === step ? "bg-accent-foreground" : "bg-background hover:bg-muted"
               }`}
@@ -122,7 +122,7 @@ export default function StoryPreviewReader({
           disabled={step >= stepsCount - 1}
           className="gap-2"
         >
-          หน้าถัดไป <ChevronRight className="h-4 w-4" />
+          Next <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
     </section>
@@ -159,24 +159,24 @@ function CliffhangerLock({
           <Lock className="h-6 w-6" />
         </div>
         <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-          หน้าถัดไปถูกล็อก
+          Next pages are locked
         </p>
         <h3 className="font-display text-2xl md:text-3xl uppercase leading-tight max-w-xl">
-          {hook ?? "อยากรู้ว่าเรื่องราวจะไปทางไหนต่อ? อ่านต่อได้ในเล่มเต็ม"}
+          {hook ?? "Want to know what happens next? Continue in the full book"}
         </h3>
         {remainingPages > 0 && (
           <p className="text-sm text-muted-foreground">
-            เหลืออีก <strong>{remainingPages} หน้า</strong> รอคุณเปิดอ่าน
+            Still <strong>{remainingPages} pages</strong> waiting for you
           </p>
         )}
         <div className="w-full max-w-sm space-y-3 pt-2">
           <Button onClick={onBuy} className="h-14 w-full gap-2 text-base">
             <Download className="h-5 w-5" />
-            รู้คำตอบเดี๋ยวนี้ · {priceLabel}
+            Get the full story · {priceLabel}
           </Button>
           <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <Mail className="h-3.5 w-3.5" />
-            ส่งเข้าอีเมลของคุณภายใน 1 นาทีหลังชำระ
+            Delivered to your email within 1 minute of purchase
           </p>
         </div>
       </div>

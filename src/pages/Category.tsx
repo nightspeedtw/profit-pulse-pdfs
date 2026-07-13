@@ -33,10 +33,10 @@ const Category = () => {
               <Baby className="h-8 w-8 shrink-0" strokeWidth={2} />
               <div>
                 <p className="font-display uppercase text-lg leading-tight">
-                  เข้าสู่ Kids Hub
+                  Enter Kids Hub
                 </p>
                 <p className="text-xs font-mono opacity-70 mt-1">
-                  ตัวกรองตามวัย + ธีม ค้นหาหนังสือเด็กได้ตรงใจกว่า
+                  Filter by age and theme — find kids books faster
                 </p>
               </div>
             </div>
