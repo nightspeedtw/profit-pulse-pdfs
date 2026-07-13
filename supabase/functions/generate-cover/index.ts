@@ -21,9 +21,13 @@ type EbookRow = {
   category_id: string | null;
 };
 
-function isKidsPictureBook(input: { title?: string | null; category?: string | null }) {
-  const haystack = [input.title, input.category].filter(Boolean).join(" ").toLowerCase();
-  return /kid|kids|child|children|picture\s*book|storybook|illustrated\s*story|nursery|bedtime/.test(haystack);
+function isKidsPictureBook(input: { title?: string | null; category?: string | null; subtitle?: string | null; hook?: string | null }) {
+  return isKidsPictureBookShared({
+    title: input.title,
+    subtitle: input.subtitle,
+    category: input.category,
+    hook: input.hook,
+  });
 }
 
 const COVER_DESIGNER_SYSTEM = `You are a world-class ebook cover designer, premium brand strategist, buyer psychology expert, and conversion-focused digital product marketer for USA Shopify.
