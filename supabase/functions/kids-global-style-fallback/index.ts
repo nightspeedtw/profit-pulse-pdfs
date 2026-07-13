@@ -51,11 +51,12 @@ Deno.serve(async (req) => {
     const ebook_id: string = body.ebook_id;
     const requestedSlug: string | null = body.new_style_slug ?? null;
     const publish_if_sellable: boolean = body.publish_if_sellable !== false;
-    const stage: 'all' | 'style_and_cover' | 'interiors' | 'pdf_and_qc' = body.stage ?? 'all';
+    const stage: 'all' | 'style_and_cover' | 'interiors' | 'pdf' | 'qc_and_publish' | 'pdf_and_qc' = body.stage ?? 'all';
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
     const runStyle = stage === 'all' || stage === 'style_and_cover';
     const runInteriors = stage === 'all' || stage === 'interiors';
-    const runPdfQc = stage === 'all' || stage === 'pdf_and_qc';
+    const runPdf = stage === 'all' || stage === 'pdf' || stage === 'pdf_and_qc';
+    const runQc = stage === 'all' || stage === 'qc_and_publish' || stage === 'pdf_and_qc';
 
     const { data: ebook, error } = await db.from('ebooks_kids').select('*').eq('id', ebook_id).single();
     if (error || !ebook) return json({ ok: false, error: 'ebook not found' }, 404);
