@@ -807,7 +807,7 @@ Deno.serve(async (req) => {
     const resolvedMode: CoverMode = mode ?? (regenerate_spec === false ? "background" : "full");
 
     const { data: e } = await db.from("ebooks")
-      .select("id,title,subtitle,target_buyer,hook,product_description,cover_prompt,cost_usd,status,qc,cover_spec,category_id")
+      .select("id,title,subtitle,target_buyer,hook,product_description,cover_prompt,cost_usd,status,qc,cover_spec,category_id,kids_visual_bible")
       .eq("id", ebook_id).single();
     if (!e) throw new Error("Ebook not found");
 
