@@ -930,6 +930,14 @@ export function buildKidsPictureBookHtml(data: PdfData): string {
       <div class="kb-end__mark">The End</div>
       <div class="kb-end__tag">A bedtime story · SECRET PDF</div>
     </div>
+  </section>
+  <section class="kb-page kb-about">
+    <div class="kb-about__inner">
+      <div class="kb-about__title">About this story</div>
+      ${subtitle ? `<div class="kb-about__sub">${subtitle}</div>` : ""}
+      <p class="kb-about__body">A read-aloud picture book for little ones ages 4–7. Every page is illustrated in a single warm storybook style so ${title} feels like one cozy bedtime world from cover to cover.</p>
+      <div class="kb-about__brand">SECRET PDF · Storybook Series</div>
+    </div>
   </section>`;
 
   return `<!doctype html>
@@ -988,6 +996,14 @@ export function buildKidsPictureBookHtml(data: PdfData): string {
     font-size: 44pt; color: #a04a1e; margin-bottom: 18pt; }
   .kb-end__tag { font-family: 'Nunito', sans-serif; font-size: 10pt; letter-spacing: 0.2em;
     text-transform: uppercase; color: #8a7554; }
+
+  /* About page. */
+  .kb-about { background: #fdf6e6; display: flex; align-items: center; justify-content: center; padding: 0.9in; }
+  .kb-about__inner { text-align: center; max-width: 6.2in; }
+  .kb-about__title { font-family: 'Fraunces', serif; font-weight: 700; font-size: 22pt; color: #2b1f14; margin-bottom: 6pt; }
+  .kb-about__sub { font-family: 'Fraunces', serif; font-style: italic; font-size: 13pt; color: #6b5236; margin-bottom: 22pt; }
+  .kb-about__body { font-family: 'Nunito', sans-serif; font-size: 12pt; line-height: 1.7; color: #4a3826; margin: 0 auto 28pt; }
+  .kb-about__brand { font-family: 'Nunito', sans-serif; font-size: 10pt; letter-spacing: 0.2em; text-transform: uppercase; color: #8a7554; }
 </style>
 </head>
 <body>
