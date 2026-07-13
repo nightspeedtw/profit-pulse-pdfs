@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { fetchStorefrontById, type StorefrontEbook } from "@/lib/storefront";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, Download } from "lucide-react";
 import { freeDownload } from "@/lib/freeDownload";
+import BookPreviewCarousel from "@/components/BookPreviewCarousel";
+import PlatformTrustSection from "@/components/PlatformTrustSection";
 
 export default function Product() {
   const { handle } = useParams();
   const [product, setProduct] = useState<StorefrontEbook | null>(null);
   const [loading, setLoading] = useState(true);
+  const buyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!handle) return;
@@ -34,6 +37,12 @@ export default function Product() {
     );
   }
 
+  const price = product.price != null ? Number(product.price) : null;
+  const isFree = price === 0 || price == null;
+  const previewImages = product.preview_images ?? [];
+
+  const scrollToBuy = () => buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+
   return (
     <div className="container py-8 max-w-5xl">
       <Link to="/library" className="inline-flex items-center gap-2 text-sm font-mono uppercase mb-6 hover:underline">
@@ -57,16 +66,16 @@ export default function Product() {
             </p>
           )}
 
-          <h1 className="font-display text-4xl uppercase leading-tight">{product.title}</h1>
-          {(() => {
-            const price = product.price != null ? Number(product.price) : null;
-            const isFree = price === 0 || price == null;
-            return (
-              <p className="font-display text-3xl text-accent-foreground">
-                {isFree ? "FREE" : `$${price!.toFixed(2)}`}
-              </p>
-            );
-          })()}
+          <h1 className="font-display text-4xl uppercase leading-tight break-words">
+            {product.title}
+          </h1>
+
+          <div className="inline-block border-2 border-foreground bg-background px-4 py-2">
+            <p className="font-display text-3xl md:text-4xl font-black text-foreground tracking-tight">
+              {isFree ? "FREE" : `$${price!.toFixed(2)}`}
+            </p>
+          </div>
+
           <div className="prose prose-sm max-w-none whitespace-pre-wrap">
             {product.product_description ||
               product.shopping_card_description ||
@@ -83,15 +92,21 @@ export default function Product() {
               ))}
             </ul>
           )}
-          <div className="flex gap-3 pt-2">
+          <div ref={buyRef} className="flex gap-3 pt-2">
             <Button onClick={() => freeDownload(product.id, product.title)} className="h-14 flex-1 gap-2">
               <Download className="h-5 w-5" />
-              {product.price && Number(product.price) > 0 ? `Buy · $${Number(product.price).toFixed(2)}` : "Download PDF"}
+              {price && price > 0 ? `Buy · $${price.toFixed(2)}` : "Download PDF"}
             </Button>
           </div>
         </div>
       </div>
+
+      <div className="mt-12 space-y-12">
+        <BookPreviewCarousel images={previewImages} onBuyClick={scrollToBuy} />
+        <PlatformTrustSection />
+      </div>
     </div>
   );
 }
+
 
