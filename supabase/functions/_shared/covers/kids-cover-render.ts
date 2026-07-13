@@ -131,31 +131,31 @@ export function buildKidsCoverSVG(input: KidsCoverInputs): string {
   const longestLine = Math.max(...lines.map((l) => l.length));
   const titleFontSize = longestLine > 14 ? 130 : longestLine > 10 ? 156 : 180;
 
-  // Inline attributes only — resvg-wasm CSS class parsing on <text> is unreliable.
-  // Use widely-available fallback fonts (Arial Black stack) that resvg ships with,
-  // and rely on the thick stroke + drop shadow for the storybook feel.
-  const titleFontFamily = "'Arial Black', 'Helvetica Neue', Impact, sans-serif";
+  // Fonts are loaded into resvg via rasterizeKidsSVG (below). Use inline
+  // attributes only — resvg-wasm's CSS class parsing on <text> is unreliable.
+  const titleFontFamily = "Fredoka One";
+  const bodyFontFamily = "Baloo 2";
   const titleTspans = lines
     .map((line, i) => `<text x="${W / 2}" y="${titleY0 + i * lineGap}" text-anchor="middle"
-      font-family="${titleFontFamily}" font-weight="900" font-size="${titleFontSize}"
-      fill="${fill}" stroke="${stroke}" stroke-width="8" paint-order="stroke fill"
+      font-family="${titleFontFamily}" font-weight="400" font-size="${titleFontSize}"
+      fill="${fill}" stroke="${stroke}" stroke-width="10" paint-order="stroke fill"
       letter-spacing="1" filter="url(#titleShadow)">${esc(line)}</text>`)
     .join("\n");
 
-  const subtitleY = titleY0 + lines.length * lineGap + 40;
+  const subtitleY = titleY0 + lines.length * lineGap + 60;
   const subtitleEl = subtitle && subtitle.trim().length > 0
     ? `<text x="${W / 2}" y="${subtitleY}" text-anchor="middle"
-        font-family="'Arial Black', Helvetica, sans-serif" font-weight="700" font-size="54"
-        fill="${fill}" stroke="${stroke}" stroke-width="3" paint-order="stroke fill"
+        font-family="${bodyFontFamily}" font-weight="800" font-size="56"
+        fill="${fill}" stroke="${stroke}" stroke-width="4" paint-order="stroke fill"
         letter-spacing="2">${esc(subtitle.trim())}</text>`
     : "";
 
   const ageBadgeEl = ageBadge
     ? `
       <g transform="translate(${W - 320}, ${H - 140})">
-        <rect x="0" y="0" width="260" height="86" rx="43" ry="43" fill="${accent}" opacity="0.95" stroke="${stroke}" stroke-width="4"/>
-        <text x="130" y="58" text-anchor="middle" font-family="'Arial Black', Helvetica, sans-serif"
-              font-weight="900" font-size="38" fill="${stroke}" letter-spacing="2">
+        <rect x="0" y="0" width="260" height="86" rx="43" ry="43" fill="${accent}" opacity="0.95" stroke="${stroke}" stroke-width="5"/>
+        <text x="130" y="60" text-anchor="middle" font-family="${bodyFontFamily}"
+              font-weight="800" font-size="40" fill="${stroke}" letter-spacing="3">
           ${esc(ageBadge)}
         </text>
       </g>`
