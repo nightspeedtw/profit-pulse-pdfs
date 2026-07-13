@@ -6,6 +6,7 @@ import { buildScenePlan, renderInteriorIllustrations } from '../_shared/kids-int
 import { buildPicturePdf } from '../_shared/kids-picture-pdf.ts';
 import { runKidsStoryJudge } from '../_shared/kids-story-judge.ts';
 import { detectBibleStoryMismatch } from '../_shared/bible-story-mismatch.ts';
+import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -458,24 +459,66 @@ async function generateCover(ctx: Ctx): Promise<StepResult> {
     negative_prompt: `${negativePrompt}, text, letters, numbers, words, title, typography, watermark, logo, book mockup, ui, caption, subtitle, spine, gradient on white, glossy 3d blob, stock photo, six fingers, deformed hands, generic ai look`,
   });
 
-  const path = `kids/${ctx.ebookId}/cover.png`;
-  const up = await db.storage.from('ebook-covers').upload(path, coverBytes, {
+  // Upload the TEXTLESS AI master (used as the visual anchor for interior gen
+  // and as the input to the illustrated title-treatment compositor).
+  const masterPath = `kids/${ctx.ebookId}/cover-master.png`;
+  const upMaster = await db.storage.from('ebook-covers').upload(masterPath, coverBytes, {
+    contentType: 'image/png', upsert: true,
+  });
+  if (upMaster.error) throw upMaster.error;
+  const { data: masterSigned } = await db.storage.from('ebook-covers').createSignedUrl(masterPath, 60 * 60 * 24 * 365);
+  const coverMasterUrl = masterSigned?.signedUrl ?? null;
+
+  // Compose the illustrated title treatment (hand-lettered feel, layered
+  // stroke/shadow/highlight/texture, per-letter jitter, themed decorations).
+  // Title text comes from ctx.ebook.title verbatim — never from the AI model.
+  const styleBibleForPalette = (bible!.style_bible_json ?? {}) as Record<string, unknown>;
+  const palette = Array.isArray(styleBibleForPalette.palette)
+    ? (styleBibleForPalette.palette as string[])
+    : (Array.isArray((cb as Record<string, unknown>).palette) ? (cb as Record<string, string[]>).palette : []);
+  const ageBand = (ctx.ebook.storefront_meta as { admin_params?: { age_band?: string } } | null)?.admin_params?.age_band ?? null;
+  const treatment = await renderKidsTitleTreatment({
+    coverBg: coverBytes,
+    title: String(ctx.ebook.title ?? ''),
+    subtitle: (ctx.ebook.subtitle as string | null) ?? null,
+    description: (ctx.ebook.description as string | null) ?? null,
+    palette,
+    ageBadge: ageBand ? `AGES ${ageBand}` : null,
+    width: 1600,
+    height: 1600,
+  });
+
+  const composedPath = `kids/${ctx.ebookId}/cover.png`;
+  const up = await db.storage.from('ebook-covers').upload(composedPath, treatment.png, {
     contentType: 'image/png', upsert: true,
   });
   if (up.error) throw up.error;
-  const { data: pub } = await db.storage.from('ebook-covers').createSignedUrl(path, 60 * 60 * 24 * 365);
+  const { data: pub } = await db.storage.from('ebook-covers').createSignedUrl(composedPath, 60 * 60 * 24 * 365);
   const coverUrl = pub?.signedUrl ?? null;
 
-  // Store as cover master on the bible so interior generation uses the same visual anchor.
+  // Store both: textless master (interior anchor) + composed cover (product asset).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (db.from('kids_book_bibles') as any).update({
-    cover_master_url: coverUrl,
+    cover_master_url: coverMasterUrl,
   }).eq('ebook_id', ctx.ebookId);
 
+  const existingMeta = (ctx.ebook.storefront_meta ?? {}) as Record<string, unknown>;
   await db.from('ebooks_kids').update({
-    cover_url: coverUrl, status: 'rendering', pipeline_status: 'rendering',
+    cover_url: coverUrl,
+    status: 'rendering', pipeline_status: 'rendering',
+    storefront_meta: { ...existingMeta, title_treatment: treatment.metadata },
   }).eq('id', ctx.ebookId);
-  return { output: { path, style: styleSlug, ref_used: !!refUrl } };
+  return {
+    output: {
+      composed_path: composedPath,
+      master_path: masterPath,
+      style: styleSlug,
+      ref_used: !!refUrl,
+      title_theme: treatment.metadata.theme,
+      title_font_size: treatment.metadata.font_size,
+      lines: treatment.metadata.lines,
+    },
+  };
 }
 
 // ---------- Style bible (locked, drives interior style consistency) ----------

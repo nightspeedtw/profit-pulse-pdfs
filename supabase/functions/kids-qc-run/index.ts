@@ -12,6 +12,7 @@ import { runKidsVisionQc, visionReportToFindings } from "../_shared/kids-vision-
 import { runKidsStoryJudge, storyReportToFindings } from "../_shared/kids-story-judge.ts";
 import { computeVerdict } from "../_shared/qc/sellable.ts";
 import { QC_RULE_VERSION } from "../_shared/qc/weights.ts";
+import { verifyTitleSpelling, type TitleTreatmentMetadata } from "../_shared/covers/kids-title-treatment.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -26,7 +27,7 @@ Deno.serve(async (req) => {
 
     const { data: ebook, error } = await supabase
       .from("ebooks_kids")
-      .select("id, title, subtitle, cover_url, pdf_url, manuscript_md, page_count, thumbnail_url, preview_page_urls, interior_illustrations, style_bible_json, age_group_id")
+      .select("id, title, subtitle, cover_url, pdf_url, manuscript_md, page_count, thumbnail_url, preview_page_urls, interior_illustrations, style_bible_json, age_group_id, storefront_meta")
       .eq("id", ebook_id)
       .single();
     if (error || !ebook) return json({ error: "ebook not found" }, 404);
@@ -55,6 +56,29 @@ Deno.serve(async (req) => {
       min_interior: thresholds.min_interior,
       min_previews: thresholds.min_previews,
     }));
+
+    // ---- Title-treatment spelling gate ----
+    // Every kids cover MUST be composed with the illustrated title-treatment
+    // renderer, and the rendered title MUST match ebook.title exactly. This
+    // prevents any regression to plain-typed or AI-baked title covers.
+    const treatmentMeta = ((ebook.storefront_meta as Record<string, unknown> | null)?.title_treatment ?? null) as TitleTreatmentMetadata | null;
+    const spelling = verifyTitleSpelling((ebook.title as string) ?? "", treatmentMeta);
+    if (!spelling.pass) {
+      raw.push({
+        rule_id: "KIDS_TITLE_TREATMENT_INVALID",
+        category: "cover",
+        severity: "critical",
+        passed: false,
+        measured_value: {
+          expected: spelling.expected,
+          rendered: spelling.rendered,
+          reason: spelling.reason,
+          renderer: treatmentMeta?.renderer ?? null,
+        },
+        threshold: { must: "title_treatment_metadata_matches_ebook_title" },
+        repair_action: "rerun_kids_cover_title_treatment",
+      });
+    }
 
     // ---- VISION QC ----
     let visionReport: unknown = null;
@@ -155,6 +179,8 @@ Deno.serve(async (req) => {
         reasons: verdict.reasons,
         vision_report: visionReport,
         story_report: storyReport,
+        title_treatment: treatmentMeta,
+        title_spelling: spelling,
         computed_at: new Date().toISOString(),
       },
       human_review_reason: verdict.sellable ? null : verdict.reasons.join(" | "),
