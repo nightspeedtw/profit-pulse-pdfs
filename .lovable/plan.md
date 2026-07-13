@@ -1,113 +1,48 @@
-# Children Picture Book Autopilot — Production Upgrade
+# Productionize Kids Autopilot + Fresh End-to-End Run
 
-Goal: fix cover quality/consistency, add a real admin control, and produce one new picture book that either publishes live to the Internal Store or lands in `human_review_required` with exact reasons — never a soft-pass.
+Goal: turn the flow that shipped *The Sneeze-Powered Sock Sorter* into the default kids production path, expose one admin action, and smoke-test it by publishing one brand-new picture book — only if strict measured QC passes.
 
-## 1. Inspection first (no edits until this is done)
+## Part 1 — Lock production defaults (code)
 
-Read and report the current wiring for each responsibility so we extend, not replace:
+Edit `supabase/functions/autopilot-kids-pipeline/index.ts` (+ helpers) so every new kids run follows the exact sequence that worked:
 
-- Autopilot start → `autopilot-kids-orchestrator`, `autopilot-kids-pipeline`, `autopilot-kids` (older adult-guarded shim)
-- Category selection & weights → `kids_category_weights`, `kids_age_groups`, `kids_themes`, `kids-recompute-weights`
-- Story/manuscript → `rewrite-kids-manuscript`, `_shared/prompts/kids.ts`
-- Cover generation → `generate-cover`, `_shared/covers/kids-cover-render.ts`, `_shared/fal.ts`, `_shared/cover.ts`
-- Interior illustrations → `_shared/kids-visual-bible.ts`, `_shared/illustration-planner.ts`, `render-pdf`
-- PDF render → `render-pdf`, `_shared/pdf-template.ts`
-- Thumbnail → `generate-store-thumbnail`, `_shared/store-thumbnail.ts`
-- Final QC → `_shared/pdf-preflight.ts`, `_shared/qc/kids.ts`, `_shared/qc/kids-cover-qc.ts`, `kids-qc-run`
-- Publish → `auto-list-ebook`, `list-storefront`, `ebooks.listing_status`
-- Admin dashboard → `pages/admin/KidsAutopilot.tsx`, `KidsLibrary.tsx`, `KidsQcReport.tsx`, `ProductionCommandCenter.tsx`, `components/admin/OneClickAutopilotButton.tsx`
+```text
+concept → manuscript → story judge gate → metadata sync
+  → metadata/story mismatch gate → bible_check → style bible lock
+  → textless cover master → deterministic illustrated title treatment (baked PNG)
+  → 12 interior illustrations → 3 previews
+  → multi-stage PDF (prepare → 1_4 → 5_8 → 9_12 → finalize)
+  → measured kids QC → publish-if-qc-passed (Internal Store only)
+```
 
-Deliver the mapping in the run report.
+Concrete changes:
+- **Default style**: `_shared/style-picker.ts` / kids preset resolver → primary `watercolor_soft`, fallback `warm_storybook_gouache`. Remove `pixar_3d` from the kids default pool (keep selectable, not default).
+- **Story gate before art**: pipeline halts at `story judge` with the exact thresholds listed (age_appropriateness ≥90, story_coherence ≥90, emotional_payoff ≥85, reread_value ≥85, language_level ≥90, parent_buyer_value ≥85, generic_story_risk ≤25). No image spend until pass.
+- **Story judge cache**: reuse `storefront_meta.story_judge_cache` keyed by manuscript hash (helper already exists in `_shared/manuscript-hash.ts`). Skip re-run on hash match with a prior pass.
+- **Cover**: always textless master + deterministic illustrated title treatment baked into `cover.png`; same file used as thumbnail; persist `storefront_meta.title_treatment`; fail `KIDS_TITLE_TREATMENT_INVALID` on metadata/title mismatch.
+- **PDF**: default to the multi-stage builder (`kids-build-picture-pdf`) chained into `kids-publish-if-qc-passed`. Retire the single-shot path from the default flow.
+- **Measured QC**: the full critical-gate list (story pass, metadata gate, bible_check, title treatment, cover title spelling, character_consistency ≥90, cover_interior_match ≥90, style_bible_match ≥90, 12+ unique interiors, thumbnail, 3+ previews, valid PDF with extractable text, no glyph mangling, no placeholder art). No threshold is lowered.
 
-## 2. Cover + interior style lock (the real fix)
+## Part 2 — Admin one-click action
 
-Root cause of the Barnaby-quality gap: cover and interior use independent prompts, no shared reference image, no locked style bible.
+- Confirm `BuildKidsBookButton` (already exists) is mounted on **Kids Autopilot** (`src/pages/admin/KidsAutopilot.tsx`) with defaults preset to age band `4-6`, high illustration intensity, mode `full`, Internal Store only.
+- Rename displayed label to `Build Kids Picture Book`.
+- Show live per-stage progress (already rendered from `autopilot_kids_runs` / `autopilot_kids_steps`), blocker reason, and final Store URL.
+- No marketing/landing UI added.
 
-Changes:
+## Part 3 — Fresh end-to-end run
 
-- **Style Bible** — extend `kids_book_bibles` with `style_bible_json` (line quality, coloring, lighting, palette hexes, background detail, texture, framing, character proportions, title lettering direction, forbidden styles) and `cover_master_url` (the approved cover art, used as the visual anchor for every interior page).
-- **Character Bible v2** — expand `character_bible_json` schema to the immutable-identifier list in the spec (face shape, proportions, palette, silhouette, signature prop, forbidden variations, reference image URLs).
-- **Cover pipeline** (`generate-cover` kids branch):
-  1. Pick style preset via existing `style-picker.ts`
-  2. Generate a *character reference sheet* with Flux Schnell (front / 3-4 / expression) — store URL on the bible
-  3. Generate cover master with Recraft V3 image-to-image using the reference sheet as `image_url`, style-bible palette baked into prompt, textless background
-  4. Compose title lettering as a separate overlay (Canvas/SVG) so spelling can be verified/corrected without regen
-  5. Store `cover_master_url` before any interior art runs
-- **Interior pipeline** (`_shared/kids-visual-bible.ts` + `render-pdf`):
-  - Every page prompt injects character bible + style bible + `cover_master_url` as i2i reference (strength 0.5–0.6)
-  - Same Fal model family and palette as the cover
-  - Textless — body copy stays as real PDF text layers
-- **QC gate** (`_shared/qc/kids-cover-qc.ts` + new `cover-interior-match.ts`):
-  - Perceptual hash + palette-distance check between cover master and each interior page
-  - `cover_to_interior_match >= 90`, `character_consistency >= 90` are hard gates
-  - Failures repair only the affected artifact (regenerate one page, not the whole book)
+- Invoke `kids-book-start` with: age band `picture-book-4-6`, themes in a fresh lane (daytime funny adventure / animal buddy comedy / food-kitchen chaos / silly invention). Excluded lanes: bedtime, moon/star, emotion-regulation-only, tooth/bathroom, wormhole/portal, sock-sorter repeat.
+- Illustration intensity `high`, length `standard`, price `standard`, mode `full`.
+- Let the pipeline run. If any gate fails, keep `listing_status=draft`, `sellable=false`, report exact blocker + next repair action.
+- If all gates pass, publish to Internal Store and return the URL.
 
-Thresholds are not lowered. Existing `kidsPublishGate` stays.
+## Validation
 
-## 3. Admin control: "Build Children Picture Book"
+- `tsgo` typecheck.
+- Grep confirmations: no Shopify calls, no seeded/fake reviews, default kids style ≠ `pixar_3d`, story gate wired before any image generator, PDF path uses the multi-stage builder.
+- Verify fresh run either publishes after QC or stays draft with a recorded blocker.
 
-New component `src/components/admin/BuildKidsBookButton.tsx` placed on `ProductionCommandCenter` and the main admin Dashboard. Opens a dialog with:
+## Report back
 
-- Age band (All / 0-3 / 4-6 / 7-9 / 9-12 / 13+) — "All" internally picks one primary band + adjacent tags
-- Themes (multi-select, chips already exist in `ThemeChips.tsx`)
-- Language, target market, tone, book length, illustration intensity, price tier, autopilot mode (safe / full)
-
-Submits to a new thin edge function `kids-book-start` that:
-1. Creates the `ebooks_kids` row + `kids_production_queue` entry + `autopilot_kids_runs` row with the chosen params
-2. Fires `autopilot-kids-pipeline` fire-and-forget
-3. Returns `{ run_id, ebook_id }` for the UI to subscribe to live status
-
-The existing `KidsAutopilot.tsx` status view is upgraded to show: current stage, retries, cost, cover preview, interior thumbnails grid, per-page failure reasons, before/after repair evidence, sellability verdict, publish state, and per-artifact action buttons (regen page, re-run consistency, re-render PDF, approve, reject).
-
-## 4. Pipeline stage order (idempotent, resumable)
-
-`autopilot-kids-pipeline` orchestrates, persisting each stage to `autopilot_kids_steps`:
-
-market → concept → age/theme spec → story bible → character bible → style bible → page plan → manuscript → editorial QC → cover concept → cover master → interior illustrations → layout/typography → PDF render → visual+technical QC → targeted repair loop (max 3) → storefront assets → sellability gate → publish OR human_review_required.
-
-Resume logic reads the last completed step from `autopilot_kids_steps` on re-invoke.
-
-## 5. Commercial story standard
-
-Concept generator scores premise / hooks / curiosity gap / protagonist / conflict / page-turn / payoff / re-read / series / positioning. Reject and regenerate if differentiation < 85 (max 3 attempts, then human review).
-
-## 6. One live book run
-
-After the above ships and typechecks: invoke `kids-book-start` with Age 4-6, Themes [Animals & Nature, Friendship & Family], EN/US, warm-whimsical tone, high illustration intensity, autopilot=full. Watch to completion, then report every field the spec's "Report Back" section requires.
-
-## Technical section
-
-**Migrations**
-- `kids_book_bibles`: add `style_bible_json jsonb`, `cover_master_url text`, `character_reference_sheet_url text`
-- `autopilot_kids_runs`: add `params_json jsonb` (age band, themes, language, tone, length, illustration intensity, price tier, mode)
-- `qc_findings`: no schema change — already carries rule_id / severity / measured_value / threshold / evidence / repair_action
-- New table `kids_cover_interior_match` (run_id, page_number, phash_distance, palette_distance, score, passed) for evidence trail
-
-**New files**
-- `supabase/functions/kids-book-start/index.ts`
-- `supabase/functions/_shared/style-bible.ts`
-- `supabase/functions/_shared/cover-interior-match.ts` (pHash + palette distance via existing image fetch)
-- `supabase/functions/_shared/covers/kids-title-overlay.ts` (SVG title lettering composed over cover master)
-- `src/components/admin/BuildKidsBookButton.tsx` + dialog form
-- `src/components/admin/KidsRunDetail.tsx` (upgraded status/artifact view)
-
-**Edited files**
-- `supabase/functions/autopilot-kids-pipeline/index.ts` — insert style-bible + reference-sheet steps, chain cover master into interior generator
-- `supabase/functions/_shared/kids-visual-bible.ts` — accept `cover_master_url` as i2i anchor
-- `supabase/functions/_shared/covers/kids-cover-render.ts` — 2-step (ref sheet → cover master) with textless prompt + title overlay
-- `supabase/functions/_shared/qc/kids.ts` — add cover_to_interior_match + character_consistency as hard gates
-- `src/pages/admin/KidsAutopilot.tsx` and `ProductionCommandCenter.tsx` — mount new button + detail view
-- `src/pages/admin/Dashboard.tsx` — add the button in a prominent card
-
-**Cleanup (per prior turn's request)**
-- Remove unused admin surfaces after confirming no route depends on them: audit `AutopilotControl`, `AutopilotStatusCenter`, `LiveProductionQueue` for kids vs adult overlap and delete adult-only cruft that the current two-track goal (general ebooks + kids picture books) doesn't need. Done as a separate final commit so the pipeline work is reviewable in isolation.
-
-**Guardrails encoded in code, not prose**
-- `publish_live` is gated by `sellable === true && all_hard_gates_passed === true`
-- No fallback SVG cover path — remove any remaining `cover.svg` fallback in `_shared/cover.ts`
-- PDF preflight already rejects non-`%PDF-` bytes and placeholder markers; keep as-is
-- No review-seeding code paths anywhere
-
-## What I need from you before running
-
-Nothing — `FAL_API_KEY` and `LOVABLE_API_KEY` are already saved. I'll ship the code, run typecheck, deploy, and invoke one full run.
+Changed files, deployed functions, admin button confirmation, defaults locked, new ebook ID, title/subtitle/description, story judge scores, style slug, cover/thumbnail/PDF/preview URLs, page + illustration counts, price, measured QC scorecard, `listing_status`, `sellable`, Internal Store URL (if live), guardrail confirmations, and (if blocked) exact next blocker.
