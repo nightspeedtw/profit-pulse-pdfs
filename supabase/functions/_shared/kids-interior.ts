@@ -76,12 +76,28 @@ Return JSON: {"scenes":[{"scene":"...","emotion":"...","setting":"..."}, ...]}
 Return exactly ${target} scenes.`,
     "You are a picture book art director segmenting a story into illustration beats.",
   );
-  const parsed = JSON.parse(raw) as ScenePlan;
+  let parsed: ScenePlan;
+  try {
+    parsed = JSON.parse(raw) as ScenePlan;
+  } catch {
+    // Recover from malformed JSON by clipping to the last complete scene object
+    // in the "scenes" array — Gemini sometimes truncates mid-object.
+    const m = raw.match(/"scenes"\s*:\s*\[([\s\S]*)/);
+    const items: Array<{ scene: string; emotion: string; setting: string }> = [];
+    if (m) {
+      const rx = /\{[^{}]*"scene"[^{}]*\}/g;
+      for (const chunk of m[1].match(rx) ?? []) {
+        try { items.push(JSON.parse(chunk)); } catch { /* skip */ }
+      }
+    }
+    parsed = { scenes: items };
+  }
   if (!Array.isArray(parsed.scenes) || parsed.scenes.length < target) {
     const paras = opts.manuscript_md.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
     const chunkSize = Math.max(1, Math.ceil(paras.length / target));
-    parsed.scenes = [];
-    for (let i = 0; i < target; i++) {
+    const existing = Array.isArray(parsed.scenes) ? parsed.scenes : [];
+    parsed.scenes = [...existing];
+    for (let i = existing.length; i < target; i++) {
       const chunk = paras.slice(i * chunkSize, (i + 1) * chunkSize).join(" ");
       parsed.scenes.push({
         scene: chunk.slice(0, 240) || `Story beat ${i + 1}`,

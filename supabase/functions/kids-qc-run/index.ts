@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
   try {
-    const { ebook_id, run_id, skip_vision = false, skip_story = false } = await req.json();
+    const { ebook_id, run_id, skip_vision = false, skip_story = false, use_cached_story_judge_if_hash_matches = false } = await req.json();
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
 
     const { data: ebook, error } = await supabase
@@ -118,29 +118,70 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ---- STORY JUDGE ----
+    // ---- STORY JUDGE (with manuscript-hash caching) ----
+    // Story judging is stochastic; when the manuscript hasn't changed we trust
+    // the last passing hash-matched result instead of rerunning it during
+    // art-only repairs. Cache lives at storefront_meta.story_judge_cache.
+    async function sha256Hex(s: string): Promise<string> {
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+      return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+    const manuscriptStr = String(ebook.manuscript_md ?? "").trim();
+    const manuscriptHash = manuscriptStr ? await sha256Hex(manuscriptStr.replace(/\s+/g, " ")) : "";
+    const cachedJudge = ((ebook.storefront_meta as Record<string, unknown> | null)?.story_judge_cache ?? null) as
+      | { manuscript_hash: string; report: import("../_shared/kids-story-judge.ts").StoryReport; cached_at: string }
+      | null;
+
     let storyReport: unknown = null;
-    if (!skip_story && (ebook.manuscript_md as string | null)?.trim()) {
-      try {
-        const s = await runKidsStoryJudge({
-          title: (ebook.title as string) ?? "",
-          subtitle: (ebook.subtitle as string | null) ?? null,
-          ageBand: null,
-          manuscript_md: (ebook.manuscript_md as string) ?? "",
-          page_texts: illos.map((r) => (r.scene as string | undefined) ?? "").filter(Boolean),
-        });
-        storyReport = s;
-        raw.push(...storyReportToFindings(s));
-      } catch (e) {
-        raw.push({
-          rule_id: "KIDS_MEASURED_QC_MISSING", category: "story_structure",
-          severity: "critical", passed: false,
-          measured_value: { subsystem: "story_judge", error: String((e as Error).message ?? e).slice(0, 300) },
-          threshold: { must: "story_report_present" },
-          repair_action: "rerun_story_judge",
-        });
+    let storyStatus: "computed" | "hash_matched_cached_pass" | "skipped" | "missing" = "missing";
+    if (!skip_story && manuscriptStr) {
+      const useCache =
+        use_cached_story_judge_if_hash_matches &&
+        cachedJudge?.manuscript_hash === manuscriptHash &&
+        cachedJudge?.report?.story_qc_passed === true;
+      if (useCache) {
+        storyReport = cachedJudge!.report;
+        raw.push(...storyReportToFindings(cachedJudge!.report));
+        storyStatus = "hash_matched_cached_pass";
+      } else {
+        try {
+          const s = await runKidsStoryJudge({
+            title: (ebook.title as string) ?? "",
+            subtitle: (ebook.subtitle as string | null) ?? null,
+            ageBand: null,
+            manuscript_md: manuscriptStr,
+            page_texts: illos.map((r) => (r.scene as string | undefined) ?? "").filter(Boolean),
+          });
+          storyReport = s;
+          raw.push(...storyReportToFindings(s));
+          storyStatus = "computed";
+          // Cache passing report keyed by manuscript hash.
+          if (s.story_qc_passed && manuscriptHash) {
+            const existingMeta = (ebook.storefront_meta as Record<string, unknown> | null) ?? {};
+            await supabase.from("ebooks_kids").update({
+              storefront_meta: {
+                ...existingMeta,
+                story_judge_cache: {
+                  manuscript_hash: manuscriptHash,
+                  report: s,
+                  cached_at: new Date().toISOString(),
+                },
+              },
+            }).eq("id", ebook_id);
+          }
+        } catch (e) {
+          raw.push({
+            rule_id: "KIDS_MEASURED_QC_MISSING", category: "story_structure",
+            severity: "critical", passed: false,
+            measured_value: { subsystem: "story_judge", error: String((e as Error).message ?? e).slice(0, 300) },
+            threshold: { must: "story_report_present" },
+            repair_action: "rerun_story_judge",
+          });
+        }
       }
-    } else if (!skip_story) {
+    } else if (skip_story) {
+      storyStatus = "skipped";
+    } else if (!manuscriptStr) {
       raw.push({
         rule_id: "KIDS_MEASURED_QC_MISSING", category: "story_structure",
         severity: "critical", passed: false,
@@ -179,6 +220,8 @@ Deno.serve(async (req) => {
         reasons: verdict.reasons,
         vision_report: visionReport,
         story_report: storyReport,
+        story_qc_status: storyStatus,
+        manuscript_hash: manuscriptHash || null,
         title_treatment: treatmentMeta,
         title_spelling: spelling,
         computed_at: new Date().toISOString(),
@@ -186,7 +229,7 @@ Deno.serve(async (req) => {
       human_review_reason: verdict.sellable ? null : verdict.reasons.join(" | "),
     }).eq("id", ebook_id);
 
-    return json({ ok: true, verdict, finding_count: raw.length, vision_report: visionReport, story_report: storyReport });
+    return json({ ok: true, verdict, finding_count: raw.length, vision_report: visionReport, story_report: storyReport, story_qc_status: storyStatus, manuscript_hash: manuscriptHash });
   } catch (e) {
     console.error(e);
     return json({ ok: false, error: String(e) }, 500);
