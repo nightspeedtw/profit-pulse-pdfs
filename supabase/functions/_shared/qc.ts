@@ -270,7 +270,7 @@ export async function scoreProductCopy(model: string, copy: {
 }) {
   return aiJSON<ProductCopyScores>({
     model,
-    system: HARDSELL_COPYWRITER_SYSTEM + "\n\nYou are now scoring Shopify product page copy for conversion + compliance.",
+    system: HARDSELL_COPYWRITER_SYSTEM + "\n\nYou are now scoring Storefront product page copy for conversion + compliance.",
     user: `Score this product page copy:
 
 Description:
@@ -314,7 +314,7 @@ export function publishGate(e: {
   cover_url?: string | null;
   pdf_url?: string | null;
   product_description?: string | null;
-  shopify_product_id?: string | null;
+  storefront_product_id?: string | null;
   cover_approved?: boolean | null;
   cover_score?: number | null;
   pdf_approved?: boolean | null;
@@ -337,7 +337,7 @@ export function publishGate(e: {
   if (!e.cover_url) r.push("missing cover");
   if (!e.pdf_url) r.push("missing pdf");
   if (!e.product_description) r.push("missing description");
-  if (!e.shopify_product_id) r.push("missing shopify draft");
+  if (!e.storefront_product_id) r.push("missing storefront draft");
   if ((e.cover_score ?? 0) < 85) r.push(`cover_score<85`);
   if ((e.pdf_score ?? 0) < 90) r.push(`pdf_score<90`);
   // Admin approval gates removed — hands-off Autopilot uses QC scores + qc_status only.

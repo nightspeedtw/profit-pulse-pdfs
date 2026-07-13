@@ -26,7 +26,7 @@ export interface QcGateReport {
   reader: GateResult;
   cover_pdf: GateResult;
   cover_thumb: GateResult;
-  ready_for_shopify: boolean;
+  ready_for_storefront: boolean;
   blocking_gates: GateName[];
   missing_gates: GateName[]; // gates that have no data yet (legacy books)
 }
@@ -141,7 +141,7 @@ export const GATE_CONTRACTS: Record<GateName, GateContract> = {
     source_paths: [
       "ebooks.cover_qc.scores.thumbnail_book_mockup | thumbnail_book_mockup_score | book_mockup",
       "ebooks.cover_qc.scores.thumbnail_readability | thumbnail_readability_score",
-      "ebooks.cover_qc.scores.shopify_click_appeal | click_appeal",
+      "ebooks.cover_qc.scores.storefront_click_appeal | click_appeal",
       "ebooks.cover_qc.scores.premium_product_feel | premium_feel",
       "ebooks.cover_score (legacy display fallback only)",
       "ebooks.thumbnail_url",
@@ -286,7 +286,7 @@ export function computeQcGates(row: Record<string, unknown>): QcGateReport {
   const thumbBreakdown = {
     book_mockup: pickThumb("thumbnail_book_mockup") ?? pickThumb("book_mockup") ?? pickThumb("thumbnail_is_3d_mockup"),
     readability: pickThumb("thumbnail_readability"),
-    click_appeal: pickThumb("shopify_click_appeal") ?? pickThumb("click_appeal"),
+    click_appeal: pickThumb("storefront_click_appeal") ?? pickThumb("click_appeal"),
     premium_feel: pickThumb("premium_product_feel") ?? pickThumb("premium_feel"),
   };
   const thumbScore = num(coverQc?.overall_score) ?? avg(Object.values(thumbBreakdown)) ?? num(row.cover_score);
@@ -322,14 +322,14 @@ export function computeQcGates(row: Record<string, unknown>): QcGateReport {
 
   const blocking_gates = gates.filter(([, g]) => !g.pass).map(([n]) => n);
   const missing_gates = gates.filter(([, , hasData]) => !hasData).map(([n]) => n);
-  const ready_for_shopify = blocking_gates.length === 0;
+  const ready_for_storefront = blocking_gates.length === 0;
 
   return {
     formatter,
     reader,
     cover_pdf,
     cover_thumb,
-    ready_for_shopify,
+    ready_for_storefront,
     blocking_gates,
     missing_gates,
   };

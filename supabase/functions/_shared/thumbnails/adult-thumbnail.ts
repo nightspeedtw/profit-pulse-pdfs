@@ -7,7 +7,7 @@ export const ADULT_THUMBNAIL_STYLE = {
   minQcScores: {
     thumbnail_book_mockup_score: 90,
     thumbnail_readability_score: 90,
-    shopify_click_appeal: 90,
+    storefront_click_appeal: 90,
     premium_product_feel: 90,
   },
 } as const;

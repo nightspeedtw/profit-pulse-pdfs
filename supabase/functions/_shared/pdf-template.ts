@@ -166,7 +166,7 @@ function cleanLabel(s: string | null | undefined): string {
   return esc(stripInlineMd(s ?? ""));
 }
 
-// Publicly reusable so other renderers (Shopify copy, headers) can normalize
+// Publicly reusable so other renderers (Storefront copy, headers) can normalize
 // chapter titles identically to the PDF.
 export function sanitizeChapterTitle(s: string | null | undefined): string {
   return stripInlineMd(s ?? "").replace(/\s+/g, " ").trim();

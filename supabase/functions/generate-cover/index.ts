@@ -855,7 +855,7 @@ ${JSON.stringify(spec, null, 2)}`,
       const gates = computeQcGates(persisted);
       await db.from("ebooks").update({
         qc_gates_json: gates,
-        qc_ready_for_shopify: gates.ready_for_shopify,
+        qc_ready_for_storefront: gates.ready_for_storefront,
       }).eq("id", ebook_id);
     }
   } catch (err) {

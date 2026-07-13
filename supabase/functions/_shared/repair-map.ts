@@ -126,7 +126,7 @@ export const REPAIR_MAP: Record<string, RepairAction> = {
 
   // --- Product copy / pricing ----------------------------------------------
   missing_product_copy: {
-    invoke: "generate-shopify-package",
+    invoke: "generate-storefront-package",
     body: { mode: "copy_only" },
     resume_from: "product_page_qc",
     targeted: true,
@@ -137,19 +137,19 @@ export const REPAIR_MAP: Record<string, RepairAction> = {
     targeted: true,
   },
   product_page_incomplete: {
-    invoke: "generate-shopify-package",
+    invoke: "generate-storefront-package",
     resume_from: "product_page_qc",
   },
 
-  // --- Shopify --------------------------------------------------------------
-  no_shopify_product_id: {
-    invoke: "shopify-draft-upload",
-    resume_from: "shopify_verification",
+  // --- Storefront --------------------------------------------------------------
+  no_storefront_product_id: {
+    invoke: "storefront-draft-upload",
+    resume_from: "storefront_verification",
   },
-  no_shopify_draft_url: {
-    invoke: "shopify-draft-upload",
+  no_storefront_draft_url: {
+    invoke: "storefront-draft-upload",
     body: { verify_only: true },
-    resume_from: "shopify_verification",
+    resume_from: "storefront_verification",
   },
   no_final_report: {
     invoke: "autopilot-pipeline",

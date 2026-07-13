@@ -1,4 +1,4 @@
-// Self-Healing Recovery classifier + Shopify upload queue helpers.
+// Self-Healing Recovery classifier + production lock helpers.
 //
 // Every recoverable failure the pipeline sees gets classified into one of
 // six buckets and dispatched appropriately, so admin is only pulled in for
@@ -15,19 +15,18 @@ export type BlockerClass =
 
 export interface Classification {
   klass: BlockerClass;
-  reason: string;   // short machine token, e.g. daily_shopify_upload_cap_reached
+  reason: string;   // short machine token, e.g. daily_upload_cap_reached
   detail: string;   // human-readable
   retryable: boolean;
   nextRetryAt?: string; // ISO
 }
 
-const CAP_REGEX = /(daily.*shopify.*cap|shopify.*upload cap|20\/day|quota)/i;
+const CAP_REGEX = /(daily.*upload cap|20\/day|quota)/i;
 const RATE_REGEX = /\b(429|rate.?limit|too many requests)\b/i;
 const BROWSERLESS_REGEX = /browserless/i;
 const NET_REGEX = /\b(timeout|ETIMEDOUT|ECONNRESET|network|fetch failed)\b/i;
 const SRV_REGEX = /\b(500|502|503|504|bad gateway|service unavailable|internal server error)\b/i;
 const AUTH_REGEX = /\b(401|invalid api key|unauthorized|wrong password|unrecognized login)\b/i;
-const MISSING_SHOPIFY_TOKEN = /(missing.*shopify.*token|SHOPIFY_.*not set)/i;
 const COMPLIANCE_REGEX = /(prohibited|unsafe (claim|promise)|cannot.*rewrite.*(medical|financial|legal))/i;
 const DEP_REGEX = /(missing (outline|chapters|manuscript|cover|pdf|product copy|price)|no outline yet|invalid outline)/i;
 
@@ -72,8 +71,8 @@ export function classifyError(input: string | undefined | null, ctx: { step?: st
   if (CAP_REGEX.test(s)) {
     return {
       klass: "recoverable_quota_error",
-      reason: "daily_shopify_upload_cap_reached",
-      detail: "Daily Shopify upload cap reached — waiting for next quota window.",
+      reason: "daily_upload_cap_reached",
+      detail: "Daily upload cap reached — waiting for next quota window.",
       retryable: true,
       nextRetryAt: nextUtcMidnight(),
     };
@@ -87,11 +86,11 @@ export function classifyError(input: string | undefined | null, ctx: { step?: st
       nextRetryAt: nextUtcMidnight(),
     };
   }
-  if (AUTH_REGEX.test(s) || MISSING_SHOPIFY_TOKEN.test(s)) {
+  if (AUTH_REGEX.test(s)) {
     return {
       klass: "non_recoverable_config_error",
-      reason: "invalid_shopify_credentials",
-      detail: "Shopify credentials invalid or missing — reconnect the store or update the access token in Settings.",
+      reason: "invalid_credentials",
+      detail: "Credentials invalid or missing — update the access token in Settings.",
       retryable: false,
     };
   }
@@ -130,13 +129,12 @@ export function classifyError(input: string | undefined | null, ctx: { step?: st
 }
 
 // ============================================================================
-// Sequential production locks (heavy_production, pdf_render, shopify_upload)
+// Sequential production locks (heavy_production, pdf_render)
 // ============================================================================
 
 /** Named lock keys used across the pipeline. */
 export const LOCK_HEAVY = "heavy_production";
 export const LOCK_PDF   = "pdf_render";
-export const LOCK_SHOPIFY = "shopify_upload";
 
 export interface LockResult { acquired: boolean; holder: string | null; expires_at: string | null; }
 
@@ -185,7 +183,6 @@ export async function getLockHolder(db: any, name: string): Promise<{ holder: st
 /** Map an autopilot status label to a user-visible status. */
 export function humanStatus(state: string | null | undefined): string {
   switch (state) {
-    case "waiting_for_shopify_quota": return "Waiting for Shopify Quota";
     case "waiting_for_ai_budget": return "Waiting for AI Budget";
     case "waiting_for_worker_slot": return "Waiting for Worker Slot";
     case "waiting_for_browserless_slot": return "Waiting for Browserless Slot";
@@ -204,24 +201,6 @@ export function humanStatus(state: string | null | undefined): string {
   }
 }
 
-/** Enqueue (or refresh) an ebook in the Shopify upload queue. */
-export async function enqueueShopifyUpload(
-  db: any,
-  ebook_id: string,
-  opts: { run_id?: string; reason?: string; nextRetryAt?: string; priority?: number } = {},
-) {
-  const row = {
-    ebook_id,
-    run_id: opts.run_id ?? null,
-    status: opts.reason === "daily_shopify_upload_cap_reached" ? "waiting_for_quota" : "queued",
-    blocker_reason: opts.reason ?? null,
-    next_retry_at: opts.nextRetryAt ?? nextUtcMidnight(),
-    priority: opts.priority ?? 100,
-  };
-  const { error } = await db.from("shopify_upload_queue").upsert(row, { onConflict: "ebook_id" });
-  if (error) console.warn("[recovery] enqueueShopifyUpload error", error.message);
-}
-
 /** Mark an ebook + its pipeline run with a classified blocker (no admin flag by default). */
 export async function markBlocker(
   db: any,
@@ -230,9 +209,7 @@ export async function markBlocker(
   extra: { autopilot_state?: string } = {},
 ) {
   const autopilot_state = extra.autopilot_state ?? (
-    c.klass === "recoverable_quota_error" && c.reason === "daily_shopify_upload_cap_reached"
-      ? "waiting_for_shopify_quota"
-      : c.klass === "recoverable_quota_error"
+    c.klass === "recoverable_quota_error"
       ? "waiting_for_ai_budget"
       : c.klass === "non_recoverable_config_error" || c.klass === "non_recoverable_compliance_error"
       ? "needs_admin_attention"

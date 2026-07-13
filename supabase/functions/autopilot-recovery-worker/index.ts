@@ -275,7 +275,7 @@ Deno.serve(async (req) => {
   //     and move the ebook to needs_code_fix instead of silently stalling.
   const qcCols = [
     "id,title,autopilot_state,canonical_status,next_retry_at,shopify_product_id,pdf_url,cover_url",
-    "auto_fix_attempt_count,autofix_attempt,qc_ready_for_shopify,qc_gates_json",
+    "auto_fix_attempt_count,autofix_attempt,qc_ready_for_storefront,qc_gates_json",
     "pdf_qc,cover_qc,reader_experience_qc,pdf_score,cover_score,reader_experience_score,reader_experience_status,reader_experience_fix_count",
   ].join(",");
   const { data: qcCandidates } = await db
@@ -285,7 +285,7 @@ Deno.serve(async (req) => {
     .or([
       "autopilot_state.in.(needs_review,failed_non_recoverable,auto_fixing,needs_code_fix,ready_to_publish,completed)",
       "canonical_status.in.(needs_review,failed_non_recoverable,auto_fixing,needs_code_fix,ready_to_publish,completed)",
-      "qc_ready_for_shopify.eq.false",
+      "qc_ready_for_storefront.eq.false",
     ].join(","))
     .order("updated_at", { ascending: false })
     .limit(40);
@@ -297,7 +297,7 @@ Deno.serve(async (req) => {
     const hasStartedAssets = !!(ebook.pdf_url || ebook.cover_url || ebook.reader_experience_status);
     if (!hasStartedAssets) continue;
     const report = await persistQcSnapshot(db, ebook as Record<string, unknown>);
-    if (report.ready_for_shopify && ebook.pdf_url) {
+    if (report.ready_for_storefront && ebook.pdf_url) {
       const shopifyDraftEnabled = settings?.shopify_draft_upload_enabled !== false;
       if (!dry) await db.from("ebooks").update({
         autopilot_state: "ready_to_publish",

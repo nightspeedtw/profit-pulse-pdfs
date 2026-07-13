@@ -24,8 +24,8 @@ export interface EbookLike {
   pdf_url?: string | null;
   pdf_qc?: any;
   reader_qc?: any;
-  shopify_product_id?: string | null;
-  shopify_draft_url?: string | null;
+  storefront_product_id?: string | null;
+  storefront_draft_url?: string | null;
   product_title?: string | null;
   product_description?: string | null;
   price?: number | null;
@@ -140,11 +140,11 @@ export function validateStep(
         ? ok()
         : bad("product_page_incomplete");
 
-    case "shopify_draft_upload":
-      return eb.shopify_product_id ? ok() : bad("no_shopify_product_id");
+    case "storefront_draft_upload":
+      return eb.storefront_product_id ? ok() : bad("no_storefront_product_id");
 
-    case "shopify_verification":
-      return eb.shopify_draft_url ? ok() : bad("no_shopify_draft_url");
+    case "storefront_verification":
+      return eb.storefront_draft_url ? ok() : bad("no_storefront_draft_url");
 
     case "final_report":
       return eb.final_report_json && Object.keys(eb.final_report_json).length > 0

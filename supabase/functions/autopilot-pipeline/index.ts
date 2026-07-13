@@ -4,14 +4,13 @@
 // Steps:
 //   1. generate-idea  → 2. idea-copywriter (QC idea) → 4/5. generate-outline
 //   6/7. write-chapters → 8. final-manuscript-qc → 9. generate-cover
-//   10/11. render-pdf (auto QC) → 12. shopify-draft-upload [→ 13. shopify-publish]
+//   10/11. render-pdf (auto QC) → 12. publish-live (internal storefront)
 //
 // Milestone 10 hardening:
-//   - Per-step retries (AI: 2, PDF: 2, Shopify: 3, image: 1) via withRetry.
+//   - Per-step retries (AI: 2, PDF: 2, publish: 3, image: 1) via withRetry.
 //   - Per-step logging to pipeline_step_logs (start, end, duration, cost, error).
 //   - Daily-cost guard auto-pauses autopilot + flags cost_limit_reached.
 //   - Per-ebook AI-call & rewrite caps (max_ai_calls_per_ebook, max_rewrite_attempts).
-//   - Daily Shopify upload cap (max_shopify_uploads_per_day).
 //   - Failed steps mark production_queue with last_error + attempts++.
 //   - Pipeline is idempotent so "Resume from failed step" just re-invokes it.
 import { admin, corsHeaders } from "../_shared/ai.ts";
@@ -26,7 +25,7 @@ import {
 import { RunTracker } from "../_shared/run-tracker.ts";
 import {
   LOCK_HEAVY, tryAcquireLock, releaseLock, getLockHolder,
-  enqueueShopifyUpload, nextUtcMidnight, browserlessBackoffAt,
+  browserlessBackoffAt,
 } from "../_shared/recovery.ts";
 import { classifyError, recordSystemFix } from "../_shared/error-classifier.ts";
 import {
@@ -81,12 +80,9 @@ Deno.serve(async (req) => {
 
     mode = mode ?? settings.autopilot_mode ?? "safe";
     const autoPublish: boolean = !!settings.auto_publish && mode === "full";
-    // Phase 1 = PDF-only. Force Shopify off unless FEATURES.SHOPIFY_UPLOAD is enabled.
     const { FEATURES: _FEATURES } = await import("../_shared/features.ts");
-    const shopifyDraftEnabled: boolean = _FEATURES.SHOPIFY_UPLOAD && settings.shopify_draft_upload_enabled !== false;
     const perEbookBudget = Number(settings.per_ebook_budget_usd ?? 2);
     const maxAiCallsPerEbook = Number(settings.max_ai_calls_per_ebook ?? 60);
-    const maxShopifyPerDay = Number(settings.max_shopify_uploads_per_day ?? 20);
 
     // ---- Daily-cost guard (pauses autopilot if tripped) ----
     const guard = await enforceCostGuard(db);
@@ -95,7 +91,7 @@ Deno.serve(async (req) => {
     }
 
     // ---- Preflight Check (Phase 1 Self-Healing Autopilot) ----
-    // Refuse to start unless database/storage/secrets/Browserless/Shopify all check out.
+    // Refuse to start unless database/storage/secrets/Browserless all check out.
     // Recoverable config is auto-fixed silently by the preflight function itself.
     if (body?.skip_preflight !== true) {
       try {
@@ -245,7 +241,7 @@ Deno.serve(async (req) => {
           // -------- Premium Book Title Psychology & Marketing Expert gate --------
           // A weak title blocks ebook generation. The title is the product's
           // first sales asset — chapters do not start until the gate passes.
-          const alreadyPassed = idea?.shopify_meta?.premium_title_expert?.passed === true;
+          const alreadyPassed = idea?.storefront_meta?.premium_title_expert?.passed === true;
           if (alreadyPassed) {
             await skip(["title_and_hook", "idea_qc"], "Premium title already approved — existing output found");
           } else {
@@ -267,7 +263,7 @@ Deno.serve(async (req) => {
                 const { data: i3 } = await db.from("ebook_ideas").select("*").eq("id", idea_id).maybeSingle();
                 idea = i3;
               },
-              "Scoring: title_quality, buyer_pain_match, premium_feel, shopify_click_appeal, compliance",
+              "Scoring: title_quality, buyer_pain_match, premium_feel, storefront_click_appeal, compliance",
             ).catch(async (err) => {
               await needsAdmin(
                 "title_and_hook",
@@ -326,7 +322,7 @@ Deno.serve(async (req) => {
         // SEQUENTIAL SAFE MODE — heavy_production lock.
         //
         // Only one ebook may occupy heavy production (chapters →
-        // manuscript QC → cover → PDF → Shopify) at a time. Other
+        // manuscript QC → cover → PDF → publish) at a time. Other
         // ebooks wait in `queued_for_production` and are auto-resumed
         // by the recovery worker when the lock frees. Idea generation
         // above this line runs freely (allowed parallel step).
@@ -395,14 +391,6 @@ Deno.serve(async (req) => {
           }
           return false;
         };
-        const shopifyOverDay = async () => {
-          const ds = new Date(); ds.setUTCHours(0, 0, 0, 0);
-          const { count } = await db.from("shopify_sync_logs")
-            .select("id", { count: "exact", head: true })
-            .gte("created_at", ds.toISOString());
-          return (count ?? 0) >= maxShopifyPerDay;
-        };
-
         // ---------- STEP 4 + 5 — Outline + QC (with strict dependency validation) ----------
         const MIN_OUTLINE_CHAPTERS = 8;
         const hasValidOutline = (e: any) => {
@@ -865,23 +853,23 @@ Deno.serve(async (req) => {
           if ((renderOutcome as "passed" | "retry_now" | "wait_browserless" | "no_file") === "wait_browserless") return;
 
           // Soft-pass: only stop on truly missing PDF. Low QC scores are
-          // logged but do not block Shopify draft upload — admin can fix later.
+          // logged but do not block publishing — admin can fix later.
           if (!ebook.pdf_url) {
             await db.from("ebooks").update({ autopilot_state: "needs_review", needs_review_reason: "PDF render failed — no pdf_url" }).eq("id", ebook.id);
             await needsAdmin("pdf_qc", "PDF render produced no file after auto-fix attempts.", "Regenerate PDF.");
             return;
           }
           if (ebook.pdf_status === "needs_review") {
-            console.warn("PDF QC below premium threshold after retries — continuing to product copy + Shopify draft.");
+            console.warn("PDF QC below premium threshold after retries — continuing to product copy + publish.");
           }
 
         } else {
           await skip(["pdf_layout", "pdf_render", "pdf_qc"], "PDF already rendered");
         }
 
-        // ---------- Premium gate before pricing / Shopify ----------
-        // The system's job is to produce a premium PDF and get it ready for
-        // Shopify. Do not silently continue with broken Reader/Cover/PDF gates;
+        // ---------- Premium gate before pricing / publish ----------
+        // The system's job is to produce a premium PDF and get it ready to
+        // publish live. Do not silently continue with broken Reader/Cover/PDF gates;
         // trigger targeted auto-fix up to 3 times, then generate a Lovable code
         // prompt that tells exactly which producer must be fixed.
         await refreshEbook();
@@ -952,7 +940,7 @@ Deno.serve(async (req) => {
               status: "auto_fixing",
               current_step: "render-pdf",
               current_action_message: "Auto-fixing PDF — no file was produced",
-              current_subtask: "Re-rendering PDF before Shopify readiness.",
+              current_subtask: "Re-rendering PDF before publish readiness.",
             }).eq("id", run_id);
             return;
           }
@@ -982,57 +970,24 @@ Deno.serve(async (req) => {
           await skip(["pricing"], "Pricing already computed");
         }
 
-        // ---------- STEP 12 — Shopify draft ----------
-        // Phase 1 KPI: run as far as possible automatically, including Shopify
-        // draft upload when the visible Shopify Draft Upload setting is enabled.
-        // Do not rely on a hidden `autopilot_upload_to_shopify` flag; that made
-        // production silently stop at "ready_to_publish" and never reach draft.
-        if (!shopifyDraftEnabled) {
-          await skip(
-            ["product_copy", "product_qc", "shopify_draft", "shopify_verify"],
-            "Shopify draft upload disabled in Settings — PDF is ready for manual upload.",
-          );
-        } else if (shopifyDraftEnabled && !ebook.shopify_product_id) {
-          if (await shopifyOverDay()) {
-            const nextRetry = nextUtcMidnight();
-            await db.from("ebooks").update({
-              autopilot_state: "waiting_for_shopify_quota",
-              blocker_class: "recoverable_quota_error",
-              blocker_reason: "daily_shopify_upload_cap_reached",
-              needs_review_reason: null,
-              next_retry_at: nextRetry,
-            }).eq("id", ebook.id);
-            await enqueueShopifyUpload(db, ebook.id, {
-              run_id,
-              reason: "daily_shopify_upload_cap_reached",
-              nextRetryAt: nextRetry,
-            });
-            await tracker.heartbeat("shopify_draft", {
-              message: `Waiting for Shopify quota — cap ${maxShopifyPerDay}/day reached. Auto-resumes at next window.`,
-              subtask: "Queued in Shopify Upload Queue",
-            });
-            await logRun(db, { ebook_id: ebook.id, step: "12_shopify_draft", status: "skip", error: "shopify daily cap → queued" });
-            return;
-          }
+        // ---------- STEP 12 — Publish live (internal storefront) ----------
+        await skip(["product_copy", "product_qc"], "Product copy already generated");
+        if (autoPublish && ebook.listing_status !== "live") {
           await track(
-            ["product_copy", "product_qc", "shopify_draft", "shopify_verify"],
-            "Uploading Shopify draft…",
+            ["publish_live"],
+            "Publishing to storefront…",
             async () => {
-              await tracker.heartbeat("product_copy", { message: "Generating Shopify product copy…", subtask: "Writing title, bullets, and description" });
-              await tracker.heartbeat("shopify_draft", { message: "Uploading Shopify draft…", subtask: "Creating product and attaching digital PDF" });
-              await runStep("12_shopify_draft", "shopify-draft-upload", { ebook_id: ebook.id });
-              await tracker.heartbeat("shopify_verify", { message: "Verifying Shopify draft…", subtask: "Checking product assets and pricing" });
+              await tracker.heartbeat("publish_live", { message: "Publishing to storefront…", subtask: "Marking listing live" });
+              await db.from("ebooks").update({ listing_status: "live", status: "live" }).eq("id", ebook.id);
+              await logRun(db, { ebook_id: ebook.id, step: "12_publish_live", status: "ok" });
               await refreshEbook();
             },
-            "Creating product and attaching digital PDF",
+            "Marking listing live",
           );
+        } else if (ebook.listing_status === "live") {
+          await skip(["publish_live"], "Already live");
         } else {
-          await skip(["product_copy", "product_qc", "shopify_draft", "shopify_verify"], "Shopify draft already uploaded");
-        }
-
-        // Optional auto-publish
-        if (autoPublish && ebook.shopify_product_id && ebook.shopify_status === "draft") {
-          await runStep("13_publish", "shopify-publish", { ebook_id: ebook.id });
+          await skip(["publish_live"], "Auto-publish disabled — ready for manual publish");
         }
 
         await refreshEbook();
@@ -1072,30 +1027,25 @@ Deno.serve(async (req) => {
           return;
         }
 
-        const nextState = ebook.shopify_product_id
-          ? (autoPublish && ebook.shopify_status !== "draft" ? "completed" : "draft_uploaded")
-          : "ready_to_publish";
+        const nextState = ebook.listing_status === "live" ? "completed" : "ready_to_publish";
         await db.from("ebooks").update({
           autopilot_state: nextState,
           canonical_status: nextState,
           qc_status: "qc_passed",
-          qc_ready_for_shopify: true,
           pdf_status: "approved",
           needs_review_reason: null,
-          waiting_reason: ebook.shopify_product_id
+          waiting_reason: ebook.listing_status === "live"
             ? null
-            : shopifyDraftEnabled
-              ? "PDF and premium gates passed, but no Shopify draft ID was returned — recovery worker will retry upload."
-              : "PDF and premium gates passed — Shopify draft upload is disabled in Settings.",
+            : "PDF and premium gates passed — ready to publish live.",
           blocker_class: null,
           blocker_reason: null,
-          next_recommended_action: ebook.shopify_product_id ? null : "shopify_draft_upload",
+          next_recommended_action: ebook.listing_status === "live" ? null : "publish_live",
         }).eq("id", ebook.id);
 
         await logRun(db, {
           ebook_id: ebook.id, step: "pipeline_complete", status: "ok",
           duration_ms: Date.now() - t0,
-          payload: { mode, auto_publish: autoPublish, shopify_draft: shopifyDraftEnabled },
+          payload: { mode, auto_publish: autoPublish },
         });
 
         await tracker.complete({
@@ -1103,8 +1053,7 @@ Deno.serve(async (req) => {
           title: ebook.title,
           pdf_url: ebook.pdf_url,
           cover_url: ebook.cover_url,
-          shopify_product_id: ebook.shopify_product_id,
-          shopify_status: ebook.shopify_status,
+          listing_status: ebook.listing_status,
           final_quality_score: ebook.final_quality_score,
           conversion_score: ebook.conversion_score,
           compliance_safety_score: ebook.compliance_safety_score,
@@ -1136,7 +1085,7 @@ Deno.serve(async (req) => {
 
         const canonical = classified?.needs_code_fix
           ? "needs_code_fix"
-          : (classified?.error_type === "quota_wait" ? "waiting_for_shopify_quota" : "failed_non_recoverable");
+          : (classified?.error_type === "quota_wait" ? "waiting_for_ai_budget" : "failed_non_recoverable");
         const recoverableStatus = classified?.recoverable
           ? classified.suggested_status
           : canonical;
@@ -1234,7 +1183,7 @@ Deno.serve(async (req) => {
 
     return json({
       ok: true, async: true, mode, ebook_id, idea_id, run_id,
-      auto_publish: autoPublish, shopify_draft_enabled: shopifyDraftEnabled,
+      auto_publish: autoPublish,
     });
   } catch (e) {
     return json({ error: (e as Error).message ?? String(e) }, 500);

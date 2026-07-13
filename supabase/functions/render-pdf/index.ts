@@ -673,7 +673,7 @@ Deno.serve(async (req) => {
       pdf_page_count: pageCount,
       pdf_render_count: version,
       pdf_approved: false,
-      qc_ready_for_shopify: passed,
+      qc_ready_for_storefront: passed,
       // v2 premium fields
       worksheet_table_overflow_score: wsOverflow,
       worksheet_readability_score: worksheetReadability,

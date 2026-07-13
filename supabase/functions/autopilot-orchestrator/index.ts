@@ -1,6 +1,6 @@
 // Autopilot orchestrator — drives the full A-Z pipeline:
 // topic QC → outline+QC → write (with per-chapter QC) → editorial QC →
-// product copy + QC → cover → Shopify draft upload → final QC → publish (Full mode only).
+// product copy + QC → cover → build PDF → final QC → publish (Full mode only).
 //
 // Idempotent: can be called multiple times for the same ebook_id. Uses
 // `ebooks.autopilot_state` as the resume cursor.
@@ -300,7 +300,7 @@ Deno.serve(async (req) => {
           const ai = await aiJSON<ProductCopy>({
             model: mktModel,
             system: HARDSELL_COPYWRITER_SYSTEM + (r > 0 ? `\n\nPREVIOUS COPY FAILED QC: ${copyScores?.data?.issues?.join("; ") ?? "weak"}. Rewrite stronger and safer.` : ""),
-            user: `Ebook: "${ebook.title}" — ${ebook.subtitle ?? ""}\nReader: ${ebook.target_buyer ?? ""}\nHook: ${ebook.hook ?? ""}\nTOC: ${toc.map((t) => t.title).join("; ")}\nBonuses: ${Object.values(ebook.bonuses ?? {}).join(" | ")}\n\nWrite Shopify product page copy:\n1) Hard-sell hook (1-2 sentences naming the buyer's pain)\n2) Cost of doing nothing (1-2 sentences)\n3) Transformation (1-2 sentences, believable, not guaranteed)\n4) Clear benefits (4-6 bullets)\n5) What's inside (chapter list + bonuses)\n6) Who it's for (3 bullets)\n7) Objection handling (3 Q&A)\n8) Bonus value\n9) Honest CTA (no fake urgency)\n\nReturn JSON: { "product_description": "<markdown>", "seo_title": "<=60 chars", "seo_meta": "<=160 chars", "tags": ["..."], "cover_prompt": "single-paragraph image-gen prompt for a premium clean cover" }`,
+            user: `Ebook: "${ebook.title}" — ${ebook.subtitle ?? ""}\nReader: ${ebook.target_buyer ?? ""}\nHook: ${ebook.hook ?? ""}\nTOC: ${toc.map((t) => t.title).join("; ")}\nBonuses: ${Object.values(ebook.bonuses ?? {}).join(" | ")}\n\nWrite storefront product page copy:\n1) Hard-sell hook (1-2 sentences naming the buyer's pain)\n2) Cost of doing nothing (1-2 sentences)\n3) Transformation (1-2 sentences, believable, not guaranteed)\n4) Clear benefits (4-6 bullets)\n5) What's inside (chapter list + bonuses)\n6) Who it's for (3 bullets)\n7) Objection handling (3 Q&A)\n8) Bonus value\n9) Honest CTA (no fake urgency)\n\nReturn JSON: { "product_description": "<markdown>", "seo_title": "<=60 chars", "seo_meta": "<=160 chars", "tags": ["..."], "cover_prompt": "single-paragraph image-gen prompt for a premium clean cover" }`,
           });
           totalCost += ai.usage.cost_usd;
           await logCost(db, { ebook_id: ebook.id, step: r === 0 ? "product_copy" : `product_copy_rewrite_${r}`, model: ai.model, ...ai.usage });
@@ -342,32 +342,20 @@ Deno.serve(async (req) => {
           await logRun(db, { ebook_id: ebook.id, step: "build_pdf", status: "fail", error: String(e) });
         }
 
-        // ---------- STEP 9: SHOPIFY DRAFT ----------
-        await stamp("shopify_draft");
-        try {
-          await callFn("push-to-shopify", { ebook_id: ebook.id }, auth);
-          await db.from("ebooks").update({ shopify_status: "draft" }).eq("id", ebook.id);
-          await logRun(db, { ebook_id: ebook.id, step: "shopify_draft", status: "ok" });
-        } catch (e) {
-          await db.from("ebooks").update({ shopify_status: "failed", needs_review_reason: `shopify upload failed: ${String(e).slice(0, 200)}` }).eq("id", ebook.id);
-          await logRun(db, { ebook_id: ebook.id, step: "shopify_draft", status: "fail", error: String(e) });
-          await stamp("needs_review");
-          return;
-        }
-
-        // ---------- STEP 10: FINAL PUBLISH GATE ----------
+        // ---------- STEP 9: FINAL PUBLISH GATE ----------
         const { data: fresh } = await db.from("ebooks").select("*").eq("id", ebook.id).single();
         const g = publishGate(fresh!);
         await logRun(db, { ebook_id: ebook.id, step: "qc_final_product", status: g.pass ? "ok" : "fail", payload: { reasons: g.reasons } });
 
         if (mode === "full" && g.pass) {
           try {
-            await callFn("shopify-publish", { ebook_id: ebook.id }, auth);
-            await db.from("ebooks").update({ shopify_status: "published", status: "published", autopilot_state: "done" }).eq("id", ebook.id);
-            await logRun(db, { ebook_id: ebook.id, step: "publish", status: "ok" });
+            await stamp("publish_live");
+            await db.from("ebooks").update({ listing_status: "live", status: "live" }).eq("id", ebook.id);
+            await db.from("ebooks").update({ autopilot_state: "done" }).eq("id", ebook.id);
+            await logRun(db, { ebook_id: ebook.id, step: "publish_live", status: "ok" });
           } catch (e) {
             await db.from("ebooks").update({ autopilot_state: "needs_review", needs_review_reason: `publish failed: ${String(e).slice(0, 200)}` }).eq("id", ebook.id);
-            await logRun(db, { ebook_id: ebook.id, step: "publish", status: "fail", error: String(e) });
+            await logRun(db, { ebook_id: ebook.id, step: "publish_live", status: "fail", error: String(e) });
           }
         } else {
           await db.from("ebooks").update({
