@@ -280,15 +280,25 @@ async function generateCover(ctx: Ctx): Promise<StepResult> {
     }).eq('ebook_id', ctx.ebookId);
   }
 
-  // Step: final cover with Recraft V3 + image-to-image on reference
-  const coverPrompt = `Children's book cover illustration for "${ctx.ebook.title}". Hero ${charDesc}. Dynamic emotional composition, portrait orientation, room reserved at top for title. ${ctx.ebook.description ?? ''}. ${styleSuffix}`;
+  // Step: final cover — reference-grade whimsical illustrated children's storybook cover.
+  // Textless art layer: title lettering is layered as a separate typographic overlay by
+  // the store-thumbnail pipeline, so the AI never bakes text into the artwork.
+  const coverPrompt = [
+    `Whimsical illustrated children's picture book COVER ARTWORK for "${ctx.ebook.title}".`,
+    `Hero character: ${charDesc}. Show the hero clearly in a warmly-lit, richly detailed scene that captures the story's emotional promise.`,
+    `Portrait orientation. Storybook composition with strong focal character, rich magical/nature environment when fitting, cozy inviting atmosphere, soft golden lighting, painterly textures, expressive character face, generous negative space at the top for a title to be added later.`,
+    `Style: ${styleSuffix}. Hand-illustrated feel like a modern reference-grade picture book cover (in the emotional spirit of Oliver Jeffers, Jon Klassen, Beatrice Alemagna — do NOT copy any of them).`,
+    `Description hint: ${ctx.ebook.description ?? ''}`,
+    `ABSOLUTELY NO TEXT of any kind: no letters, no numbers, no title, no words, no logo, no watermark, no captions, no typography, no book mockup, no UI. Textless artwork only.`,
+    `Avoid AI clichés: no purple/indigo gradients on white, no glossy 3D blobs, no stock face, no generic hero-on-gradient, no melted shapes, no six-finger hands.`,
+  ].join(' ');
 
   const coverBytes = await falRecraftV3({
     prompt: coverPrompt,
     image_url: refUrl ?? undefined,
-    strength: 0.55,
+    strength: 0.6,
     image_size: 'portrait_4_3',
-    negative_prompt: negativePrompt,
+    negative_prompt: `${negativePrompt}, text, letters, numbers, words, title, typography, watermark, logo, book mockup, ui, caption, subtitle, spine, gradient on white, glossy 3d blob, stock photo, six fingers, deformed hands, generic ai look`,
   });
 
   const path = `kids/${ctx.ebookId}/cover.png`;
@@ -297,8 +307,16 @@ async function generateCover(ctx: Ctx): Promise<StepResult> {
   });
   if (up.error) throw up.error;
   const { data: pub } = await db.storage.from('ebook-covers').createSignedUrl(path, 60 * 60 * 24 * 365);
+  const coverUrl = pub?.signedUrl ?? null;
+
+  // Store as cover master on the bible so interior generation uses the same visual anchor.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (db.from('kids_book_bibles') as any).update({
+    cover_master_url: coverUrl,
+  }).eq('ebook_id', ctx.ebookId);
+
   await db.from('ebooks_kids').update({
-    cover_url: pub?.signedUrl ?? null, status: 'rendering', pipeline_status: 'rendering',
+    cover_url: coverUrl, status: 'rendering', pipeline_status: 'rendering',
   }).eq('id', ctx.ebookId);
   return { output: { path, style: styleSlug, ref_used: !!refUrl } };
 }

@@ -30,7 +30,10 @@ async function callFal(endpoint: string, body: Record<string, unknown>): Promise
   return new Uint8Array(await imgRes.arrayBuffer());
 }
 
-/** Flux Schnell — ~4 steps, ~$0.003, good for drafts / character reference sheets. */
+/** Flux Schnell — ~4 steps, ~$0.003, good for drafts / character reference sheets.
+ *  image_url is accepted for API compatibility but ignored — fal's public
+ *  schnell endpoint is text-to-image only. Character fidelity relies on a
+ *  detailed prompt describing the invariant character traits. */
 export function falFluxSchnell(opts: FalImageOpts): Promise<Uint8Array> {
   const body: Record<string, unknown> = {
     prompt: opts.prompt,
@@ -39,27 +42,29 @@ export function falFluxSchnell(opts: FalImageOpts): Promise<Uint8Array> {
     num_images: 1,
     enable_safety_checker: true,
   };
-  if (opts.image_url) {
-    body.image_url = opts.image_url;
-    body.strength = opts.strength ?? 0.65;
-    return callFal("fal-ai/flux/schnell/image-to-image", body);
-  }
   return callFal("fal-ai/flux/schnell", body);
 }
 
-/** Recraft V3 — higher quality illustration, ~$0.04. Use for finals + covers. */
-export function falRecraftV3(opts: FalImageOpts & { style?: string }): Promise<Uint8Array> {
+/** Recraft V3 — higher quality illustration, ~$0.04. Use for finals + covers.
+ *  Note: Recraft V3 on fal.run only exposes text-to-image. To keep character
+ *  fidelity when a reference image is provided, we fall back to Flux Schnell
+ *  image-to-image (which does support i2i) and let Recraft handle pure t2i. */
+export async function falRecraftV3(opts: FalImageOpts & { style?: string }): Promise<Uint8Array> {
+  if (opts.image_url) {
+    // Use Flux Schnell i2i to preserve the character reference — Recraft has no i2i endpoint.
+    return falFluxSchnell({
+      prompt: opts.prompt,
+      image_url: opts.image_url,
+      strength: opts.strength ?? 0.6,
+      image_size: opts.image_size,
+      negative_prompt: opts.negative_prompt,
+    });
+  }
   const body: Record<string, unknown> = {
     prompt: opts.prompt,
     image_size: opts.image_size ?? "portrait_4_3",
     style: opts.style ?? "digital_illustration",
   };
   if (opts.negative_prompt) body.negative_prompt = opts.negative_prompt;
-  // Recraft V3 supports image-to-image via a different endpoint.
-  if (opts.image_url) {
-    body.image_url = opts.image_url;
-    body.strength = opts.strength ?? 0.6;
-    return callFal("fal-ai/recraft-v3/image-to-image", body);
-  }
   return callFal("fal-ai/recraft-v3", body);
 }

@@ -1,105 +1,113 @@
-## Goal
+# Children Picture Book Autopilot — Production Upgrade
 
-เปลี่ยนระบบ generate ภาพเด็กใน pipeline จาก Lovable AI Gateway ปัจจุบัน → **Fal.ai** (Flux Schnell draft + Recraft V3 final) พร้อมระบบ **auto-rotate style** + **character consistency ผ่าน Character Bible + Reference Image (image-to-image)**
+Goal: fix cover quality/consistency, add a real admin control, and produce one new picture book that either publishes live to the Internal Store or lands in `human_review_required` with exact reasons — never a soft-pass.
 
----
+## 1. Inspection first (no edits until this is done)
 
-## วิธีสมัคร Fal.ai API Key (ทำก่อน)
+Read and report the current wiring for each responsibility so we extend, not replace:
 
-1. เข้า https://fal.ai/ → Sign up (ใช้ Google/GitHub ได้)
-2. ไปที่ Dashboard → **Keys** (https://fal.ai/dashboard/keys)
-3. กด **Add Key** → ตั้งชื่อ (เช่น `secretpdf-kids`) → คัดลอกค่าคีย์ที่ขึ้นต้นด้วย `fal-…` ทันที (แสดงครั้งเดียว)
-4. ไปที่ **Billing** → เติมเครดิตขั้นต่ำ $5–$10 (Flux Schnell ~$0.003/ภาพ, Recraft V3 ~$0.04/ภาพ → พอ generate ได้หลายพันภาพ)
-5. เมื่อได้คีย์แล้ว บอกผมกลับมา → ผมจะเปิดฟอร์ม `add_secret` ให้กรอกเป็น `FAL_API_KEY` (เก็บใน Lovable Cloud secrets, ไม่โผล่ในโค้ด)
+- Autopilot start → `autopilot-kids-orchestrator`, `autopilot-kids-pipeline`, `autopilot-kids` (older adult-guarded shim)
+- Category selection & weights → `kids_category_weights`, `kids_age_groups`, `kids_themes`, `kids-recompute-weights`
+- Story/manuscript → `rewrite-kids-manuscript`, `_shared/prompts/kids.ts`
+- Cover generation → `generate-cover`, `_shared/covers/kids-cover-render.ts`, `_shared/fal.ts`, `_shared/cover.ts`
+- Interior illustrations → `_shared/kids-visual-bible.ts`, `_shared/illustration-planner.ts`, `render-pdf`
+- PDF render → `render-pdf`, `_shared/pdf-template.ts`
+- Thumbnail → `generate-store-thumbnail`, `_shared/store-thumbnail.ts`
+- Final QC → `_shared/pdf-preflight.ts`, `_shared/qc/kids.ts`, `_shared/qc/kids-cover-qc.ts`, `kids-qc-run`
+- Publish → `auto-list-ebook`, `list-storefront`, `ebooks.listing_status`
+- Admin dashboard → `pages/admin/KidsAutopilot.tsx`, `KidsLibrary.tsx`, `KidsQcReport.tsx`, `ProductionCommandCenter.tsx`, `components/admin/OneClickAutopilotButton.tsx`
 
----
+Deliver the mapping in the run report.
 
-## สถาปัตยกรรม
+## 2. Cover + interior style lock (the real fix)
 
-```text
-autopilot-kids-pipeline
-   │
-   ├─ step: lock_bibles
-   │    ├─ AI เขียน character_bible_json (ชื่อ, หน้าตา, ผม, ตา, ผิว, ชุด, สัดส่วน, forbidden_changes[])
-   │    ├─ AI เลือก style จาก style pool แบบ auto-rotate (ดูด้านล่าง)
-   │    └─ Fal Flux Schnell generate "character reference sheet"
-   │         → upload storage → บันทึกใน kids_book_bibles.character_reference_image_url
-   │
-   ├─ step: illustrate_spread (× 14 spreads)
-   │    ├─ mode = "draft"  → Fal Flux Schnell (i2i, ref image + prompt+style)
-   │    ├─ QC pass ≥ 85    → mode = "final" → Fal Recraft V3 (i2i, ref image + prompt+style)
-   │    └─ ล้มเหลว 3 ครั้ง  → mark failed (ไม่มี placeholder)
-   │
-   └─ step: cover → Fal Recraft V3 (ใช้ ref image + title guard)
-```
+Root cause of the Barnaby-quality gap: cover and interior use independent prompts, no shared reference image, no locked style bible.
 
-### Style Auto-Rotation (ไม่ล๊อค 1 สไตล์)
+Changes:
 
-สร้าง `kids_style_presets` table:
-```text
-id | slug                    | prompt_suffix                                    | weight | last_used_at
----|-------------------------|--------------------------------------------------|--------|-------------
-1  | watercolor_soft         | "soft watercolor, pastel palette, gentle..."     | 10     | ...
-2  | ghibli_hand_drawn       | "hand-drawn animation cel, lush background..."   | 10     | ...
-3  | 3d_pixar                | "3D rendered, soft global illumination..."       | 10     | ...
-4  | flat_vector             | "flat vector illustration, bold shapes..."       | 10     | ...
-5  | crayon_texture          | "crayon and colored pencil texture..."           | 10     | ...
-6  | gouache_painterly       | "gouache painterly, thick brush strokes..."      | 10     | ...
-```
-เลือกด้วย weighted random + penalty สำหรับ style ที่ใช้ล่าสุด → หนังสือแต่ละเล่มมี style ต่างกัน แต่**ในเล่มเดียวกัน**ใช้ style เดียวตลอด (บันทึกใน `kids_book_bibles.style_preset_id`).
+- **Style Bible** — extend `kids_book_bibles` with `style_bible_json` (line quality, coloring, lighting, palette hexes, background detail, texture, framing, character proportions, title lettering direction, forbidden styles) and `cover_master_url` (the approved cover art, used as the visual anchor for every interior page).
+- **Character Bible v2** — expand `character_bible_json` schema to the immutable-identifier list in the spec (face shape, proportions, palette, silhouette, signature prop, forbidden variations, reference image URLs).
+- **Cover pipeline** (`generate-cover` kids branch):
+  1. Pick style preset via existing `style-picker.ts`
+  2. Generate a *character reference sheet* with Flux Schnell (front / 3-4 / expression) — store URL on the bible
+  3. Generate cover master with Recraft V3 image-to-image using the reference sheet as `image_url`, style-bible palette baked into prompt, textless background
+  4. Compose title lettering as a separate overlay (Canvas/SVG) so spelling can be verified/corrected without regen
+  5. Store `cover_master_url` before any interior art runs
+- **Interior pipeline** (`_shared/kids-visual-bible.ts` + `render-pdf`):
+  - Every page prompt injects character bible + style bible + `cover_master_url` as i2i reference (strength 0.5–0.6)
+  - Same Fal model family and palette as the cover
+  - Textless — body copy stays as real PDF text layers
+- **QC gate** (`_shared/qc/kids-cover-qc.ts` + new `cover-interior-match.ts`):
+  - Perceptual hash + palette-distance check between cover master and each interior page
+  - `cover_to_interior_match >= 90`, `character_consistency >= 90` are hard gates
+  - Failures repair only the affected artifact (regenerate one page, not the whole book)
 
-### Character Consistency (2 ชั้น)
+Thresholds are not lowered. Existing `kidsPublishGate` stays.
 
-1. **Character Bible** (text) — ต่อท้ายทุก prompt ทุกหน้า verbatim
-2. **Reference Image** (image-to-image) — Fal endpoint รับ `image_url` + `strength: 0.65` → ยึดหน้าตัวละครจากภาพต้นแบบ
+## 3. Admin control: "Build Children Picture Book"
 
----
+New component `src/components/admin/BuildKidsBookButton.tsx` placed on `ProductionCommandCenter` and the main admin Dashboard. Opens a dialog with:
 
-## Technical
+- Age band (All / 0-3 / 4-6 / 7-9 / 9-12 / 13+) — "All" internally picks one primary band + adjacent tags
+- Themes (multi-select, chips already exist in `ThemeChips.tsx`)
+- Language, target market, tone, book length, illustration intensity, price tier, autopilot mode (safe / full)
 
-### Files ใหม่
-- `supabase/functions/_shared/fal.ts` — helper: `falFluxSchnell()`, `falRecraftV3()`, upload response → Supabase storage, cost log
-- `supabase/functions/_shared/style-picker.ts` — weighted-random style selection with recency penalty
-- `supabase/migrations/xxx_kids_style_presets.sql` — table + seed 6 styles + GRANTs
-- `supabase/migrations/xxx_book_style_link.sql` — เพิ่ม `style_preset_id`, `character_reference_image_url` ใน `kids_book_bibles` (มีอยู่แล้วจาก QC v2 — เพิ่มเฉพาะที่ขาด)
+Submits to a new thin edge function `kids-book-start` that:
+1. Creates the `ebooks_kids` row + `kids_production_queue` entry + `autopilot_kids_runs` row with the chosen params
+2. Fires `autopilot-kids-pipeline` fire-and-forget
+3. Returns `{ run_id, ebook_id }` for the UI to subscribe to live status
 
-### Files แก้
-- `supabase/functions/autopilot-kids-pipeline/index.ts` — step lock_bibles ใช้ Fal สร้าง ref image, step illustrate เรียก fal.ts (draft→final), ลบ path ที่เรียก Lovable AI Gateway image
-- `supabase/functions/_shared/covers/kids-cover-render.ts` — เปลี่ยนไปใช้ Fal Recraft V3 + ref image
-- `supabase/functions/_shared/kids-visual-bible.ts` — ให้ผลลัพธ์รวม `style_preset_id` ที่ picker เลือก
+The existing `KidsAutopilot.tsx` status view is upgraded to show: current stage, retries, cost, cover preview, interior thumbnails grid, per-page failure reasons, before/after repair evidence, sellability verdict, publish state, and per-artifact action buttons (regen page, re-run consistency, re-render PDF, approve, reject).
 
-### Fal.ai API call
-```ts
-POST https://fal.run/fal-ai/flux/schnell   // draft
-POST https://fal.run/fal-ai/recraft-v3      // final
-Authorization: Key ${FAL_API_KEY}
-Body: { prompt, image_size:"square_hd", num_inference_steps:4,
-        image_url?, strength?:0.65 }   // image_url present = i2i
-Response: { images:[{url, width, height, content_type}] }
-```
-→ fetch URL → upload buf ไปที่ Supabase `ebook-covers` / (bucket ใหม่) `ebook-illustrations`.
+## 4. Pipeline stage order (idempotent, resumable)
 
-### Secret
-- ใหม่: `FAL_API_KEY` (ผ่าน `add_secret` หลังผู้ใช้สมัคร)
-- Lovable AI Gateway image generation → เลิกใช้ในสาย kids (ยังใช้กับ text/QC ต่อไป)
+`autopilot-kids-pipeline` orchestrates, persisting each stage to `autopilot_kids_steps`:
 
-### QC ยังทำงานเดิม
-Pipeline QC v2 (`kids-qc-run`, `sellable.ts`, `pdf-preflight.ts`) ไม่เปลี่ยน → gate ยังบังคับ 90 คะแนน / no placeholder / no critical เหมือนเดิม
+market → concept → age/theme spec → story bible → character bible → style bible → page plan → manuscript → editorial QC → cover concept → cover master → interior illustrations → layout/typography → PDF render → visual+technical QC → targeted repair loop (max 3) → storefront assets → sellability gate → publish OR human_review_required.
 
-### ต้นทุน/ภาพ ประมาณการ
-- 1 หนังสือ = 1 ref + 14 spreads (draft) + 14 spreads (final) + 1 cover ≈ 15×$0.003 + 15×$0.04 = **~$0.65/เล่ม (~23 บาท)**
-- ถ้าไม่มี regenerate = ต่ำกว่า Lovable Gateway ปัจจุบันมาก
+Resume logic reads the last completed step from `autopilot_kids_steps` on re-invoke.
 
----
+## 5. Commercial story standard
 
-## Rollout
+Concept generator scores premise / hooks / curiosity gap / protagonist / conflict / page-turn / payoff / re-read / series / positioning. Reject and regenerate if differentiation < 85 (max 3 attempts, then human review).
 
-1. ✅ อธิบายวิธีสมัคร Fal (message นี้)
-2. ⏸ รอผู้ใช้สมัคร → ให้คีย์
-3. ผม `add_secret` ขอ `FAL_API_KEY`
-4. Implement code + migration ตามลำดับข้างบน
-5. Deploy edge functions อัตโนมัติ
-6. รัน 1 เล่มทดสอบ → เช็คภาพ + คะแนน QC + character consistency
-7. เปิด autopilot ต่อ
+## 6. One live book run
 
-**ขั้นต่อไป: กรุณาสมัคร Fal.ai และกลับมาบอก แล้วผมจะเปิดฟอร์มขอคีย์ให้ครับ**
+After the above ships and typechecks: invoke `kids-book-start` with Age 4-6, Themes [Animals & Nature, Friendship & Family], EN/US, warm-whimsical tone, high illustration intensity, autopilot=full. Watch to completion, then report every field the spec's "Report Back" section requires.
+
+## Technical section
+
+**Migrations**
+- `kids_book_bibles`: add `style_bible_json jsonb`, `cover_master_url text`, `character_reference_sheet_url text`
+- `autopilot_kids_runs`: add `params_json jsonb` (age band, themes, language, tone, length, illustration intensity, price tier, mode)
+- `qc_findings`: no schema change — already carries rule_id / severity / measured_value / threshold / evidence / repair_action
+- New table `kids_cover_interior_match` (run_id, page_number, phash_distance, palette_distance, score, passed) for evidence trail
+
+**New files**
+- `supabase/functions/kids-book-start/index.ts`
+- `supabase/functions/_shared/style-bible.ts`
+- `supabase/functions/_shared/cover-interior-match.ts` (pHash + palette distance via existing image fetch)
+- `supabase/functions/_shared/covers/kids-title-overlay.ts` (SVG title lettering composed over cover master)
+- `src/components/admin/BuildKidsBookButton.tsx` + dialog form
+- `src/components/admin/KidsRunDetail.tsx` (upgraded status/artifact view)
+
+**Edited files**
+- `supabase/functions/autopilot-kids-pipeline/index.ts` — insert style-bible + reference-sheet steps, chain cover master into interior generator
+- `supabase/functions/_shared/kids-visual-bible.ts` — accept `cover_master_url` as i2i anchor
+- `supabase/functions/_shared/covers/kids-cover-render.ts` — 2-step (ref sheet → cover master) with textless prompt + title overlay
+- `supabase/functions/_shared/qc/kids.ts` — add cover_to_interior_match + character_consistency as hard gates
+- `src/pages/admin/KidsAutopilot.tsx` and `ProductionCommandCenter.tsx` — mount new button + detail view
+- `src/pages/admin/Dashboard.tsx` — add the button in a prominent card
+
+**Cleanup (per prior turn's request)**
+- Remove unused admin surfaces after confirming no route depends on them: audit `AutopilotControl`, `AutopilotStatusCenter`, `LiveProductionQueue` for kids vs adult overlap and delete adult-only cruft that the current two-track goal (general ebooks + kids picture books) doesn't need. Done as a separate final commit so the pipeline work is reviewable in isolation.
+
+**Guardrails encoded in code, not prose**
+- `publish_live` is gated by `sellable === true && all_hard_gates_passed === true`
+- No fallback SVG cover path — remove any remaining `cover.svg` fallback in `_shared/cover.ts`
+- PDF preflight already rejects non-`%PDF-` bytes and placeholder markers; keep as-is
+- No review-seeding code paths anywhere
+
+## What I need from you before running
+
+Nothing — `FAL_API_KEY` and `LOVABLE_API_KEY` are already saved. I'll ship the code, run typecheck, deploy, and invoke one full run.
