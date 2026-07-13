@@ -1,53 +1,60 @@
+# อัปเกรด Kids Cover Prompt + รีเจนปกเดิม Barnaby
 
-# รีวิวเนื้อหา & ปรับปรุงหน้าปก — Barnaby's Wobbly Problem
+## 1. อัปเดต Memory — Kids Cover Prompt (v2 "Peppa Pig-style logo")
 
-## 1. บันทึกคะแนนรีวิวเข้า Memory
+แทนที่ `mem/design/kids-cover-prompt.md` ด้วยเวอร์ชันใหม่ที่รวมกฎ 3 ชั้น:
 
-บันทึกคะแนนที่คุณให้ (Plot 9.5, Language 9, Illustrations 8.5, Overall 9/10) และแนวทาง cover art ที่เลือกเข้า project memory เพื่อใช้อ้างอิงในเล่มต่อไป
+**Layer A — Illustration base**
+- Warm storybook / gouache-watercolor / Disney-Scholastic publishing quality
+- Soft pastel palette, painterly texture, gentle lighting, cozy magical mood
+- Main character = hero of cover, joyful expression, dynamic pose
+- Background: whimsical แต่ clean เพื่อให้ character เป็น focal point
 
-## 2. สร้างหน้าปกใหม่ด้วย Vine Typography Prompt
+**Layer B — Custom illustrated title (สำคัญที่สุด)**
+- ❌ ห้ามใช้ฟอนต์สำเร็จรูปทุกชนิด (ไม่ว่าจะ hand-drawn font ก็ตาม)
+- ✅ ต้อง design ตัวอักษรใหม่ทั้งหมดแบบ **logo เฉพาะเรื่อง** (Peppa Pig / Bluey / Paddington / Gruffalo tier)
+- ตัวอักษรหนา นุ่ม โค้งมน อ่านง่ายสำหรับเด็ก
+- แต่ละตัวมี decorative element ที่ผูกกับเนื้อเรื่อง (เถาวัลย์, เบอร์รี่, ใบไม้, ดาว, หูสัตว์, หาง, เห็ด, ก้อนเมฆ ฯลฯ)
+- คำที่สื่ออารมณ์ให้เอียง/โค้งตามความหมาย (เช่น "Wobbly" เอียงเล็กน้อย)
+- Subtitle เป็น handcrafted font เล็กกว่า เข้าชุดกับ title
 
-ใช้ Option 1 (เน้นตัวหนังสือที่ทำจากเถาวัลย์และธรรมชาติ) เป็น prompt หลัก generate ภาพปกใหม่ผ่าน image generation tool:
+**Layer C — Composition & print**
+- Character centered, title ใหญ่อ่านง่าย, breathing room เยอะ
+- Ultra detailed, 8K, CMYK-friendly, print-ready
 
-```
-Children's book cover illustration, the title text "Barnaby's Wobbly Problem" 
-is organically integrated into the environment. The letters are whimsically 
-crafted out of living green vines, twisted branches, and colorful forest 
-flowers, making the text fully part of the artwork. A cute badger character 
-wearing a yellow vest is looking up at the wobbly vine letters in surprise. 
-Enchanted forest background, soft sunbeams filtering through leaves, warm 
-watercolor and ink storybook style, highly detailed, cozy and magical 
-atmosphere, professional typography integrated into nature
-```
+**Reusable Prompt Template** (จะบันทึกเป็น block พร้อม `[TITLE]`, `[CHARACTER]`, `[SETTING]`, `[STORY_MOOD]`, `[LETTER_DECOR_IDEAS]` placeholders + ตัวอย่าง Barnaby ที่ user ให้มาเป็น worked example)
 
-Quality tier: **premium** (text legibility critical for book title)
+## 2. อัปเดต Core Rule ใน `mem/index.md`
 
-## 3. บันทึก Cover Prompt Template เข้า Memory
+ปรับ core rule เดิมให้เข้มขึ้น:
+> Kids picture book covers: title ต้องเป็น **custom illustrated logo เฉพาะเรื่อง** (Peppa Pig-tier) — ห้ามใช้ฟอนต์สำเร็จรูปแม้แต่ฟอนต์ hand-drawn, ตัวอักษรต้องมี decorative element ผูกกับ story (เถาวัลย์/ใบไม้/หูสัตว์/เบอร์รี่ ฯลฯ)
 
-บันทึก Option 2 (Format Logic template) เป็น reusable prompt template สำหรับหนังสือเด็กเล่มต่อไป:
+## 3. รีเจนปก Barnaby's Wobbly Problem ใหม่ (v3)
 
-```
-Children's book cover, the title "[TITLE]" is organically integrated into 
-the scene. The letters are made entirely out of [MATERIAL] and blend 
-naturally with the environment. A cute [CHARACTER] is interacting with 
-the letters. Beautiful [SETTING], pastel color palette, whimsical storybook 
-illustration style, text is highly legible but completely part of the image, 
-no flat digital font overlay
-```
+ใช้ template ใหม่กับ Barnaby โดย fill ค่าที่ user แนะนำ:
+- B มีเถาวัลย์พัน
+- o เป็นผลเบอร์รี่
+- y ปลายเป็นใบไม้
+- "Wobbly" เอียงเล็กน้อยสื่อความโยกเยก
+- จุด i เป็นดอกไม้/ผลไม้
+- ตัวอักษรหนา นุ่ม โค้งมน
 
-## 4. อัปเดตปกในระบบ
+**Steps:**
+1. Generate `cover_v3.png` ด้วย `imagegen--generate_image` model=`premium` (text legibility critical), 1024×1280
+2. Upload → `ebook-covers/bcbb9b53-.../cover_v3.png`
+3. Sign URL (1 ปี) + update `ebooks.cover_url`, bump `cover_score`, `updated_at`
+4. เก็บ v1/v2 เป็น backup ใน bucket (ไม่ลบ)
+5. Regenerate `store_thumbnail` ผ่าน edge function `generate-store-thumbnail` (force=true) เพื่อให้ storefront ใช้ปกใหม่
 
-- Generate ปกใหม่ → อัปโหลดเข้า storage bucket `ebook-covers`
-- อัปเดต `cover_url` ใน ebooks table
-- ปกเดิมเก็บไว้เป็น backup
+## 4. QA ปกใหม่
 
-## 5. QA ตรวจสอบปกใหม่
+- อ่านชื่อเรื่องออกที่ thumbnail 160px ✓
+- ตัวอักษรแต่ละตัวมี decorative element ตามที่กำหนด ✓
+- Barnaby (แบดเจอร์เสื้อกั๊กเหลือง) คงเส้นคงวา ✓
+- ไม่มีฟอนต์สำเร็จรูปหลุด ✓
 
-- ตรวจความชัดของ title text
-- ตรวจ character consistency (Barnaby ใส่เสื้อกั๊กเหลือง)
-- ตรวจ overall composition และ mood
+ถ้าไม่ผ่าน QA → regenerate อีก 1 รอบด้วย prompt ที่เข้มขึ้นก่อนจบ
 
 ## สิ่งที่ไม่แตะ
-- เนื้อหาภายในเล่ม (คะแนน 9/10 ผ่านแล้ว)
-- ราคา $10.99 คงเดิม
-- PDF ภายในไม่เปลี่ยน
+- เนื้อหาเล่ม, ราคา $10.99, PDF ภายใน
+- ปกของหนังสือประเภทอื่นๆ (non-kids) — กฎนี้ใช้เฉพาะ kids picture book
