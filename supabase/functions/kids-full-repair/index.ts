@@ -283,10 +283,17 @@ Return JSON:
       // Hard gate: do not touch art if the story judge did not pass.
       if (!storyGatePassed && !skipStoryGate && runAll) {
         log.push({ step: "aborted_before_art", reason: "story_judge_failed", note: "no image cost spent; fix story then re-invoke" });
-        await db.from("ebooks_kids").update({
+        const patch: Record<string, unknown> = {
           listing_status: "draft", status: "needs_revision", pipeline_status: "human_review_required",
-        }).eq("id", ebook_id);
-        await persistLog({ status: "story_gate_blocked" });
+        };
+        await db.from("ebooks_kids").update(patch).eq("id", ebook_id);
+        const extra: Record<string, unknown> = { status: "story_gate_blocked" };
+        if (retireOnFail) {
+          extra.retire_recommended = true;
+          extra.retire_reason = "story judge could not clear generic_story_risk<=25 after differentiated premise repair; recommend starting fresh with a more distinctive concept";
+          log.push({ step: "retire_recommended", reason: extra.retire_reason });
+        }
+        await persistLog(extra);
         return;
       }
     }
