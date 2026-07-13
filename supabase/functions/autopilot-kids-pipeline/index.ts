@@ -38,10 +38,9 @@ const STEPS: Step[] = [
   { name: 'generate_interior', label: 'Illustrate interior', critical: true, run: generateInterior },
   { name: 'generate_thumbnail', label: 'Store thumbnail', run: generateThumbnail },
   { name: 'generate_previews', label: 'Preview pages', run: generatePreviews },
-  { name: 'render_pdf', label: 'Render picture PDF', critical: true, run: renderPdf },
-  { name: 'qc', label: 'Measured QC', run: runQc },
-  { name: 'publish_live', label: 'Publish live', run: publishLive },
+  { name: 'dispatch_pdf_qc_publish', label: 'Dispatch multi-stage PDF → QC → publish', critical: true, run: dispatchPdfQcPublish },
 ];
+
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
