@@ -404,7 +404,7 @@ Return JSON exactly:
       const sb = (bible3?.style_bible_json ?? {}) as Record<string, unknown>;
 
       const charDesc = [
-        `named ${cb.name ?? "Luna"}`,
+        `named ${cb.name ?? "the hero"}`,
         cb.species && `(${cb.species})`,
         cb.hair_color && cb.hair_style && `${cb.hair_color} ${cb.hair_style} hair`,
         cb.skin_tone_words && `${cb.skin_tone_words} skin`,
@@ -429,9 +429,9 @@ Return JSON exactly:
       let scenes: Array<{ scene: string; emotion: string; setting: string }>;
       if (pagePlan?.spreads && pagePlan.spreads.length >= targetIllos - 2) {
         scenes = pagePlan.spreads.slice(0, targetIllos).map((s) => ({
-          scene: s.scene ?? "Luna in a cozy bedtime moment",
+          scene: s.scene ?? `${cb.name ?? "the hero"} in a defining story moment`,
           emotion: s.emotion ?? "warm",
-          setting: s.setting ?? "moonlit bedroom",
+          setting: s.setting ?? "the story's main setting",
         }));
       } else {
         const plan = await buildScenePlan({
