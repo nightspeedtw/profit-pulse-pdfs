@@ -3,7 +3,59 @@
 // Deliberately does NOT include any adult chrome: no black field, no EBOOK chip,
 // no hairline rules, no feature chips, no condensed uppercase sans.
 
+import { initWasm, Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
 import type { KidsVisualBible } from "../kids-visual-bible.ts";
+
+// ---------- WASM + storybook font caching ----------
+let wasmReady: Promise<void> | null = null;
+async function ensureWasm() {
+  if (!wasmReady) {
+    wasmReady = (async () => {
+      const res = await fetch("https://unpkg.com/@resvg/resvg-wasm@2.6.2/index_bg.wasm");
+      const buf = await res.arrayBuffer();
+      await initWasm(buf);
+    })();
+  }
+  await wasmReady;
+}
+
+// Storybook display + friendly body. Fredoka is round, warm, immediately reads
+// as a children's book. Baloo 2 is a friendly companion. Both are free/open.
+const KIDS_FONT_URLS: Record<string, string> = {
+  fredoka: "https://cdn.jsdelivr.net/npm/@fontsource/fredoka-one@5.0.13/files/fredoka-one-latin-400-normal.woff",
+  baloo: "https://cdn.jsdelivr.net/npm/@fontsource/baloo-2@5.0.20/files/baloo-2-latin-800-normal.woff",
+  baloobold: "https://cdn.jsdelivr.net/npm/@fontsource/baloo-2@5.0.20/files/baloo-2-latin-700-normal.woff",
+};
+let kidsFontsCache: Uint8Array[] | null = null;
+async function loadKidsFonts(): Promise<Uint8Array[]> {
+  if (kidsFontsCache) return kidsFontsCache;
+  const buffers: Uint8Array[] = [];
+  for (const [name, url] of Object.entries(KIDS_FONT_URLS)) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`fetch ${name} ${r.status}`);
+      buffers.push(new Uint8Array(await r.arrayBuffer()));
+    } catch (e) {
+      console.warn(`kids-cover: font ${name} failed`, (e as Error).message);
+    }
+  }
+  kidsFontsCache = buffers;
+  return buffers;
+}
+
+export async function rasterizeKidsSVG(svg: string, width = 1200): Promise<Uint8Array> {
+  await ensureWasm();
+  const fontBuffers = await loadKidsFonts();
+  const resvg = new Resvg(svg, {
+    fitTo: { mode: "width", value: width },
+    font: {
+      loadSystemFonts: false,
+      fontBuffers,
+      defaultFontFamily: "Fredoka One",
+    },
+  });
+  return new Uint8Array(resvg.render().asPng());
+}
 
 const W = 1600;
 const H = 1600;
