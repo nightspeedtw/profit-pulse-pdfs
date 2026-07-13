@@ -168,7 +168,11 @@ Deno.serve(async (req) => {
       } else {
         plan = (existingPlan?.entries?.length && (existingPlan.total_recommended ?? 0) > 0)
           ? existingPlan
-          : planIllustrations(chapterInputs(chapters), categorySlug);
+          : planIllustrations(chapters.map((c: any, i: number) => ({
+              index: c.chapter_index ?? (i + 1),
+              title: c.title ?? `Chapter ${i + 1}`,
+              content: c.content ?? "",
+            })), categorySlug);
       }
 
       // Reuse existing images where present; generate the rest in small
@@ -196,13 +200,6 @@ Deno.serve(async (req) => {
       console.warn("illustration planner failed:", (err as Error).message);
     }
 
-    function chapterInputs(chs: any[]) {
-      return chs.map((c: any, i: number) => ({
-        index: c.chapter_index ?? (i + 1),
-        title: c.title ?? `Chapter ${i + 1}`,
-        content: c.content ?? "",
-      }));
-    }
 
     // ---- Assemble PDF data ----
     const outline = (ebook.outline_json ?? {}) as any;
