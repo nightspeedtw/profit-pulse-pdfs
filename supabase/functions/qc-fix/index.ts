@@ -2,6 +2,7 @@
 // Strips unsafe claims, strengthens thin chapters, removes generic AI phrases.
 import { corsHeaders, admin, aiText, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 import { PREMIUM_WRITER_SYSTEM } from "../_shared/prompts.ts";
+import { isKidsBook, kidsGuardResponse } from "../_shared/is-kids-book.ts";
 
 const UNSAFE_REGEX = /(guaranteed|cure|miracle|lose \d+ ?lbs? in|risk[- ]free|get rich|double your|10x your|FDA[- ]approved|secret formula)/gi;
 
@@ -15,6 +16,10 @@ Deno.serve(async (req) => {
 
     const { data: e } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
     if (!e) throw new Error("Ebook not found");
+    if (isKidsBook(e)) {
+      console.log("qc-fix: skipping kids book", { ebook_id });
+      return kidsGuardResponse(ebook_id, corsHeaders);
+    }
 
     const { data: settings } = await db.from("generation_settings").select("*").eq("id", 1).single();
     const model = pickModel(settings?.mode ?? "hybrid", "writing");
