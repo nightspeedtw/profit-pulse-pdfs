@@ -32,7 +32,20 @@ Deno.serve(async (req) => {
 
     const { data, error } = await query;
     if (error) throw error;
-    return new Response(JSON.stringify({ items: data ?? [] }), {
+    const items = (data ?? []).map((row: any) => {
+      const raw = row.inside_illustrations_json;
+      let preview_images: string[] = [];
+      if (raw && typeof raw === "object") {
+        preview_images = Object.entries(raw)
+          .sort(([a], [b]) => Number(a) - Number(b))
+          .map(([, v]: any) => v?.url)
+          .filter((u: any): u is string => typeof u === "string" && u.length > 0)
+          .slice(0, 4);
+      }
+      const { inside_illustrations_json, ...rest } = row;
+      return { ...rest, preview_images };
+    });
+    return new Response(JSON.stringify({ items }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
