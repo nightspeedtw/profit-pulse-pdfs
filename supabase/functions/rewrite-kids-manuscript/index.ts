@@ -8,6 +8,7 @@
 // and moral stay consistent with the cover and existing illustrations.
 
 import { admin, aiJSON, corsHeaders, logCost } from "../_shared/ai.ts";
+import { resolveTrack, wrongTrackResponse } from "../_shared/track-registry.ts";
 
 type Spread = {
   spread_number: number;
