@@ -1,48 +1,160 @@
-# Productionize Kids Autopilot + Fresh End-to-End Run
 
-Goal: turn the flow that shipped *The Sneeze-Powered Sock Sorter* into the default kids production path, expose one admin action, and smoke-test it by publishing one brand-new picture book — only if strict measured QC passes.
+# Fiction Autopilot Self-Healing Push To Live
 
-## Part 1 — Lock production defaults (code)
+## Goal
 
-Edit `supabase/functions/autopilot-kids-pipeline/index.ts` (+ helpers) so every new kids run follows the exact sequence that worked:
+Turn the many existing one-shot repair endpoints into an autonomous supervisor that:
+1. detects the latest blocker on a kids-book run,
+2. dispatches to the correct existing repair handler,
+3. re-runs the pipeline from a safe stage,
+4. loops with bounded attempts,
+5. either publishes on strict measured QC or honestly shelves.
 
-```text
-concept → manuscript → story judge gate → metadata sync
-  → metadata/story mismatch gate → bible_check → style bible lock
-  → textless cover master → deterministic illustrated title treatment (baked PNG)
-  → 12 interior illustrations → 3 previews
-  → multi-stage PDF (prepare → 1_4 → 5_8 → 9_12 → finalize)
-  → measured kids QC → publish-if-qc-passed (Internal Store only)
+Then use it to push one fresh kids book to live without touching any thresholds.
+
+## What already exists (reused, not rewritten)
+
+- `kids-concept-preflight` — 1+2 bounded concept judge (built last turn).
+- `kids-fresh-book-start` — async ebook+run seeder that invokes preflight then pipeline.
+- `autopilot-kids-pipeline` — canonical pipeline. Already has `metadata_gate` auto-sync and `bible_check` auto-wipe. Skips `generate_idea`/`generate_manuscript` when title/manuscript already exist.
+- `kids-surgical-story-repair` — bounded single-attempt targeted refrain/callback rewrite.
+- `kids-repair-story-gate` — up to 3 general story rewrites.
+- `kids-global-style-fallback` — swaps style to `watercolor_soft`, regenerates cover+interiors.
+- `kids-repair-cover` — cover rerender.
+- `kids-final-text-repair` — glyph/typography fix on manuscript before PDF.
+- `kids-build-picture-pdf` + `kids-publish-if-qc-passed` — multi-stage PDF → QC → publish.
+- `kids-qc-run` — measured QC scorecard.
+
+All thresholds live inside these functions and stay untouched.
+
+## Part 1 — New supervisor function
+
+New file: `supabase/functions/kids-repair-supervisor/index.ts`.
+
+Behavior on each POST `{ ebook_id, run_id? }`:
+
+1. Load the ebook, its latest run, its `qc_scorecard`, its latest failed step, and existing `storefront_meta.repair_supervisor` log.
+2. Inspect state and pick ONE blocker in priority order:
+   - `story_gate` failed → story repair
+   - `metadata_gate` failed → metadata sync
+   - `bible_check` failed → bible wipe + relock (already handled inline; supervisor just re-runs pipeline)
+   - `KIDS_TITLE_TREATMENT_INVALID` → title treatment rerun
+   - `CHARACTER_IDENTITY_BREAK` or vision consistency < 90 → targeted reroll of failing pages, then global style fallback if >6 pages fail
+   - `PDF_GLYPH_MANGLING` → `kids-final-text-repair` + PDF rebuild
+   - `WORKER_RESOURCE_LIMIT` → resume multi-stage PDF from last stage (no art regen)
+   - `KIDS_MEASURED_QC_MISSING` → invoke only the missing QC subsystem
+3. Dispatch to the matching existing function.
+4. Persist attempt log to `storefront_meta.repair_supervisor` (append-only array).
+5. Bounded attempts per blocker class (max 3 for story, 2 for art, 2 for PDF, 1 for title treatment).
+6. After each repair, re-invoke `autopilot-kids-pipeline` with `force_finish=true` so completed steps are skipped.
+7. Stop conditions:
+   - measured QC passes → publish path handles it → return `published`
+   - attempts exhausted → shelve (`listing_status=draft`, `sellable=false`, `pipeline_status=human_review_required`, record `storefront_meta.shelved` with exact blockers)
+   - unrecoverable blocker (safety/compliance) → shelve immediately
+
+The supervisor never calls image gateways directly; it only dispatches to existing repair functions. It also never lowers a threshold.
+
+### Repair log shape (appended per attempt)
+
+```json
+{
+  "attempt": 1,
+  "current_blocker": "story_gate:rer=80<85,buyer=80<85",
+  "repair_handler": "kids-surgical-story-repair",
+  "stage_before": "story_gate",
+  "stage_after": "story_gate",
+  "result": "still_blocked",
+  "scores_before": {"rer":80,"buyer":80},
+  "scores_after":  {"rer":80,"buyer":70},
+  "updated_at": "2026-07-13T..."
+}
 ```
 
-Concrete changes:
-- **Default style**: `_shared/style-picker.ts` / kids preset resolver → primary `watercolor_soft`, fallback `warm_storybook_gouache`. Remove `pixar_3d` from the kids default pool (keep selectable, not default).
-- **Story gate before art**: pipeline halts at `story judge` with the exact thresholds listed (age_appropriateness ≥90, story_coherence ≥90, emotional_payoff ≥85, reread_value ≥85, language_level ≥90, parent_buyer_value ≥85, generic_story_risk ≤25). No image spend until pass.
-- **Story judge cache**: reuse `storefront_meta.story_judge_cache` keyed by manuscript hash (helper already exists in `_shared/manuscript-hash.ts`). Skip re-run on hash match with a prior pass.
-- **Cover**: always textless master + deterministic illustrated title treatment baked into `cover.png`; same file used as thumbnail; persist `storefront_meta.title_treatment`; fail `KIDS_TITLE_TREATMENT_INVALID` on metadata/title mismatch.
-- **PDF**: default to the multi-stage builder (`kids-build-picture-pdf`) chained into `kids-publish-if-qc-passed`. Retire the single-shot path from the default flow.
-- **Measured QC**: the full critical-gate list (story pass, metadata gate, bible_check, title treatment, cover title spelling, character_consistency ≥90, cover_interior_match ≥90, style_bible_match ≥90, 12+ unique interiors, thumbnail, 3+ previews, valid PDF with extractable text, no glyph mangling, no placeholder art). No threshold is lowered.
+### Story judge cache reuse
 
-## Part 2 — Admin one-click action
+If manuscript hash matches `storefront_meta.story_judge_cache.manuscript_hash`, the supervisor skips re-running the stochastic judge and treats the cached scores as the story-gate result. Cache is written by both `kids-surgical-story-repair` and the pipeline story_gate on pass.
 
-- Confirm `BuildKidsBookButton` (already exists) is mounted on **Kids Autopilot** (`src/pages/admin/KidsAutopilot.tsx`) with defaults preset to age band `4-6`, high illustration intensity, mode `full`, Internal Store only.
-- Rename displayed label to `Build Kids Picture Book`.
-- Show live per-stage progress (already rendered from `autopilot_kids_runs` / `autopilot_kids_steps`), blocker reason, and final Store URL.
-- No marketing/landing UI added.
+## Part 2 — Bounded auto-tick
 
-## Part 3 — Fresh end-to-end run
+New file: `supabase/functions/kids-repair-tick/index.ts`.
 
-- Invoke `kids-book-start` with: age band `picture-book-4-6`, themes in a fresh lane (daytime funny adventure / animal buddy comedy / food-kitchen chaos / silly invention). Excluded lanes: bedtime, moon/star, emotion-regulation-only, tooth/bathroom, wormhole/portal, sock-sorter repeat.
-- Illustration intensity `high`, length `standard`, price `standard`, mode `full`.
-- Let the pipeline run. If any gate fails, keep `listing_status=draft`, `sellable=false`, report exact blocker + next repair action.
-- If all gates pass, publish to Internal Store and return the URL.
+Small helper the admin button hits after `kids-fresh-book-start`. Polls run status every ~20s (up to N iterations set by env, default 15). Each poll:
+- if run status is `completed` and `listing_status=live` → return published.
+- if run status is `failed` or `pipeline_status=human_review_required` → invoke `kids-repair-supervisor` once and continue polling.
+- if global attempts exceed cap → mark shelved and return.
 
-## Validation
+This is invoked once per user click; it does the whole "auto-fix until live or shelved" loop server-side with a hard iteration cap so it can never loop forever.
 
-- `tsgo` typecheck.
-- Grep confirmations: no Shopify calls, no seeded/fake reviews, default kids style ≠ `pixar_3d`, story gate wired before any image generator, PDF path uses the multi-stage builder.
-- Verify fresh run either publishes after QC or stays draft with a recorded blocker.
+## Part 3 — Admin button behavior
 
-## Report back
+Edit `src/components/admin/BuildKidsBookButton.tsx`:
+- Swap the invoke target from `kids-book-start` to `kids-fresh-book-start` (already includes concept preflight).
+- After it returns `{ ebook_id, run_id }`, fire `kids-repair-tick` with the run id.
+- Show live per-stage status + last blocker + attempt count from `storefront_meta.repair_supervisor`. No thresholds shown as adjustable.
 
-Changed files, deployed functions, admin button confirmation, defaults locked, new ebook ID, title/subtitle/description, story judge scores, style slug, cover/thumbnail/PDF/preview URLs, page + illustration counts, price, measured QC scorecard, `listing_status`, `sellable`, Internal Store URL (if live), guardrail confirmations, and (if blocked) exact next blocker.
+`src/pages/admin/KidsAutopilot.tsx` already renders the button — no route change needed. Only the button component and the row card that surfaces `repair_supervisor` progress will be updated.
+
+## Part 4 — Run one fresh book end-to-end
+
+After deploy, invoke `kids-fresh-book-start` once (age band `4-6`, humor theme, preferred lanes enforced by the existing preflight prompt). Then invoke `kids-repair-tick`. Observe:
+
+1. Concept preflight → best of 1+2.
+2. If preflight passes → seed ebook → pipeline → story_gate → (repair if needed) → metadata/bible → cover → style bible (`watercolor_soft` default) → 12 interiors → previews → multi-stage PDF → measured QC → publish only on strict pass.
+3. If any recoverable blocker fires, supervisor picks the handler, retries with bounded attempts, and resumes.
+4. If unrecoverable after budget, shelve honestly.
+
+## Guardrails locked in code
+
+- Thresholds live in `kids-story-judge`, `kids-qc-run`, and `kids-publish-if-qc-passed` — supervisor never edits them.
+- Supervisor never sets `sellable=true` or `listing_status=live` directly; only `kids-publish-if-qc-passed` can.
+- Supervisor never invokes Shopify.
+- Supervisor never inserts reviews.
+- Story-gate short-circuit in `autopilot-kids-pipeline` still prevents any art spend before the story passes.
+- `pixar_3d` is already weight 0 in `kids_style_presets`; supervisor uses `watercolor_soft` for fallback.
+
+## Bounded budgets
+
+| blocker class | max supervisor attempts |
+|---|---:|
+| story_gate | 3 (surgical → general → general) |
+| concept | 1 (preflight already does 1+2) |
+| metadata_gate | 2 |
+| bible_check | 1 (auto-wipe is one-shot) |
+| character_identity / vision consistency | 2 (targeted reroll → global style fallback) |
+| title_treatment | 1 |
+| pdf_glyph | 1 |
+| worker_resource_limit | 2 (multi-stage resume) |
+| qc_missing | 1 per missing subsystem |
+| overall supervisor loop | 12 total attempts hard cap |
+
+## Technical details
+
+- All new functions use `npm:@supabase/supabase-js@2` and `npm:@supabase/supabase-js@2/cors` per Cloud rules.
+- Both new functions are stateless; state lives in `ebooks_kids.storefront_meta.repair_supervisor` and `autopilot_kids_runs`.
+- No new tables required.
+- `kids-repair-tick` uses `EdgeRuntime.waitUntil` to survive request timeouts; the client polls DB, not the tick response.
+- Frontend polls `ebooks_kids` + `autopilot_kids_runs` (already used by `KidsAutopilot.tsx`) and reads `storefront_meta.repair_supervisor` for attempt breadcrumbs.
+
+## Deliverables
+
+Files created:
+- `supabase/functions/kids-repair-supervisor/index.ts`
+- `supabase/functions/kids-repair-tick/index.ts`
+
+Files edited:
+- `src/components/admin/BuildKidsBookButton.tsx` (invoke new starter + tick, show repair progress)
+- `src/pages/admin/KidsAutopilot.tsx` (surface `repair_supervisor` attempt breadcrumbs on the row)
+
+Functions deployed:
+- `kids-repair-supervisor`, `kids-repair-tick`
+
+Then one live run of the whole flow with the report the prompt asks for (concept scores, repair attempts, final scores, QC, listing_status/sellable, or shelved-with-blockers).
+
+## What is explicitly NOT in this plan
+
+- No new tables, no schema migrations.
+- No threshold changes.
+- No Shopify integration.
+- No review seeding.
+- No changes to `kids-story-judge`, `kids-qc-run`, or any existing repair handler's internals — only the supervisor wraps them.
+- No pipeline rewrite; `autopilot-kids-pipeline` is called via `force_finish=true` so completed steps are skipped.

@@ -52,21 +52,27 @@ export function BuildKidsBookButton({ onStarted }: Props) {
   const start = async () => {
     setBusy(true);
     try {
-      const { data, error } = await supabase.functions.invoke("kids-book-start", {
+      // Self-healing production flow: preflight concept → seed ebook → pipeline
+      // → auto-repair loop → publish only on strict measured QC. No admin
+      // intervention required for known recoverable blockers.
+      const { data, error } = await supabase.functions.invoke("kids-fresh-book-start", {
         body: {
-          age_group_slug: ageSlug,
+          age_band: ageSlug === "all" ? "4-6" : ageSlug,
           theme_slugs: themeSlugs,
-          language,
-          target_market: market,
-          tone,
-          book_length: length,
-          illustration_intensity: intensity,
-          price_tier: price,
-          mode,
         },
       });
       if (error) throw error;
-      toast({ title: "Kids book queued", description: `Run ${(data as { run_id?: string })?.run_id?.slice(0, 8)}…` });
+      const started = data as { ebook_id?: string; run_id?: string };
+      if (started?.ebook_id && started?.run_id) {
+        // Kick the self-healing tick loop (bounded, server-side).
+        await supabase.functions.invoke("kids-repair-tick", {
+          body: { ebook_id: started.ebook_id, run_id: started.run_id },
+        });
+      }
+      toast({
+        title: "Self-healing build started",
+        description: `Ebook ${started?.ebook_id?.slice(0, 8)}… running preflight + auto-repair loop.`,
+      });
       setOpen(false);
       onStarted?.();
     } catch (e) {
@@ -75,6 +81,7 @@ export function BuildKidsBookButton({ onStarted }: Props) {
       setBusy(false);
     }
   };
+
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
