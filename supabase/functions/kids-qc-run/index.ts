@@ -7,9 +7,9 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { languageCheck, preflightCover, preflightPdf, type RawFinding } from "../_shared/pdf-preflight.ts";
-import { preflightKidsAssets, preflightPdfGlyphs, kidsThresholdsForAge } from "../_shared/kids-preflight.ts";
+import { auditPdfGlyphs, preflightKidsAssets, kidsThresholdsForAge } from "../_shared/kids-preflight.ts";
 import { runKidsVisionQc, visionReportToFindings } from "../_shared/kids-vision-qc.ts";
-import { runKidsStoryJudge, storyReportToFindings } from "../_shared/kids-story-judge.ts";
+import { runKidsStoryJudge, storyReportToFindings, type StoryReport } from "../_shared/kids-story-judge.ts";
 import { computeVerdict } from "../_shared/qc/sellable.ts";
 import { QC_RULE_VERSION } from "../_shared/qc/weights.ts";
 import { verifyTitleSpelling, type TitleTreatmentMetadata } from "../_shared/covers/kids-title-treatment.ts";
@@ -43,7 +43,8 @@ Deno.serve(async (req) => {
     const thresholds = kidsThresholdsForAge(null, "high");
     const raw: RawFinding[] = [];
     raw.push(...await preflightPdf(ebook.pdf_url as string | null));
-    raw.push(...await preflightPdfGlyphs(ebook.pdf_url as string | null));
+    const glyphAudit = await auditPdfGlyphs(ebook.pdf_url as string | null);
+    raw.push(...glyphAudit.findings);
     raw.push(...preflightCover(ebook.cover_url as string | null, (ebook.title as string) ?? ""));
     raw.push(...languageCheck((ebook.manuscript_md as string) ?? null));
     raw.push(...languageCheck((ebook.title as string) ?? null));
@@ -128,20 +129,30 @@ Deno.serve(async (req) => {
     }
     const manuscriptStr = String(ebook.manuscript_md ?? "").trim();
     const manuscriptHash = manuscriptStr ? await sha256Hex(manuscriptStr.replace(/\s+/g, " ")) : "";
-    const cachedJudge = ((ebook.storefront_meta as Record<string, unknown> | null)?.story_judge_cache ?? null) as
-      | { manuscript_hash: string; report: import("../_shared/kids-story-judge.ts").StoryReport; cached_at: string }
-      | null;
+    const storyJudgeCache = ((ebook.storefront_meta as Record<string, unknown> | null)?.story_judge_cache ?? null) as Record<string, unknown> | null;
+    function getCachedPassingJudge(hash: string): { manuscript_hash: string; report: StoryReport; cached_at: string } | null {
+      if (!storyJudgeCache || !hash) return null;
+      const direct = storyJudgeCache[hash] as { manuscript_hash?: string; report?: StoryReport; cached_at?: string } | undefined;
+      if (direct?.report?.story_qc_passed === true) {
+        return { manuscript_hash: direct.manuscript_hash ?? hash, report: direct.report, cached_at: direct.cached_at ?? "" };
+      }
+      const byHash = (storyJudgeCache.by_hash as Record<string, { manuscript_hash?: string; report?: StoryReport; cached_at?: string }> | undefined)?.[hash];
+      if (byHash?.report?.story_qc_passed === true) {
+        return { manuscript_hash: byHash.manuscript_hash ?? hash, report: byHash.report, cached_at: byHash.cached_at ?? "" };
+      }
+      if (storyJudgeCache.manuscript_hash === hash && (storyJudgeCache.report as StoryReport | undefined)?.story_qc_passed === true) {
+        return storyJudgeCache as unknown as { manuscript_hash: string; report: StoryReport; cached_at: string };
+      }
+      return null;
+    }
 
     let storyReport: unknown = null;
     let storyStatus: "computed" | "hash_matched_cached_pass" | "skipped" | "missing" = "missing";
     if (!skip_story && manuscriptStr) {
-      const useCache =
-        use_cached_story_judge_if_hash_matches &&
-        cachedJudge?.manuscript_hash === manuscriptHash &&
-        cachedJudge?.report?.story_qc_passed === true;
-      if (useCache) {
-        storyReport = cachedJudge!.report;
-        raw.push(...storyReportToFindings(cachedJudge!.report));
+      const cachedJudge = use_cached_story_judge_if_hash_matches ? getCachedPassingJudge(manuscriptHash) : null;
+      if (cachedJudge) {
+        storyReport = cachedJudge.report;
+        raw.push(...storyReportToFindings(cachedJudge.report));
         storyStatus = "hash_matched_cached_pass";
       } else {
         try {
@@ -159,12 +170,18 @@ Deno.serve(async (req) => {
           if (s.story_qc_passed && manuscriptHash) {
             const existingMeta = (ebook.storefront_meta as Record<string, unknown> | null) ?? {};
             await supabase.from("ebooks_kids").update({
-              storefront_meta: {
+            storefront_meta: {
                 ...existingMeta,
                 story_judge_cache: {
-                  manuscript_hash: manuscriptHash,
-                  report: s,
-                  cached_at: new Date().toISOString(),
+                ...(((existingMeta.story_judge_cache ?? null) as Record<string, unknown>) ?? {}),
+                [manuscriptHash]: { manuscript_hash: manuscriptHash, report: s, cached_at: new Date().toISOString() },
+                by_hash: {
+                  ...((((existingMeta.story_judge_cache as Record<string, unknown> | undefined)?.by_hash ?? null) as Record<string, unknown>) ?? {}),
+                  [manuscriptHash]: { manuscript_hash: manuscriptHash, report: s, cached_at: new Date().toISOString() },
+                },
+                manuscript_hash: manuscriptHash,
+                report: s,
+                cached_at: new Date().toISOString(),
                 },
               },
             }).eq("id", ebook_id);
@@ -224,12 +241,13 @@ Deno.serve(async (req) => {
         manuscript_hash: manuscriptHash || null,
         title_treatment: treatmentMeta,
         title_spelling: spelling,
+        pdf_glyph_audit: glyphAudit.audit,
         computed_at: new Date().toISOString(),
       },
       human_review_reason: verdict.sellable ? null : verdict.reasons.join(" | "),
     }).eq("id", ebook_id);
 
-    return json({ ok: true, verdict, finding_count: raw.length, vision_report: visionReport, story_report: storyReport, story_qc_status: storyStatus, manuscript_hash: manuscriptHash });
+    return json({ ok: true, verdict, finding_count: raw.length, vision_report: visionReport, story_report: storyReport, story_qc_status: storyStatus, manuscript_hash: manuscriptHash, pdf_glyph_audit: glyphAudit.audit });
   } catch (e) {
     console.error(e);
     return json({ ok: false, error: String(e) }, 500);
