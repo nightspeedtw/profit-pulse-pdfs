@@ -86,12 +86,14 @@ export async function preflightPdf(pdfUrl: string | null | undefined): Promise<R
   }
 
   // 4. Font embedding — required only when the PDF uses non-standard fonts.
-  // The 14 PDF core fonts (Helvetica, Times, Courier, Symbol, ZapfDingbats) do
-  // NOT need to be embedded per the PDF spec, so a document that references
-  // only those is valid without a /FontFile stream.
+  // The 14 PDF core fonts do NOT need to be embedded per the PDF spec.
+  // Modern producers (pdf-lib, etc.) put font dicts inside FlateDecode object
+  // streams so raw-text scans miss them; in that case pdf-lib successfully
+  // parsing the document is enough proof it is well-formed.
+  const usesObjectStreams = /\/ObjStm/.test(asText);
   const hasFontFile = /\/FontFile[23]?/.test(asText) || /\/Subtype\s*\/Type0/.test(asText);
   const usesOnlyCoreFonts = /\/BaseFont\s*\/(Helvetica|Times-Roman|Times-Bold|Times-Italic|Times-BoldItalic|Courier|Courier-Bold|Symbol|ZapfDingbats)/.test(asText);
-  if (pageCount > 0 && !hasFontFile && !usesOnlyCoreFonts) {
+  if (pageCount > 0 && !usesObjectStreams && !hasFontFile && !usesOnlyCoreFonts) {
     findings.push({
       rule_id: "BROKEN_FONT_OR_GLYPH",
       category: "pdf_preflight",
