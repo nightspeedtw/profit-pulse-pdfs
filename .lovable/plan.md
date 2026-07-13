@@ -1,160 +1,106 @@
-
-# Fiction Autopilot Self-Healing Push To Live
+# One-Click Kids Build — Parent Production Job
 
 ## Goal
 
-Turn the many existing one-shot repair endpoints into an autonomous supervisor that:
-1. detects the latest blocker on a kids-book run,
-2. dispatches to the correct existing repair handler,
-3. re-runs the pipeline from a safe stage,
-4. loops with bounded attempts,
-5. either publishes on strict measured QC or honestly shelves.
+One admin click = one parent job that internally cycles concept → manuscript → story gate → art → PDF → QC, self-healing within bounded budgets, until it either publishes one live kids book or stops as `exhausted` with a clear final reason. Concept/story rejections are internal attempts, not red FAILED rows.
 
-Then use it to push one fresh kids book to live without touching any thresholds.
+## Part 1 — Parent job storage
 
-## What already exists (reused, not rewritten)
-
-- `kids-concept-preflight` — 1+2 bounded concept judge (built last turn).
-- `kids-fresh-book-start` — async ebook+run seeder that invokes preflight then pipeline.
-- `autopilot-kids-pipeline` — canonical pipeline. Already has `metadata_gate` auto-sync and `bible_check` auto-wipe. Skips `generate_idea`/`generate_manuscript` when title/manuscript already exist.
-- `kids-surgical-story-repair` — bounded single-attempt targeted refrain/callback rewrite.
-- `kids-repair-story-gate` — up to 3 general story rewrites.
-- `kids-global-style-fallback` — swaps style to `watercolor_soft`, regenerates cover+interiors.
-- `kids-repair-cover` — cover rerender.
-- `kids-final-text-repair` — glyph/typography fix on manuscript before PDF.
-- `kids-build-picture-pdf` + `kids-publish-if-qc-passed` — multi-stage PDF → QC → publish.
-- `kids-qc-run` — measured QC scorecard.
-
-All thresholds live inside these functions and stay untouched.
-
-## Part 1 — New supervisor function
-
-New file: `supabase/functions/kids-repair-supervisor/index.ts`.
-
-Behavior on each POST `{ ebook_id, run_id? }`:
-
-1. Load the ebook, its latest run, its `qc_scorecard`, its latest failed step, and existing `storefront_meta.repair_supervisor` log.
-2. Inspect state and pick ONE blocker in priority order:
-   - `story_gate` failed → story repair
-   - `metadata_gate` failed → metadata sync
-   - `bible_check` failed → bible wipe + relock (already handled inline; supervisor just re-runs pipeline)
-   - `KIDS_TITLE_TREATMENT_INVALID` → title treatment rerun
-   - `CHARACTER_IDENTITY_BREAK` or vision consistency < 90 → targeted reroll of failing pages, then global style fallback if >6 pages fail
-   - `PDF_GLYPH_MANGLING` → `kids-final-text-repair` + PDF rebuild
-   - `WORKER_RESOURCE_LIMIT` → resume multi-stage PDF from last stage (no art regen)
-   - `KIDS_MEASURED_QC_MISSING` → invoke only the missing QC subsystem
-3. Dispatch to the matching existing function.
-4. Persist attempt log to `storefront_meta.repair_supervisor` (append-only array).
-5. Bounded attempts per blocker class (max 3 for story, 2 for art, 2 for PDF, 1 for title treatment).
-6. After each repair, re-invoke `autopilot-kids-pipeline` with `force_finish=true` so completed steps are skipped.
-7. Stop conditions:
-   - measured QC passes → publish path handles it → return `published`
-   - attempts exhausted → shelve (`listing_status=draft`, `sellable=false`, `pipeline_status=human_review_required`, record `storefront_meta.shelved` with exact blockers)
-   - unrecoverable blocker (safety/compliance) → shelve immediately
-
-The supervisor never calls image gateways directly; it only dispatches to existing repair functions. It also never lowers a threshold.
-
-### Repair log shape (appended per attempt)
+No new table. Reuse `autopilot_kids_runs` as the parent record, using existing `metadata` JSONB to store parent-job state under key `parent_job`:
 
 ```json
 {
-  "attempt": 1,
-  "current_blocker": "story_gate:rer=80<85,buyer=80<85",
-  "repair_handler": "kids-surgical-story-repair",
-  "stage_before": "story_gate",
-  "stage_after": "story_gate",
-  "result": "still_blocked",
-  "scores_before": {"rer":80,"buyer":80},
-  "scores_after":  {"rer":80,"buyer":70},
-  "updated_at": "2026-07-13T..."
+  "parent_job": {
+    "target": "one_live_kids_book",
+    "status": "searching_for_concept|writing_story|repairing_story|building_assets|running_qc|published|exhausted|failed_system_error",
+    "attempt_count": 0,
+    "concept_batch_count": 0,
+    "story_repair_count": 0,
+    "art_repair_count": 0,
+    "pdf_repair_count": 0,
+    "max_concept_batches": 5,
+    "max_total_ebooks": 5,
+    "max_total_runtime_minutes": 45,
+    "child_attempts": [{ "ebook_id": "...", "outcome": "rejected_concept|shelved_story|shelved_art|shelved_qc|published", "scorecard": {...}, "ts": "..." }],
+    "last_blocker": "",
+    "final_reason": "",
+    "started_at": "",
+    "updated_at": ""
+  }
 }
 ```
 
-### Story judge cache reuse
+Parent row keeps `status='queued'|'running'` until the internal loop resolves; only then is it set to `completed` (published) or `failed` (exhausted / system error). Rejected concepts and shelved child ebooks are recorded inside `metadata.parent_job.child_attempts` and never surface as top-level failed runs.
 
-If manuscript hash matches `storefront_meta.story_judge_cache.manuscript_hash`, the supervisor skips re-running the stochastic judge and treats the cached scores as the story-gate result. Cache is written by both `kids-surgical-story-repair` and the pipeline story_gate on pass.
+## Part 2 — New orchestrator function
 
-## Part 2 — Bounded auto-tick
+New file `supabase/functions/kids-one-click-build/index.ts`:
 
-New file: `supabase/functions/kids-repair-tick/index.ts`.
+- Creates ONE parent run row with `metadata.parent_job` seeded.
+- Fires `EdgeRuntime.waitUntil(loop())` and returns `{ parent_run_id }` immediately.
+- `loop()` runs bounded phases:
+  1. `searching_for_concept` — call `kids-concept-preflight` with a `batch_lane` param rotating through: `food_kitchen_chaos`, `tiny_detective`, `animal_buddy_mechanical`, `neighborhood_micro_adventure`, `shop_library_museum_logic`. Up to `max_concept_batches` (5). Each batch = 3 candidates (existing constraint).
+  2. On concept pass → call `kids-fresh-book-start` (with `locked_concept` supplied and skip its internal preflight) to create the child ebook and manuscript.
+  3. On story gate fail → invoke `kids-repair-supervisor` up to 3 times.
+  4. On art/PDF/QC fail → invoke `kids-repair-supervisor` (already routes correctly).
+  5. On publish → parent status `published`, stop.
+  6. On any child ebook shelved → increment `attempt_count`, if budget remains, loop back to concept search.
+- Hard caps: `max_total_ebooks=5`, `max_total_runtime_minutes=45`, wall-clock check each iteration.
+- Final resolution updates parent row status + `metadata.parent_job.status` + `final_reason`.
 
-Small helper the admin button hits after `kids-fresh-book-start`. Polls run status every ~20s (up to N iterations set by env, default 15). Each poll:
-- if run status is `completed` and `listing_status=live` → return published.
-- if run status is `failed` or `pipeline_status=human_review_required` → invoke `kids-repair-supervisor` once and continue polling.
-- if global attempts exceed cap → mark shelved and return.
+## Part 3 — Concept diversity across batches
 
-This is invoked once per user click; it does the whole "auto-fix until live or shelved" loop server-side with a hard iteration cap so it can never loop forever.
+Edit `supabase/functions/kids-concept-preflight/index.ts`:
 
-## Part 3 — Admin button behavior
+- Accept optional `batch_lane` in body.
+- When present, add a strong system directive: *"All 3 candidates must sit in the `<lane>` lane. Each candidate must differ in hero type, setting, story engine, refrain pattern, callback object type, and final-page payoff. Invent the story engine BEFORE the title. Reject funny-name-only concepts."*
+- Add ban-list to the generator prompt: `bedtime/moon/star`, `emotional-regulation-only`, `tooth/bathroom`, `portal/wormhole`, `sock sorter`, `farm fiddle / barnyard dance`, `generic lost-object mystery`, `generic teamwork ending`.
+- Return the full scorecard (existing behavior) so the parent job can persist it.
+
+## Part 4 — UI changes
 
 Edit `src/components/admin/BuildKidsBookButton.tsx`:
-- Swap the invoke target from `kids-book-start` to `kids-fresh-book-start` (already includes concept preflight).
-- After it returns `{ ebook_id, run_id }`, fire `kids-repair-tick` with the run id.
-- Show live per-stage status + last blocker + attempt count from `storefront_meta.repair_supervisor`. No thresholds shown as adjustable.
 
-`src/pages/admin/KidsAutopilot.tsx` already renders the button — no route change needed. Only the button component and the row card that surfaces `repair_supervisor` progress will be updated.
+- Invoke `kids-one-click-build` instead of `kids-fresh-book-start` + `kids-repair-tick`.
+- Display parent job status label from `metadata.parent_job.status` mapped to friendly text:
+  - `searching_for_concept` → *Searching for a strong concept*
+  - `writing_story` → *Writing story*
+  - `repairing_story` → *Story repair in progress*
+  - `building_assets` → *Building cover and illustrations*
+  - `running_qc` → *Running final QC*
+  - `published` → *Published*
+  - `exhausted` → *Stopped: <final_reason>*
+- Show concept batches attempted + child ebook attempts as small counters, not red failure rows.
 
-## Part 4 — Run one fresh book end-to-end
+Edit `src/pages/admin/KidsAutopilot.tsx`:
 
-After deploy, invoke `kids-fresh-book-start` once (age band `4-6`, humor theme, preferred lanes enforced by the existing preflight prompt). Then invoke `kids-repair-tick`. Observe:
+- Filter list to hide rows where `metadata.parent_job.parent_run_id` is set (child cosmetic runs) — but since we're not creating child rows, the list stays clean by construction.
+- Render friendly status labels from `metadata.parent_job.status` when present.
+- Remove/repurpose `Force finish` on quality-gated jobs so it means "trigger next repair tick", never force publish.
 
-1. Concept preflight → best of 1+2.
-2. If preflight passes → seed ebook → pipeline → story_gate → (repair if needed) → metadata/bible → cover → style bible (`watercolor_soft` default) → 12 interiors → previews → multi-stage PDF → measured QC → publish only on strict pass.
-3. If any recoverable blocker fires, supervisor picks the handler, retries with bounded attempts, and resumes.
-4. If unrecoverable after budget, shelve honestly.
+## Part 5 — Run one parent job
 
-## Guardrails locked in code
+After deploy, POST to `kids-one-click-build` with `{ age_band: "4-6", preferred_lanes: [...as listed...] }`. Poll parent row every ~15s up to runtime cap. Report final state.
 
-- Thresholds live in `kids-story-judge`, `kids-qc-run`, and `kids-publish-if-qc-passed` — supervisor never edits them.
-- Supervisor never sets `sellable=true` or `listing_status=live` directly; only `kids-publish-if-qc-passed` can.
-- Supervisor never invokes Shopify.
-- Supervisor never inserts reviews.
-- Story-gate short-circuit in `autopilot-kids-pipeline` still prevents any art spend before the story passes.
-- `pixar_3d` is already weight 0 in `kids_style_presets`; supervisor uses `watercolor_soft` for fallback.
+## Part 6 — Guardrails (unchanged)
 
-## Bounded budgets
-
-| blocker class | max supervisor attempts |
-|---|---:|
-| story_gate | 3 (surgical → general → general) |
-| concept | 1 (preflight already does 1+2) |
-| metadata_gate | 2 |
-| bible_check | 1 (auto-wipe is one-shot) |
-| character_identity / vision consistency | 2 (targeted reroll → global style fallback) |
-| title_treatment | 1 |
-| pdf_glyph | 1 |
-| worker_resource_limit | 2 (multi-stage resume) |
-| qc_missing | 1 per missing subsystem |
-| overall supervisor loop | 12 total attempts hard cap |
-
-## Technical details
-
-- All new functions use `npm:@supabase/supabase-js@2` and `npm:@supabase/supabase-js@2/cors` per Cloud rules.
-- Both new functions are stateless; state lives in `ebooks_kids.storefront_meta.repair_supervisor` and `autopilot_kids_runs`.
-- No new tables required.
-- `kids-repair-tick` uses `EdgeRuntime.waitUntil` to survive request timeouts; the client polls DB, not the tick response.
-- Frontend polls `ebooks_kids` + `autopilot_kids_runs` (already used by `KidsAutopilot.tsx`) and reads `storefront_meta.repair_supervisor` for attempt breadcrumbs.
-
-## Deliverables
-
-Files created:
-- `supabase/functions/kids-repair-supervisor/index.ts`
-- `supabase/functions/kids-repair-tick/index.ts`
-
-Files edited:
-- `src/components/admin/BuildKidsBookButton.tsx` (invoke new starter + tick, show repair progress)
-- `src/pages/admin/KidsAutopilot.tsx` (surface `repair_supervisor` attempt breadcrumbs on the row)
-
-Functions deployed:
-- `kids-repair-supervisor`, `kids-repair-tick`
-
-Then one live run of the whole flow with the report the prompt asks for (concept scores, repair attempts, final scores, QC, listing_status/sellable, or shelved-with-blockers).
-
-## What is explicitly NOT in this plan
-
-- No new tables, no schema migrations.
-- No threshold changes.
-- No Shopify integration.
+- No threshold changes anywhere.
+- No Shopify calls.
 - No review seeding.
-- No changes to `kids-story-judge`, `kids-qc-run`, or any existing repair handler's internals — only the supervisor wraps them.
-- No pipeline rewrite; `autopilot-kids-pipeline` is called via `force_finish=true` so completed steps are skipped.
+- No art before story gate passes (existing pipeline enforces this).
+- Publish only via existing `kids-publish-if-qc-passed` with strict measured QC.
+
+## Files touched
+
+- **New:** `supabase/functions/kids-one-click-build/index.ts`
+- **Edited:** `supabase/functions/kids-concept-preflight/index.ts` (batch_lane + ban-list)
+- **Edited:** `supabase/functions/kids-fresh-book-start/index.ts` (accept pre-locked concept, skip preflight)
+- **Edited:** `src/components/admin/BuildKidsBookButton.tsx` (invoke parent job, friendly status)
+- **Edited:** `src/pages/admin/KidsAutopilot.tsx` (friendly labels, hide raw child attempts)
+
+## Explicitly NOT in this plan
+
+- No new tables or migrations.
+- No threshold changes.
+- No repair-handler internal changes (supervisor keeps its bounded logic).
+- No Shopify, no reviews, no soft-passing.
