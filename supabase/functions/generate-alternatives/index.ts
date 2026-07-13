@@ -14,7 +14,7 @@ interface Alt {
 interface Winner {
   selected_option: "A" | "B";
   title: string; subtitle: string; hook: string; product_page_opening: string;
-  shopify_product_title: string; meta_title: string; meta_description: string;
+  storefront_product_title: string; meta_title: string; meta_description: string;
   url_handle: string; tags: string[];
   final_buyer_appeal_score: number; final_premium_score: number;
   final_hard_sell_strength_score: number;
@@ -91,7 +91,7 @@ Return JSON in EXACTLY this shape:
   "ai_recommended_winner": {
     "selected_option": "A or B",
     "title": "", "subtitle": "", "hook": "", "product_page_opening": "",
-    "shopify_product_title": "", "meta_title": "", "meta_description": "",
+    "storefront_product_title": "", "meta_title": "", "meta_description": "",
     "url_handle": "", "tags": ["", "", "", ""],
     "final_buyer_appeal_score": 0, "final_premium_score": 0,
     "final_hard_sell_strength_score": 0,

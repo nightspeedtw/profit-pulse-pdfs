@@ -48,7 +48,7 @@ interface OneIdea {
   category: string;
   target_buyer: string;
   best_sellable_concept: BestConcept;
-  shopify_ready: StorefrontReady;
+  storefront_ready: StorefrontReady;
 }
 
 function mapStatus(s: string): "idea" | "rejected" {
@@ -128,7 +128,7 @@ Return JSON in EXACTLY this shape:
     "status": "Premium Featured / Ready to Generate | Approved / Ready to Generate | Needs Rewrite",
     "recommended_admin_action": "Approve & Generate | Rewrite | Reject"
   },
-  "shopify_ready": {
+  "storefront_ready": {
     "product_title": "concise storefront product title",
     "meta_title": "<= 60 chars SEO title",
     "meta_description": "<= 160 chars SEO description",
@@ -174,7 +174,7 @@ Return JSON in EXACTLY this shape:
       if (!accepted) continue;
 
       const c = accepted.best_sellable_concept;
-      const shop = accepted.shopify_ready ?? {} as ShopifyReady;
+      const shop = accepted.storefront_ready ?? {} as StorefrontReady;
       const status = mapStatus(c.status);
       const scoreVal = Math.max(0, Math.min(100, Number(c.idea_score ?? 0)));
 
@@ -211,7 +211,7 @@ Return JSON in EXACTLY this shape:
         value_proposition: c.value_proposition,
         hard_sell_opening: c.hard_sell_opening,
         objection_handling: c.objection_handling ?? {},
-        shopify_meta: shop,
+        storefront_meta: shop,
       }).select("id").single();
       if (row?.id) created.push(row.id);
     }

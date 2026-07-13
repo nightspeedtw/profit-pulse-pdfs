@@ -300,7 +300,6 @@ export async function persistQcSnapshot(db: any, ebook: Record<string, unknown>)
   const report = computeQcGates(source);
   await db.from("ebooks").update({
     qc_gates_json: report,
-    qc_ready_for_shopify: report.ready_for_storefront, // legacy status value: real DB column name, not renamed
   }).eq("id", ebookId || (ebook.id as string));
   // Once a producer fix makes a gate pass, retire the old Needs Code Fix row so
   // the dashboard stops showing stale bugs for that ebook. If the gate regresses
@@ -319,7 +318,7 @@ export async function persistQcSnapshot(db: any, ebook: Record<string, unknown>)
 // deno-lint-ignore no-explicit-any
 export async function markGateAutoFixing(db: any, ebook: Record<string, unknown>, gate: GateName, report: QcGateReport, attempt: number) {
   // Stale-write protection: before marking a gate as auto-fixing (which sets
-  // qc_ready_for_shopify=false and downstream blocker flags), re-read the row
+  // downstream blocker flags), re-read the row
   // and recompute. If the fresh gates all pass, the caller was working from
   // a stale snapshot — do not clobber the passing state.
   const ebookId = String(ebook.id ?? "");
@@ -330,7 +329,6 @@ export async function markGateAutoFixing(db: any, ebook: Record<string, unknown>
       if (freshReport.ready_for_storefront) {
         await db.from("ebooks").update({
           qc_gates_json: freshReport,
-          qc_ready_for_shopify: true,
         }).eq("id", ebookId);
         return;
       }
@@ -371,7 +369,6 @@ export async function markGateAutoFixing(db: any, ebook: Record<string, unknown>
       max_attempts: MAX_AUTOFIX_ATTEMPTS,
     },
     qc_gates_json: report,
-    qc_ready_for_shopify: report.ready_for_storefront,
     last_heartbeat_at: now,
     updated_at: now,
   }).eq("id", ebook.id);
@@ -387,7 +384,6 @@ export async function markGateNeedsCodeFix(db: any, ebook: Record<string, unknow
     if (freshReport.ready_for_storefront) {
       await db.from("ebooks").update({
         qc_gates_json: freshReport,
-        qc_ready_for_shopify: true,
       }).eq("id", ebookId);
       return;
     }
@@ -443,7 +439,6 @@ export async function markGateNeedsCodeFix(db: any, ebook: Record<string, unknow
     },
     next_recommended_action: "code_fix",
     qc_gates_json: report,
-    qc_ready_for_shopify: false,
     last_heartbeat_at: new Date().toISOString(),
   }).eq("id", ebookId);
 }

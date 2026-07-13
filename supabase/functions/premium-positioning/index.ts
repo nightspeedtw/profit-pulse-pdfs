@@ -34,7 +34,7 @@ interface BestChoice {
   recommended_price: string;
   buyer_appeal_score: number;
   premium_score: number;
-  shopify_ready: StorefrontReady;
+  storefront_ready: StorefrontReady;
 }
 interface Diagnosis {
   why_ordinary: string;
@@ -153,7 +153,7 @@ Return JSON exactly in this shape:
     "recommended_price": "$19 | $24 | $29",
     "buyer_appeal_score": 1-100,
     "premium_score": 1-100,
-    "shopify_ready": {
+    "storefront_ready": {
       "product_title": "concise product title for storefront",
       "meta_title": "<= 60 chars SEO title",
       "meta_description": "<= 160 chars SEO description",

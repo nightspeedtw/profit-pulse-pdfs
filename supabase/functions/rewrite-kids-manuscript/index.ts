@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
 
     const { data: ebook, error } = await db.from("ebooks").select(
-      "id, title, subtitle, shopify_title, shopify_subtitle, hook, product_description, target_buyer, kids_visual_bible, kids_scene_briefs_json, product_type, category_id" // shopify_title/shopify_subtitle: legacy DB column names, still storefront title/subtitle fields
+      "id, title, subtitle, storefront_title, storefront_subtitle, hook, product_description, target_buyer, kids_visual_bible, kids_scene_briefs_json, product_type, category_id"
     ).eq("id", ebook_id).maybeSingle();
     if (error || !ebook) return json({ error: "ebook not found" }, 404);
 
@@ -45,8 +45,8 @@ Deno.serve(async (req) => {
       return wrongTrackResponse(ebook_id, "kids", track, corsHeaders, "rewrite-kids-manuscript");
     }
 
-    const title = ebook.shopify_title || ebook.title || "Untitled";
-    const subtitle = ebook.shopify_subtitle || ebook.subtitle || "";
+    const title = ebook.storefront_title || ebook.title || "Untitled";
+    const subtitle = ebook.storefront_subtitle || ebook.subtitle || "";
     const bible = (ebook.kids_visual_bible ?? {}) as Record<string, any>;
     const heroName = bible?.characters?.[0]?.name || "the hero";
     const heroDesc = bible?.characters?.[0]?.invariant_features || "";
