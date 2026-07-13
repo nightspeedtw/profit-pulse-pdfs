@@ -940,6 +940,8 @@ export type Database = {
           inside_illustrations_json: Json | null
           interior_visuals: Json | null
           key_benefits: Json | null
+          kids_scene_briefs_json: Json | null
+          kids_visual_bible: Json | null
           last_auto_fix_action: string | null
           last_heartbeat_at: string | null
           launch_price: number | null
@@ -1132,6 +1134,8 @@ export type Database = {
           inside_illustrations_json?: Json | null
           interior_visuals?: Json | null
           key_benefits?: Json | null
+          kids_scene_briefs_json?: Json | null
+          kids_visual_bible?: Json | null
           last_auto_fix_action?: string | null
           last_heartbeat_at?: string | null
           launch_price?: number | null
@@ -1324,6 +1328,8 @@ export type Database = {
           inside_illustrations_json?: Json | null
           interior_visuals?: Json | null
           key_benefits?: Json | null
+          kids_scene_briefs_json?: Json | null
+          kids_visual_bible?: Json | null
           last_auto_fix_action?: string | null
           last_heartbeat_at?: string | null
           launch_price?: number | null
