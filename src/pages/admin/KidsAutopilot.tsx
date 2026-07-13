@@ -201,6 +201,11 @@ export default function KidsAutopilot() {
                   <span className="text-xs text-muted-foreground font-mono">
                     {new Date(r.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                   </span>
+                  {r.ebook_kids_id && (
+                    <Button size="sm" variant="outline" asChild>
+                      <a href={`/admin/kids/${r.ebook_kids_id}/qc`}>QC report</a>
+                    </Button>
+                  )}
                   {canForce && (
                     <Button
                       size="sm"

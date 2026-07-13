@@ -32,6 +32,7 @@ import InternalStore from "./pages/admin/InternalStore.tsx";
 import SmokeTestStatus from "./pages/admin/SmokeTestStatus.tsx";
 import AutopilotControl from "./pages/admin/AutopilotControl.tsx";
 import KidsAutopilot from "./pages/admin/KidsAutopilot.tsx";
+import KidsQcReport from "./pages/admin/KidsQcReport.tsx";
 import KidsLibrary from "./pages/admin/KidsLibrary.tsx";
 
 const queryClient = new QueryClient();
@@ -67,6 +68,7 @@ const App = () => (
             <Route path="autopilot" element={<AutopilotControl />} />
             <Route path="kids" element={<KidsLibrary />} />
             <Route path="kids/autopilot" element={<KidsAutopilot />} />
+            <Route path="kids/:id/qc" element={<KidsQcReport />} />
             <Route path="store/:id" element={<EbookReview />} />
             <Route path="products" element={<Products />} />
             <Route path="settings" element={<SettingsPage />} />
