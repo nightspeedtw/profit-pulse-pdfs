@@ -289,9 +289,7 @@ Deno.serve(async (req) => {
     let qcBody: { verdict?: { sellable?: boolean; overall_score?: number; reasons?: string[]; critical_errors?: string[] }; story_qc_status?: string; vision_report?: Record<string, unknown> } | null = null;
     let publishState = 'not_attempted';
 
-    if (runPdfQc) {
-      // ---- Rebuild PDF ----
-      // Refetch current ebook state to get latest cover_url after style stage.
+    if (runPdf) {
       const { data: cur } = await db.from('ebooks_kids').select('cover_url, interior_illustrations, title, subtitle, manuscript_md').eq('id', ebook_id).single();
       const recs = (cur?.interior_illustrations as typeof records) ?? records;
       if (!cur?.cover_url) throw new Error('cover_url missing');
@@ -322,8 +320,11 @@ Deno.serve(async (req) => {
         pdf_url: pdfSigned?.signedUrl ?? null, page_count: pageCount,
       }).eq('id', ebook_id);
       log.push({ step: 'pdf', status: 'rerendered', detail: { bytes: pdfBytes.length, page_count: pageCount } });
+    } else {
+      log.push({ step: 'pdf', status: 'skipped_stage' });
+    }
 
-      // ---- Full measured QC with cached story judge ----
+    if (runQc) {
       const qcRes = await fetch(`${SUPABASE_URL}/functions/v1/kids-qc-run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
@@ -353,7 +354,7 @@ Deno.serve(async (req) => {
       }
       log.push({ step: 'publish', status: publishState });
     } else {
-      log.push({ step: 'pdf_and_qc', status: 'skipped_stage' });
+      log.push({ step: 'qc_and_publish', status: 'skipped_stage' });
     }
 
     const { data: final } = await db.from('ebooks_kids').select(
