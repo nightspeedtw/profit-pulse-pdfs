@@ -136,9 +136,12 @@ export type Database = {
           current_step_label: string | null
           ebook_kids_id: string | null
           error_details: Json | null
+          human_review_reason: string | null
           id: string
           metadata: Json
+          pipeline_stage: string | null
           progress_percent: number | null
+          sellable: boolean
           started_at: string
           status: string
           updated_at: string
@@ -153,9 +156,12 @@ export type Database = {
           current_step_label?: string | null
           ebook_kids_id?: string | null
           error_details?: Json | null
+          human_review_reason?: string | null
           id?: string
           metadata?: Json
+          pipeline_stage?: string | null
           progress_percent?: number | null
+          sellable?: boolean
           started_at?: string
           status?: string
           updated_at?: string
@@ -170,9 +176,12 @@ export type Database = {
           current_step_label?: string | null
           ebook_kids_id?: string | null
           error_details?: Json | null
+          human_review_reason?: string | null
           id?: string
           metadata?: Json
+          pipeline_stage?: string | null
           progress_percent?: number | null
+          sellable?: boolean
           started_at?: string
           status?: string
           updated_at?: string
@@ -1692,15 +1701,20 @@ export type Database = {
           cover_url: string | null
           created_at: string
           description: string | null
+          human_review_reason: string | null
           id: string
           listing_status: string
           locked: boolean
           manuscript_md: string | null
+          overall_qc_score: number | null
           page_count: number | null
           pdf_url: string | null
           pipeline_status: string
           price_cents: number
+          qc_rule_version: string | null
+          qc_scorecard: Json
           qc_scores: Json | null
+          sellable: boolean
           status: string
           storefront_meta: Json
           storefront_subtitle: string | null
@@ -1718,15 +1732,20 @@ export type Database = {
           cover_url?: string | null
           created_at?: string
           description?: string | null
+          human_review_reason?: string | null
           id?: string
           listing_status?: string
           locked?: boolean
           manuscript_md?: string | null
+          overall_qc_score?: number | null
           page_count?: number | null
           pdf_url?: string | null
           pipeline_status?: string
           price_cents?: number
+          qc_rule_version?: string | null
+          qc_scorecard?: Json
           qc_scores?: Json | null
+          sellable?: boolean
           status?: string
           storefront_meta?: Json
           storefront_subtitle?: string | null
@@ -1744,15 +1763,20 @@ export type Database = {
           cover_url?: string | null
           created_at?: string
           description?: string | null
+          human_review_reason?: string | null
           id?: string
           listing_status?: string
           locked?: boolean
           manuscript_md?: string | null
+          overall_qc_score?: number | null
           page_count?: number | null
           pdf_url?: string | null
           pipeline_status?: string
           price_cents?: number
+          qc_rule_version?: string | null
+          qc_scorecard?: Json
           qc_scores?: Json | null
+          sellable?: boolean
           status?: string
           storefront_meta?: Json
           storefront_subtitle?: string | null
@@ -2001,6 +2025,50 @@ export type Database = {
           sort_order?: number
         }
         Relationships: []
+      }
+      kids_book_bibles: {
+        Row: {
+          character_bible_json: Json
+          character_reference_image_url: string | null
+          created_at: string
+          ebook_id: string
+          id: string
+          locked_at: string | null
+          locked_by: string | null
+          style_bible_json: Json
+          updated_at: string
+        }
+        Insert: {
+          character_bible_json?: Json
+          character_reference_image_url?: string | null
+          created_at?: string
+          ebook_id: string
+          id?: string
+          locked_at?: string | null
+          locked_by?: string | null
+          style_bible_json?: Json
+          updated_at?: string
+        }
+        Update: {
+          character_bible_json?: Json
+          character_reference_image_url?: string | null
+          created_at?: string
+          ebook_id?: string
+          id?: string
+          locked_at?: string | null
+          locked_by?: string | null
+          style_bible_json?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kids_book_bibles_ebook_id_fkey"
+            columns: ["ebook_id"]
+            isOneToOne: true
+            referencedRelation: "ebooks_kids"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       kids_category_weights: {
         Row: {
@@ -2525,6 +2593,69 @@ export type Database = {
           },
         ]
       }
+      qc_findings: {
+        Row: {
+          category: string
+          created_at: string
+          ebook_id: string
+          ebook_track: string
+          evidence_url: string | null
+          id: string
+          measured_value: Json
+          page_number: number | null
+          passed: boolean
+          qc_rule_version: string | null
+          repair_action: string | null
+          repair_attempts: number
+          rule_id: string
+          run_id: string | null
+          severity: string
+          threshold: Json
+          updated_at: string
+          verification_result: Json
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          ebook_id: string
+          ebook_track?: string
+          evidence_url?: string | null
+          id?: string
+          measured_value?: Json
+          page_number?: number | null
+          passed: boolean
+          qc_rule_version?: string | null
+          repair_action?: string | null
+          repair_attempts?: number
+          rule_id: string
+          run_id?: string | null
+          severity: string
+          threshold?: Json
+          updated_at?: string
+          verification_result?: Json
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          ebook_id?: string
+          ebook_track?: string
+          evidence_url?: string | null
+          id?: string
+          measured_value?: Json
+          page_number?: number | null
+          passed?: boolean
+          qc_rule_version?: string | null
+          repair_action?: string | null
+          repair_attempts?: number
+          rule_id?: string
+          run_id?: string | null
+          severity?: string
+          threshold?: Json
+          updated_at?: string
+          verification_result?: Json
+        }
+        Relationships: []
+      }
       qc_reports: {
         Row: {
           buyer_appeal_score: number | null
@@ -2609,6 +2740,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      qc_rule_versions: {
+        Row: {
+          category: string
+          created_at: string
+          description: string | null
+          id: string
+          rule_id: string
+          severity: string
+          threshold: Json
+          updated_at: string
+          version: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          rule_id: string
+          severity: string
+          threshold?: Json
+          updated_at?: string
+          version: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          rule_id?: string
+          severity?: string
+          threshold?: Json
+          updated_at?: string
+          version?: string
+        }
+        Relationships: []
       }
       system_fix_instructions: {
         Row: {
