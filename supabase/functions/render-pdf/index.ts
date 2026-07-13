@@ -180,15 +180,19 @@ Deno.serve(async (req) => {
 
       // Reuse existing images where present; generate the rest in small
       // parallel batches so we stay under the edge function's memory + time
-      // budget. Also cap total new generations at 8 per render.
-      const toGenerate = plan.entries.filter((e) => e.recommendation !== "none").slice(0, kidsBook ? 24 : 8);
-      const CONCURRENCY = 3;
+      // budget. Kids picture books need 14 illustrations but a single edge
+      // invocation only has ~150s CPU — cap new generations per call and
+      // persist cached illustrations after every batch so successive calls
+      // pick up where the previous one stopped instead of losing progress.
+      illustrationsByChapter = { ...(existingImages as Record<number, { url: string; caption: string }>) };
+      const PER_CALL_CAP = kidsBook ? 4 : 8;
+      const toGenerate = plan.entries
+        .filter((e) => e.recommendation !== "none" && !existingImages[String(e.chapter_index)]?.url)
+        .slice(0, PER_CALL_CAP);
+      const CONCURRENCY = kidsBook ? 2 : 3;
       for (let i = 0; i < toGenerate.length; i += CONCURRENCY) {
         const batch = toGenerate.slice(i, i + CONCURRENCY);
         const results = await Promise.all(batch.map(async (entry) => {
-          const key = String(entry.chapter_index);
-          const cached = existingImages[key];
-          if (cached?.url) return { entry, url: cached.url };
           const url = await generateAndStoreIllustration(db, ebookId, entry.chapter_index, entry.prompt).catch((err) => {
             console.warn(`illustration ch${entry.chapter_index} failed:`, (err as Error).message);
             return null;
@@ -198,7 +202,13 @@ Deno.serve(async (req) => {
         for (const { entry, url } of results) {
           if (url) illustrationsByChapter[entry.chapter_index] = { url, caption: entry.caption };
         }
+        // Persist progress after every batch so a CPU-limit crash doesn't
+        // discard already-generated illustrations.
+        await db.from("ebooks").update({
+          inside_illustrations_json: illustrationsByChapter as unknown as Record<string, unknown>,
+        }).eq("id", ebookId);
       }
+
     } catch (err) {
       console.warn("illustration planner failed:", (err as Error).message);
     }
