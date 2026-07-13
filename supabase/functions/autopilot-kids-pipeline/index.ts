@@ -94,7 +94,7 @@ async function callAI(prompt: string, system: string): Promise<string> {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
     body: JSON.stringify({
       model: 'google/gemini-2.5-flash',
-      messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
+      messages: [{ role: 'system', content: `${system}\n\nCRITICAL: Respond in English only. Never use Thai or any other language.` }, { role: 'user', content: prompt }],
     }),
   });
   if (!res.ok) throw new Error(`AI ${res.status}: ${await res.text()}`);
