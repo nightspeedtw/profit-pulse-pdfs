@@ -708,7 +708,7 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
           ageBadge: ageLabel,
           bible,
         });
-        const kidsCoverPng = await rasterizeSVG(kidsSvg, 1200);
+        const kidsCoverPng = await rasterizeKidsSVG(kidsSvg, 1200);
         const kidsCoverPath = `${ebook_id}/cover.png`;
         await db.storage.from("ebook-covers").upload(kidsCoverPath, kidsCoverPng, { contentType: "image/png", upsert: true });
         // Kids thumbnail = the same composed cover (passthrough); no 3D mockup.
