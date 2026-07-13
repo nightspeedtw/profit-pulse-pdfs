@@ -67,6 +67,9 @@ Deno.serve(async (req) => {
   const publish = body.publish !== false;
   const targetIllos = Math.max(12, Math.min(16, (body.target_illustrations as number) ?? 12));
   const runInBackground = body.background !== false;
+  const skipStoryGate = body.skip_story_gate === true;
+  const storyMaxAttempts = Math.max(1, Math.min(3, (body.story_max_attempts as number) ?? 2));
+  let storyGatePassed = false;
 
   const log: Array<Record<string, unknown>> = [];
   const startedAt = new Date().toISOString();
@@ -127,10 +130,29 @@ Deno.serve(async (req) => {
       }
 
       if (force.story || !currentPass) {
-        // Single attempt rewrite to fit inside gateway timeout
         let bestScore = -1;
-        for (let attempt = 1; attempt <= 1; attempt++) {
-          const rewriteSystem = `You are an award-winning children's picture book author writing for ages 4-6. You write books that parents buy, reread, and remember.`;
+        let judgePassed = currentPass;
+        let lastJudge: Record<string, number> | null = null;
+        for (let attempt = 1; attempt <= storyMaxAttempts && !judgePassed; attempt++) {
+          const escalated = attempt >= 2;
+          const rewriteSystem = escalated
+            ? `You are an award-winning children's picture book author for ages 4-6. You write books that PASS a strict editor's judge measuring: age_appropriateness>=90, language_level>=90, story_coherence>=90, reread_value>=85, emotional_payoff>=85, parent_buyer_value>=85, generic_story_risk<=25. On this attempt your previous draft FAILED because it was too generic, too abstract for a 4-year-old, and lacked a strong emotional payoff. Fix all of that now.`
+            : `You are an award-winning children's picture book author writing for ages 4-6. You write books that parents buy, reread, and remember.`;
+
+          const extra = escalated
+            ? `
+
+CRITICAL REPAIR NOTES (previous attempt failed):
+- Language MUST be kindergarten-simple: 6-10 words per sentence, monosyllabic where natural, ZERO metaphors an adult would write ("pulsing in her bones", "shimmery lullaby", "woven into"). Prefer concrete verbs a 4-year-old knows ("hum", "hop", "tap", "peek", "snuggle").
+- The refrain must be 2-3 SIMPLE words a child can chant, and appear on at least 4 spreads.
+- Give the moon a SPECIFIC, tender secret with a concrete visible detail (e.g. moonbeams are quiet lullabies the moon collects in a silver pocket, or the moon rocks a nest of sleepy stars). Do not use "listens to sounds" or "watches over you".
+- Every spread must move the plot. No filler descriptions.
+- Emotional payoff on the last spread: Luna says or does one specific tender thing that shows she learned/felt something. Not just "she fell asleep smiling".
+- Add 2 clear page-turn surprise beats where the child wants to turn the page.
+- Avoid: "close your eyes", "sweet dreams", "goodnight moon", "little did she know", "and then", overly poetic adult diction.
+`
+            : "";
+
           const rewriteUser = `Rewrite the manuscript for the following picture book. Preserve the title, subtitle, and hero name "Luna". This is a cozy bedtime book with gentle wonder.
 
 Title: "${title}"
@@ -141,16 +163,15 @@ Tone: warm, whimsical, sleepy, emotionally reassuring
 
 REQUIREMENTS (all mandatory):
 - ${targetIllos} distinct illustrated spreads, one paragraph per spread
-- 40-70 words per spread, 600-1000 words total
-- Distinctive premise (the moon's secret must be specific, surprising, tender — not "the moon watches over you")
-- Luna has a clear emotional need at page 1 (afraid of the dark quiet, missing something)
+- 40-70 words per spread, 500-800 words total
+- Distinctive premise (the moon's secret must be specific, surprising, tender)
+- Luna has a clear emotional need at page 1
 - Rising wonder in middle pages, quiet climax where Luna discovers the moon's secret
-- Satisfying emotional payoff on the last spread (payoff must be specific and earned)
-- A repeated cozy refrain phrase (2-3 words) that appears at least 3 times for reread rhythm
-- Sentence length: short, rhythmic, read-aloud-friendly, grade 1-2 vocabulary
-- Sensory detail: sounds, textures, warm lights, soft things
-- No generic bedtime clichés ("close your eyes", "sweet dreams", "goodnight moon")
-- No preachy moral, no adult metaphors, no fear/scary imagery
+- Satisfying, specific, earned emotional payoff on the last spread
+- A repeated cozy refrain phrase (2-3 SIMPLE words) that appears on at least 4 spreads
+- Short read-aloud sentences, grade K-1 vocabulary, concrete sensory words
+- Sound/touch/warmth detail; no adult metaphors; no preachy moral
+- 2 page-turn surprise beats${extra}
 
 Return JSON:
 {
@@ -158,18 +179,22 @@ Return JSON:
   "refrain": "<the repeated cozy phrase>",
   "premise": "<one-sentence distinctive premise>",
   "spreads": [
-    { "index": 1, "text": "<spread text>", "scene": "<one-sentence visual description>", "emotion": "<beat>", "setting": "<place>" },
-    ...
+    { "index": 1, "text": "<spread text>", "scene": "<one-sentence visual description>", "emotion": "<beat>", "setting": "<place>" }
   ]
 }`;
+
+          const modelChain = escalated
+            ? ["google/gemini-2.5-pro", "google/gemini-2.5-flash"] as const
+            : ["google/gemini-2.5-flash", "google/gemini-2.5-pro"] as const;
+
           let raw = "";
           let usedModel = "";
-          for (const m of ["google/gemini-2.5-flash", "google/gemini-2.5-pro"] as const) {
+          for (const m of modelChain) {
             try {
               raw = await ai(m, rewriteSystem, rewriteUser);
               if (raw && raw.length > 200) { usedModel = m; break; }
             } catch (e) {
-              log.push({ step: "story_rewrite_model_try", model: m, error: String((e as Error).message).slice(0, 160) });
+              log.push({ step: "story_rewrite_model_try", attempt, model: m, error: String((e as Error).message).slice(0, 160) });
             }
           }
           try {
@@ -180,7 +205,6 @@ Return JSON:
               continue;
             }
 
-            // Judge new manuscript
             const j2 = await runKidsStoryJudge({
               title, subtitle, ageBand: "4-6",
               manuscript_md: parsed.manuscript_md,
@@ -189,11 +213,16 @@ Return JSON:
             const composite = j2.age_appropriateness_score + j2.story_coherence_score
               + j2.emotional_payoff_score + j2.reread_value_score + j2.language_level_score
               + j2.parent_buyer_value_score - j2.generic_story_risk_score;
-            log.push({ step: "story_rewrite_attempt", attempt, pass: j2.story_qc_passed, composite, refrain: parsed.refrain, premise: parsed.premise });
+            lastJudge = {
+              age: j2.age_appropriateness_score, coh: j2.story_coherence_score,
+              emo: j2.emotional_payoff_score, rer: j2.reread_value_score,
+              lang: j2.language_level_score, buyer: j2.parent_buyer_value_score,
+              generic_risk: j2.generic_story_risk_score,
+            };
+            log.push({ step: "story_rewrite_attempt", attempt, model: usedModel, pass: j2.story_qc_passed, composite, scores: lastJudge, refrain: parsed.refrain, premise: parsed.premise });
 
-            if (composite > bestScore) {
+            if (composite > bestScore || j2.story_qc_passed) {
               bestScore = composite;
-              // persisted below
               await db.from("ebooks_kids").update({
                 manuscript_md: parsed.manuscript_md,
                 word_count: parsed.manuscript_md.split(/\s+/).filter(Boolean).length,
@@ -204,15 +233,31 @@ Return JSON:
                 },
               }).eq("id", ebook_id);
             }
-            if (j2.story_qc_passed) break;
+            if (j2.story_qc_passed) { judgePassed = true; break; }
           } catch (e) {
             log.push({ step: "story_rewrite_attempt", attempt, error: String((e as Error).message).slice(0, 200) });
           }
         }
-        log.push({ step: "story_rewrite_done", best_composite: bestScore });
-        await persistLog();
+        storyGatePassed = judgePassed;
+        log.push({ step: "story_rewrite_done", best_composite: bestScore, story_gate_passed: judgePassed, last_scores: lastJudge });
+        await persistLog({ story_gate_passed: judgePassed });
+      } else {
+        storyGatePassed = true;
+        log.push({ step: "story_rewrite_skipped", reason: "initial_judge_passed" });
+        await persistLog({ story_gate_passed: true });
+      }
+
+      // Hard gate: do not touch art if the story judge did not pass.
+      if (!storyGatePassed && !skipStoryGate && runAll) {
+        log.push({ step: "aborted_before_art", reason: "story_judge_failed", note: "no image cost spent; fix story then re-invoke" });
+        await db.from("ebooks_kids").update({
+          listing_status: "draft", status: "needs_revision", pipeline_status: "human_review_required",
+        }).eq("id", ebook_id);
+        await persistLog({ status: "story_gate_blocked" });
+        return;
       }
     }
+
 
     // Refresh ebook after phase 1
     const { data: eb2 } = await db.from("ebooks_kids").select("*").eq("id", ebook_id).single();
