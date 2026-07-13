@@ -117,6 +117,15 @@ Deno.serve(async (req) => {
     // !== "none" and no image is already cached.
     let plan: IllustrationPlan | null = null;
     let illustrationsByChapter: Record<number, { url: string; caption: string }> = {};
+    const kidsBook = isKidsPictureBook({
+      title: ebook.title,
+      subtitle: ebook.subtitle,
+      category: null,
+      category_slug: null,
+      hook: ebook.hook,
+      product_description: (ebook as any).product_description,
+      kids_visual_bible: (ebook as any).kids_visual_bible,
+    });
     try {
       // Resolve category slug so the planner picks a topic-appropriate visual
       // medium (food photography for cooking, athletic photography for
@@ -131,15 +140,7 @@ Deno.serve(async (req) => {
       const existingPlan = ebook.inside_illustration_plan_json as IllustrationPlan | null;
       const existingImages = (ebook.inside_illustrations_json ?? {}) as Record<string, { url: string; caption: string }>;
 
-      const kidsBook = isKidsPictureBook({
-        title: ebook.title,
-        subtitle: ebook.subtitle,
-        category: categoryName,
-        category_slug: categorySlug,
-        hook: ebook.hook,
-        product_description: (ebook as any).product_description,
-        kids_visual_bible: (ebook as any).kids_visual_bible,
-      });
+
 
       if (kidsBook) {
         // Bible-locked, character-consistent picture-book illustrations.
