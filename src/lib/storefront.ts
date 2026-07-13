@@ -25,10 +25,22 @@ export interface StorefrontEbook {
   sales_count: number;
   listed_at: string | null;
   preview_images: string[] | null;
+  preview_spreads?: PreviewSpread[] | null;
+  total_spreads?: number;
+  cliffhanger_hook?: string | null;
+  preview_page_count?: number | null;
+  hook_description?: string | null;
   is_bestseller?: boolean;
   series_id?: string | null;
   age_group_slugs?: string[];
   theme_slugs?: string[];
+}
+
+export interface PreviewSpread {
+  page: number;
+  image_url: string;
+  text: string | null;
+  caption: string | null;
 }
 
 export interface FetchStorefrontOpts {
