@@ -10,7 +10,19 @@
 // All glyphs are normalized to StandardFont-safe ASCII BEFORE encoding so
 // the QC glyph-mangling rule never trips on curly quotes / em-dashes.
 
-import { PDFDocument, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
+import { PDFDocument, PDFImage, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
+
+// Auto-detect PNG vs JPEG magic bytes so callers can pass either.
+async function embedImageSmart(doc: PDFDocument, bytes: Uint8Array): Promise<PDFImage> {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return await doc.embedPng(bytes);
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return await doc.embedJpg(bytes);
+  }
+  // Try PNG first, fall back to JPEG.
+  try { return await doc.embedPng(bytes); } catch { return await doc.embedJpg(bytes); }
+}
 
 export interface PicturePdfInput {
   title: string;
