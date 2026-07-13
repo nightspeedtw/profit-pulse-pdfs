@@ -745,8 +745,8 @@ export type Database = {
           research_payload: Json
           scores: Json
           selected: boolean
-          shopify_meta: Json | null
           status: string
+          storefront_meta: Json | null
           subtitle: string | null
           target_buyer: string | null
           title: string
@@ -806,8 +806,8 @@ export type Database = {
           research_payload?: Json
           scores?: Json
           selected?: boolean
-          shopify_meta?: Json | null
           status?: string
+          storefront_meta?: Json | null
           subtitle?: string | null
           target_buyer?: string | null
           title: string
@@ -867,8 +867,8 @@ export type Database = {
           research_payload?: Json
           scores?: Json
           selected?: boolean
-          shopify_meta?: Json | null
           status?: string
+          storefront_meta?: Json | null
           subtitle?: string | null
           target_buyer?: string | null
           title?: string
@@ -1101,7 +1101,6 @@ export type Database = {
           qc_downgraded: boolean
           qc_gates_json: Json | null
           qc_notes: string | null
-          qc_ready_for_shopify: boolean
           qc_status: string | null
           queue_position: number | null
           queued_at: string | null
@@ -1124,16 +1123,6 @@ export type Database = {
           seo_meta: string | null
           seo_title: string | null
           series_id: string | null
-          shopify_draft_url: string | null
-          shopify_events: Json
-          shopify_handle: string | null
-          shopify_last_error: string | null
-          shopify_last_event_at: string | null
-          shopify_package_json: Json | null
-          shopify_product_id: string | null
-          shopify_status: string
-          shopify_subtitle: string | null
-          shopify_title: string | null
           shopping_card_description: string | null
           short_hook: string | null
           standard_price: number | null
@@ -1141,6 +1130,8 @@ export type Database = {
           store_thumbnail_generated_at: string | null
           store_thumbnail_qc: Json | null
           store_thumbnail_url: string | null
+          storefront_subtitle: string | null
+          storefront_title: string | null
           structured_error: Json | null
           subtitle: string | null
           tags: string[]
@@ -1300,7 +1291,6 @@ export type Database = {
           qc_downgraded?: boolean
           qc_gates_json?: Json | null
           qc_notes?: string | null
-          qc_ready_for_shopify?: boolean
           qc_status?: string | null
           queue_position?: number | null
           queued_at?: string | null
@@ -1323,16 +1313,6 @@ export type Database = {
           seo_meta?: string | null
           seo_title?: string | null
           series_id?: string | null
-          shopify_draft_url?: string | null
-          shopify_events?: Json
-          shopify_handle?: string | null
-          shopify_last_error?: string | null
-          shopify_last_event_at?: string | null
-          shopify_package_json?: Json | null
-          shopify_product_id?: string | null
-          shopify_status?: string
-          shopify_subtitle?: string | null
-          shopify_title?: string | null
           shopping_card_description?: string | null
           short_hook?: string | null
           standard_price?: number | null
@@ -1340,6 +1320,8 @@ export type Database = {
           store_thumbnail_generated_at?: string | null
           store_thumbnail_qc?: Json | null
           store_thumbnail_url?: string | null
+          storefront_subtitle?: string | null
+          storefront_title?: string | null
           structured_error?: Json | null
           subtitle?: string | null
           tags?: string[]
@@ -1499,7 +1481,6 @@ export type Database = {
           qc_downgraded?: boolean
           qc_gates_json?: Json | null
           qc_notes?: string | null
-          qc_ready_for_shopify?: boolean
           qc_status?: string | null
           queue_position?: number | null
           queued_at?: string | null
@@ -1522,16 +1503,6 @@ export type Database = {
           seo_meta?: string | null
           seo_title?: string | null
           series_id?: string | null
-          shopify_draft_url?: string | null
-          shopify_events?: Json
-          shopify_handle?: string | null
-          shopify_last_error?: string | null
-          shopify_last_event_at?: string | null
-          shopify_package_json?: Json | null
-          shopify_product_id?: string | null
-          shopify_status?: string
-          shopify_subtitle?: string | null
-          shopify_title?: string | null
           shopping_card_description?: string | null
           short_hook?: string | null
           standard_price?: number | null
@@ -1539,6 +1510,8 @@ export type Database = {
           store_thumbnail_generated_at?: string | null
           store_thumbnail_qc?: Json | null
           store_thumbnail_url?: string | null
+          storefront_subtitle?: string | null
+          storefront_title?: string | null
           structured_error?: Json | null
           subtitle?: string | null
           tags?: string[]
@@ -1679,7 +1652,6 @@ export type Database = {
           max_parallel_heavy_jobs: number
           max_refund_risk: number
           max_rewrite_attempts: number
-          max_shopify_uploads_per_day: number
           min_score_threshold: number
           min_word_count: number
           minimum_qc_pass_rate: number
@@ -1693,8 +1665,6 @@ export type Database = {
           quality_first_mode: boolean
           safe_publish_to_store: boolean
           sequential_safe_mode: boolean
-          shopify_draft_upload_enabled: boolean
-          shopify_upload_concurrency: number
           stuck_run_ttl_min: number
           tick_enabled: boolean
           updated_at: string
@@ -1726,7 +1696,6 @@ export type Database = {
           max_parallel_heavy_jobs?: number
           max_refund_risk?: number
           max_rewrite_attempts?: number
-          max_shopify_uploads_per_day?: number
           min_score_threshold?: number
           min_word_count?: number
           minimum_qc_pass_rate?: number
@@ -1740,8 +1709,6 @@ export type Database = {
           quality_first_mode?: boolean
           safe_publish_to_store?: boolean
           sequential_safe_mode?: boolean
-          shopify_draft_upload_enabled?: boolean
-          shopify_upload_concurrency?: number
           stuck_run_ttl_min?: number
           tick_enabled?: boolean
           updated_at?: string
@@ -1773,7 +1740,6 @@ export type Database = {
           max_parallel_heavy_jobs?: number
           max_refund_risk?: number
           max_rewrite_attempts?: number
-          max_shopify_uploads_per_day?: number
           min_score_threshold?: number
           min_word_count?: number
           minimum_qc_pass_rate?: number
@@ -1787,8 +1753,6 @@ export type Database = {
           quality_first_mode?: boolean
           safe_publish_to_store?: boolean
           sequential_safe_mode?: boolean
-          shopify_draft_upload_enabled?: boolean
-          shopify_upload_concurrency?: number
           stuck_run_ttl_min?: number
           tick_enabled?: boolean
           updated_at?: string
@@ -2271,124 +2235,6 @@ export type Database = {
           },
         ]
       }
-      shopify_sync_logs: {
-        Row: {
-          action: string
-          created_at: string
-          ebook_id: string | null
-          error: string | null
-          file_upload_status: string | null
-          id: string
-          metadata: Json
-          request_payload: Json
-          response_payload: Json
-          retry_count: number
-          shopify_product_id: string | null
-          status: string
-          updated_at: string
-        }
-        Insert: {
-          action: string
-          created_at?: string
-          ebook_id?: string | null
-          error?: string | null
-          file_upload_status?: string | null
-          id?: string
-          metadata?: Json
-          request_payload?: Json
-          response_payload?: Json
-          retry_count?: number
-          shopify_product_id?: string | null
-          status: string
-          updated_at?: string
-        }
-        Update: {
-          action?: string
-          created_at?: string
-          ebook_id?: string | null
-          error?: string | null
-          file_upload_status?: string | null
-          id?: string
-          metadata?: Json
-          request_payload?: Json
-          response_payload?: Json
-          retry_count?: number
-          shopify_product_id?: string | null
-          status?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "shopify_sync_logs_ebook_id_fkey"
-            columns: ["ebook_id"]
-            isOneToOne: false
-            referencedRelation: "ebooks"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      shopify_upload_queue: {
-        Row: {
-          attempt_count: number
-          blocker_reason: string | null
-          created_at: string
-          ebook_id: string
-          id: string
-          last_error: string | null
-          max_attempts: number
-          next_retry_at: string | null
-          priority: number
-          run_id: string | null
-          shopify_draft_id: string | null
-          shopify_draft_url: string | null
-          status: string
-          updated_at: string
-          uploaded_at: string | null
-        }
-        Insert: {
-          attempt_count?: number
-          blocker_reason?: string | null
-          created_at?: string
-          ebook_id: string
-          id?: string
-          last_error?: string | null
-          max_attempts?: number
-          next_retry_at?: string | null
-          priority?: number
-          run_id?: string | null
-          shopify_draft_id?: string | null
-          shopify_draft_url?: string | null
-          status?: string
-          updated_at?: string
-          uploaded_at?: string | null
-        }
-        Update: {
-          attempt_count?: number
-          blocker_reason?: string | null
-          created_at?: string
-          ebook_id?: string
-          id?: string
-          last_error?: string | null
-          max_attempts?: number
-          next_retry_at?: string | null
-          priority?: number
-          run_id?: string | null
-          shopify_draft_id?: string | null
-          shopify_draft_url?: string | null
-          status?: string
-          updated_at?: string
-          uploaded_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "shopify_upload_queue_ebook_id_fkey"
-            columns: ["ebook_id"]
-            isOneToOne: true
-            referencedRelation: "ebooks"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       system_fix_instructions: {
         Row: {
           acceptance_test: string | null
@@ -2532,7 +2378,6 @@ export type Database = {
         | "cover_design"
         | "product_copy"
         | "final_qc"
-        | "shopify_draft"
         | "published"
         | "rejected"
     }
@@ -2676,7 +2521,6 @@ export const Constants = {
         "cover_design",
         "product_copy",
         "final_qc",
-        "shopify_draft",
         "published",
         "rejected",
       ],

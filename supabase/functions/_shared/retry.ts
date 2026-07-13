@@ -148,7 +148,7 @@ export async function enforceCostGuard(db: any): Promise<{ tripped: boolean; spe
 
 // Returns retry budget for a given step kind.
 export function retriesFor(step: string): number {
-  if (step.includes("shopify")) return 3;
+  if (step.includes("publish")) return 3;
   if (step.includes("pdf") || step.includes("render")) return 2;
   if (step.includes("cover") || step.includes("image")) return 1; // image gen: retry once
   return 2; // default = AI calls

@@ -1273,7 +1273,7 @@ Deno.serve(async (req) => {
     const gateReport = computeQcGates(persisted ?? { reader_experience_qc: report, reader_experience_status: passed ? "pass" : "needs_review" });
     await db.from("ebooks").update({
       qc_gates_json: gateReport,
-      qc_ready_for_shopify: gateReport.ready_for_shopify,
+      qc_ready_for_storefront: gateReport.ready_for_storefront,
       reader_experience_status: gateReport.reader.pass ? "pass" : "needs_review",
       reader_experience_score: gateReport.reader.score ?? finalOverall,
     }).eq("id", ebook_id);

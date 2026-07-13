@@ -37,7 +37,7 @@ const GATE = {
   title_quality_min: 85,
   buyer_pain_match_min: 85,
   premium_feel_min: 85,
-  shopify_click_appeal_min: 85,
+  storefront_click_appeal_min: 85,
   compliance_risk_max: 4,
 };
 const MAX_ATTEMPTS = 3;
@@ -50,20 +50,20 @@ interface PremiumTitlePackage {
   buyer_pain: string;
   transformation_promise: string;
   premium_positioning: string;
-  shopify_product_title: string;
+  storefront_product_title: string;
   seo_title: string;
   url_slug: string;
   title_quality_score: number;
   buyer_pain_match: number;
   premium_feel: number;
-  shopify_click_appeal: number;
+  storefront_click_appeal: number;
   compliance_risk_score: number;
   weaknesses: string[];
 }
 
 const SYSTEM = `You are the world's #1 Premium Ebook Title Psychology & Marketing Expert for the USA market.
 You write titles that: (1) trigger identity + pain recognition instantly, (2) feel premium and worth $19–$29,
-(3) drive Shopify click-through, (4) rank in search, (5) contain ZERO fake guarantees or unsafe claims.
+(3) drive storefront click-through, (4) rank in search, (5) contain ZERO fake guarantees or unsafe claims.
 
 You always self-score honestly. If a score is below the bar you say so and lower it — do not inflate.
 American English only. Educational tone for sensitive topics (finance, health, legal, relationships).
@@ -98,10 +98,10 @@ Attempt ${opts.attempt}/${MAX_ATTEMPTS}. Every score must clear:
 - title_quality_score >= 85
 - buyer_pain_match >= 85
 - premium_feel >= 85
-- shopify_click_appeal >= 85
+- storefront_click_appeal >= 85
 - compliance_risk_score <= 4 (1 safest .. 10 riskiest)
 
-HARD TITLE RULES (both recommended_title AND shopify_product_title MUST comply):
+HARD TITLE RULES (both recommended_title AND storefront_product_title MUST comply):
 - MUST include at least one premium positioning token (case-insensitive):
   Blueprint, Playbook, Protocol, Framework, System, Operating System, Method,
   Formula, Toolkit, Field Guide, Reset Plan, Exit Strategy, Escape Plan,
@@ -123,13 +123,13 @@ Return JSON in EXACTLY this shape (no extra fields, no markdown):
   "buyer_pain": "concrete pain in the buyer's own words",
   "transformation_promise": "believable outcome — never guaranteed",
   "premium_positioning": "why this is worth $19–$29 vs free info",
-  "shopify_product_title": "Shopify listing title, includes buyer + outcome, <= 70 chars",
+  "storefront_product_title": "Storefront listing title, includes buyer + outcome, <= 70 chars",
   "seo_title": "Google-optimized title with primary keyword, <= 60 chars",
   "url_slug": "lowercase-hyphenated, no stopwords, 3–7 words",
   "title_quality_score": 0,
   "buyer_pain_match": 0,
   "premium_feel": 0,
-  "shopify_click_appeal": 0,
+  "storefront_click_appeal": 0,
   "compliance_risk_score": 1,
   "weaknesses": ["list every weakness you can still see, or [] if none"]
 }`;
@@ -163,13 +163,13 @@ function validatePackage(raw: unknown): PremiumTitlePackage {
     buyer_pain: s("buyer_pain"),
     transformation_promise: s("transformation_promise"),
     premium_positioning: s("premium_positioning"),
-    shopify_product_title: s("shopify_product_title") || s("recommended_title"),
+    storefront_product_title: s("storefront_product_title") || s("recommended_title"),
     seo_title: s("seo_title") || s("recommended_title"),
     url_slug: slugify(s("url_slug") || s("recommended_title")),
     title_quality_score: Math.max(0, Math.min(100, n("title_quality_score"))),
     buyer_pain_match: Math.max(0, Math.min(100, n("buyer_pain_match"))),
     premium_feel: Math.max(0, Math.min(100, n("premium_feel"))),
-    shopify_click_appeal: Math.max(0, Math.min(100, n("shopify_click_appeal"))),
+    storefront_click_appeal: Math.max(0, Math.min(100, n("storefront_click_appeal"))),
     compliance_risk_score: Math.max(1, Math.min(10, n("compliance_risk_score") || 1)),
     weaknesses: Array.isArray(x.weaknesses) ? (x.weaknesses as unknown[]).map(String) : [],
   };
@@ -188,12 +188,12 @@ function gate(p: PremiumTitlePackage): { passed: boolean; reasons: string[] } {
   if (unsafe) r.push("unsafe_claim_detected");
   const guard = checkPremiumTitle(p.recommended_title);
   if (!guard.ok) r.push(`generic_title:${guard.reasons.join(",")}`);
-  const shopGuard = checkPremiumTitle(p.shopify_product_title);
-  if (!shopGuard.ok) r.push(`generic_shopify_title:${shopGuard.reasons.join(",")}`);
+  const storefrontGuard = checkPremiumTitle(p.storefront_product_title);
+  if (!storefrontGuard.ok) r.push(`generic_storefront_title:${storefrontGuard.reasons.join(",")}`);
   if (p.title_quality_score < GATE.title_quality_min) r.push(`title_quality=${p.title_quality_score}<85`);
   if (p.buyer_pain_match < GATE.buyer_pain_match_min) r.push(`buyer_pain_match=${p.buyer_pain_match}<85`);
   if (p.premium_feel < GATE.premium_feel_min) r.push(`premium_feel=${p.premium_feel}<85`);
-  if (p.shopify_click_appeal < GATE.shopify_click_appeal_min) r.push(`shopify_click_appeal=${p.shopify_click_appeal}<85`);
+  if (p.storefront_click_appeal < GATE.storefront_click_appeal_min) r.push(`storefront_click_appeal=${p.storefront_click_appeal}<85`);
   if (p.compliance_risk_score > GATE.compliance_risk_max) r.push(`compliance_risk=${p.compliance_risk_score}>4`);
   return { passed: r.length === 0, reasons: r };
 }
@@ -258,28 +258,28 @@ Deno.serve(async (req) => {
       const onlyMissingToken = (reasons: string[]) =>
         reasons.length > 0 && reasons.every((r) =>
           r === "generic_title:missing_premium_positioning_token" ||
-          r === "generic_shopify_title:missing_premium_positioning_token"
+          r === "generic_storefront_title:missing_premium_positioning_token"
         );
       const scoresClear =
         pkg.title_quality_score >= GATE.title_quality_min &&
         pkg.buyer_pain_match >= GATE.buyer_pain_match_min &&
         pkg.premium_feel >= GATE.premium_feel_min &&
-        pkg.shopify_click_appeal >= GATE.shopify_click_appeal_min &&
+        pkg.storefront_click_appeal >= GATE.storefront_click_appeal_min &&
         pkg.compliance_risk_score <= GATE.compliance_risk_max;
       if (!g.passed && onlyMissingToken(g.reasons) && scoresClear) {
         const beforeTitle = pkg.recommended_title;
-        const beforeShop = pkg.shopify_product_title;
+        const beforeStorefront = pkg.storefront_product_title;
         pkg.recommended_title = injectPremiumToken(pkg.recommended_title);
-        pkg.shopify_product_title = injectPremiumToken(pkg.shopify_product_title);
+        pkg.storefront_product_title = injectPremiumToken(pkg.storefront_product_title);
         pkg.url_slug = slugify(pkg.url_slug || pkg.recommended_title);
         const g2 = gate(pkg);
         if (g2.passed) {
-          console.log(`[premium-title-expert] token-injected: "${beforeTitle}" -> "${pkg.recommended_title}" | "${beforeShop}" -> "${pkg.shopify_product_title}"`);
+          console.log(`[premium-title-expert] token-injected: "${beforeTitle}" -> "${pkg.recommended_title}" | "${beforeStorefront}" -> "${pkg.storefront_product_title}"`);
           g = g2;
         } else {
           // Revert if the injection somehow made things worse.
           pkg.recommended_title = beforeTitle;
-          pkg.shopify_product_title = beforeShop;
+          pkg.storefront_product_title = beforeStorefront;
         }
       }
 
@@ -287,7 +287,7 @@ Deno.serve(async (req) => {
         title_quality_score: pkg.title_quality_score,
         buyer_pain_match: pkg.buyer_pain_match,
         premium_feel: pkg.premium_feel,
-        shopify_click_appeal: pkg.shopify_click_appeal,
+        storefront_click_appeal: pkg.storefront_click_appeal,
         compliance_risk_score: pkg.compliance_risk_score,
       };
       attemptLogs.push({ attempt, passed: g.passed, scores, reasons: g.reasons });
@@ -297,8 +297,8 @@ Deno.serve(async (req) => {
 
       if (g.passed) {
         // Persist premium package onto the idea.
-        const shopify_meta = {
-          ...(idea.shopify_meta ?? {}),
+        const storefront_meta = {
+          ...(idea.storefront_meta ?? {}),
           premium_title_expert: {
             passed: true,
             attempts: attempt,
@@ -307,7 +307,7 @@ Deno.serve(async (req) => {
             model,
             generated_at: new Date().toISOString(),
           },
-          shopify_product_title: pkg.shopify_product_title,
+          storefront_product_title: pkg.storefront_product_title,
           seo_title: pkg.seo_title,
           url_slug: pkg.url_slug,
           premium_positioning: pkg.premium_positioning,
@@ -319,7 +319,7 @@ Deno.serve(async (req) => {
           target_buyer: pkg.target_buyer,
           core_pain_point: pkg.buyer_pain,
           transformation_promise: pkg.transformation_promise,
-          shopify_meta,
+          storefront_meta,
         }).eq("id", idea_id);
 
         return new Response(JSON.stringify({
@@ -337,13 +337,13 @@ Deno.serve(async (req) => {
       title_quality_score: best.pkg.title_quality_score,
       buyer_pain_match: best.pkg.buyer_pain_match,
       premium_feel: best.pkg.premium_feel,
-      shopify_click_appeal: best.pkg.shopify_click_appeal,
+      storefront_click_appeal: best.pkg.storefront_click_appeal,
       compliance_risk_score: best.pkg.compliance_risk_score,
     } : {};
 
     // Record the failure on the idea so the admin UI can display it.
-    const shopify_meta = {
-      ...(idea.shopify_meta ?? {}),
+    const storefront_meta = {
+      ...(idea.storefront_meta ?? {}),
       premium_title_expert: {
         passed: false,
         attempts: MAX_ATTEMPTS,
@@ -355,7 +355,7 @@ Deno.serve(async (req) => {
         generated_at: new Date().toISOString(),
       },
     };
-    await db.from("ebook_ideas").update({ shopify_meta }).eq("id", idea_id);
+    await db.from("ebook_ideas").update({ storefront_meta }).eq("id", idea_id);
 
     return new Response(JSON.stringify({
       ok: false, attempts: MAX_ATTEMPTS, scores,

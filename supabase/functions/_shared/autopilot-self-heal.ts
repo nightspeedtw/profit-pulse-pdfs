@@ -282,7 +282,7 @@ export function buildGateStuckPrompt(input: {
       `Do not lower thresholds or bypass the gate; premium-ebook-master requires the target.`,
     ],
     test:
-      `Run targeted autofix for ebook ${input.ebookId}; gate ${input.gate} must pass and the ebook must proceed to Shopify draft readiness.`,
+      `Run targeted autofix for ebook ${input.ebookId}; gate ${input.gate} must pass and the ebook must proceed to Storefront draft readiness.`,
   });
 }
 
@@ -300,7 +300,6 @@ export async function persistQcSnapshot(db: any, ebook: Record<string, unknown>)
   const report = computeQcGates(source);
   await db.from("ebooks").update({
     qc_gates_json: report,
-    qc_ready_for_shopify: report.ready_for_shopify,
   }).eq("id", ebookId || (ebook.id as string));
   // Once a producer fix makes a gate pass, retire the old Needs Code Fix row so
   // the dashboard stops showing stale bugs for that ebook. If the gate regresses
@@ -319,7 +318,7 @@ export async function persistQcSnapshot(db: any, ebook: Record<string, unknown>)
 // deno-lint-ignore no-explicit-any
 export async function markGateAutoFixing(db: any, ebook: Record<string, unknown>, gate: GateName, report: QcGateReport, attempt: number) {
   // Stale-write protection: before marking a gate as auto-fixing (which sets
-  // qc_ready_for_shopify=false and downstream blocker flags), re-read the row
+  // downstream blocker flags), re-read the row
   // and recompute. If the fresh gates all pass, the caller was working from
   // a stale snapshot — do not clobber the passing state.
   const ebookId = String(ebook.id ?? "");
@@ -327,10 +326,9 @@ export async function markGateAutoFixing(db: any, ebook: Record<string, unknown>
     const { data: fresh } = await db.from("ebooks").select("*").eq("id", ebookId).maybeSingle();
     if (fresh) {
       const freshReport = computeQcGates(fresh as Record<string, unknown>);
-      if (freshReport.ready_for_shopify) {
+      if (freshReport.ready_for_storefront) {
         await db.from("ebooks").update({
           qc_gates_json: freshReport,
-          qc_ready_for_shopify: true,
         }).eq("id", ebookId);
         return;
       }
@@ -371,7 +369,6 @@ export async function markGateAutoFixing(db: any, ebook: Record<string, unknown>
       max_attempts: MAX_AUTOFIX_ATTEMPTS,
     },
     qc_gates_json: report,
-    qc_ready_for_shopify: report.ready_for_shopify,
     last_heartbeat_at: now,
     updated_at: now,
   }).eq("id", ebook.id);
@@ -384,10 +381,9 @@ export async function markGateNeedsCodeFix(db: any, ebook: Record<string, unknow
   const { data: fresh } = await db.from("ebooks").select("*").eq("id", ebookId).maybeSingle();
   if (fresh) {
     const freshReport = computeQcGates(fresh as Record<string, unknown>);
-    if (freshReport.ready_for_shopify) {
+    if (freshReport.ready_for_storefront) {
       await db.from("ebooks").update({
         qc_gates_json: freshReport,
-        qc_ready_for_shopify: true,
       }).eq("id", ebookId);
       return;
     }
@@ -413,7 +409,7 @@ export async function markGateNeedsCodeFix(db: any, ebook: Record<string, unknow
     ],
     affected_ebook_id: ebookId,
     required_fix: `Fix producer for gate ${gate} so it writes the exact gate contract fields and reaches the premium target without lowering thresholds.`,
-    acceptance_test: `Re-run auto-fix on ebook ${ebookId}; gate ${gate} passes and pipeline proceeds to Shopify draft readiness.`,
+    acceptance_test: `Re-run auto-fix on ebook ${ebookId}; gate ${gate} passes and pipeline proceeds to Storefront draft readiness.`,
     lovable_prompt: prompt,
     status: "open",
     occurrences: 1,
@@ -443,7 +439,6 @@ export async function markGateNeedsCodeFix(db: any, ebook: Record<string, unknow
     },
     next_recommended_action: "code_fix",
     qc_gates_json: report,
-    qc_ready_for_shopify: false,
     last_heartbeat_at: new Date().toISOString(),
   }).eq("id", ebookId);
 }

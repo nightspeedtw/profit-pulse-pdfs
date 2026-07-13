@@ -16,11 +16,11 @@ export type CanonicalStatus =
   | "generating_thumbnail"
   | "rendering_pdf"
   | "waiting_for_browserless_slot"
-  | "waiting_for_shopify_quota"
+  | "waiting_for_storefront_quota"
   | "waiting_for_ai_budget"
   | "waiting_for_worker_slot"
-  | "uploading_shopify_draft"
-  | "verifying_shopify_draft"
+  | "uploading_storefront_draft"
+  | "verifying_storefront_draft"
   | "draft_uploaded"
   | "completed"
   | "needs_admin_attention"
@@ -37,7 +37,7 @@ export type ErrorType =
   | "state_machine_bug"
   | "concurrency_bug"
   | "renderer_bug"
-  | "shopify_bug"
+  | "storefront_bug"
   | "pdf_quality_bug"
   | "status_visibility_bug"
   | "non_recoverable";
@@ -101,27 +101,27 @@ const KNOWN_SIGNATURES: Array<{
       fingerprint: "browserless_429",
     }),
   },
-  // Shopify daily cap / 402 / quota
+  // Storefront daily cap / 402 / quota
   {
-    match: (m) => /shopify/i.test(m) && /(quota|throttl|daily|cap|402)/i.test(m),
+    match: (m) => /storefront/i.test(m) && /(quota|throttl|daily|cap|402)/i.test(m),
     build: (m, ctx) => ({
       error_type: "quota_wait",
       severity: "low",
       recoverable: true,
       affected_step: ctx.step,
       user_friendly_message:
-        "Waiting for Shopify Quota — upload will resume when quota resets.",
+        "Waiting for Storefront Quota — upload will resume when quota resets.",
       technical_message: m,
-      detected_root_cause: "Shopify daily/hourly cap reached; assets preserved.",
+      detected_root_cause: "Storefront daily/hourly cap reached; assets preserved.",
       auto_recovery_action:
-        "Enqueue in shopify_upload_queue and resume when the next window opens.",
+        "Enqueue in storefront_upload_queue and resume when the next window opens.",
       next_retry_at: backoff(60),
       needs_code_fix: false,
       lovable_fix_instruction: "",
       affected_files: [],
       test_to_confirm: "",
-      suggested_status: "waiting_for_shopify_quota",
-      fingerprint: "shopify_quota",
+      suggested_status: "waiting_for_storefront_quota",
+      fingerprint: "storefront_quota",
     }),
   },
   // AI budget / credits
@@ -266,7 +266,7 @@ const KNOWN_SIGNATURES: Array<{
       user_friendly_message: "Auto-fixing PDF render — no PDF file was produced.",
       technical_message: m,
       detected_root_cause: "render-pdf did not persist pdf_url after rendering/upload.",
-      auto_recovery_action: "Reset pdf_status to idle, rerender once, and verify pdf_url before Shopify readiness.",
+      auto_recovery_action: "Reset pdf_status to idle, rerender once, and verify pdf_url before Storefront readiness.",
       next_retry_at: backoff(1),
       needs_code_fix: false,
       lovable_fix_instruction: "",
@@ -284,7 +284,7 @@ const KNOWN_SIGNATURES: Array<{
       severity: "medium",
       recoverable: true,
       affected_step: ctx.step,
-      user_friendly_message: "Auto-fixing Shopify thumbnail mockup — regenerating realistic book thumbnail.",
+      user_friendly_message: "Auto-fixing Storefront thumbnail mockup — regenerating realistic book thumbnail.",
       technical_message: m,
       detected_root_cause: "Cover thumbnail does not meet 3D premium book mockup gate.",
       auto_recovery_action: "Run generate-cover in full mode, rebuild thumbnail_url, rerun cover QC, then resume pipeline.",
@@ -292,7 +292,7 @@ const KNOWN_SIGNATURES: Array<{
       needs_code_fix: false,
       lovable_fix_instruction: "",
       affected_files: [],
-      test_to_confirm: "cover_qc thumbnail_book_mockup_score, thumbnail_readability_score, premium_product_feel_score, shopify_click_appeal_score all >= 90.",
+      test_to_confirm: "cover_qc thumbnail_book_mockup_score, thumbnail_readability_score, premium_product_feel_score, storefront_click_appeal_score all >= 90.",
       suggested_status: "auto_fixing",
       fingerprint: "thumbnail_mockup_gate",
     }),
@@ -390,7 +390,7 @@ const CODE_FIX_SIGNATURES: Array<{
           "supabase/functions/_shared/recovery.ts",
         ],
         fix: [
-          "At the top of every heavy step (outline → shopify verify), call try_acquire_lock('heavy_production', ebook_id).",
+          "At the top of every heavy step (outline → storefront verify), call try_acquire_lock('heavy_production', ebook_id).",
           "On failure, set canonical_status = 'queued_for_production' with a queue_position and return.",
           "On success, always release_lock on final success, terminal failure, or quota-wait transitions.",
         ],

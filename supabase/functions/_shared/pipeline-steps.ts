@@ -27,8 +27,7 @@ export const CANONICAL_STEPS = [
   "product_copy_generation",
   "pricing_generation",
   "product_page_qc",
-  "shopify_draft_upload",
-  "shopify_verification",
+  "publish_live",
   "final_report",
 ] as const;
 
@@ -64,9 +63,8 @@ export const STEP_DEPS: Record<CanonicalStep, CanonicalStep[]> = {
   product_copy_generation: ["pdf_qc"],
   pricing_generation: ["product_copy_generation"],
   product_page_qc: ["pricing_generation"],
-  shopify_draft_upload: ["product_page_qc", "thumbnail_qc"],
-  shopify_verification: ["shopify_draft_upload"],
-  final_report: ["shopify_verification"],
+  publish_live: ["product_page_qc", "thumbnail_qc"],
+  final_report: ["publish_live"],
 };
 
 // Canonical status vocabulary.
@@ -80,7 +78,6 @@ export const STATUSES = [
   "repairing_dependency",
   "waiting_for_quota",
   "waiting_for_browserless_slot",
-  "waiting_for_shopify_quota",
   "needs_code_fix",
   "needs_admin_attention",
   "failed_non_recoverable",
@@ -102,7 +99,6 @@ export const TERMINAL_FAIL_STATUSES: CanonicalStatus[] = [
 export const WAITING_STATUSES: CanonicalStatus[] = [
   "waiting_for_quota",
   "waiting_for_browserless_slot",
-  "waiting_for_shopify_quota",
 ];
 
 export function isPassed(status: string | null | undefined): boolean {

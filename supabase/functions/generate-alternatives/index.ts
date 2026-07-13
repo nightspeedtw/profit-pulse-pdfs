@@ -1,5 +1,5 @@
 // Generate exactly TWO stronger alternatives for an existing weak idea,
-// plus an AI-recommended winner with Shopify-ready metadata.
+// plus an AI-recommended winner with storefront-ready metadata.
 import { corsHeaders, admin, aiJSON, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 import { HARDSELL_COPYWRITER_SYSTEM } from "../_shared/prompts.ts";
 
@@ -14,7 +14,7 @@ interface Alt {
 interface Winner {
   selected_option: "A" | "B";
   title: string; subtitle: string; hook: string; product_page_opening: string;
-  shopify_product_title: string; meta_title: string; meta_description: string;
+  storefront_product_title: string; meta_title: string; meta_description: string;
   url_handle: string; tags: string[];
   final_buyer_appeal_score: number; final_premium_score: number;
   final_hard_sell_strength_score: number;
@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
 
     const model = pickModel(settings?.mode ?? "hybrid", "marketing");
 
-    const sys = HARDSELL_COPYWRITER_SYSTEM + `\n\nThis call asks you to produce EXACTLY 2 stronger hard-sell alternatives to a weak idea, plus an AI-picked winner with Shopify-ready metadata. Each option must beat the current version on buyer identity, pain naming, emotional hook, premium feeling, hard-sell strength, and Shopify positioning.
+    const sys = HARDSELL_COPYWRITER_SYSTEM + `\n\nThis call asks you to produce EXACTLY 2 stronger hard-sell alternatives to a weak idea, plus an AI-picked winner with storefront-ready metadata. Each option must beat the current version on buyer identity, pain naming, emotional hook, premium feeling, hard-sell strength, and storefront positioning.
 
 Status rules for the recommended winner:
 - Appeal>=85 AND Premium>=85 AND HardSell>=85 AND Compliance<=3 → "Premium Featured / Ready to Generate"
@@ -91,7 +91,7 @@ Return JSON in EXACTLY this shape:
   "ai_recommended_winner": {
     "selected_option": "A or B",
     "title": "", "subtitle": "", "hook": "", "product_page_opening": "",
-    "shopify_product_title": "", "meta_title": "", "meta_description": "",
+    "storefront_product_title": "", "meta_title": "", "meta_description": "",
     "url_handle": "", "tags": ["", "", "", ""],
     "final_buyer_appeal_score": 0, "final_premium_score": 0,
     "final_hard_sell_strength_score": 0,

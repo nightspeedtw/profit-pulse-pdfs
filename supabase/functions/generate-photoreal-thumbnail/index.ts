@@ -1,7 +1,7 @@
 // Reference-grade photoreal book thumbnail generator.
 // Two-stage: deterministic HTML cover face → Gemini 3 Pro Image photoreal mockup
 // composite. Hard-gated by AI-critic QC. Overwrites store_thumbnail_url ONLY on
-// pass. Never touches PDF / manuscript / price / copy. Never calls Shopify.
+// pass. Never touches PDF / manuscript / price / copy. Never calls external storefront APIs.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/stripe.ts";

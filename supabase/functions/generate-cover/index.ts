@@ -42,7 +42,7 @@ function isKidsPictureBook(input: { title?: string | null; category?: string | n
   });
 }
 
-const COVER_DESIGNER_SYSTEM = `You are a world-class ebook cover designer, premium brand strategist, buyer psychology expert, and conversion-focused digital product marketer for USA Shopify.
+const COVER_DESIGNER_SYSTEM = `You are a world-class ebook cover designer, premium brand strategist, buyer psychology expert, and conversion-focused digital product marketer for a USA storefront.
 
 You combine elite nonfiction cover design, high-converting digital-product packaging, buyer psychology, behavioral marketing, premium typography, editorial layout, color psychology, thumbnail conversion strategy, category-specific visual positioning, and luxury digital product presentation.
 
@@ -79,7 +79,7 @@ DESIGN LANGUAGE (locked reference template — every book, no exceptions):
 - Thin accent bar spanning the width, then a row of 4 icon+label feature chips at the bottom.
 - Spine + back-cover pick up the same palette.
 
-TYPOGRAPHY — the title is the hero: readable at Shopify thumbnail size, strong hierarchy, condensed heavy sans, intentional line breaks, emphasis on transformation words. Subtitle whispers, never competes.
+TYPOGRAPHY — the title is the hero: readable at storefront thumbnail size, strong hierarchy, condensed heavy sans, intentional line breaks, emphasis on transformation words. Subtitle whispers, never competes.
 
 TEXT RENDERING RULE — the AI image contains ZERO text: no letters, numbers, logos, watermarks, fake charts, fake labels, misspelled words. All real text (title, subtitle, badge, brand, chips) is rendered by the app's code layer.
 
@@ -124,13 +124,13 @@ OUTPUT SCHEMA (return exactly these fields, valid JSON only):
 }`;
 
 
-const COVER_QC_SYSTEM = `You are a strict premium ebook cover QC reviewer for USA Shopify digital products.
+const COVER_QC_SYSTEM = `You are a strict premium ebook cover QC reviewer for USA storefront digital products.
 Score harshly and honestly — never inflate. Anything that could be mistaken for generic AI art fails Anti-AI-Look.
 
 You will be told the THUMBNAIL_ASSET_TYPE. There are TWO valid rubrics — score under the one that matches:
 
 - If THUMBNAIL_ASSET_TYPE = "photoreal_mockup": score "photoreal_mockup_score" 0-100 (photo-real standing hardcover with perspective, spine, page edges, contact shadow). Also set "flat_cover_thumbnail_score" = 0 (n/a).
-- If THUMBNAIL_ASSET_TYPE = "flat_cover_fallback": score "flat_cover_thumbnail_score" 0-100 on its OWN merits — title readability at small size, subtitle readability, contrast, premium visual hierarchy, Shopify click appeal, no misspelled/altered text, clean crop with safe margins. Do NOT penalize it for not being a 3D book mockup. Set "photoreal_mockup_score" = 0 (n/a).
+- If THUMBNAIL_ASSET_TYPE = "flat_cover_fallback": score "flat_cover_thumbnail_score" 0-100 on its OWN merits — title readability at small size, subtitle readability, contrast, premium visual hierarchy, storefront click appeal, no misspelled/altered text, clean crop with safe margins. Do NOT penalize it for not being a 3D book mockup. Set "photoreal_mockup_score" = 0 (n/a).
 
 Return JSON only:
 {
@@ -147,7 +147,7 @@ Return JSON only:
     "visual_hierarchy": 0-100,
     "buyer_psychology_fit": 0-100,
     "click_appeal": 0-100,
-    "shopify_click_appeal": 0-100,
+    "storefront_click_appeal": 0-100,
     "premium_product_feel": 0-100,
     "sellability": 0-100,
     "anti_ai_look": 0-100
@@ -162,8 +162,8 @@ Return JSON only:
 }
 
 Pass gate depends on THUMBNAIL_ASSET_TYPE:
-- photoreal_mockup: photoreal_mockup_score >= 90 AND shopify_click_appeal >= 85
-- flat_cover_fallback: flat_cover_thumbnail_score >= 90 AND shopify_click_appeal >= 85
+- photoreal_mockup: photoreal_mockup_score >= 90 AND storefront_click_appeal >= 85
+- flat_cover_fallback: flat_cover_thumbnail_score >= 90 AND storefront_click_appeal >= 85
 
 Common requirements (both):
 - title_readability >= 90
@@ -197,7 +197,7 @@ type ThumbnailAssetType = "photoreal_mockup" | "flat_cover_fallback";
 const HARD_MIN_COMMON: Record<string, number> = {
   title_readability: 90,
   thumbnail_readability: 90,
-  shopify_click_appeal: 85,
+  storefront_click_appeal: 85,
   human_designed_feel: 85,
   premium_feel: 85,
   category_fit: 85,
@@ -237,9 +237,9 @@ function normalizeCoverQc(input: QCResult | null): QCResult {
   scores.photoreal_mockup_score = n(scores.photoreal_mockup_score || scores.thumbnail_book_mockup || scores.book_mockup);
   scores.flat_cover_thumbnail_score = n(scores.flat_cover_thumbnail_score);
   scores.thumbnail_readability = n(scores.thumbnail_readability || scores.title_readability);
-  scores.shopify_click_appeal = n(scores.shopify_click_appeal || scores.click_appeal);
+  scores.storefront_click_appeal = n(scores.storefront_click_appeal || scores.click_appeal);
   scores.premium_product_feel = n(scores.premium_product_feel || scores.premium_feel);
-  scores.click_appeal = n(scores.click_appeal || scores.shopify_click_appeal);
+  scores.click_appeal = n(scores.click_appeal || scores.storefront_click_appeal);
   scores.premium_feel = n(scores.premium_feel || scores.premium_product_feel);
   const hardVals = Object.keys(HARD_MIN_COMMON).map((k) => scores[k] ?? 0);
   const overall = hardVals.length
@@ -269,13 +269,13 @@ function completeThumbnailQcContract(
   qc.scores.thumbnail_readability = qc.scores.thumbnail_readability || qc.scores.title_readability || fallback;
   qc.scores.readability = qc.scores.thumbnail_readability;
   qc.scores.human_designed_feel = qc.scores.human_designed_feel || qc.scores.premium_feel || fallback;
-  qc.scores.shopify_click_appeal = qc.scores.shopify_click_appeal || qc.scores.click_appeal || fallback;
-  qc.scores.click_appeal = qc.scores.click_appeal || qc.scores.shopify_click_appeal;
+  qc.scores.storefront_click_appeal = qc.scores.storefront_click_appeal || qc.scores.click_appeal || fallback;
+  qc.scores.click_appeal = qc.scores.click_appeal || qc.scores.storefront_click_appeal;
   qc.scores.premium_product_feel = qc.scores.premium_product_feel || qc.scores.premium_feel || fallback;
   qc.scores.premium_feel = qc.scores.premium_feel || qc.scores.premium_product_feel;
   qc.scores.category_fit = qc.scores.category_fit || qc.scores.category_match || fallback;
   qc.scores.category_match = qc.scores.category_fit;
-  qc.scores.sellability = qc.scores.sellability || Math.round((qc.scores.shopify_click_appeal + qc.scores.premium_product_feel) / 2) || fallback;
+  qc.scores.sellability = qc.scores.sellability || Math.round((qc.scores.storefront_click_appeal + qc.scores.premium_product_feel) / 2) || fallback;
   qc.scores.anti_ai_look = qc.scores.anti_ai_look || fallback;
   // Ensure the correct asset-type score is populated; the OTHER stays 0 (n/a).
   if (assetType === "photoreal_mockup") {
@@ -301,7 +301,7 @@ function completeThumbnailQcContract(
   qc.overall_score = Math.round([
     blocking,
     qc.scores.thumbnail_readability,
-    qc.scores.shopify_click_appeal,
+    qc.scores.storefront_click_appeal,
     qc.scores.premium_product_feel,
   ].reduce((a, b) => a + b, 0) / 4);
   qc.no_ai_text_errors = qc.no_ai_text_errors || hasThumb;
@@ -395,7 +395,7 @@ function buildRepairFeedback(reasons: string[], improvements: string[]): string 
 
 // Premium book-mockup thumbnail: renders the flat cover as a standing, slightly
 // angled hardcover with soft ground shadow, page-edge highlight, and spine.
-// This is what Shopify product cards will show — must feel like a real book, not
+// This is what storefront product cards will show — must feel like a real book, not
 // a flat A4 screenshot. The flat cover itself is preserved SEPARATELY at
 // `${ebook_id}/cover.png` — this mockup path is `${ebook_id}/thumbnail.png` only.
 async function renderThumbnail(spec: CoverSpec, bgBytes: Uint8Array, coverPngReuse: Uint8Array | undefined, ref: StyleRef): Promise<{ bytes: Uint8Array; assetType: ThumbnailAssetType }> {
@@ -737,7 +737,7 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
             click_appeal: kidsQc.thumbnail_appeal_at_160px,
             thumbnail_book_mockup: 100,
             thumbnail_readability: kidsQc.title_readable_on_illustration,
-            shopify_click_appeal: kidsQc.thumbnail_appeal_at_160px,
+            storefront_click_appeal: kidsQc.thumbnail_appeal_at_160px,
             premium_product_feel: kidsQc.overall_score,
             flat_cover_thumbnail_score: kidsQc.overall_score,
             photoreal_mockup_score: null,
@@ -824,7 +824,7 @@ ${JSON.stringify(spec, null, 2)}`,
       anti_ai_look: finalQc.scores.anti_ai_look,
       thumbnail_book_mockup_score: finalQc.scores.thumbnail_book_mockup,
       thumbnail_readability_score: finalQc.scores.thumbnail_readability,
-      shopify_click_appeal_score: finalQc.scores.shopify_click_appeal,
+      storefront_click_appeal_score: finalQc.scores.storefront_click_appeal,
       premium_product_feel_score: finalQc.scores.premium_product_feel,
       click_appeal_score: finalQc.scores.click_appeal,
       premium_feel_score: finalQc.scores.premium_feel,
@@ -855,7 +855,7 @@ ${JSON.stringify(spec, null, 2)}`,
       const gates = computeQcGates(persisted);
       await db.from("ebooks").update({
         qc_gates_json: gates,
-        qc_ready_for_shopify: gates.ready_for_shopify,
+        qc_ready_for_storefront: gates.ready_for_storefront,
       }).eq("id", ebook_id);
     }
   } catch (err) {

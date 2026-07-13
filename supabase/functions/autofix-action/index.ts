@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
         | "rebuild_pdf"
         | "autofix_gate";
       // Targeted gate for autofix_gate: which premium-ebook-master QC
-      // is currently blocking Shopify readiness.
+      // is currently blocking storefront readiness.
       gate?: "reader" | "cover_pdf" | "cover_thumb" | "formatter" | "any";
     };
     if (!ebook_id || !action) {
@@ -71,10 +71,10 @@ Deno.serve(async (req) => {
       if (action === "autofix_gate" && !chosen) {
         await db.from("ebooks").update({
           qc_gates_json: report,
-          qc_ready_for_shopify: report.ready_for_shopify,
-          qc_status: report.ready_for_shopify ? "qc_passed" : "pending",
-          autopilot_state: report.ready_for_shopify ? "ready_to_publish" : cur?.autopilot_state,
-          canonical_status: report.ready_for_shopify ? "ready_to_publish" : cur?.canonical_status,
+          qc_ready_for_storefront: report.ready_for_storefront,
+          qc_status: report.ready_for_storefront ? "qc_passed" : "pending",
+          autopilot_state: report.ready_for_storefront ? "ready_to_publish" : cur?.autopilot_state,
+          canonical_status: report.ready_for_storefront ? "ready_to_publish" : cur?.canonical_status,
         }).eq("id", ebook_id);
         return new Response(JSON.stringify({ ok: true, skipped: true, reason: "no_blocking_gate", report }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -185,7 +185,7 @@ Deno.serve(async (req) => {
       }
 
       // Kick the exact producer immediately, then kick the pipeline so the
-      // canonical state machine continues to Shopify readiness.
+      // canonical state machine continues to storefront readiness.
       if (action === "autofix_gate" && g === "cover_thumb") {
         const coverMode = decision?.missingData ? "overlay" : "spec";
         fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-cover`, {

@@ -26,8 +26,8 @@ export const AUTOPILOT_STEPS: StepDef[] = [
   { name: "pdf_qc",            label: "Running PDF QC",              order: 16 },
   { name: "product_copy",      label: "Generating Product Copy",     order: 17 },
   { name: "product_qc",        label: "Running Product Page QC",     order: 18 },
-  { name: "shopify_draft",     label: "Uploading Shopify Draft",     order: 19 },
-  { name: "shopify_verify",    label: "Verifying Shopify Draft",     order: 20 },
+  { name: "storefront_draft",     label: "Uploading Storefront Draft",     order: 19 },
+  { name: "storefront_verify",    label: "Verifying Storefront Draft",     order: 20 },
   { name: "complete",          label: "Complete",                    order: 21 },
 ];
 
@@ -54,8 +54,8 @@ const STEP_TO_CANONICAL: Record<string, string> = {
   pdf_qc: "running_qc",
   product_copy: "production_running",
   product_qc: "running_qc",
-  shopify_draft: "uploading_shopify_draft",
-  shopify_verify: "verifying_shopify_draft",
+  storefront_draft: "uploading_storefront_draft",
+  storefront_verify: "verifying_storefront_draft",
   complete: "completed",
 };
 

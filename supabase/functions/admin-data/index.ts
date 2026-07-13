@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
         const { data, error } = await supabase
           .from("ebooks")
           .select(
-            "id,title,autopilot_state,autopilot_mode,shopify_status,shopify_product_id,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json,blocker_class,blocker_reason,next_retry_at,pdf_url,cover_url",
+            "id,title,autopilot_state,autopilot_mode,listing_status,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json,blocker_class,blocker_reason,next_retry_at,pdf_url,cover_url",
           )
           .in("id", ebookIds);
         if (error) throw error;
@@ -101,8 +101,7 @@ Deno.serve(async (req) => {
           current_subtask: run.current_subtask,
           progress_percent: run.progress_percent,
           pause_requested: run.pause_requested,
-          shopify_status: ebook?.shopify_status ?? null,
-          shopify_product_id: ebook?.shopify_product_id ?? null,
+          listing_status: ebook?.listing_status ?? null,
           manuscript_qc_status: ebook?.manuscript_qc_status ?? null,
           pdf_status: ebook?.pdf_status ?? null,
           word_count: ebook?.word_count ?? null,
@@ -126,7 +125,7 @@ Deno.serve(async (req) => {
       const { data: orphanEbooks, error: orphanError } = await supabase
         .from("ebooks")
         .select(
-          "id,title,autopilot_state,autopilot_mode,shopify_status,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json,blocker_class,blocker_reason,next_retry_at,pdf_url,cover_url",
+          "id,title,autopilot_state,autopilot_mode,listing_status,manuscript_qc_status,pdf_status,word_count,final_quality_score,needs_review_reason,updated_at,worksheet_table_overflow_score,worksheet_previews_json,blocker_class,blocker_reason,next_retry_at,pdf_url,cover_url",
         )
         .not("id", "in", `(${ebookIds.join(",") || "00000000-0000-0000-0000-000000000000"})`)
         .order("updated_at", { ascending: false })
@@ -184,7 +183,7 @@ Deno.serve(async (req) => {
         const { data } = await supabase
           .from("ebooks")
           .select(
-            "id,title,shopify_status,shopify_product_id,final_quality_score,cover_url,cover_approved,pdf_url,pdf_status,pdf_generated_at",
+            "id,title,listing_status,final_quality_score,cover_url,cover_approved,pdf_url,pdf_status,pdf_generated_at",
           )
           .in("id", ebookIds);
         ebooks = data ?? [];
@@ -254,15 +253,15 @@ Deno.serve(async (req) => {
       const heavy = [
         "generating_outline", "writing_chapters", "building_manuscript", "running_qc",
         "auto_fixing", "generating_cover", "generating_thumbnail", "rendering_pdf",
-        "uploading_shopify_draft", "verifying_shopify_draft", "production_running",
+        "publishing_live", "production_running",
         "running", "starting",
       ];
       const waiting = [
-        "waiting_for_browserless_slot", "waiting_for_shopify_quota",
+        "waiting_for_browserless_slot",
         "waiting_for_ai_budget", "waiting_for_worker_slot",
       ];
       const cols =
-        "id,title,canonical_status,autopilot_state,queue_position,queued_at,estimated_start_after_run_id,waiting_reason,current_step,current_step_label,current_action_message,current_subtask,progress_pct,last_heartbeat_at,current_qc_score,autofix_attempt,autofix_max,auto_fix_attempt_count,structured_error,blocker_class,blocker_reason,needs_review_reason,next_recommended_action,failed_gate,failed_score,required_score,next_retry_at,cover_url,thumbnail_url,pdf_url,shopify_status,shopify_product_id,shopify_draft_url,updated_at,pdf_qc,cover_qc,reader_experience_qc,pdf_score,cover_score,reader_experience_score,reader_experience_status,reader_experience_fix_count,re_render_reason,re_render_count,re_render_last_at,qc_ready_for_shopify,final_quality_score,word_count,shopify_title,shopify_subtitle,short_hook,body_html,benefit_bullets,whats_inside,who_its_for,who_its_not_for,price,compare_at_price,launch_price,price_tier,seo_title,meta_description,url_slug,tags,pricing_confidence_score,product_page_qc_score,thumbnail_qc_score,shopify_package_json,subtitle";
+        "id,title,canonical_status,autopilot_state,queue_position,queued_at,estimated_start_after_run_id,waiting_reason,current_step,current_step_label,current_action_message,current_subtask,progress_pct,last_heartbeat_at,current_qc_score,autofix_attempt,autofix_max,auto_fix_attempt_count,structured_error,blocker_class,blocker_reason,needs_review_reason,next_recommended_action,failed_gate,failed_score,required_score,next_retry_at,cover_url,thumbnail_url,pdf_url,listing_status,updated_at,pdf_qc,cover_qc,reader_experience_qc,pdf_score,cover_score,reader_experience_score,reader_experience_status,reader_experience_fix_count,re_render_reason,re_render_count,re_render_last_at,qc_ready_for_storefront,final_quality_score,word_count,short_hook,body_html,benefit_bullets,whats_inside,who_its_for,who_its_not_for,price,compare_at_price,launch_price,price_tier,seo_title,meta_description,url_slug,tags,pricing_confidence_score,product_page_qc_score,thumbnail_qc_score,subtitle";
 
       const inList = (v: string[]) =>
         `canonical_status.in.(${v.join(",")}),autopilot_state.in.(${v.join(",")})`;
@@ -283,7 +282,7 @@ Deno.serve(async (req) => {
           .order("updated_at", { ascending: false }).limit(20),
         supabase.from("ebooks").select(cols).or(eqEither("needs_code_fix"))
           .order("updated_at", { ascending: false }).limit(20),
-        // Ready to Publish — 100% complete, PDF ready, not yet pushed to Shopify.
+        // Ready to Publish — 100% complete, PDF ready, not yet published live.
         // NOTE: `.or("...in.(a,b)...")` in supabase-js/PostgREST parses the
         // inner comma as an OR separator and silently returns []. Use two
         // simple `.in()` queries and merge in JS.
@@ -344,7 +343,7 @@ Deno.serve(async (req) => {
         auto_fixing: coalesce(autofix.data),
         needs_admin: coalesce(needsAdmin.data),
         needs_code_fix: coalesce(needsCode.data),
-        ready_to_publish: coalesce((ready.data ?? []).filter((r: any) => r.shopify_status !== "published")),
+        ready_to_publish: coalesce((ready.data ?? []).filter((r: any) => r.listing_status !== "live")),
         system_fixes: fixes ?? [],
         heavy_production_lock: lock ?? null,
         fetched_at: new Date().toISOString(),

@@ -27,8 +27,7 @@ const HEAVY_STATUSES = new Set([
   "generating_cover",
   "generating_thumbnail",
   "rendering_pdf",
-  "uploading_shopify_draft",
-  "verifying_shopify_draft",
+  "publishing_live",
   "production_running",
 ]);
 

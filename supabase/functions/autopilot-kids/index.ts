@@ -2,7 +2,7 @@
 //
 // Pipeline: story bible + manuscript → visual bible → render PDF (which also
 // generates per-spread illustrations via _shared/kids-visual-bible + illustration-planner)
-// → cover (kids template) → store thumbnail (passthrough) → Shopify draft → publish.
+// → cover (kids template) → store thumbnail (passthrough) → publish live.
 //
 // Isolated from the adult track: shares no prompt, no QC gate, no cover template.
 // Guards against being called on adult ebooks (returns wrong-track response).
@@ -105,23 +105,7 @@ Deno.serve(async (req) => {
           await logStep(db, ebook_id, "kids_thumbnail", "fail", { error: String(e) });
         }
 
-        // ---------- STEP 5: SHOPIFY DRAFT ----------
-        await stamp("kids_shopify_draft");
-        try {
-          await callFn("push-to-shopify", { ebook_id }, auth);
-          await db.from("ebooks").update({ shopify_status: "draft" }).eq("id", ebook_id);
-          await logStep(db, ebook_id, "kids_shopify_draft", "ok");
-        } catch (e) {
-          await db.from("ebooks").update({
-            shopify_status: "failed",
-            needs_review_reason: `shopify upload failed: ${String(e).slice(0, 200)}`,
-            autopilot_state: "needs_review",
-          }).eq("id", ebook_id);
-          await logStep(db, ebook_id, "kids_shopify_draft", "fail", { error: String(e) });
-          return;
-        }
-
-        // ---------- STEP 6: PUBLISH GATE ----------
+        // ---------- STEP 5: PUBLISH GATE ----------
         const { data: fresh } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
         const kidsQc = (fresh?.kids_visual_bible as any)?.qc_scores ?? {};
         const gate = kidsPublishGate(kidsQc);
@@ -129,17 +113,16 @@ Deno.serve(async (req) => {
 
         if (mode === "full" && gate.pass) {
           try {
-            await callFn("shopify-publish", { ebook_id }, auth);
-            await db.from("ebooks").update({
-              shopify_status: "published", status: "published", autopilot_state: "done",
-            }).eq("id", ebook_id);
-            await logStep(db, ebook_id, "kids_publish", "ok");
+            await stamp("publish_live");
+            await db.from("ebooks").update({ listing_status: "live", status: "live" }).eq("id", ebook_id);
+            await db.from("ebooks").update({ autopilot_state: "done" }).eq("id", ebook_id);
+            await logStep(db, ebook_id, "kids_publish_live", "ok");
           } catch (e) {
             await db.from("ebooks").update({
               autopilot_state: "needs_review",
               needs_review_reason: `kids publish failed: ${String(e).slice(0, 200)}`,
             }).eq("id", ebook_id);
-            await logStep(db, ebook_id, "kids_publish", "fail", { error: String(e) });
+            await logStep(db, ebook_id, "kids_publish_live", "fail", { error: String(e) });
           }
         } else {
           await db.from("ebooks").update({

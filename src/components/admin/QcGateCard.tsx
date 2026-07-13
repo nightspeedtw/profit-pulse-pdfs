@@ -1,7 +1,7 @@
 // Premium-ebook-master QC Gate Card.
 // Shows Formatter QC / Reader QC / Cover PDF / Cover Thumbnail scores
 // against the required pass targets so the admin knows at a glance
-// whether an ebook is ready for Shopify upload.
+// whether an ebook is ready for storefront publishing.
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, XCircle, MinusCircle, RotateCw, Wand2, Loader2, AlertOctagon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +23,7 @@ export interface QcGateReport {
   reader: GateResult;
   cover_pdf: GateResult;
   cover_thumb: GateResult;
-  ready_for_shopify: boolean;
+  ready_for_storefront: boolean;
   blocking_gates: string[];
   missing_gates: string[];
 }
@@ -103,7 +103,7 @@ export function QcGateCard({
   // spam the pipeline on every 3s poll while the fix is in flight.
   const autoFiredRef = useRef<Set<string>>(new Set());
 
-  const readyFlag = qc?.ready_for_shopify ?? false;
+  const readyFlag = qc?.ready_for_storefront ?? false;
   const blockingKey = qc?.blocking_gates?.join(",") ?? "";
   const firstBlocking = qc?.blocking_gates?.[0] as
     | "reader" | "cover_pdf" | "cover_thumb" | "formatter" | undefined;
@@ -157,7 +157,7 @@ export function QcGateCard({
     "cover_thumb",
   ];
 
-  const ready = qc.ready_for_shopify;
+  const ready = qc.ready_for_storefront;
   const blockingLabels = qc.blocking_gates
     .map((g) => GATE_LABEL[g]?.en ?? g)
     .join(", ");
@@ -178,7 +178,7 @@ export function QcGateCard({
         {ready ? (
           <Badge className="bg-emerald-600 text-white text-[10px] gap-1">
             <CheckCircle2 className="h-3 w-3" />
-            พร้อมอัพ Shopify · Ready
+            พร้อมเผยแพร่ · Ready
           </Badge>
         ) : (
           <Badge variant="outline" className="text-[10px] gap-1 border-destructive/50 text-destructive">

@@ -7,8 +7,7 @@ export interface RunSummary {
   title?: string;
   pdf_url?: string;
   cover_url?: string;
-  shopify_product_id?: string;
-  shopify_status?: string;
+  listing_status?: string;
   final_quality_score?: number;
   conversion_score?: number;
   compliance_safety_score?: number;
@@ -40,7 +39,7 @@ export function RunFinalReport({
           <Stat label="Final quality" value={summary.final_quality_score != null ? `${summary.final_quality_score}` : "—"} />
           <Stat label="Conversion" value={summary.conversion_score != null ? `${summary.conversion_score}` : "—"} />
           <Stat label="Compliance" value={summary.compliance_safety_score != null ? `${summary.compliance_safety_score}` : "—"} />
-          <Stat label="Shopify" value={summary.shopify_status ?? (summary.shopify_product_id ? "draft" : "—")} />
+          <Stat label="Listing" value={summary.listing_status ?? "—"} />
           <Stat label="Total cost" value={`$${totalCost.toFixed(3)}`} />
           <Stat label="Duration" value={fmtMs(summary.duration_ms)} />
           <Stat label="Auto-fix attempts" value={String(autoFixAttempts)} />
