@@ -5,6 +5,11 @@ import { corsHeaders, admin, aiJSON, logCost, requireAdmin } from "../_shared/ai
 import { buildCoverSVG, rasterizeSVG, type CoverSpec } from "../_shared/cover.ts";
 import { computeQcGates } from "../_shared/qc-gates.ts";
 import { resolveStyleProfile, stylePromptClause } from "../_shared/thumbnail-style-system.ts";
+import {
+  isKidsPictureBook as isKidsPictureBookShared,
+  getOrBuildKidsVisualBible,
+  kidsIllustrationPrompt,
+} from "../_shared/kids-visual-bible.ts";
 
 type EbookRow = {
   id: string; title: string; subtitle: string | null;
