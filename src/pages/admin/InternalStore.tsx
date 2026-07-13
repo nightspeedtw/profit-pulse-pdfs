@@ -1,6 +1,4 @@
 // Internal Store — Track 6 admin list.
-// The visible replacement for the Shopify workflow. Shopify code stays behind
-// its feature flag; this page never calls Shopify.
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -114,7 +112,7 @@ export default function InternalStore() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-3xl uppercase">Internal Store</h1>
-          <p className="text-sm text-muted-foreground mt-1">Our own catalog. No Shopify calls.</p>
+          <p className="text-sm text-muted-foreground mt-1">Our own catalog.</p>
         </div>
         <Button variant="outline" size="sm" onClick={load}><RefreshCw className="size-4" /> Refresh</Button>
       </div>

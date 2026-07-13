@@ -26,9 +26,7 @@ import EbookReview from "./pages/admin/EbookReview.tsx";
 import EbookWriting from "./pages/admin/EbookWriting.tsx";
 import EbookCover from "./pages/admin/EbookCover.tsx";
 import EbookPDF from "./pages/admin/EbookPDF.tsx";
-import EbookShopify from "./pages/admin/EbookShopify.tsx";
 import AutopilotRun from "./pages/admin/AutopilotRun.tsx";
-import ReadyShopify from "./pages/admin/ReadyShopify.tsx";
 import ProductionCommandCenter from "./pages/admin/ProductionCommandCenter.tsx";
 import InternalStore from "./pages/admin/InternalStore.tsx";
 import SmokeTestStatus from "./pages/admin/SmokeTestStatus.tsx";
@@ -66,14 +64,12 @@ const App = () => (
             <Route path="smoke-test" element={<SmokeTestStatus />} />
             <Route path="autopilot" element={<AutopilotControl />} />
             <Route path="store/:id" element={<EbookReview />} />
-            <Route path="ready-shopify" element={<ReadyShopify />} />
             <Route path="products" element={<Products />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="ebook/:id" element={<EbookReview />} />
             <Route path="ebook/:id/writing" element={<EbookWriting />} />
             <Route path="ebook/:id/cover" element={<EbookCover />} />
             <Route path="ebook/:id/pdf" element={<EbookPDF />} />
-            <Route path="ebook/:id/shopify" element={<EbookShopify />} />
             <Route path="autopilot/run/:runId" element={<AutopilotRun />} />
           </Route>
           <Route path="*" element={<NotFound />} />

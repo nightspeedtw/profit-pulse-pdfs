@@ -108,7 +108,7 @@ export function WorksheetOverflowReview({ ebookId, overflowScore, initialPreview
             <ImageIcon className="size-4" /> Worksheet overflow review
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1">
-            Verify the wrapping/shortening fixes visually before uploading to Shopify.
+            Verify the wrapping/shortening fixes visually before publishing.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -149,7 +149,7 @@ export function WorksheetOverflowReview({ ebookId, overflowScore, initialPreview
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-foreground/10">
             <p className="text-xs text-muted-foreground max-w-xl">
               Approving triggers a fresh PDF render with the wrapped headers. The automated
-              overflow score must reach 100/100 before the pipeline hands off to Shopify.
+              overflow score must reach 100/100 before the pipeline finalizes the PDF.
             </p>
             <Button size="sm" onClick={rerender} disabled={rerendering}>
               {rerendering ? <Loader2 className="size-3 animate-spin mr-2" /> : <CheckCircle2 className="size-3 mr-2" />}

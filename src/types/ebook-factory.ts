@@ -16,7 +16,6 @@ export const PIPELINE_STATUSES = [
   "cover_design",
   "product_copy",
   "final_qc",
-  "shopify_draft",
   "published",
   "rejected",
 ] as const;
@@ -163,28 +162,6 @@ export interface AutomationScheduleRow extends Timestamped {
   next_run_at: string | null;
   enabled: boolean;
   config: JsonObject;
-  metadata: JsonObject;
-}
-
-export type ShopifySyncAction =
-  | "create_draft"
-  | "update"
-  | "publish"
-  | "unpublish"
-  | "delete"
-  | (string & {});
-
-export type ShopifySyncStatus = "ok" | "error" | "pending" | (string & {});
-
-export interface ShopifySyncLogRow extends Timestamped {
-  id: string;
-  ebook_id: string | null;
-  action: ShopifySyncAction;
-  status: ShopifySyncStatus;
-  shopify_product_id: string | null;
-  request_payload: JsonObject;
-  response_payload: JsonObject;
-  error: string | null;
   metadata: JsonObject;
 }
 

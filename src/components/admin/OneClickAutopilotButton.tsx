@@ -76,7 +76,7 @@ export function OneClickAutopilotButton() {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Runs preflight → generates one full ebook end-to-end → uploads a Shopify draft.
+          Runs preflight → generates one full ebook end-to-end → publishes it live.
           Recoverable errors self-heal automatically. Only true non-recoverable issues stop the run.
         </p>
 

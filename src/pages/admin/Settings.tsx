@@ -31,9 +31,7 @@ type Settings = {
   publish_hour_utc: number;
   max_ai_calls_per_ebook: number;
   max_rewrite_attempts: number;
-  max_shopify_uploads_per_day: number;
   auto_rewrite_limit: number;
-  shopify_draft_upload_enabled: boolean;
   cron_enabled: boolean;
   autopilot_enabled: boolean;
   paused: boolean;
@@ -304,21 +302,8 @@ export default function SettingsPage() {
             </div>
           </AdvancedSection>
 
-          <AdvancedSection title="Shopify & scheduling">
+          <AdvancedSection title="Scheduling">
             <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-center justify-between border-2 border-foreground/10 px-3 rounded">
-                <Label>Shopify draft upload</Label>
-                <Switch checked={s.shopify_draft_upload_enabled !== false} onCheckedChange={(v) => patchSettings({ shopify_draft_upload_enabled: v })} />
-              </div>
-              <div>
-                <Label>Max Shopify uploads / day</Label>
-                <Input
-                  type="number" min={0} max={200}
-                  value={s.max_shopify_uploads_per_day ?? 20}
-                  onChange={(e) => setS({ ...s, max_shopify_uploads_per_day: Number(e.target.value) })}
-                  onBlur={(e) => patchSettings({ max_shopify_uploads_per_day: Number(e.target.value) })}
-                />
-              </div>
               <div className="flex items-center justify-between border-2 border-foreground/10 px-3 rounded">
                 <Label>Daily cron enabled</Label>
                 <Switch checked={s.cron_enabled} onCheckedChange={(v) => patchSettings({ cron_enabled: v })} />
@@ -332,9 +317,6 @@ export default function SettingsPage() {
                   onBlur={(e) => patchSettings({ publish_hour_utc: Number(e.target.value) })}
                 />
               </div>
-            </div>
-            <div className="mt-4">
-              <ShopifyConnectionPanel />
             </div>
           </AdvancedSection>
 
@@ -413,120 +395,3 @@ function AdvancedSection({ title, children, onOpen }: { title: string; children:
   );
 }
 
-type ShopifyTestResult = {
-  ok: boolean;
-  status: string;
-  message: string;
-  domain?: string;
-  api_version?: string;
-  token_prefix?: string | null;
-  shop_name?: string | null;
-  plan?: string | null;
-  granted_scopes?: string[];
-  problems?: string[];
-  detail?: string;
-  http_status?: number;
-};
-
-const REQUIRED_SCOPES_DRAFT = ["write_products", "read_products"];
-const REQUIRED_SCOPES_FILES = ["write_files", "read_files"];
-const REQUIRED_SCOPES_PUBLISH = ["write_publications", "read_publications"];
-
-function ShopifyConnectionPanel() {
-  const [testing, setTesting] = useState(false);
-  const [result, setResult] = useState<ShopifyTestResult | null>(null);
-
-  async function runTest() {
-    setTesting(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("shopify-test-connection", { body: {} });
-      if (error) throw new Error(error.message);
-      setResult(data as ShopifyTestResult);
-      if ((data as ShopifyTestResult).ok) toast.success("Shopify connection OK");
-      else toast.error((data as ShopifyTestResult).message ?? "Shopify test failed");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Test failed");
-    } finally {
-      setTesting(false);
-    }
-  }
-
-  const granted = new Set(result?.granted_scopes ?? []);
-  const scopeRow = (scope: string) => (
-    <div key={scope} className="flex items-center gap-2 text-xs font-mono">
-      <span className={granted.has(scope) ? "text-emerald-700" : "text-muted-foreground"}>
-        {granted.has(scope) ? "✓" : "○"}
-      </span>
-      <span className={granted.has(scope) ? "" : "text-muted-foreground"}>{scope}</span>
-    </div>
-  );
-
-  const badgeColor =
-    !result ? "bg-muted text-foreground"
-    : result.ok ? "bg-emerald-100 text-emerald-800 border border-emerald-700"
-    : "bg-red-100 text-red-800 border border-red-700";
-
-  return (
-    <div className="border-2 border-foreground/20 rounded p-4 space-y-3 bg-muted/20">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <p className="font-mono uppercase text-xs tracking-wider">Shopify connection</p>
-          <p className="text-xs text-muted-foreground">
-            Credentials are stored server-side. Use Test to verify the token, store domain, and scopes.
-          </p>
-        </div>
-        <Button onClick={runTest} disabled={testing} size="sm">
-          {testing ? "Testing…" : "Test Shopify Connection"}
-        </Button>
-      </div>
-
-      {result && (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
-            <span className={`px-2 py-0.5 rounded ${badgeColor}`}>{result.status.toUpperCase()}</span>
-            {result.domain && <span>domain: {result.domain}</span>}
-            {result.api_version && <span>· api: {result.api_version}</span>}
-            {result.token_prefix && <span>· token: {result.token_prefix}</span>}
-            {result.shop_name && <span>· shop: {result.shop_name}</span>}
-          </div>
-          <p className="text-xs">{result.message}</p>
-          {result.detail && (
-            <pre className="text-[10px] font-mono bg-background border border-foreground/10 rounded p-2 overflow-x-auto whitespace-pre-wrap">
-              {result.detail}
-            </pre>
-          )}
-          <div className="pt-2 border-t border-foreground/10">
-            <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1">Required scopes</p>
-            <div className="grid grid-cols-3 gap-x-4 gap-y-1">
-              <div>
-                <p className="text-[10px] text-muted-foreground">Draft product</p>
-                {REQUIRED_SCOPES_DRAFT.map(scopeRow)}
-              </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground">PDF / cover files</p>
-                {REQUIRED_SCOPES_FILES.map(scopeRow)}
-              </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground">Full publish (optional)</p>
-                {REQUIRED_SCOPES_PUBLISH.map(scopeRow)}
-              </div>
-            </div>
-          </div>
-          {!result.ok && result.status === "invalid_token" && (
-            <div className="border-l-2 border-orange-700 bg-orange-50/60 p-3 text-xs space-y-1">
-              <p className="font-semibold">Admin needed — how to fix</p>
-              <ol className="list-decimal ml-4 space-y-0.5">
-                <li>Open Shopify Admin → Settings → Apps and sales channels → Develop apps.</li>
-                <li>Select the custom app used for this project.</li>
-                <li>Copy the Admin API access token from API credentials.</li>
-                <li>Update the <code>SHOPIFY_ADMIN_TOKEN</code> secret in Lovable Cloud.</li>
-                <li>Confirm <code>SHOPIFY_STORE_DOMAIN</code> matches the same store.</li>
-                <li>Click Test Shopify Connection again, then Re-push Shopify Draft.</li>
-              </ol>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}

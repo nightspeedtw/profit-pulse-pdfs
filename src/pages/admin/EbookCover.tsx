@@ -259,7 +259,7 @@ export default function EbookCover() {
             <CardContent className="p-4 space-y-2">
               <p className="font-mono uppercase tracking-widest text-xs text-muted-foreground">Approval</p>
               <p className="text-xs text-muted-foreground">
-                Publishing to Shopify is blocked until the cover is approved <em>and</em> the cover score is ≥ 85.
+                Listing the ebook is blocked until the cover is approved <em>and</em> the cover score is ≥ 85.
               </p>
               <div className="flex gap-2 flex-wrap">
                 <Button

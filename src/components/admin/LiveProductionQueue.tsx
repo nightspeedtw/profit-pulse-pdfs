@@ -49,7 +49,7 @@ interface QueueEbook {
   pdf_url: string | null;
   final_quality_score?: number | null;
   word_count?: number | null;
-  shopify_status?: string | null;
+  listing_status?: string | null;
   updated_at: string | null;
   qc?: QcGateReport | null;
   re_render?: ReRenderInfo | null;

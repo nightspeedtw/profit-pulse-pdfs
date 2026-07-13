@@ -14,11 +14,8 @@ export type CanonicalStatus =
   | "generating_thumbnail"
   | "rendering_pdf"
   | "waiting_for_browserless_slot"
-  | "waiting_for_shopify_quota"
   | "waiting_for_ai_budget"
   | "waiting_for_worker_slot"
-  | "uploading_shopify_draft"
-  | "verifying_shopify_draft"
   | "draft_uploaded"
   | "completed"
   | "needs_admin_attention"
@@ -46,8 +43,6 @@ export function statusView(status?: string | null): StatusView {
     case "generating_cover":
     case "generating_thumbnail":
     case "rendering_pdf":
-    case "uploading_shopify_draft":
-    case "verifying_shopify_draft":
       return { label: prettyHeavy(s), tone: "info" };
     case "auto_fixing":
       return { label: "Auto-fixing", tone: "warn" };
@@ -57,18 +52,12 @@ export function statusView(status?: string | null): StatusView {
         tone: "warn",
         helper: "Retrying automatically",
       };
-    case "waiting_for_shopify_quota":
-      return {
-        label: "Waiting for Shopify Quota",
-        tone: "warn",
-        helper: "Upload resumes when quota resets",
-      };
     case "waiting_for_ai_budget":
       return { label: "Waiting for AI Budget", tone: "warn", helper: "Retrying automatically" };
     case "waiting_for_worker_slot":
       return { label: "Waiting for Worker Slot", tone: "warn", helper: "Retrying automatically" };
     case "draft_uploaded":
-      return { label: "Draft uploaded to Shopify", tone: "success" };
+      return { label: "Draft ready", tone: "success" };
     case "completed":
       return { label: "Completed", tone: "success" };
     case "needs_admin_attention":
@@ -100,8 +89,6 @@ function prettyHeavy(s: CanonicalStatus): string {
     generating_cover: "Generating cover",
     generating_thumbnail: "Generating thumbnail",
     rendering_pdf: "Rendering PDF",
-    uploading_shopify_draft: "Uploading Shopify draft",
-    verifying_shopify_draft: "Verifying Shopify draft",
   };
   return map[s] ?? s;
 }

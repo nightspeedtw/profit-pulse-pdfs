@@ -24,7 +24,7 @@ type Ebook = {
   current_action_message?: string | null; current_subtask?: string | null;
   progress_percent?: number | null; pause_requested?: boolean | null;
   autopilot_state: string | null; autopilot_mode: string | null;
-  shopify_status: string | null;
+  listing_status: string | null;
   manuscript_qc_status: string | null; pdf_status: string | null;
   word_count: number | null;
   final_quality_score: number | null;
@@ -99,7 +99,7 @@ export default function Production() {
       const badge = resolveJobBadge(e);
       if (filter === "running" && badge !== "writing" && badge !== "queued") return false;
       if (filter === "auto_fixing" && badge !== "auto_fixing" && badge !== "repairing_dependency") return false;
-      if (filter === "waiting_quota" && badge !== "waiting_for_shopify_quota" && badge !== "waiting_for_ai_budget" && badge !== "waiting_for_worker_slot" && badge !== "draft_upload_queued") return false;
+      if (filter === "waiting_quota" && badge !== "waiting_for_ai_budget" && badge !== "waiting_for_worker_slot" && badge !== "draft_upload_queued") return false;
       if (filter === "needs_attention" && badge !== "needs_review" && badge !== "qc_failed" && badge !== "needs_admin_attention") return false;
       if (filter === "draft_uploaded" && badge !== "draft_uploaded") return false;
       if (filter === "published" && badge !== "published") return false;
@@ -171,7 +171,7 @@ export default function Production() {
     }).length,
     waiting_quota: ebooks.filter((e) => {
       const b = resolveJobBadge(e);
-      return b === "waiting_for_shopify_quota" || b === "waiting_for_ai_budget" || b === "waiting_for_worker_slot" || b === "draft_upload_queued";
+      return b === "waiting_for_ai_budget" || b === "waiting_for_worker_slot" || b === "draft_upload_queued";
     }).length,
     needs_attention: ebooks.filter((e) => {
       const b = resolveJobBadge(e); return b === "needs_review" || b === "qc_failed" || b === "needs_admin_attention";
@@ -255,7 +255,7 @@ export default function Production() {
                   <th className="p-3 w-36">Current step</th>
                   <th className="p-3 w-24 text-right">Words</th>
                   <th className="p-3 w-20 text-right">QC</th>
-                  <th className="p-3 w-32">Shopify</th>
+                  <th className="p-3 w-32">Listing</th>
                   <th className="p-3 w-56">Blocker / Next retry</th>
                   <th className="p-3 w-40 text-right">Actions</th>
                 </tr>
@@ -299,7 +299,7 @@ export default function Production() {
                         </span>
                       </td>
                       <td className="p-3 text-xs font-mono text-muted-foreground">
-                        {e.shopify_status ?? "—"}
+                        {e.listing_status ?? "—"}
                       </td>
                       <td className="p-3 text-[11px] font-mono">
                         {e.blocker_reason ? (
@@ -354,7 +354,7 @@ export default function Production() {
             </CardTitle>
             <p className="text-xs text-muted-foreground">
               These ebooks failed the automated table-overflow / cropping check. Preview each fix
-              before the pipeline uploads the PDF to Shopify.
+              before the listing goes live.
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -416,10 +416,7 @@ function prettyStep(s: string | null | undefined): string {
 
 function prettyBlocker(reason: string): string {
   const map: Record<string, string> = {
-    daily_shopify_upload_cap_reached: "Daily Shopify upload cap reached (20/20)",
     ai_daily_budget_reached: "AI daily budget reached",
-    invalid_shopify_credentials: "Shopify credentials invalid — reconnect the store",
-    invalid_shopify_api_key: "Invalid Shopify API key — reconnect the store",
     temporary_api_error: "Temporary upstream error — retrying",
     missing_dependency: "Missing dependency — routing back to repair",
     stalled_heartbeat_resumed: "Stalled — resumed by recovery worker",
@@ -433,7 +430,7 @@ function resolveJobBadge(e: Ebook): EbookBadgeKind {
   // Ebook-level self-healing statuses win — the recovery engine is authoritative.
   const eb = resolveEbookBadge(e);
   if ([
-    "waiting_for_shopify_quota", "waiting_for_ai_budget", "waiting_for_worker_slot",
+    "waiting_for_ai_budget", "waiting_for_worker_slot",
     "auto_fixing", "repairing_dependency", "draft_upload_queued",
     "needs_admin_attention", "failed_non_recoverable", "published", "draft_uploaded",
   ].includes(eb)) return eb;
