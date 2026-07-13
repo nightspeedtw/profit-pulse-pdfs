@@ -6,6 +6,7 @@
 // `ebooks.autopilot_state` as the resume cursor.
 import { corsHeaders, admin, requireAdmin, aiJSON, aiText, pickModel, logCost } from "../_shared/ai.ts";
 import { HARDSELL_COPYWRITER_SYSTEM, PREMIUM_WRITER_SYSTEM } from "../_shared/prompts.ts";
+import { isKidsBook, kidsGuardResponse } from "../_shared/is-kids-book.ts";
 import {
   TH, logRun,
   scoreTopic, topicGate, rewriteTopic,
@@ -65,6 +66,10 @@ Deno.serve(async (req) => {
     if (ebook_id) {
       const { data } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
       if (!data) throw new Error("Ebook not found");
+      if (isKidsBook(data)) {
+        console.log("autopilot-orchestrator: skipping kids book", { ebook_id });
+        return kidsGuardResponse(ebook_id, corsHeaders);
+      }
       ebook = data;
       if (data.idea_id) {
         const { data: i } = await db.from("ebook_ideas").select("*").eq("id", data.idea_id).single();

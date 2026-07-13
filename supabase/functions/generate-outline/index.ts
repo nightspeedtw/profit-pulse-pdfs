@@ -5,6 +5,7 @@
 import { corsHeaders, admin, aiJSON, pickModel, logCost, requireAdmin } from "../_shared/ai.ts";
 import { PREMIUM_WRITER_SYSTEM } from "../_shared/prompts.ts";
 import { scoreOutline, outlineGate, logRun } from "../_shared/qc.ts";
+import { isKidsBook, kidsGuardResponse } from "../_shared/is-kids-book.ts";
 
 // ---------------- Strict outline schema ----------------
 interface OutlineSection {
@@ -441,6 +442,10 @@ Deno.serve(async (req) => {
       const { data, error } = await db.from("ebooks").select("*").eq("id", ebook_id).single();
       if (error || !data) throw new Error("Ebook not found");
       ebook = data;
+      if (isKidsBook(ebook)) {
+        console.log("generate-outline: skipping kids book", { ebook_id });
+        return kidsGuardResponse(ebook_id, corsHeaders);
+      }
     } else {
       const { data: idea, error: ie } = await db.from("ebook_ideas").select("*").eq("id", idea_id).single();
       if (ie || !idea) throw new Error("Idea not found");
