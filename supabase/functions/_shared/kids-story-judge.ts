@@ -167,21 +167,39 @@ Judge this book strictly and FAIRLY per the rubric above.
 Remember: LOW generic_story_risk_score means DISTINCTIVE. Do not default to mid-range if the story has a specific engine.
 ${SCHEMA_HINT}`;
 
-  const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
-    body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
-      messages: [
-        { role: "system", content: SYSTEM },
-        { role: "user", content: user },
-      ],
-    }),
-  });
-  if (!r.ok) throw new Error(`story judge ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const j = await r.json();
-  const raw = (j.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
-  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  async function callOnce(): Promise<Record<string, unknown>> {
+    const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SYSTEM },
+          { role: "user", content: user },
+        ],
+      }),
+    });
+    if (!r.ok) throw new Error(`story judge ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    const j = await r.json();
+    const raw = (j.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+    try { return JSON.parse(raw) as Record<string, unknown>; }
+    catch (_e) {
+      // Best-effort recovery: slice from first `{` to last `}`.
+      const s = raw.indexOf("{"); const e = raw.lastIndexOf("}");
+      if (s >= 0 && e > s) {
+        try { return JSON.parse(raw.slice(s, e + 1)) as Record<string, unknown>; } catch { /* fall through */ }
+      }
+      throw new Error(`story_judge_json_parse_failed`);
+    }
+  }
+  let parsed: Record<string, unknown>;
+  try { parsed = await callOnce(); }
+  catch (_e1) {
+    // One retry on transient malformed-JSON.
+    parsed = await callOnce();
+  }
+
 
   const report: StoryReport = {
     age_appropriateness_score: num(parsed.age_appropriateness_score),
