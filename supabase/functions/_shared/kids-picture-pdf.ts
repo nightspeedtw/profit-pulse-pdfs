@@ -38,17 +38,24 @@ export interface PicturePdfInput {
 // WinAnsi/StandardFont-safe normalization. Must match pdf-preflight glyph check.
 export function normalizeText(s: string): string {
   return s
+    .normalize("NFKC")
     .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
     .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
-    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2212]/g, "-")
     .replace(/\u2026/g, "...")
     .replace(/[\u00A0\u2007\u202F]/g, " ")
-    .replace(/[^\x20-\x7E\n]/g, "");
+    .replace(/[\u200B-\u200D\uFEFF\u00AD]/g, "")
+    .replace(/[\u0192\uFFFD]/g, "")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+    .replace(/[^\x20-\x7E\n]/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .trim();
 }
 
 function wrapLines(text: string, maxChars: number): string[] {
   const out: string[] = [];
-  for (const para of text.split(/\n+/)) {
+  for (const para of normalizeText(text).split(/\n+/)) {
     const words = para.split(/\s+/);
     let line = "";
     for (const w of words) {
@@ -64,6 +71,10 @@ function wrapLines(text: string, maxChars: number): string[] {
   }
   while (out.length && out[out.length - 1] === "") out.pop();
   return out;
+}
+
+function safePdfText(text: string): string {
+  return normalizeText(text);
 }
 
 export async function buildPicturePdf(input: PicturePdfInput): Promise<Uint8Array> {
@@ -90,8 +101,8 @@ export async function buildPicturePdf(input: PicturePdfInput): Promise<Uint8Arra
 
   // -- Title page -----------------------------------------------------------
   const titlePage = doc.addPage([pageW, pageH]);
-  const titleText = normalizeText(input.title);
-  const subtitleText = input.subtitle ? normalizeText(input.subtitle) : "";
+  const titleText = safePdfText(input.title);
+  const subtitleText = input.subtitle ? safePdfText(input.subtitle) : "";
   const titleSize = 32;
   const subSize = 18;
   const tw = titleFont.widthOfTextAtSize(titleText, titleSize);
@@ -113,7 +124,7 @@ export async function buildPicturePdf(input: PicturePdfInput): Promise<Uint8Arra
     });
   }
   if (input.authorLine) {
-    const al = normalizeText(input.authorLine);
+    const al = safePdfText(input.authorLine);
     const aw = bodyFont.widthOfTextAtSize(al, 12);
     titlePage.drawText(al, {
       x: (pageW - aw) / 2, y: 80, size: 12, font: bodyFont, color: rgb(0.4, 0.4, 0.45),
@@ -138,7 +149,7 @@ export async function buildPicturePdf(input: PicturePdfInput): Promise<Uint8Arra
     });
 
     // Caption below, wrapped, 16pt Helvetica.
-    const caption = normalizeText(spread.caption);
+    const caption = safePdfText(spread.caption);
     const size = 16;
     const lineHeight = size * 1.35;
     const maxChars = 60;
@@ -146,8 +157,9 @@ export async function buildPicturePdf(input: PicturePdfInput): Promise<Uint8Arra
     let y = pageH - 72 - ih - 36;
     for (const line of lines) {
       if (y < 60) break;
-      const lw = bodyFont.widthOfTextAtSize(line, size);
-      page.drawText(line, {
+      const safeLine = safePdfText(line);
+      const lw = bodyFont.widthOfTextAtSize(safeLine, size);
+      page.drawText(safeLine, {
         x: (pageW - lw) / 2,
         y,
         size,
@@ -160,7 +172,7 @@ export async function buildPicturePdf(input: PicturePdfInput): Promise<Uint8Arra
 
   // -- Closing page ---------------------------------------------------------
   const endPage = doc.addPage([pageW, pageH]);
-  const end = "The End";
+  const end = safePdfText("The End");
   const ew = titleFont.widthOfTextAtSize(end, 40);
   endPage.drawText(end, {
     x: (pageW - ew) / 2,
@@ -195,8 +207,8 @@ export async function startPicturePdf(input: { title: string; subtitle?: string 
   coverPage.drawImage(coverImg, { x: (PAGE_W - cw) / 2, y: (PAGE_H - ch) / 2, width: cw, height: ch });
 
   const titlePage = doc.addPage([PAGE_W, PAGE_H]);
-  const titleText = normalizeText(input.title);
-  const subtitleText = input.subtitle ? normalizeText(input.subtitle) : "";
+  const titleText = safePdfText(input.title);
+  const subtitleText = input.subtitle ? safePdfText(input.subtitle) : "";
   const titleSize = 32;
   const tw = titleFont.widthOfTextAtSize(titleText, titleSize);
   titlePage.drawText(titleText, { x: (PAGE_W - tw) / 2, y: PAGE_H / 2 + 20, size: titleSize, font: titleFont, color: rgb(0.1, 0.1, 0.15) });
@@ -205,7 +217,7 @@ export async function startPicturePdf(input: { title: string; subtitle?: string 
     titlePage.drawText(subtitleText, { x: (PAGE_W - sw) / 2, y: PAGE_H / 2 - 20, size: 18, font: bodyFont, color: rgb(0.35, 0.35, 0.4) });
   }
   if (input.authorLine) {
-    const al = normalizeText(input.authorLine);
+    const al = safePdfText(input.authorLine);
     const aw = bodyFont.widthOfTextAtSize(al, 12);
     titlePage.drawText(al, { x: (PAGE_W - aw) / 2, y: 80, size: 12, font: bodyFont, color: rgb(0.4, 0.4, 0.45) });
   }
@@ -224,15 +236,16 @@ export async function appendSpreadsToPdf(existing: Uint8Array, spreads: Array<{ 
     const iw = img.width * scale;
     const ih = img.height * scale;
     page.drawImage(img, { x: (PAGE_W - iw) / 2, y: PAGE_H - 72 - ih, width: iw, height: ih });
-    const caption = normalizeText(spread.caption);
+    const caption = safePdfText(spread.caption);
     const size = 16;
     const lineHeight = size * 1.35;
     const lines = wrapLines(caption, 60);
     let y = PAGE_H - 72 - ih - 36;
     for (const line of lines) {
       if (y < 60) break;
-      const lw = bodyFont.widthOfTextAtSize(line, size);
-      page.drawText(line, { x: (PAGE_W - lw) / 2, y, size, font: bodyFont, color: rgb(0.12, 0.12, 0.18) });
+      const safeLine = safePdfText(line);
+      const lw = bodyFont.widthOfTextAtSize(safeLine, size);
+      page.drawText(safeLine, { x: (PAGE_W - lw) / 2, y, size, font: bodyFont, color: rgb(0.12, 0.12, 0.18) });
       y -= lineHeight;
     }
   }
@@ -243,7 +256,7 @@ export async function finalizePicturePdf(existing: Uint8Array): Promise<Uint8Arr
   const doc = await PDFDocument.load(existing);
   const titleFont = await doc.embedFont(StandardFonts.HelveticaBold);
   const endPage = doc.addPage([PAGE_W, PAGE_H]);
-  const end = "The End";
+  const end = safePdfText("The End");
   const ew = titleFont.widthOfTextAtSize(end, 40);
   endPage.drawText(end, { x: (PAGE_W - ew) / 2, y: PAGE_H / 2, size: 40, font: titleFont, color: rgb(0.15, 0.15, 0.2) });
   return await doc.save();
