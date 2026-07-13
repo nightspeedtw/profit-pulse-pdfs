@@ -117,6 +117,7 @@ Deno.serve(async (req) => {
     const cached = getCachedPassing(meta, currentHash);
     if (cached) {
       const storefront_meta = promoteCache(meta, currentHash, cached.report, 'prior_hash_matched_cache');
+      const repairLog = { cache_status: 'promoted_prior_hash_match', manuscript_changed: false, art_untouched: true, art_snapshot: artSnapshot, updated_at: new Date().toISOString() };
       await db.from('ebooks_kids').update({
         storefront_meta,
         sellable: false,
@@ -128,7 +129,7 @@ Deno.serve(async (req) => {
           story_qc_status: 'hash_matched_cached_pass',
           manuscript_hash: currentHash,
           story_report: cached.report,
-          final_text_repair: { cache_status: 'promoted_prior_hash_match', manuscript_changed: false, art_untouched: true, art_snapshot: artSnapshot, updated_at: new Date().toISOString() },
+          final_text_repair: repairLog,
         },
       }).eq('id', ebook_id);
       const pdfRes = await callPdfBuilder(ebook_id, publish);
@@ -175,9 +176,10 @@ ${manuscript}
     const candidate = String(ai.data.manuscript_md ?? '').trim();
     const validation = validateRewrite(candidate, paragraphs.length);
     if (!validation.ok) {
+      const repairLog = { cache_status: 'none', rewrite_status: 'validation_failed', validation_errors: validation.errors, manuscript_changed: false, art_untouched: true, art_snapshot: artSnapshot, updated_at: new Date().toISOString() };
       await db.from('ebooks_kids').update({
         sellable: false, listing_status: 'draft', status: 'needs_revision', pipeline_status: 'human_review_required',
-        qc_scorecard: { ...scorecard, final_text_repair: { cache_status: 'none', rewrite_status: 'validation_failed', validation_errors: validation.errors, manuscript_changed: false, art_untouched: true, art_snapshot: artSnapshot, updated_at: new Date().toISOString() } },
+        qc_scorecard: { ...scorecard, final_text_repair: repairLog },
       }).eq('id', ebook_id);
       return json({ ok: false, action: 'rewrite_validation_failed', errors: validation.errors, manuscript_changed: false, art_untouched: true }, 422);
     }
@@ -193,15 +195,20 @@ ${manuscript}
     });
 
     if (!storyReport.story_qc_passed) {
+      const repairLog = { cache_status: 'none', rewrite_status: 'story_judge_failed', story_report: storyReport, manuscript_changed: false, art_untouched: true, art_snapshot: artSnapshot, updated_at: new Date().toISOString() };
       await db.from('ebooks_kids').update({
         sellable: false, listing_status: 'draft', status: 'needs_revision', pipeline_status: 'human_review_required',
-        qc_scorecard: { ...scorecard, final_text_repair: { cache_status: 'none', rewrite_status: 'story_judge_failed', story_report: storyReport, manuscript_changed: false, art_untouched: true, art_snapshot: artSnapshot, updated_at: new Date().toISOString() } },
+        qc_scorecard: { ...scorecard, final_text_repair: repairLog },
       }).eq('id', ebook_id);
       return json({ ok: false, action: 'rewrite_story_judge_failed_original_preserved', story_report: storyReport, manuscript_changed: false, art_untouched: true });
     }
 
     const newHash = await manuscriptHash(candidate);
     const storefront_meta = promoteCache(meta, newHash, storyReport, 'targeted_reread_value_rewrite');
+    const repairLog = {
+      cache_status: 'none', rewrite_status: 'passed_and_applied', old_hash: currentHash, new_hash: newHash,
+      manuscript_changed: true, art_untouched: true, art_snapshot: artSnapshot, model: ai.model, updated_at: new Date().toISOString(),
+    };
     await db.from('ebooks_kids').update({
       manuscript_md: candidate,
       word_count: candidate.split(/\s+/).filter(Boolean).length,
@@ -215,10 +222,7 @@ ${manuscript}
         story_qc_status: 'hash_matched_cached_pass',
         manuscript_hash: newHash,
         story_report: storyReport,
-        final_text_repair: {
-          cache_status: 'none', rewrite_status: 'passed_and_applied', old_hash: currentHash, new_hash: newHash,
-          manuscript_changed: true, art_untouched: true, art_snapshot: artSnapshot, model: ai.model, updated_at: new Date().toISOString(),
-        },
+        final_text_repair: repairLog,
       },
     }).eq('id', ebook_id);
 

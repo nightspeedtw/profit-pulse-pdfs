@@ -27,7 +27,7 @@ Deno.serve(async (req) => {
 
     const { data: ebook, error } = await supabase
       .from("ebooks_kids")
-      .select("id, title, subtitle, cover_url, pdf_url, manuscript_md, page_count, thumbnail_url, preview_page_urls, interior_illustrations, style_bible_json, age_group_id, storefront_meta")
+      .select("id, title, subtitle, cover_url, pdf_url, manuscript_md, page_count, thumbnail_url, preview_page_urls, interior_illustrations, style_bible_json, age_group_id, storefront_meta, qc_scorecard")
       .eq("id", ebook_id)
       .single();
     if (error || !ebook) return json({ error: "ebook not found" }, 404);
@@ -229,7 +229,7 @@ Deno.serve(async (req) => {
       overall_qc_score: verdict.overall_score,
       qc_rule_version: QC_RULE_VERSION,
       qc_scorecard: {
-        ...(((ebook.storefront_meta as Record<string, unknown> | null)?.last_text_repair_log as Record<string, unknown> | null) ? { final_text_repair: (ebook.storefront_meta as Record<string, unknown>).last_text_repair_log } : {}),
+        ...(((ebook.qc_scorecard as Record<string, unknown> | null)?.final_text_repair as Record<string, unknown> | null) ? { final_text_repair: (ebook.qc_scorecard as Record<string, unknown>).final_text_repair } : {}),
         version: QC_RULE_VERSION,
         overall_score: verdict.overall_score,
         category_scores: verdict.category_scores,
