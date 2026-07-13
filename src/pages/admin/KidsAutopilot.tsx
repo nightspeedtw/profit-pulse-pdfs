@@ -1,11 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
-import { RefreshCw, Play, Sparkles } from "lucide-react";
+import { RefreshCw, Play, Sparkles, Zap } from "lucide-react";
 import { listAgeGroups, listThemes, type KidsAgeGroup, type KidsTheme } from "@/lib/kidsTaxonomy";
+
+interface KidsRun {
+  id: string;
+  status: string;
+  current_step_label: string | null;
+  progress_percent: number | null;
+  blocker_reason: string | null;
+  ebook_kids_id: string | null;
+  created_at: string;
+}
 
 interface Weight {
   id: string;
