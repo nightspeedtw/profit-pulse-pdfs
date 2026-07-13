@@ -1,0 +1,2 @@
+UPDATE public.autopilot_kids_steps SET status='completed' WHERE run_id='518e18ec-ed97-4fdd-a0ce-446e956d0413' AND step_name='story_gate';
+UPDATE public.autopilot_kids_runs SET status='queued', blocker_reason=null, current_step='bible_check', progress_percent=25 WHERE id='518e18ec-ed97-4fdd-a0ce-446e956d0413';
