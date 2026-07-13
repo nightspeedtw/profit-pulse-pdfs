@@ -75,7 +75,7 @@ export async function buildPicturePdf(input: PicturePdfInput): Promise<Uint8Arra
   const pageH = 792;   // 11in
 
   // -- Cover page -----------------------------------------------------------
-  const coverImg = await doc.embedPng(input.coverPng);
+  const coverImg = await embedImageSmart(doc, input.coverPng);
   const coverPage = doc.addPage([pageW, pageH]);
   // full-bleed
   const cscale = Math.max(pageW / coverImg.width, pageH / coverImg.height);
@@ -124,7 +124,7 @@ export async function buildPicturePdf(input: PicturePdfInput): Promise<Uint8Arra
   for (const spread of input.spreads) {
     const page = doc.addPage([pageW, pageH]);
     // Illustration occupies top ~60% with padding.
-    const img = await doc.embedPng(spread.imagePng);
+    const img = await embedImageSmart(doc, spread.imagePng);
     const boxW = pageW - 72;
     const boxH = pageH * 0.58;
     const scale = Math.min(boxW / img.width, boxH / img.height);
