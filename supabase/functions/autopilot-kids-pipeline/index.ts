@@ -124,7 +124,19 @@ Deno.serve(async (req) => {
         error_message: outcome.error ?? null,
       }).eq('id', stepRow!.id);
 
-      // Never break the loop — keep pushing forward. Later steps decide what to do given prior state.
+      // Hard stop: if the story-gate step failed, do NOT run any art/PDF/QC/publish steps.
+      // This prevents baseline from spending image cost on a story the judge rejects.
+      if (step.name === 'story_gate' && outcome.status === 'failed') {
+        await supabase.from('ebooks_kids').update({
+          listing_status: 'draft',
+          status: 'needs_revision',
+          pipeline_status: 'human_review_required',
+        }).eq('id', ctx.ebookId);
+        console.log(`story_gate blocked pipeline; skipping remaining ${STEPS.length - i - 1} steps`);
+        break;
+      }
+
+      // Never break the loop for other steps — keep pushing forward. Later steps decide what to do given prior state.
     }
 
     const finalStatus = criticalFailures.length > 0 ? 'failed' : 'completed';
