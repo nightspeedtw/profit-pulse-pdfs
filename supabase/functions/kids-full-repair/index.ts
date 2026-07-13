@@ -51,6 +51,12 @@ function json(body: unknown, status = 200) {
   });
 }
 
+async function hashString(s: string): Promise<string> {
+  const data = new TextEncoder().encode(s);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(buf)].slice(0, 12).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const EdgeRuntime: { waitUntil: (p: Promise<unknown>) => void } | undefined;
 
