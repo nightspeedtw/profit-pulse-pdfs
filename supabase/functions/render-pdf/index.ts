@@ -137,6 +137,8 @@ Deno.serve(async (req) => {
         category: categoryName,
         category_slug: categorySlug,
         hook: ebook.hook,
+        product_description: (ebook as any).product_description,
+        kids_visual_bible: (ebook as any).kids_visual_bible,
       });
 
       if (kidsBook) {

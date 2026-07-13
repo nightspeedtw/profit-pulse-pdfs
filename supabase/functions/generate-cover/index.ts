@@ -21,12 +21,14 @@ type EbookRow = {
   category_id: string | null;
 };
 
-function isKidsPictureBook(input: { title?: string | null; category?: string | null; subtitle?: string | null; hook?: string | null }) {
+function isKidsPictureBook(input: { title?: string | null; category?: string | null; subtitle?: string | null; hook?: string | null; product_description?: string | null; kids_visual_bible?: unknown }) {
   return isKidsPictureBookShared({
     title: input.title,
     subtitle: input.subtitle,
     category: input.category,
     hook: input.hook,
+    product_description: input.product_description,
+    kids_visual_bible: input.kids_visual_bible,
   });
 }
 

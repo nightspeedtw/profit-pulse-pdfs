@@ -22,7 +22,7 @@ export interface KidsVisualBible {
   logo_treatment?: string;
 }
 
-const KIDS_REGEX = /\b(kid|kids|child|children|picture[-\s]?book|storybook|illustrated[-\s]?story|nursery|bedtime|ages?\s*\d\s*[-–]\s*\d)\b/i;
+const KIDS_REGEX = /\b(kid|kids|child|children|toddler|little\s+one|picture[-\s]?book|storybook|illustrated[-\s]?story|nursery|bedtime|ages?\s*\d\s*[-–]\s*\d|preschool|kindergarten)\b/i;
 
 export function isKidsPictureBook(input: {
   title?: string | null;
@@ -30,13 +30,19 @@ export function isKidsPictureBook(input: {
   category?: string | null;
   category_slug?: string | null;
   hook?: string | null;
+  product_description?: string | null;
+  kids_visual_bible?: unknown;
 }): boolean {
+  // If a bible already exists, this is definitively a kids picture book.
+  const bible = input.kids_visual_bible as { characters?: unknown[] } | null | undefined;
+  if (bible && Array.isArray(bible.characters) && bible.characters.length > 0) return true;
   const haystack = [
     input.title,
     input.subtitle,
     input.category,
     input.category_slug,
     input.hook,
+    input.product_description,
   ].filter(Boolean).join(" ");
   return KIDS_REGEX.test(haystack);
 }
@@ -180,7 +186,7 @@ export async function generateSceneBriefs(input: {
     .join("\n");
 
   const ai = await aiJSON<{ briefs: { chapter_index: number; brief: string }[] }>({
-    model: "google/gemini-3.1-flash-preview",
+    model: "google/gemini-3-flash-preview",
     system: SCENE_BRIEF_SYSTEM,
     user: `Hero character: ${heroName}
 Bible characters allowed: ${input.bible.characters.map((c) => c.name).join(", ")}
