@@ -71,8 +71,11 @@ async function appendLog(db: ReturnType<typeof createClient>, ebook_id: string, 
 function countAttempts(meta: Record<string, unknown> | null, klass: string): number {
   const rs = meta?.repair_supervisor as { entries?: RepairEntry[] } | undefined;
   const entries = Array.isArray(rs?.entries) ? rs!.entries : [];
-  return entries.filter(e => e.blocker_class === klass).length;
+  // Do not count transient handler errors toward the class budget — the model
+  // failed to return valid JSON, no real repair attempt was consumed.
+  return entries.filter(e => e.blocker_class === klass && e.result !== 'error').length;
 }
+
 
 function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_name?: string; error_message?: string } | null): { klass: string; detail: string } | null {
   const sc = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
