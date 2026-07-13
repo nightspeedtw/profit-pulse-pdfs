@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
 
     const { data: ebook, error } = await supabase
       .from("ebooks_kids")
-      .select("id, title, subtitle, age_band, cover_url, pdf_url, manuscript_md, page_count, thumbnail_url, preview_page_urls, interior_illustrations, style_bible_json")
+      .select("id, title, subtitle, cover_url, pdf_url, manuscript_md, page_count, thumbnail_url, preview_page_urls, interior_illustrations, style_bible_json, age_group_id")
       .eq("id", ebook_id)
       .single();
     if (error || !ebook) return json({ error: "ebook not found" }, 404);
