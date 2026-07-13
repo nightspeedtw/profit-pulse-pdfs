@@ -5,6 +5,7 @@ import { pickStyle, markStyleUsed } from '../_shared/style-picker.ts';
 import { buildScenePlan, renderInteriorIllustrations } from '../_shared/kids-interior.ts';
 import { buildPicturePdf } from '../_shared/kids-picture-pdf.ts';
 import { runKidsStoryJudge } from '../_shared/kids-story-judge.ts';
+import { detectBibleStoryMismatch } from '../_shared/bible-story-mismatch.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -29,6 +30,7 @@ const STEPS: Step[] = [
   { name: 'generate_idea', label: 'Generate story idea', critical: true, run: generateIdea },
   { name: 'generate_manuscript', label: 'Write manuscript', critical: true, run: generateManuscript },
   { name: 'story_gate', label: 'Story judge gate (before art)', critical: true, run: storyGate },
+  { name: 'bible_check', label: 'Bible/story hero match check', critical: true, run: bibleCheck },
   { name: 'generate_cover', label: 'Design cover', run: generateCover },
   { name: 'generate_style_bible', label: 'Lock style bible', critical: true, run: generateStyleBible },
   { name: 'generate_interior', label: 'Illustrate interior', critical: true, run: generateInterior },
@@ -133,6 +135,19 @@ Deno.serve(async (req) => {
           pipeline_status: 'human_review_required',
         }).eq('id', ctx.ebookId);
         console.log(`story_gate blocked pipeline; skipping remaining ${STEPS.length - i - 1} steps`);
+        break;
+      }
+
+      // Hard stop: bible/story mismatch means any downstream art would use the
+      // wrong character. Halt and require human_review so we do not spend image cost.
+      if (step.name === 'bible_check' && outcome.status === 'failed') {
+        await supabase.from('ebooks_kids').update({
+          listing_status: 'draft',
+          status: 'needs_revision',
+          pipeline_status: 'human_review_required',
+          human_review_reason: outcome.error ?? 'BIBLE_STORY_MISMATCH',
+        }).eq('id', ctx.ebookId);
+        console.log(`bible_check blocked pipeline: ${outcome.error}`);
         break;
       }
 
@@ -285,6 +300,64 @@ async function storyGate(ctx: Ctx): Promise<StepResult> {
   return { output: { passed: true, generic_risk: report.generic_story_risk_score, subscores: sc.story_gate } };
 }
 
+// Bible/story hero-match guardrail. Runs after the story judge and BEFORE any
+// art step. If the existing kids_book_bibles row locks a character that does
+// not appear in the current manuscript (e.g. stale "Luna/bear cub" bible on a
+// "Tali/kid inventor" story), we auto-wipe the stale bible + cover so the
+// downstream cover step rebuilds from the current story. If a stale bible is
+// wiped we still let the pipeline continue; if the manuscript itself is
+// missing a namable hero AND a bible already exists, we hard-block so a human
+// can decide.
+async function bibleCheck(ctx: Ctx): Promise<StepResult> {
+  const db = ctx.supabase;
+  const manuscript = String(ctx.ebook.manuscript_md ?? '').trim();
+  const storyBible = (ctx.ebook.story_bible ?? null) as Record<string, unknown> | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: bible } = await (db.from('kids_book_bibles') as any)
+    .select('*').eq('ebook_id', ctx.ebookId).maybeSingle();
+
+  const characterBible = (bible?.character_bible_json ?? null) as Record<string, unknown> | null;
+  const report = detectBibleStoryMismatch({
+    manuscript,
+    title: (ctx.ebook.title as string) ?? null,
+    storyBible,
+    characterBible,
+  });
+
+  if (!report.mismatch) {
+    return { output: { ok: true, ...report } };
+  }
+
+  // Mismatch found. Auto-repair: wipe stale bible + cover + any stale art so
+  // downstream steps rebuild from the correct manuscript. Do NOT hard-fail —
+  // the wipe means the next cover step will regenerate the right character.
+  console.warn(`bible_check auto-wipe: ${report.reason}`);
+  if (bible) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (db.from('kids_book_bibles') as any).update({
+      character_bible_json: {},
+      style_bible_json: {},
+      character_reference_image_url: null,
+      cover_master_url: null,
+      locked_at: null,
+    }).eq('ebook_id', ctx.ebookId);
+  }
+  await db.from('ebooks_kids').update({
+    cover_url: null,
+    thumbnail_url: null,
+    pdf_url: null,
+    interior_illustrations: [],
+    preview_page_urls: [],
+    style_bible_json: null,
+  }).eq('id', ctx.ebookId);
+  // Reload ebook so the very next step sees the wiped state.
+  const { data: fresh } = await db.from('ebooks_kids').select('*').eq('id', ctx.ebookId).single();
+  if (fresh) ctx.ebook = fresh;
+  return {
+    output: { ok: true, auto_wiped: true, reason: report.reason, ...report },
+    fallbackUsed: true,
+  };
+}
 
 async function generateCover(ctx: Ctx): Promise<StepResult> {
   // 1. Pick / load style preset (auto-rotate across pool)
