@@ -138,6 +138,19 @@ Deno.serve(async (req) => {
         break;
       }
 
+      // Hard stop: bible/story mismatch means any downstream art would use the
+      // wrong character. Halt and require human_review so we do not spend image cost.
+      if (step.name === 'bible_check' && outcome.status === 'failed') {
+        await supabase.from('ebooks_kids').update({
+          listing_status: 'draft',
+          status: 'needs_revision',
+          pipeline_status: 'human_review_required',
+          human_review_reason: outcome.error ?? 'BIBLE_STORY_MISMATCH',
+        }).eq('id', ctx.ebookId);
+        console.log(`bible_check blocked pipeline: ${outcome.error}`);
+        break;
+      }
+
       // Never break the loop for other steps — keep pushing forward. Later steps decide what to do given prior state.
     }
 
