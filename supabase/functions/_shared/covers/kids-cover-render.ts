@@ -52,7 +52,7 @@ export async function rasterizeKidsSVG(svg: string, width = 1200): Promise<Uint8
     font: {
       loadSystemFonts: false,
       fontBuffers,
-      defaultFontFamily: "Fredoka One",
+      defaultFontFamily: "Fredoka",
     },
   });
   return new Uint8Array(resvg.render().asPng());
