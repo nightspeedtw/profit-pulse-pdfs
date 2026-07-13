@@ -207,21 +207,47 @@ export default function KidsAutopilot() {
         ) : (
           <div className="space-y-2">
             {runs.map((r) => {
-              const canForce = r.status === "failed" || r.status === "running";
+              const parent = r.metadata?.parent_job;
+              const parentStatus = parent?.status;
+              const friendly = parentStatus ? PARENT_FRIENDLY[parentStatus] : null;
+              const showLabel = friendly?.label ?? r.current_step_label ?? "—";
+              const badgeText = friendly ? friendly.label.split(":")[0] : r.status;
+              const badgeClass = friendly
+                ? friendly.tone === "success" ? "bg-green-500/20 text-green-700"
+                : friendly.tone === "warn" ? "bg-yellow-500/20 text-yellow-700"
+                : friendly.tone === "error" ? "bg-red-500/20 text-red-700"
+                : "bg-muted"
+                : r.status === "completed" ? "bg-green-500/20 text-green-700"
+                : r.status === "failed" ? "bg-red-500/20 text-red-700"
+                : r.status === "running" ? "bg-yellow-500/20 text-yellow-700"
+                : "bg-muted";
+              const canRepair = r.status === "failed" || r.status === "running";
+              const attempts = parent?.attempt_count ?? 0;
+              const batches = parent?.concept_batch_count ?? 0;
+              const childCount = parent?.child_attempts?.length ?? 0;
               return (
                 <div key={r.id} className="flex items-center gap-3 p-2 border border-foreground/20 rounded text-sm">
-                  <span className={`px-2 py-0.5 rounded text-xs font-mono uppercase ${
-                    r.status === "completed" ? "bg-green-500/20 text-green-700" :
-                    r.status === "failed" ? "bg-red-500/20 text-red-700" :
-                    r.status === "running" ? "bg-yellow-500/20 text-yellow-700" :
-                    "bg-muted"
-                  }`}>{r.status}</span>
+                  <span className={`px-2 py-0.5 rounded text-xs font-mono uppercase ${badgeClass}`}>{badgeText}</span>
                   <span className="flex-1 truncate">
-                    <span className="text-muted-foreground">{r.current_step_label ?? "—"}</span>
-                    <span className="mx-2">·</span>
-                    <span className="tabular-nums">{r.progress_percent ?? 0}%</span>
-                    {r.blocker_reason && (
+                    <span className="text-muted-foreground">{showLabel}</span>
+                    {parent ? (
+                      <>
+                        <span className="mx-2">·</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {batches} concept batch{batches === 1 ? "" : "es"} · {attempts} ebook attempt{attempts === 1 ? "" : "s"} · {childCount} internal step{childCount === 1 ? "" : "s"}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="mx-2">·</span>
+                        <span className="tabular-nums">{r.progress_percent ?? 0}%</span>
+                      </>
+                    )}
+                    {!parent && r.blocker_reason && (
                       <span className="ml-2 text-red-600 text-xs truncate">⚠ {r.blocker_reason.slice(0, 80)}</span>
+                    )}
+                    {parent?.final_reason && parentStatus === "exhausted" && (
+                      <span className="ml-2 text-yellow-700 text-xs truncate">⚠ {parent.final_reason}</span>
                     )}
                   </span>
                   <span className="text-xs text-muted-foreground font-mono">
@@ -232,15 +258,16 @@ export default function KidsAutopilot() {
                       <a href={`/admin/kids/${r.ebook_kids_id}/qc`}>QC report</a>
                     </Button>
                   )}
-                  {canForce && (
+                  {canRepair && (
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => forceFinish(r.id)}
+                      onClick={() => runRepairTick(r.id, r.ebook_kids_id)}
                       disabled={forcing === r.id}
+                      title="Runs the next safe repair — never force-publishes."
                     >
                       <Zap className={`size-3 ${forcing === r.id ? "animate-pulse" : ""}`} />
-                      Force finish
+                      Next repair
                     </Button>
                   )}
                 </div>
