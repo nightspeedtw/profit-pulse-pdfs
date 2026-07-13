@@ -74,76 +74,60 @@ export function buildKidsCoverSVG(input: KidsCoverInputs): string {
 
   // Title layout — up to 3 lines, centered in top third reserved zone.
   const lines = wrapTitle(title, 3);
-  const titleY0 = 220;  // baseline of first line
+  const titleY0 = 260;  // baseline of first line
   const lineGap = 170;
-  const titleFontSize = lines.some((l) => l.length > 14) ? 140 : 168;
+  const longestLine = Math.max(...lines.map((l) => l.length));
+  const titleFontSize = longestLine > 14 ? 130 : longestLine > 10 ? 156 : 180;
 
+  // Inline attributes only — resvg-wasm CSS class parsing on <text> is unreliable.
+  // Use widely-available fallback fonts (Arial Black stack) that resvg ships with,
+  // and rely on the thick stroke + drop shadow for the storybook feel.
+  const titleFontFamily = "'Arial Black', 'Helvetica Neue', Impact, sans-serif";
   const titleTspans = lines
-    .map((line, i) => `<text x="${W / 2}" y="${titleY0 + i * lineGap}" class="kids-title">${esc(line)}</text>`)
+    .map((line, i) => `<text x="${W / 2}" y="${titleY0 + i * lineGap}" text-anchor="middle"
+      font-family="${titleFontFamily}" font-weight="900" font-size="${titleFontSize}"
+      fill="${fill}" stroke="${stroke}" stroke-width="8" paint-order="stroke fill"
+      letter-spacing="1" filter="url(#titleShadow)">${esc(line)}</text>`)
     .join("\n");
 
-  const subtitleY = titleY0 + lines.length * lineGap + 20;
+  const subtitleY = titleY0 + lines.length * lineGap + 40;
   const subtitleEl = subtitle && subtitle.trim().length > 0
-    ? `<text x="${W / 2}" y="${subtitleY}" class="kids-subtitle">${esc(subtitle.trim())}</text>`
+    ? `<text x="${W / 2}" y="${subtitleY}" text-anchor="middle"
+        font-family="'Arial Black', Helvetica, sans-serif" font-weight="700" font-size="54"
+        fill="${fill}" stroke="${stroke}" stroke-width="3" paint-order="stroke fill"
+        letter-spacing="2">${esc(subtitle.trim())}</text>`
     : "";
 
   const ageBadgeEl = ageBadge
     ? `
-      <g transform="translate(${W - 260}, ${H - 130})">
-        <rect x="0" y="0" width="200" height="76" rx="38" ry="38" fill="${accent}" opacity="0.92"/>
-        <text x="100" y="50" text-anchor="middle" font-family="'Fredoka One','Baloo 2','Nunito',sans-serif"
-              font-weight="700" font-size="34" fill="#2A1A0A" letter-spacing="1.5">
+      <g transform="translate(${W - 320}, ${H - 140})">
+        <rect x="0" y="0" width="260" height="86" rx="43" ry="43" fill="${accent}" opacity="0.95" stroke="${stroke}" stroke-width="4"/>
+        <text x="130" y="58" text-anchor="middle" font-family="'Arial Black', Helvetica, sans-serif"
+              font-weight="900" font-size="38" fill="${stroke}" letter-spacing="2">
           ${esc(ageBadge)}
         </text>
       </g>`
     : "";
 
-  // Soft gradient scrim behind title so text is legible on any illustration.
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
   <defs>
     <linearGradient id="topScrim" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"  stop-color="#000000" stop-opacity="0.45"/>
-      <stop offset="55%" stop-color="#000000" stop-opacity="0.15"/>
+      <stop offset="0%"  stop-color="#000000" stop-opacity="0.55"/>
+      <stop offset="55%" stop-color="#000000" stop-opacity="0.20"/>
       <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
     </linearGradient>
     <filter id="titleShadow" x="-10%" y="-10%" width="120%" height="140%">
-      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#1a0e04" flood-opacity="0.55"/>
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#1a0e04" flood-opacity="0.60"/>
     </filter>
-    <style><![CDATA[
-      .kids-title {
-        font-family: 'Fredoka One', 'Baloo 2', 'Comic Neue', 'Nunito', 'Segoe UI', sans-serif;
-        font-weight: 800;
-        font-size: ${titleFontSize}px;
-        fill: ${fill};
-        stroke: ${stroke};
-        stroke-width: 6;
-        paint-order: stroke fill;
-        text-anchor: middle;
-        letter-spacing: 1px;
-        filter: url(#titleShadow);
-      }
-      .kids-subtitle {
-        font-family: 'Baloo 2', 'Nunito', 'Segoe UI', sans-serif;
-        font-weight: 700;
-        font-size: 54px;
-        fill: ${fill};
-        stroke: ${stroke};
-        stroke-width: 3;
-        paint-order: stroke fill;
-        text-anchor: middle;
-        letter-spacing: 2px;
-      }
-    ]]></style>
   </defs>
 
   <!-- Full-bleed illustration -->
   <image href="data:image/png;base64,${bgB64}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="xMidYMid slice"/>
 
   <!-- Soft scrim behind top-third title zone -->
-  <rect x="0" y="0" width="${W}" height="${Math.floor(H * 0.42)}" fill="url(#topScrim)"/>
+  <rect x="0" y="0" width="${W}" height="${Math.floor(H * 0.48)}" fill="url(#topScrim)"/>
 
-  <!-- Title lines -->
   ${titleTspans}
   ${subtitleEl}
   ${ageBadgeEl}
