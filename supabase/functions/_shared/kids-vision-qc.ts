@@ -59,7 +59,7 @@ async function callVision(
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
+      model: "google/gemini-2.5-flash-lite",
       messages: [
         { role: "system", content: `${systemPrompt}\n\nCRITICAL: Return ONLY JSON. No prose. No markdown fences. Use integer scores 0-100.` },
         { role: "user", content },
