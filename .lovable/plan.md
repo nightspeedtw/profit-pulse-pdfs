@@ -1,60 +1,38 @@
-# Fix: Kids picture-book PDF uses wrong (business) template
+# Fix: Product page shows business title instead of Barnaby's kids book
 
 ## Problem
+For ebook `bcbb9b53-...` the product page shows **"The High-Ticket Consultant's Engine"** with subtitle *"A Framework for Building a Six-Figure Solo Practice..."* — even though the cover, description, category, and `seo_title` are all correctly the kids book *"Barnaby's Wobbly Problem"*.
 
-When the storefront shows a children's book (e.g. *Barnaby's Wobbly Problem*) and the user clicks to download/preview the PDF, the file is rendered with the **non-fiction business template** — 108 pages with worksheets, action plans, "Debt Tracker", "The High-Ticket Consultant's Engine" overlay text on the cover, framework diagrams, and a bonus section.
+Root cause: when an idea gets converted to a kids picture book mid-pipeline, the final children's title is only written to `shopify_title` / `seo_title`, while the original `title` / `subtitle` columns still hold the business-book idea from step 1. The storefront reads `ebooks.title`, so it displays the stale value.
 
-Root cause: `supabase/functions/render-pdf/index.ts` correctly detects `isKidsPictureBook(...)` and generates bible-locked interior illustrations, but then still calls the single `buildPdfHtml(data)` from `pdf-template.ts`, which only knows the business/non-fiction layout (worksheets, action plan, bonus section, cover text overlays).
+Confirmed in DB for this row:
+- `title` = "The High-Ticket Consultant's Engine"
+- `subtitle` = "A Framework for Building a Six-Figure Solo Practice…"
+- `shopify_title` = "Barnaby's Wobbly Problem"
+- `shopify_subtitle` = "Sometimes, the best things are a little bit messy."
+- `seo_title` = "Barnaby's Wobbly Problem — Illustrated Picture Book for Ages 4-7"
 
-## Fix
+## Fix (two parts)
 
-Add a dedicated **kids picture-book branch** to the PDF pipeline. Children's books get a proper storybook layout; every other category keeps the current template unchanged.
+### 1. Backfill this row (and any similar kids rows)
+One-shot SQL migration: for every ebook where `kids_visual_bible IS NOT NULL` AND `shopify_title IS NOT NULL`, set
+- `title = shopify_title`
+- `subtitle = COALESCE(shopify_subtitle, subtitle)`
 
-### 1. New template: `buildKidsPictureBookHtml(data)`
+This immediately corrects the Barnaby product page and any other kids book in the same state.
 
-Add to `supabase/functions/_shared/pdf-template.ts` (new exported function, does not touch existing `buildPdfHtml`):
+### 2. Prevent regression in the pipeline
+In `supabase/functions/generate-shopify-package/index.ts` (the step that currently writes `shopify_title` / `shopify_subtitle`), when the ebook is a kids picture book (`kids_visual_bible` present OR `isKidsPictureBook(...)` true), also update `title` and `subtitle` on the ebook to match the finalized children's title/subtitle. Non-kids books are unaffected.
 
-- **Page size**: 8.5in × 8.5in square (picture-book standard) instead of 6×9.
-- **Cover page**: full-bleed `data.cover_url` image only — no "SECRET PDF" eyebrow, no "PREMIUM EDITION" badge, no white title overlay, no subtitle block. The cover art already contains the title.
-- **Copyright page**: single quiet page (year + short line), no disclaimer wall.
-- **Story spreads**: for each chapter, one 2-page spread:
-  - Left page = full-bleed illustration from `chapter.illustration.url` (falls back to a soft cream page if missing).
-  - Right page = the chapter text in large storybook typography (serif, ~18pt, generous line-height, centered block, no chapter number heading, no callouts, no worksheet, no checklist, no diagram).
-- **Back page**: simple "The End" + one-line "A Bedtime Story" tag. No action plan, no bonus section, no "Let's Talk About It" template unless present in outline.
-- Remove all header/footer chrome (no page numbers, no running title) — picture books don't use them.
-- Reuse existing font imports and cream palette; no new dependencies.
+This keeps a single source of truth (`ebooks.title`) so the storefront, cover overlay, Look Inside, and PDF header all stay in sync with the actual book.
 
-### 2. Route in `render-pdf/index.ts`
-
-After assembling `data`, branch on the existing `kidsBook` flag:
-
-```ts
-const html = kidsBook ? buildKidsPictureBookHtml(data) : buildPdfHtml(data);
-const headerTpl = kidsBook ? "<div></div>" : buildHeaderTemplate("SECRET PDF", ebook.title);
-const footerTpl = kidsBook ? "<div></div>" : buildFooterTemplate();
-```
-
-Also pass square page format to the Browserless render call when `kidsBook` is true (`format` swapped for explicit `width: "8.5in", height: "8.5in"`, `margin: 0`).
-
-### 3. Strip business fields for kids books when assembling `data`
-
-Inside the kids branch, force:
-- `data.action_plan = null`
-- `data.bonus_section = null`
-- `data.bonuses = null`
-- Each chapter: drop `worksheet`, `checklist`, `diagram`, `callouts` (already computed but not used by the kids template — clearing them avoids any accidental rendering).
-
-### 4. Verification
-
-After deploy, re-render Barnaby's PDF and confirm:
-- Total pages ≈ 2 (cover + copyright) + 2 × chapters + 1 (back) — for 12 chapters, ~28 pages, not 108.
-- Cover page shows only the illustrated cover, no white "THE HIGH-TICKET CONSULTANT'S ENGINE" overlay.
-- Every chapter shows the badger illustration on the left, story text on the right.
-- No worksheet, action plan, or bonus section pages.
+## Verification
+- Reload `/product/bcbb9b53-…` — header must read "Barnaby's Wobbly Problem".
+- Query: for any row with a kids visual bible, `title` must equal `shopify_title`.
+- Regenerate a new kids book end-to-end: after the shopify-package step, the storefront row shows the kids title, not the seed idea title.
 
 ## Files touched
+- New migration in `supabase/migrations/` (UPDATE statement, no schema change).
+- `supabase/functions/generate-shopify-package/index.ts` (add title/subtitle to the update payload when kids book).
 
-- `supabase/functions/_shared/pdf-template.ts` — add `buildKidsPictureBookHtml` export.
-- `supabase/functions/render-pdf/index.ts` — branch on `kidsBook` for HTML, header/footer, page size, and to clear business fields.
-
-No database changes, no new dependencies, no changes to cover generation (already fixed in previous turn).
+No frontend changes, no new dependencies, no cover regeneration needed.
