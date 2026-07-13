@@ -1,55 +1,94 @@
-# Fix Barnaby cover + lock the rule for future kids books
+## Problem
 
-## What the user is saying
-- The **v2 illustration** (softer watercolor forest, Barnaby pose, atmosphere) was better than v3.
-- But the **title treatment must still be a custom illustrated logo** (Peppa Pig / Bluey tier) — not a plain font.
-- Apply this combined rule to **every future kids book cover**, not just Barnaby.
+For kids picture books (e.g. *Barnaby's Wobbly Problem*):
+- The cover character and the interior illustrations don't match — different animal, outfit, art style.
+- Interior illustrations use the generic abstract "conceptual" planner meant for finance/nonfiction books, so they don't look like a picture book at all.
+- The PDF's inner cover and the storefront thumbnail still show the older art.
 
-## Plan
+Root cause: nothing in the pipeline defines a **Character + Style Bible** that both `generate-cover` and `render-pdf` (interior illustrations) read from. Each step invents its own look.
 
-### 1. Regenerate Barnaby cover as v4 = v2 art direction + v3 title logo
-Use `imagegen--edit_image` on `cover_v2.png` as the base so the illustration, character, palette, and composition stay identical to v2. The edit prompt only changes the title area:
+## Fix — Character & Style Lock for Kids Picture Books
 
-- Keep everything else in the image untouched (Barnaby in yellow vest, forest setting, watercolor style, sunbeams, palette, composition).
-- Replace the existing title with a **custom illustrated logo** for "Barnaby's Wobbly Problem":
-  - B wrapped in a curling green vine
-  - o's = plump red-pink berries with tiny leaves
-  - y tails = curled green leaves
-  - "Wobbly" tilted with wavy baseline
-  - Dots on i's = tiny flowers
-  - Small mushrooms sprouting from letter corners
-  - Painted in warm brown + forest green with cream outline, same watercolor medium as the art
-- Subtitle in small matching handcrafted script.
-- Absolutely no digital fonts, no flat text overlay.
+### 1. New "Kids Visual Bible" (single source of truth)
 
-Output 1024×1280 PNG → `cover_v4.png`.
+Add a new JSON blob `ebooks.kids_visual_bible` (jsonb, nullable) populated once per kids book and reused by every image call:
 
-### 2. Ship v4
-- Upload to `ebook-covers/bcbb9b53-.../cover_v4.png`
-- Sign 1-year URL
-- Update `ebooks.cover_url` → v4 signed URL, `cover_score` = 96, clear `store_thumbnail_url`
-- Regenerate storefront thumbnail via `generate-store-thumbnail`
-- Keep v1/v2/v3 as backups in the bucket
+```
+{
+  "art_style": "soft watercolor storybook, warm sun-dappled, textured paper feel",
+  "palette": ["#F6E3C5","#8FB77A","#D97742","#3B2A1A"],
+  "characters": [
+    {
+      "name": "Barnaby",
+      "species": "young brown bear cub",
+      "invariant_features": "small round bear cub, warm chestnut-brown fur, cream muzzle, small round black nose, big amber eyes, one tiny chipped front tooth, wears a mustard-yellow knit vest with a red wooden button, blue polka-dot scarf, no shoes",
+      "proportions": "toddler-sized, big head, short limbs"
+    }
+  ],
+  "world": "sunlit forest clearing with mossy stones, pinecones, ferns",
+  "negative": "no text, no letters, no logos, no photorealism, no dark scary tones, no extra characters not in bible"
+}
+```
 
-### 3. Update memory rules (applies to all future kids covers)
-Update `mem/design/kids-cover-prompt.md`:
-- Add a new **Preferred workflow** section at the top: "For kids picture books, generate the **base illustration** first in soft watercolor+gouache storybook style (v2 direction — atmospheric, cozy, painterly, NOT over-detailed or crowded), then **overlay the custom illustrated title logo** as a second pass using `imagegen--edit_image` so the illustration stays clean and the title becomes a designed logo tied to the story."
-- Clarify that the v2-style base + v3-style title is the target — never sacrifice the atmospheric illustration for busier decoration.
+### 2. New shared helper `_shared/kids-visual-bible.ts`
 
-Update `mem/index.md` Core:
-- Add: "Kids picture-book covers: base illustration = soft watercolor storybook (atmospheric, uncrowded); title = custom illustrated logo added in a second edit pass. Never bake the title into the first-pass generation if it crowds the art."
+- `isKidsPictureBook(...)` moved here (single definition; cover + render-pdf both import it).
+- `buildKidsVisualBible(ebook)` — calls the LLM once with title, chapters, target age; returns the JSON above. Persists to `ebooks.kids_visual_bible`.
+- `kidsIllustrationPrompt(bible, sceneBrief, reservedZone?)` — deterministic prompt builder that always injects: full character invariant string, art style, palette, world, negative clause. Guarantees every image request repeats the exact same character description verbatim.
 
-### 4. QA
-- View v4 at full size and at 160px thumbnail
-- Confirm: v2 illustration preserved, title now a hand-painted logo with decorative letter elements, legible at thumbnail, no font feel
+### 3. `generate-cover` — use the bible for the cover
+
+- When `isKidsPictureBook`, before generating the background:
+  1. Ensure `kids_visual_bible` exists (build it if missing).
+  2. Feed `kidsIllustrationPrompt(bible, "front cover hero scene: Barnaby center-frame, warm afternoon light, reserved top third for title")` into the image call instead of the generic `background_image_prompt_no_text`.
+  3. Skip the finance/nonfiction "EBOOK chip + feature chips + dark near-black field" template; use the existing hand-painted-cover path (v4-style logo overlay).
+
+### 4. `render-pdf` / interior illustrations — use the same bible
+
+In `render-pdf/index.ts` (illustration section around lines 110–158) and `_shared/illustration-planner.ts`:
+
+- If `isKidsPictureBook(ebook)`: bypass the finance-style planner entirely. Build one prompt per chapter using `kidsIllustrationPrompt(bible, chapterSceneBrief)` where `chapterSceneBrief` is a 1–2 sentence scene summary generated from the chapter text (LLM, cheap model, cached in `ebooks.kids_scene_briefs_json`).
+- Every chapter image request repeats the character invariant verbatim → visual continuity across the whole book.
+- Store images under existing `ebook-covers/<id>/illustrations/ch-<n>.png` path (no schema change beyond the new columns).
+
+### 5. Regenerate Barnaby's assets
+
+One-off migration/edge call for `bcbb9b53-ad13-4544-9b18-0aaa03b829ab`:
+
+1. Build `kids_visual_bible` from current title + chapters.
+2. Regenerate all chapter illustrations with the locked character prompt.
+3. Rebuild PDF via `render-pdf` (this refreshes the inner cover page too).
+4. Point `cover_url`, `thumbnail_url`, `store_thumbnail_url` to the new hand-painted cover (keep the v4 logo cover as base — its style already matches the bible we'll seed from it).
+
+## Database changes
+
+```sql
+ALTER TABLE public.ebooks
+  ADD COLUMN IF NOT EXISTS kids_visual_bible jsonb,
+  ADD COLUMN IF NOT EXISTS kids_scene_briefs_json jsonb;
+```
+
+No RLS/grant changes — column additions on existing table.
 
 ## Files touched
-- `mem/design/kids-cover-prompt.md` (append workflow section)
-- `mem/index.md` (core rule update)
-- Storage: `ebook-covers/bcbb9b53-.../cover_v4.png` + thumbnail regen
-- DB: `ebooks` row updated (cover_url, cover_score, store_thumbnail_url)
 
-No app source code changes.
+- new `supabase/functions/_shared/kids-visual-bible.ts`
+- edit `supabase/functions/generate-cover/index.ts` (kids branch uses bible)
+- edit `supabase/functions/render-pdf/index.ts` (kids branch swaps planner)
+- edit `supabase/functions/_shared/illustration-planner.ts` (early-return for kids)
+- new migration adding two jsonb columns
+- new one-off script/migration to rebuild Barnaby (bible → illustrations → PDF → thumbnail)
+- update `mem/index.md` + `mem/design/kids-cover-prompt.md` with the "character-bible-first, every prompt repeats invariants verbatim" rule
 
-## Question before I build
-The image you sent as the reference — is it (a) the current **v2** cover already in the system that I should use as the illustration base, or (b) a **new reference image** you uploaded that I should match the style of? If (b), please confirm the upload path so I use the right base for the edit.
+## QC / verification
+
+- After rebuild, visually check: cover Barnaby vs. every chapter Barnaby — same fur color, same yellow vest, same scarf, same amber eyes, same art medium.
+- PDF inner cover matches storefront cover.
+- Storefront thumbnail matches PDF inner cover.
+
+## Future kids books
+
+Every new kids picture book automatically:
+1. Builds the visual bible before any image generation.
+2. Reuses that bible for cover + every interior illustration.
+3. Never falls back to the finance/nonfiction abstract planner.
