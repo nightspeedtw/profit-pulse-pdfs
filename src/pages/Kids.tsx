@@ -173,7 +173,7 @@ export default function Kids() {
         />
       ) : null}
 
-      <SocialProofStrip bookCount={allBooks.length} sampleCovers={heroCovers} />
+      <SocialProofStrip bookCount={allBooks.length} sampleBooks={allBooks.map((b) => ({ id: b.id, title: b.title, cover_url: b.cover_url }))} />
 
       <PreviewLightbox
         open={!!previewBook}

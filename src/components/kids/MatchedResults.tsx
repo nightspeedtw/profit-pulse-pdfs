@@ -84,7 +84,11 @@ const BookCard = ({ book, onPreview, index }: { book: MatchedBook; onPreview: ()
       className="group flex flex-col rounded-2xl border-2 border-border bg-card overflow-hidden transition-all hover:-translate-y-1 hover:shadow-brand hover:border-accent/50 animate-fade-in-up"
       style={{ animationDelay: `${Math.min(index * 60, 400)}ms` }}
     >
-      <div className="relative aspect-square bg-muted overflow-hidden">
+      <Link
+        to={`/product/${book.id}`}
+        aria-label={`ดูรายละเอียด ${book.title}`}
+        className="relative aspect-square bg-muted overflow-hidden block cursor-pointer"
+      >
         {book.cover_url ? (
           <img
             src={book.cover_url}
@@ -100,17 +104,19 @@ const BookCard = ({ book, onPreview, index }: { book: MatchedBook; onPreview: ()
         </span>
         <button
           type="button"
-          onClick={onPreview}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPreview(); }}
           className="absolute inset-x-2 bottom-2 py-1.5 rounded-lg bg-white/95 backdrop-blur text-xs font-mono uppercase tracking-wide opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center gap-1"
         >
           <Eye className="h-3.5 w-3.5" /> ดูตัวอย่างข้างใน
         </button>
-      </div>
+      </Link>
       <div className="p-3 md:p-4 flex flex-col gap-1.5 flex-1">
         {hook && (
           <p className="text-[10px] font-mono uppercase tracking-widest text-accent line-clamp-1">{hook}</p>
         )}
-        <h3 className="font-display text-base md:text-lg leading-tight line-clamp-2">{book.title}</h3>
+        <Link to={`/product/${book.id}`} className="hover:text-accent transition-colors">
+          <h3 className="font-display text-base md:text-lg leading-tight line-clamp-2">{book.title}</h3>
+        </Link>
         <div className="mt-auto pt-2">
           <Link
             to={`/kids/checkout/${book.id}`}
