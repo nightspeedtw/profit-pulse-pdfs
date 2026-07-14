@@ -181,11 +181,24 @@ async function renderOneReference(
     ? `Vary the camera angle, distance, and framing significantly from any previous page. Emphasize: ${s.scene}. Keep the 1:1 square shape.`
     : "";
   const prompt = buildScenePrompt(s, charDesc, styleSuffix, nudge);
-  const bytes = await generateWithReference({
-    prompt, referenceUrls: refs, model: "google/gemini-3.1-flash-image",
-    ebook_id: ebookId, step,
+  // Dead-frame rejection at birth: up to 3 in-call retries with prompt jitter
+  // if the generator returns a near-black / flat / empty canvas.
+  const live = await generateLiveImage({
+    label: `kids_interior_p${(s as { _dbg?: string })._dbg ?? ""}`.slice(0, 40) || step,
+    attempts: 3,
+    gen: async (a) => {
+      const jitter = a > 1 ? ` Reroll ${a}: shift camera, refresh composition, ensure fully-lit painterly scene.` : "";
+      const bytes = await generateWithReference({
+        prompt: prompt + jitter,
+        referenceUrls: refs,
+        model: "google/gemini-3.1-flash-image",
+        ebook_id: ebookId,
+        step,
+      });
+      return { bytes };
+    },
   });
-  return { bytes, model: "google/gemini-3.1-flash-image", prompt };
+  return { bytes: live.bytes, model: "google/gemini-3.1-flash-image", prompt };
 }
 
 
