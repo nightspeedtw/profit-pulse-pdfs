@@ -60,8 +60,17 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.warn('storefront copy generation failed (publishing anyway)', (e as Error).message);
       }
+      // Roll production cost into storefront_meta before flipping to live.
+      let production_cost_usd: number | null = null;
+      try {
+        const { data: cost } = await db.from('ebook_costs').select('total_usd').eq('ebook_id', ebook_id).maybeSingle();
+        production_cost_usd = cost?.total_usd != null ? Number(cost.total_usd) : null;
+      } catch (e) { console.warn('cost lookup failed', (e as Error).message); }
+      const { data: k } = await db.from('ebooks_kids').select('storefront_meta').eq('id', ebook_id).maybeSingle();
+      const nextMeta = { ...(k?.storefront_meta ?? {}), production_cost_usd };
       await db.from('ebooks_kids').update({
         listing_status: 'live', status: 'live', pipeline_status: 'published',
+        storefront_meta: nextMeta,
       }).eq('id', ebook_id);
       publishState = 'live';
     } else {
