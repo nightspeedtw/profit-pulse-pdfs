@@ -61,13 +61,12 @@ export default function Kids() {
         listAgeGroups().catch(() => []),
         listThemes().catch(() => []),
         supabase.from("ebooks_kids")
-          .select("id,title,cover_url,price_cents,age_group_id,theme_ids,storefront_meta,interior_preview_urls,created_at")
+          .select("id,title,cover_url,price_cents,age_group_id,theme_ids,storefront_meta,created_at")
           .eq("listing_status", "live")
           .eq("sellable", true)
           .order("created_at", { ascending: false })
           .limit(120)
-          .then((r) => (r.data ?? []) as RawBook[])
-          .catch(() => [] as RawBook[]),
+          .then((r) => (r.data ?? []) as unknown as RawBook[]),
       ]);
       if (cancelled) return;
       setAgeGroups(ag);
