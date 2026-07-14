@@ -102,7 +102,7 @@ Deno.serve(async (req) => {
     if (id && (!data || data.length === 0)) {
       const { data: kid } = await supabase
         .from("ebooks_kids")
-        .select("id, title, subtitle, description, cover_url, thumbnail_url, price_cents, listing_status, storefront_meta, page_count, preview_page_urls, interior_illustrations, age_group_id, theme_ids")
+        .select("id, title, subtitle, description, cover_url, thumbnail_url, price_cents, listing_status, storefront_meta, page_count, preview_page_urls, interior_illustrations, age_group_id, theme_ids, manuscript_md")
         .eq("id", id)
         .eq("listing_status", "live")
         .maybeSingle();
@@ -118,6 +118,25 @@ Deno.serve(async (req) => {
               caption: null,
             })).filter((s) => s.image_url)
           : [];
+
+        // Preview excerpt: prefer stored, else best 160-220 word contiguous window from manuscript_md.
+        let previewExcerpt: string | null = typeof meta.preview_excerpt === 'string' && meta.preview_excerpt.trim().length > 0
+          ? meta.preview_excerpt as string
+          : null;
+        if (!previewExcerpt && typeof kid.manuscript_md === 'string' && kid.manuscript_md.length > 0) {
+          const paras = kid.manuscript_md.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+          const acc: string[] = [];
+          let words = 0;
+          for (const p of paras) {
+            const w = p.split(/\s+/).length;
+            if (words + w > 220 && acc.length > 0) break;
+            acc.push(p);
+            words += w;
+            if (words >= 160) break;
+          }
+          previewExcerpt = acc.join('\n\n') || null;
+        }
+
         data = [{
           id: kid.id,
           title: kid.title,
@@ -149,10 +168,13 @@ Deno.serve(async (req) => {
           cliffhanger_hook: null,
           preview_page_count: previews.length,
           hook_description: cc.selling_hook ?? null,
+          preview_excerpt: previewExcerpt,
+          persona: cc.persona ?? 'parent-warm',
+          page_count: kid.page_count ?? 32,
           // extra fields not on adult schema — used by Product.tsx directly.
           _kids_preview_spreads: previews,
           _kids_total_spreads: kid.page_count ?? previews.length,
-          _kids_read_aloud_minutes: cc.read_aloud_minutes ?? null,
+          _kids_read_aloud_minutes: cc.read_aloud_minutes ?? 6,
           _kids_ad_promise: ap ?? null,
         }] as any;
       }

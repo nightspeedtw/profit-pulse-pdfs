@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { fetchStorefrontById, type StorefrontEbook } from "@/lib/storefront";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, Download } from "lucide-react";
@@ -12,6 +13,7 @@ import ProductReviews from "@/components/product/ProductReviews";
 import TrustBadges from "@/components/product/TrustBadges";
 import StickyBuyBar from "@/components/product/StickyBuyBar";
 import StoryPreviewReader from "@/components/product/StoryPreviewReader";
+import StoryPreviewModule from "@/components/product/StoryPreviewModule";
 
 export default function Product() {
   const { handle } = useParams();
@@ -66,8 +68,32 @@ export default function Product() {
   const scrollToBuy = () => buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   const handleBuy = () => freeDownload(product.id, product.title);
 
+  const isKids = product.category_slug === 'kids' || product.category_slug === 'children_illustrated' || product.product_type === 'children_illustrated';
+  const ageBand = (product.age_group_slugs?.[0]) ?? null;
+  const themeLabel = product.ad_promise?.theme ?? product.theme_slugs?.[0] ?? null;
+  const seoTitle = `${product.title} — Illustrated Children's Ebook | SecretPDF`;
+  const seoDesc = (product.short_hook || product.hook_description || product.product_description || "").slice(0, 155);
+  const canonical = typeof window !== 'undefined' ? `${window.location.origin}/product/${product.id}` : `/product/${product.id}`;
+  const ogImage = product.store_thumbnail_url || product.cover_url || undefined;
+
   return (
     <div className="container py-8 max-w-5xl pb-32 md:pb-8">
+      <Helmet>
+        <title>{seoTitle}</title>
+        <meta name="description" content={seoDesc} />
+        <link rel="canonical" href={canonical} />
+        <meta property="og:title" content={seoTitle} />
+        <meta property="og:description" content={seoDesc} />
+        <meta property="og:type" content="product" />
+        <meta property="og:url" content={canonical} />
+        {ogImage && <meta property="og:image" content={ogImage} />}
+        {price != null && !isFree && <meta property="product:price:amount" content={price.toFixed(2)} />}
+        {price != null && !isFree && <meta property="product:price:currency" content="USD" />}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={seoTitle} />
+        <meta name="twitter:description" content={seoDesc} />
+        {ogImage && <meta name="twitter:image" content={ogImage} />}
+      </Helmet>
       <Link to="/library" className="inline-flex items-center gap-2 text-sm font-mono uppercase mb-6 hover:underline">
         <ArrowLeft className="h-4 w-4" /> Back to Library
       </Link>
@@ -166,8 +192,23 @@ export default function Product() {
         </div>
       </div>
 
-      <div className="mt-12 space-y-12">
-        {hasStoryPreview ? (
+      <div className="mt-10 space-y-12">
+        {isKids && (
+          <StoryPreviewModule
+            title={product.title}
+            excerpt={product.preview_excerpt ?? null}
+            shortHook={product.short_hook ?? product.hook_description ?? null}
+            ageBand={ageBand}
+            readAloudMin={product.read_aloud_minutes ?? null}
+            themeLabel={themeLabel}
+            pageCount={product.page_count ?? totalPages ?? null}
+            spreads={previewSpreads}
+            priceLabel={priceText}
+            onBuy={handleBuy}
+          />
+        )}
+
+        {!isKids && (hasStoryPreview ? (
           <StoryPreviewReader
             spreads={previewSpreads}
             totalPages={totalPages}
@@ -178,7 +219,7 @@ export default function Product() {
           />
         ) : (
           <ProductPreview images={previewImages} onBuyClick={scrollToBuy} />
-        )}
+        ))}
 
         <section className="space-y-4">
           <h2 className="font-display text-2xl uppercase">More details</h2>
