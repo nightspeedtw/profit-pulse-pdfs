@@ -700,7 +700,7 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
           hook: ebook.hook,
         });
         const ageLabel = bible.target_age_range ? `AGES ${bible.target_age_range}` : null;
-        const wrappedTitle = wrapKidsTitle(ebook.title);
+        // wrapKidsTitle metric no longer used; wrapping done inside the SVG builder.
         const built = buildKidsCoverSVGWithMetrics({
           bibleBg: bgBytes!,
           title: ebook.title,
