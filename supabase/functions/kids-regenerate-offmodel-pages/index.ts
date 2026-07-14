@@ -120,11 +120,16 @@ Deno.serve(async (req) => {
       cb.accessory && `with ${cb.accessory}`,
     ].filter(Boolean).join(", ") || "the story hero";
 
-    // Vision report — mandatory input.
+    // Vision report — required ONLY when caller does not pass an explicit
+    // page_numbers list. For deterministic gate repairs (dead_page_gate at
+    // assembly time), pdf builder passes the exact page(s) and there is no
+    // vision report yet — skip that requirement and use whatever top refs we
+    // can gather from any existing vision data.
     const scorecard = (ebook.qc_scorecard ?? {}) as Record<string, unknown>;
     const vision = scorecard.vision_report as { pages?: VisionPage[] } | undefined;
     const visionPages = Array.isArray(vision?.pages) ? vision!.pages : [];
-    if (visionPages.length === 0) {
+    const explicitPages = Array.isArray(body.page_numbers) && body.page_numbers.length > 0;
+    if (visionPages.length === 0 && !explicitPages) {
       return json({ ok: false, error: "no vision_report.pages — run kids-qc-run first" }, 400);
     }
 
@@ -135,21 +140,29 @@ Deno.serve(async (req) => {
     const byPageNumber = new Map<number, SceneRecord>();
     for (const r of interior) byPageNumber.set(r.page_number, r);
 
-    // Off-model pages: below threshold OR caller-specified overrides.
+    // Off-model pages: caller override wins; otherwise below-threshold vision pages.
     const flagged = new Set<number>(
-      body.page_numbers && body.page_numbers.length > 0
-        ? body.page_numbers
+      explicitPages
+        ? body.page_numbers!
         : visionPages
             .filter((p) => Number(p.character_match_score ?? 100) < CHAR_SCORE_THRESHOLD)
             .map((p) => p.page_number),
     );
 
-    // Top-scoring reference pages (best in-book examples of the correct character).
-    const topRefs = visionPages
-      .filter((p) => Number(p.character_match_score ?? 0) >= REF_SCORE_THRESHOLD && !flagged.has(p.page_number))
-      .sort((a, b) => Number(b.character_match_score) - Number(a.character_match_score))
-      .slice(0, MAX_REFS)
-      .map((p) => p.url);
+    // Top-scoring reference pages — best in-book examples of the correct
+    // character. If no vision report yet, fall back to a sample of existing
+    // interior URLs (skipping the flagged pages) so we still condition on the
+    // in-book style.
+    const topRefs = visionPages.length > 0
+      ? visionPages
+          .filter((p) => Number(p.character_match_score ?? 0) >= REF_SCORE_THRESHOLD && !flagged.has(p.page_number))
+          .sort((a, b) => Number(b.character_match_score) - Number(a.character_match_score))
+          .slice(0, MAX_REFS)
+          .map((p) => p.url)
+      : interior
+          .filter((r) => !flagged.has(r.page_number) && r.url)
+          .slice(0, MAX_REFS)
+          .map((r) => r.url);
 
     const cover = ebook.cover_url as string | null;
     // Pin cover FIRST (character bible template), then top-scoring interior pages.
