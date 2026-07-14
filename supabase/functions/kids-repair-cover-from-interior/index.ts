@@ -209,7 +209,7 @@ Deno.serve(async (req) => {
         attempt,
         qc,
         detected,
-        luminance: lum,
+        luminance: { note: 'live_verified_at_birth' },
         all_text_detected: allText,
         extraneous_words: extraWords,
       };
