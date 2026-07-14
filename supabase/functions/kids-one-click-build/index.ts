@@ -268,6 +268,24 @@ async function runLoop(parentRunId: string, ebookId: string, ageBand: string, pr
       last_blocker: undefined,
     });
 
+    // AUTO SKILL-LEARNING trigger. If the SAME QC dimension has failed in
+    // ≥2 recent shelved_story child attempts within this run, invoke the
+    // learner to upgrade the playbook BEFORE generating the next concept.
+    try {
+      const learned = await maybeLearnFromRepeatedFailures(db, parentRunId, ageBand);
+      if (learned) {
+        await appendAttempt(db, parentRunId, {
+          outcome: 'skill_learned',
+          lane,
+          reason: `learned: ${learned.dimension} → ${learned.skill_key} v${learned.new_version}`,
+          ts: new Date().toISOString(),
+        } as any);
+      }
+    } catch (e) {
+      console.error('skill_learner_trigger_error', e);
+    }
+
+
     // Run preflight for this batch.
     const preflight = await invoke('kids-concept-preflight', {
       age_band: ageBand,
@@ -510,3 +528,82 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: String((e as Error)?.message ?? e) }, 500);
   }
 });
+
+// ─── Auto skill-learning helpers ─────────────────────────────────────────────
+// Parses failing-dimension tokens (e.g. "buyer=80<85") out of recent
+// shelved_story child attempts recorded in metadata.parent_job.child_attempts.
+// If the SAME dimension has failed in ≥2 attempts since the last learning
+// event for that dimension, invoke kids-skill-learner and return the result.
+
+const DIM_TOKEN_MAP: Record<string, string> = {
+  buyer: 'parent_buyer_value',
+  emo: 'emotional_payoff',
+  rer: 'reread_value',
+  lang: 'language_level',
+  age: 'age_appropriateness',
+  coh: 'story_coherence',
+  generic_risk: 'generic_risk',
+};
+
+function extractFailingDimensions(reason: string): Array<{ dimension: string; score: number }> {
+  const out: Array<{ dimension: string; score: number }> = [];
+  const re = /(buyer|emo|rer|lang|age|coh|generic_risk)=(\d+)(?:<\d+|>\d+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(reason)) !== null) {
+    const dim = DIM_TOKEN_MAP[m[1]];
+    if (dim) out.push({ dimension: dim, score: Number(m[2]) });
+  }
+  return out;
+}
+
+async function maybeLearnFromRepeatedFailures(
+  db: ReturnType<typeof createClient>, parentRunId: string, ageBand: string,
+): Promise<{ dimension: string; skill_key: string; new_version: number } | null> {
+  const { data: run } = await db.from('autopilot_kids_runs')
+    .select('metadata').eq('id', parentRunId).maybeSingle();
+  const meta = ((run?.metadata ?? {}) as Record<string, unknown>);
+  const parentJob = ((meta.parent_job ?? {}) as Record<string, unknown>);
+  const attempts = (Array.isArray(parentJob.child_attempts) ? parentJob.child_attempts : []) as Array<Record<string, unknown>>;
+  const alreadyLearned = new Set(attempts
+    .filter(a => a.outcome === 'skill_learned' && typeof a.reason === 'string')
+    .map(a => String(a.reason).split(':')[1]?.trim().split(' ')[0] ?? '')
+    .filter(Boolean));
+
+  const dimCounts = new Map<string, Array<{ title: string; score: number; critique: string }>>();
+  for (const a of attempts) {
+    if (a.outcome !== 'shelved_story') continue;
+    const reason = String(a.reason ?? '');
+    const dims = extractFailingDimensions(reason);
+    for (const d of dims) {
+      if (alreadyLearned.has(d.dimension)) continue;
+      const list = dimCounts.get(d.dimension) ?? [];
+      list.push({ title: String(a.ebook_id ?? ''), score: d.score, critique: reason.slice(0, 400) });
+      dimCounts.set(d.dimension, list);
+    }
+  }
+
+  let bestDim: string | null = null;
+  let bestList: Array<{ title: string; score: number; critique: string }> = [];
+  for (const [dim, list] of dimCounts) {
+    if (list.length >= 2 && list.length > bestList.length) {
+      bestDim = dim; bestList = list;
+    }
+  }
+  if (!bestDim) return null;
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/kids-skill-learner`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify({
+      dimension: bestDim,
+      age_band: ageBand,
+      recent_failures: bestList.map(f => ({ title: f.title, score: f.score, judge_critique: f.critique })),
+    }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || !j?.ok) {
+    console.error('skill_learner_call_failed', res.status, j);
+    return null;
+  }
+  return { dimension: bestDim, skill_key: String(j.skill_key), new_version: Number(j.new_version) };
+}

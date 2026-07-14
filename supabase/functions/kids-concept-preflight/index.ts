@@ -8,8 +8,11 @@
 // No image cost, no ebook rows. Story-only cheap step.
 
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
-import { storyCraftBlock, PARENT_HOOK_MENU } from '../_shared/story-craft-skill.ts';
+import { createClient } from 'npm:@supabase/supabase-js@2';
+import { loadStoryCraftBlock, PARENT_HOOK_MENU } from '../_shared/story-craft-skill.ts';
 
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
 
 const BANNED_LANES = [
@@ -160,7 +163,7 @@ const LANE_DIRECTIVES: Record<string, string> = {
   shop_library_museum_logic: 'ALL candidates must sit in the shop/library/museum mishap lane with a visual logic game (mislabeled shelves, out-of-order exhibits, price-tag swap).',
 };
 
-async function generateConcept(ageBand: string, avoidList: string[], attemptLabel: string, batchLane?: string): Promise<Concept> {
+async function generateConcept(ageBand: string, avoidList: string[], attemptLabel: string, skillBlock: string, batchLane?: string): Promise<Concept> {
   const avoidBlock = avoidList.length
     ? `\n\nDo NOT repeat/rehash these previously-tried concepts:\n${avoidList.map(a => `- ${a}`).join('\n')}`
     : '';
@@ -171,7 +174,7 @@ async function generateConcept(ageBand: string, avoidList: string[], attemptLabe
 
   const system = `You are a bestselling picture-book concept designer for ages ${ageBand}. Invent ONE original, distinctive, giftable picture-book concept.
 
-${storyCraftBlock()}
+${skillBlock}
 
 CRITICAL ORDER OF INVENTION (do not skip):
 1. Pick the PARENT_HOOK first from the menu above (rule: parent_hook_anchor). Every downstream choice must serve it.
@@ -358,10 +361,13 @@ Deno.serve(async (req) => {
     const judged: JudgedConcept[] = [];
     const triedTitles: string[] = [...seedAvoid];
 
+    const db = createClient(SUPABASE_URL, SERVICE_KEY);
+    const skillBlock = await loadStoryCraftBlock(db, ageBand);
+
     // Attempt 1
     let c1: Concept;
     try {
-      c1 = await generateConcept(ageBand, triedTitles, 'primary', batchLane);
+      c1 = await generateConcept(ageBand, triedTitles, 'primary', skillBlock, batchLane);
     } catch (e) {
       return json({ ok: false, error: `concept1_gen_failed: ${(e as Error).message.slice(0, 200)}` }, 500);
     }
@@ -375,7 +381,7 @@ Deno.serve(async (req) => {
     if (!e1.passed) {
       for (let i = 0; i < 2; i++) {
         try {
-          const cN = await generateConcept(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`, batchLane);
+          const cN = await generateConcept(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`, skillBlock, batchLane);
           triedTitles.push(cN.title);
           const sN = await scoreConcept(cN, ageBand);
           const bN = detectBannedLaneHits(cN);

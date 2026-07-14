@@ -18,7 +18,7 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { runKidsStoryJudge, type StoryReport } from '../_shared/kids-story-judge.ts';
 import { computeManuscriptHash } from '../_shared/manuscript-hash.ts';
-import { storyCraftBlock, repairGuidanceForDimension } from '../_shared/story-craft-skill.ts';
+import { loadStoryCraftBlock, repairGuidanceForDimension } from '../_shared/story-craft-skill.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -50,6 +50,7 @@ function buildRewritePrompt(
   ageBand: string,
   currentManuscript: string,
   report: StoryReport,
+  skillBlock: string,
 ): { system: string; user: string } {
   const blockers = blockersFromReport(report);
   const genericDetails = report.generic_risk_analysis?.generic_details ?? [];
@@ -108,7 +109,7 @@ No preamble, no explanation, no JSON — just the story text.
 Never mention the judge, scores, or repair. Never break the fourth wall.
 Keep the same title ("${title}") and the same broad category (funny daytime animal-buddy comedy). Do NOT switch to bedtime, moon/star, or tooth/bathroom lanes.
 
-${storyCraftBlock()}
+${skillBlock}
 
 Use the STORY CRAFT SKILL above as your working playbook. Every craft rule maps to a QC dimension — apply the rules called out in TARGETED REPAIR INSTRUCTIONS below.`;
 
@@ -210,8 +211,10 @@ Deno.serve(async (req) => {
       word_count: currentManuscript.split(/\s+/).filter(Boolean).length,
     }];
 
+    const skillBlock = await loadStoryCraftBlock(db, ageBand);
+
     for (let i = 1; i <= MAX_ATTEMPTS && !currentReport.story_qc_passed; i++) {
-      const { system, user } = buildRewritePrompt(i, String(ebook.title ?? ''), ageBand, currentManuscript, currentReport);
+      const { system, user } = buildRewritePrompt(i, String(ebook.title ?? ''), ageBand, currentManuscript, currentReport, skillBlock);
       let rewritten: string;
       try {
         rewritten = await rewriteManuscript(system, user);
