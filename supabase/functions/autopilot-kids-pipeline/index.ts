@@ -697,7 +697,7 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     cover_url: coverUrl,
     thumbnail_url: coverUrl,
     status: 'rendering', pipeline_status: 'rendering',
-    storefront_meta: { ...existingMeta, title_treatment: treatment.metadata, cover_luminance: { master: coverLum, final: finalLum } },
+    storefront_meta: { ...existingMeta, title_treatment: treatment.metadata, cover_luminance: { master: { note: 'live_verified_at_birth' }, final: finalLum } },
   }).eq('id', ctx.ebookId);
   return {
     output: {
