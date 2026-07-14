@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, BookOpen, Clock, Shield, Zap, FileText } from "lucide-react";
+import { Download, BookOpen, Clock, Shield, Zap, FileText, Gift, Heart, PackageOpen, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PreviewSpread } from "@/lib/storefront";
 
@@ -14,6 +14,11 @@ interface Props {
   spreads: PreviewSpread[];
   priceLabel: string;
   onBuy: () => void;
+  valueCards?: {
+    whats_inside?: string[];
+    why_kids_love_it?: string[];
+    perfect_for?: string[];
+  } | null;
 }
 
 export default function StoryPreviewModule({
