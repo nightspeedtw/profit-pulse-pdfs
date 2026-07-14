@@ -159,12 +159,16 @@ Deno.serve(async (req) => {
         storyStatus = "hash_matched_cached_pass";
       } else {
         try {
+          const segs = loadSegments(ebook as Record<string, unknown>);
+          const pageTexts = segs
+            ? segmentsToPageTexts(segs)
+            : illos.map((r) => (r.scene as string | undefined) ?? "").filter(Boolean);
           const s = await runKidsStoryJudge({
             title: (ebook.title as string) ?? "",
             subtitle: (ebook.subtitle as string | null) ?? null,
             ageBand: null,
             manuscript_md: manuscriptStr,
-            page_texts: illos.map((r) => (r.scene as string | undefined) ?? "").filter(Boolean),
+            page_texts: pageTexts,
             ebook_id: ebook.id as string,
           });
           storyReport = s;
