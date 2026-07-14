@@ -154,25 +154,36 @@ Deno.serve(async (req) => {
       }).eq('id', stepRow!.id);
 
       // Hard stop: if the story-gate step failed, do NOT run any art/PDF/QC/publish steps.
-      // This prevents baseline from spending image cost on a story the judge rejects.
+      // Fire the repair-story-gate function (fire-and-forget). It will loop the
+      // reviser up to MAX_ATTEMPTS; on success it resumes this pipeline
+      // (force_finish=true) — on exhaustion it sets pipeline_status='retired'
+      // so the parent one-click loop rotates to a fresh concept. Autopilot must
+      // NEVER rest in human_review_required (owner rule).
       if (step.name === 'story_gate' && outcome.status === 'failed') {
         await supabase.from('ebooks_kids').update({
           listing_status: 'draft',
           status: 'needs_revision',
-          pipeline_status: 'human_review_required',
+          pipeline_status: 'story_gate_repairing',
+          blocker_reason: `story_gate_failed: ${(outcome.error ?? 'unknown').slice(0, 200)}`,
         }).eq('id', ctx.ebookId);
-        console.log(`story_gate blocked pipeline; skipping remaining ${STEPS.length - i - 1} steps`);
+        console.log(`story_gate failed; dispatching kids-repair-story-gate for ${ctx.ebookId}`);
+        fetch(`${SUPABASE_URL}/functions/v1/kids-repair-story-gate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+          body: JSON.stringify({ ebook_id: ctx.ebookId, run_id: ctx.runId, resume_pipeline: true }),
+        }).catch(e => console.error('repair-story-gate dispatch failed', e));
         break;
       }
 
       // Hard stop: bible/story or metadata/story mismatch means any downstream
-      // art would use the wrong character/premise. Halt and require
-      // human_review so we do not spend image cost.
+      // art would use the wrong character/premise. Retire directly so the
+      // parent one-click loop rotates to a fresh concept (never dead-end).
       if ((step.name === 'bible_check' || step.name === 'metadata_gate') && outcome.status === 'failed') {
         await supabase.from('ebooks_kids').update({
           listing_status: 'draft',
           status: 'needs_revision',
-          pipeline_status: 'human_review_required',
+          pipeline_status: 'retired',
+          blocker_reason: `auto_retired_for_fresh_concept: ${step.name}_failed: ${(outcome.error ?? (step.name === 'metadata_gate' ? METADATA_STORY_MISMATCH : 'BIBLE_STORY_MISMATCH')).slice(0, 180)}`,
           human_review_reason: outcome.error ?? (step.name === 'metadata_gate' ? METADATA_STORY_MISMATCH : 'BIBLE_STORY_MISMATCH'),
         }).eq('id', ctx.ebookId);
         console.log(`${step.name} blocked pipeline: ${outcome.error}`);
