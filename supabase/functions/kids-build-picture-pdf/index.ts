@@ -22,6 +22,7 @@ import {
 } from '../_shared/kids-picture-pdf.ts';
 import { KIDS_BOOK_FORMAT } from '../_shared/kids-book-format.ts';
 import { computeLuminance } from '../_shared/image-luminance.ts';
+import { loadSegments, segmentsToPageTexts } from '../_shared/kids-segments.ts';
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', bytes);
