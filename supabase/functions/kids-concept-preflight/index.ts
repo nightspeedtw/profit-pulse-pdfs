@@ -380,6 +380,13 @@ function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): {
     blockers.push(`generic_risk_score=${scores.generic_risk_score}>${CONCEPT_GENERIC_MAX}`);
   }
 
+  // Visually unambiguous hero — learned rule (character_consistency).
+  const amb = detectAmbiguousHero(c);
+  if (amb.hits.length && (!amb.hasAntiConfusion || !amb.hasConcreteVisual)) {
+    const hitList = amb.hits.map(h => `${h.token} (will be confused with ${h.confused_with})`).join('; ');
+    blockers.push(`visually_unambiguous_hero: ambiguous hero [${hitList}] without concrete visual definition + explicit "NOT a X" anti-confusion clause in hero_specificity`);
+  }
+
   const passed = blockers.length === 0;
   const decision: 'pass' | 'rewrite' | 'reject' = passed
     ? 'pass'
