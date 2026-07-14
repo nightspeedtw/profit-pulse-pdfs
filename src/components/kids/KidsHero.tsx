@@ -8,6 +8,12 @@ const STARS = Array.from({ length: 26 }, (_, i) => ({
   dur: 2.4 + (i % 5) * 0.7,
 }));
 
+const FIREFLIES = [
+  { left: "18%", delay: 0, dur: 10 },
+  { left: "52%", delay: 2.5, dur: 12 },
+  { left: "78%", delay: 5, dur: 8 },
+];
+
 interface Props {
   covers?: string[];
   onStart: () => void;
@@ -22,12 +28,19 @@ export default function KidsHero({ covers = [], onStart }: Props) {
   const floats = covers.slice(0, 4);
 
   return (
-    <section className="relative w-full overflow-hidden" style={{ minHeight: "92svh" }}>
+    <section className="relative w-full overflow-hidden" style={{ minHeight: "100svh" }}>
       <style>{`
         @keyframes kh-twinkle { 0%,100%{opacity:.15;transform:scale(.8)} 50%{opacity:.9;transform:scale(1.15)} }
         @keyframes kh-bob { 0%,100%{transform:translateY(0) rotate(var(--tilt))} 50%{transform:translateY(-14px) rotate(calc(var(--tilt) + 2deg))} }
         @keyframes kh-glow { 0%,100%{box-shadow:0 8px 28px rgba(255,166,97,.45)} 50%{box-shadow:0 8px 44px rgba(255,166,97,.75)} }
         @keyframes kh-rise { from{opacity:0;transform:translateY(22px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes kh-drift {
+          0%   { transform: translateY(0) translateX(0); opacity: 0; }
+          15%  { opacity: .9; }
+          50%  { transform: translateY(-40vh) translateX(12px); opacity: .7; }
+          85%  { opacity: .5; }
+          100% { transform: translateY(-80vh) translateX(-8px); opacity: 0; }
+        }
         @media (prefers-reduced-motion: reduce) { .kh-anim { animation: none !important; } }
       `}</style>
 
@@ -41,8 +54,8 @@ export default function KidsHero({ covers = [], onStart }: Props) {
           className="absolute inset-0 h-full w-full object-cover object-center"
         />
       </picture>
-      {/* readability gradient */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#0b1035]/55 via-transparent to-[#0b1035]/92" />
+      {/* readability gradient — stronger at top so headline pops */}
+      <div className="absolute inset-0 bg-gradient-to-b from-[#081326]/70 via-transparent to-[#0b1035]/92" />
 
       {/* twinkling stars */}
       {STARS.map((s, i) => (
@@ -60,7 +73,25 @@ export default function KidsHero({ covers = [], onStart }: Props) {
         />
       ))}
 
-      {/* floating real book covers (desktop) */}
+      {/* drifting fireflies */}
+      {FIREFLIES.map((f, i) => (
+        <span
+          key={`ff-${i}`}
+          aria-hidden
+          className="kh-anim absolute rounded-full"
+          style={{
+            left: f.left,
+            bottom: "35%",
+            width: 6,
+            height: 6,
+            background: "radial-gradient(circle, #ffe8a8 0%, rgba(255,200,120,.6) 40%, transparent 70%)",
+            boxShadow: "0 0 12px 3px rgba(255,210,120,.55)",
+            animation: `kh-drift ${f.dur}s ease-in-out ${f.delay}s infinite`,
+          }}
+        />
+      ))}
+
+      {/* floating real book covers (desktop only) */}
       <div className="pointer-events-none absolute inset-0 hidden md:block">
         {floats.map((src, i) => (
           <img
@@ -79,47 +110,76 @@ export default function KidsHero({ covers = [], onStart }: Props) {
         ))}
       </div>
 
-      {/* content */}
+      {/* content — flex column, text top / illustration middle / CTA docked bottom */}
       <div
-        className="relative z-10 mx-auto flex max-w-3xl flex-col items-center px-5 pt-[16svh] pb-24 text-center"
-        style={{ animation: loaded ? "kh-rise .7s ease-out both" : undefined }}
+        className="relative z-10 flex flex-col justify-between px-5 text-center"
+        style={{ minHeight: "100svh" }}
       >
-        <span className="mb-4 rounded-full border border-white/25 bg-white/10 px-4 py-1.5 text-xs font-semibold tracking-wide text-white/90 backdrop-blur">
-          ✦ PREMIUM PICTURE BOOKS · 8.5 × 8.5"
-        </span>
-        <h1
-          className="text-4xl leading-tight text-white md:text-6xl"
-          style={{ fontFamily: "'Mali', cursive", fontWeight: 700 }}
+        {/* TOP: text block */}
+        <div
+          className="mx-auto max-w-3xl pt-20 md:pt-24"
+          style={{ animation: loaded ? "kh-rise .7s ease-out both" : undefined }}
         >
-          นิทานที่ลูกจะขอ<br />
-          <span className="bg-gradient-to-r from-amber-300 via-orange-300 to-pink-300 bg-clip-text text-transparent">
-            ให้อ่านซ้ำ
-          </span>
-          ทุกคืน
-        </h1>
-        <p
-          className="mt-4 max-w-md text-base text-white/85 md:text-lg"
-          style={{ fontFamily: "'Baloo 2', sans-serif" }}
-        >
-          Picture books your child will beg to re-read. พรีเมียมสีทั้งเล่ม · ดาวน์โหลดทันที · เขียนเพื่อวัยของลูกโดยเฉพาะ
-        </p>
-        <button
-          onClick={onStart}
-          className="kh-anim mt-8 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 px-9 py-4 text-lg font-bold text-[#3a1d00] transition-transform hover:scale-105 active:scale-95"
-          style={{ animation: "kh-glow 2.6s ease-in-out infinite", fontFamily: "'Mali', cursive" }}
-        >
-          หาหนังสือที่ใช่สำหรับลูกคุณ →
-        </button>
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-white/80">
-          <span>📖 อ่านตัวอย่างฟรี</span>
-          <span>⚡ ดาวน์โหลดทันที</span>
-          <span>🎨 ภาพสีทั้งเล่ม</span>
+          <p
+            className="mb-2 text-sm font-semibold text-amber-200/90"
+            style={{ fontFamily: "'Mali', cursive" }}
+          >
+            ✦ นิทานพรีเมียม 8.5 × 8.5 นิ้ว ✦
+          </p>
+          <h1
+            className="text-[2.35rem] leading-[1.15] text-white md:text-6xl"
+            style={{ fontFamily: "'Mali', cursive", fontWeight: 700 }}
+          >
+            นิทานที่ลูกจะขอ<br />
+            <span className="relative inline-block">
+              <span className="bg-gradient-to-r from-amber-300 via-orange-300 to-pink-300 bg-clip-text text-transparent">
+                ให้อ่านซ้ำ
+              </span>
+              <svg
+                className="absolute -bottom-2 left-0 w-full"
+                viewBox="0 0 120 10"
+                aria-hidden
+              >
+                <path d="M3 7 Q 60 -2 117 6" stroke="url(#khg)" strokeWidth="4" strokeLinecap="round" fill="none" />
+                <defs>
+                  <linearGradient id="khg" x1="0" x2="1">
+                    <stop offset="0" stopColor="#fcd34d" />
+                    <stop offset="1" stopColor="#f9a8d4" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </span>{" "}ทุกคืน
+          </h1>
+          <p
+            className="mx-auto mt-3 max-w-md text-[15px] text-white/85 md:text-lg"
+            style={{ fontFamily: "'Baloo 2', sans-serif" }}
+          >
+            เขียนเพื่อวัยของลูกโดยเฉพาะ · ภาพสีทั้งเล่ม · ดาวน์โหลดอ่านได้ทันที
+          </p>
+        </div>
+
+        {/* MIDDLE: intentionally empty — the illustration shows here */}
+
+        {/* BOTTOM: docked CTA */}
+        <div className="mx-auto w-full max-w-md pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <button
+            onClick={onStart}
+            className="kh-anim w-full rounded-2xl bg-gradient-to-r from-amber-400 via-orange-400 to-rose-400 py-4 text-lg font-bold text-[#3a1d00] transition-transform hover:scale-[1.03] active:scale-95"
+            style={{ animation: "kh-glow 2.6s ease-in-out infinite", fontFamily: "'Mali', cursive" }}
+          >
+            หาหนังสือที่ใช่สำหรับลูกคุณ →
+          </button>
+          <div className="mt-3 flex items-center justify-center gap-x-4 text-[13px] text-white/85">
+            <span>✅ อ่านตัวอย่างฟรี</span>
+            <span>✅ ดาวน์โหลดทันที</span>
+            <span>✅ ภาพสีทั้งเล่ม</span>
+          </div>
         </div>
       </div>
 
-      {/* soft wave into next section */}
+      {/* soft wave into next section — behind the docked CTA */}
       <svg
-        className="absolute bottom-0 left-0 w-full"
+        className="absolute bottom-0 left-0 z-0 w-full"
         viewBox="0 0 1440 90"
         fill="none"
         preserveAspectRatio="none"
