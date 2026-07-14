@@ -130,6 +130,8 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      <ApiKeyStatusCard />
+
       {/* ===== Essentials ===== */}
       <Card className="border-2 border-foreground">
         <CardHeader><CardTitle>Production</CardTitle></CardHeader>
