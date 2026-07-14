@@ -110,6 +110,22 @@ Deno.serve(async (req) => {
         const meta = (kid.storefront_meta ?? {}) as any;
         const cc = (meta.conversion_copy ?? {}) as any;
         const ap = (meta.ad_promise ?? {}) as any;
+        // Resolve kids-native taxonomy from ebooks_kids scalar columns (they
+        // don't use the adult ebook_kids_ages/themes join tables).
+        let kidsAgeSlugs: string[] = [];
+        let kidsThemeSlugs: string[] = [];
+        try {
+          if ((kid as any).age_group_id) {
+            const { data: ag } = await supabase.from('kids_age_groups')
+              .select('slug').eq('id', (kid as any).age_group_id).maybeSingle();
+            if (ag?.slug) kidsAgeSlugs = [ag.slug];
+          }
+          const tids = Array.isArray((kid as any).theme_ids) ? (kid as any).theme_ids.filter(Boolean) : [];
+          if (tids.length > 0) {
+            const { data: ts } = await supabase.from('kids_themes').select('slug').in('id', tids);
+            kidsThemeSlugs = (ts ?? []).map((r: any) => r.slug).filter(Boolean);
+          }
+        } catch (_) { /* non-fatal */ }
         // Build previews (up to 6 spreads) with actual per-page manuscript text.
         // Priority: storefront_meta.preview_pairs (canonical, set by build/repair)
         // → derive from interior_illustrations + manuscript_md split.
