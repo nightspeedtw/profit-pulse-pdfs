@@ -28,6 +28,12 @@ export interface SceneRecord {
   hash: string;
 }
 
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
 async function callGemini(prompt: string, system: string): Promise<string> {
