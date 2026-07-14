@@ -18,7 +18,7 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { runKidsStoryJudge, type StoryReport } from '../_shared/kids-story-judge.ts';
 import { computeManuscriptHash } from '../_shared/manuscript-hash.ts';
-import { storyCraftBlock, repairGuidanceForDimension } from '../_shared/story-craft-skill.ts';
+import { loadStoryCraftBlock, repairGuidanceForDimension } from '../_shared/story-craft-skill.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
