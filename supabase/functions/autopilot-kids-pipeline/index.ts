@@ -321,8 +321,11 @@ async function storyGate(ctx: Ctx): Promise<StepResult> {
   const manuscript = String(ctx.ebook.manuscript_md ?? '').trim();
   if (!manuscript) throw new Error(`${STORY_GATE_BLOCK}: manuscript missing`);
   const ageBand = (ctx.ebook.storefront_meta as { admin_params?: { age_band?: string } } | null)?.admin_params?.age_band ?? '4-6';
+  const segs = loadSegments(ctx.ebook);
   const sb = (ctx.ebook.story_bible ?? {}) as { spreads?: Array<{ text?: string }> };
-  const pageTexts = Array.isArray(sb.spreads) ? sb.spreads.map((s) => String(s?.text ?? '')) : [];
+  const pageTexts = segs
+    ? segmentsToPageTexts(segs)
+    : (Array.isArray(sb.spreads) ? sb.spreads.map((s) => String(s?.text ?? '')) : []);
 
   const report = await runKidsStoryJudge({
     title: String(ctx.ebook.title ?? ''),
