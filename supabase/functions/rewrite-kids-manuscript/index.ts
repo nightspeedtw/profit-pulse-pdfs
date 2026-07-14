@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
       return json({ error: `segmented_writer_gate_failed`, violations: result.validation.violations, attempts: result.attempts }, 502);
     }
 
-    await logCost(db, { ebook_id, step: "kids_manuscript_rewrite", model: result.model, input_tokens: 0, output_tokens: 0 });
+    await logCost(db, { ebook_id, step: "kids_manuscript_rewrite", model: result.model, input_tokens: 0, output_tokens: 0, cost_usd: 0 });
 
     const spreads = result.manuscript.pages.map((p, i) => ({
       spread_number: p.page ?? i + 1,
