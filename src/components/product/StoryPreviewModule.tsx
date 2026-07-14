@@ -23,10 +23,22 @@ interface Props {
 
 export default function StoryPreviewModule({
   title, excerpt, shortHook, ageBand, readAloudMin, themeLabel,
-  pageCount, spreads, priceLabel, onBuy,
+  pageCount, spreads, priceLabel, onBuy, valueCards,
 }: Props) {
   const [showMore, setShowMore] = useState(false);
   const warmestSpread = spreads[Math.min(1, spreads.length - 1)] ?? spreads[0] ?? null;
+  const themeReadable = themeLabel ? themeLabel.replace(/[-_]/g, ' ') : null;
+  const specsLine = [
+    ageBand ? `Perfect for ages ${ageBand}` : null,
+    themeReadable,
+    readAloudMin ? `read-aloud ~${readAloudMin} min` : null,
+    pageCount ? `${pageCount} pages` : null,
+  ].filter(Boolean).join(' · ');
+  const hasCards = !!(valueCards && (
+    (valueCards.whats_inside?.length ?? 0) > 0 ||
+    (valueCards.why_kids_love_it?.length ?? 0) > 0 ||
+    (valueCards.perfect_for?.length ?? 0) > 0
+  ));
 
   return (
     <section aria-label="Story preview" className="border-2 border-foreground bg-card rounded-2xl overflow-hidden">
