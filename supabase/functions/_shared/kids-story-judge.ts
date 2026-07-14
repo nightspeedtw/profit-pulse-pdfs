@@ -36,6 +36,20 @@ export interface StoryReport {
     could_be_retitled: boolean;
     specific_page_turn_moments: string[];
   };
+  reread_evidence?: {
+    refrain_text: string;
+    refrain_count: number;
+    participation_beats: string[];
+    hidden_thread: string;
+    callback_ending: boolean;
+  };
+  parent_buyer_evidence?: {
+    developmental_theme_one_liner: string;
+    lesson_is_shown_not_told: boolean;
+    child_has_agency: boolean;
+    moralizing_lines: string[];
+  };
+  score_adjustments?: Array<{ dimension: string; from: number; to: number; reason: string }>;
   judge_version?: string;
   computed_at: string;
 }
@@ -49,7 +63,7 @@ export interface RunStoryJudgeOpts {
   ebook_id?: string;
 }
 
-const JUDGE_VERSION = "v2-2026-07-13";
+const JUDGE_VERSION = "v3-2026-07-14";
 
 const SYSTEM = `You are a strict but FAIR children's picture book editor and buyer.
 You judge a real manuscript, not marketing metadata.
@@ -119,7 +133,54 @@ Examples:
   Child names feelings with a comforting object.
   Toy/animal learns it is okay to be different.
   Generic "invention goes wrong, kid learns lesson" WITHOUT a specific mechanical rule.
-  Cozy bedtime object that hums lullabies.`;
+  Cozy bedtime object that hums lullabies.
+
+===========================================================================
+REREAD_VALUE RUBRIC ANCHORS (v3) — measurable, not vibes.
+Do NOT default to 80 because you are unsure. Score against these criteria and
+FILL reread_evidence. If you cannot fill reread_evidence, the score is <80.
+
+--- reread_value 90-100 (kid demands "again!") ---
+ALL of:
+  * A chantable refrain (a short repeatable line kids can say aloud) appears
+    ≥3 times in the manuscript, ideally with escalating variation.
+  * Participation beats on most spreads: call-and-response, a body movement
+    (stomp, sneeze, whisper), or a prediction the child completes.
+  * Cumulative or predictable structure so a returning kid knows what's coming
+    but still enjoys the reveal.
+  * At least one hidden-detail thread designed to be spotted on re-reads
+    (recurring visual motif, hidden character, running-gag object).
+  * Last line invites another read (question, callback, reset, or "let's do
+    it again" moment) — not a moral summary.
+
+--- reread_value 80-89 (has one hook but incomplete) ---
+Refrain present but appears <3 times OR is not chantable (too long / abstract);
+OR participation beats exist but only on 1-2 spreads; OR hidden thread missing.
+
+--- reread_value 60-79 (decorative repetition only) ---
+Words repeat but there's no chantable phrase kids would say aloud, no
+participation trigger, no re-read hunt, no callback ending.
+
+--- reread_value below 60 ---
+Purely narrated. No repetition, no participation, no hook to return.
+
+===========================================================================
+PARENT_BUYER_VALUE RUBRIC ANCHORS (v3) — measurable.
+Score against these; fill parent_buyer_evidence.
+
+--- parent_buyer_value 90-100 ---
+ALL of: clear developmental theme a parent can name in one sentence (e.g.
+"handles sibling frustration", "regulates big feelings", "problem-solving
+through iteration"); implicit lesson emerges from the plot, not a spoken
+moral; child character has real agency and initiates the solution; ends on
+warmth without preaching; reading experience is FUN first, teaching second.
+
+--- parent_buyer_value 80-89 ---
+Theme is present but a shopping parent might not spot it in 3 seconds; OR the
+lesson is stated ("and that's how she learned...") instead of shown.
+
+--- parent_buyer_value below 80 ---
+No clear developmental hook a parent would pay for OR overtly moralizing.`;
 
 const SCHEMA_HINT = `Return JSON exactly like:
 {
@@ -141,6 +202,19 @@ const SCHEMA_HINT = `Return JSON exactly like:
    "generic_details": ["what exact details feel generic"],
    "could_be_retitled": false,
    "specific_page_turn_moments": ["page-turn moments that are specific to THIS premise"]
+ },
+ "reread_evidence": {
+   "refrain_text": "the exact chantable line, verbatim, or empty string",
+   "refrain_count": 0,
+   "participation_beats": ["short phrases from the manuscript that trigger a call-and-response or body movement"],
+   "hidden_thread": "recurring motif designed for re-read hunts, or empty string",
+   "callback_ending": false
+ },
+ "parent_buyer_evidence": {
+   "developmental_theme_one_liner": "one sentence a parent would recognize on a storefront",
+   "lesson_is_shown_not_told": true,
+   "child_has_agency": true,
+   "moralizing_lines": ["quotes of any lecturing lines, or empty array"]
  },
  "evidence": [
    {"dimension":"age_appropriateness","quote":"...","page":3,"reason":"...","repair_action":"none|rewrite_page|rewrite_ending|simplify_vocab|add_refrain|rewrite_manuscript"}
@@ -212,6 +286,9 @@ ${SCHEMA_HINT}`;
   }
 
 
+  const rereadEvidence = (parsed.reread_evidence ?? undefined) as StoryReport["reread_evidence"];
+  const parentEvidence = (parsed.parent_buyer_evidence ?? undefined) as StoryReport["parent_buyer_evidence"];
+
   const report: StoryReport = {
     age_appropriateness_score: num(parsed.age_appropriateness_score),
     story_coherence_score: num(parsed.story_coherence_score),
@@ -229,9 +306,19 @@ ${SCHEMA_HINT}`;
     story_qc_passed: false,
     evidence: Array.isArray(parsed.evidence) ? (parsed.evidence as StoryReport["evidence"]) : [],
     generic_risk_analysis: (parsed.generic_risk_analysis ?? undefined) as StoryReport["generic_risk_analysis"],
+    reread_evidence: rereadEvidence,
+    parent_buyer_evidence: parentEvidence,
+    score_adjustments: [],
     judge_version: JUDGE_VERSION,
     computed_at: new Date().toISOString(),
   };
+
+  // Deterministic post-judge verifier — cancels the LLM's "vibes 80" default in
+  // both directions. If the judge claims a high score but the evidence isn't
+  // actually in the manuscript, cap it. If the evidence IS there but the judge
+  // was stingy, floor it. This gives the skill-learner a real signal.
+  applyDeterministicScoreCalibration(report, opts.manuscript_md);
+
   report.story_qc_passed =
     report.age_appropriateness_score >= 90 &&
     report.story_coherence_score >= 90 &&
@@ -241,6 +328,87 @@ ${SCHEMA_HINT}`;
     report.parent_buyer_value_score >= 85 &&
     report.generic_story_risk_score <= 25;
   return report;
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic score calibration
+// ---------------------------------------------------------------------------
+// LLM judges cluster around 80 on subjective dimensions (reread_value,
+// parent_buyer_value). To break that anchor bias we verify the evidence the
+// judge itself provided against the actual manuscript text, then cap or floor
+// the score. All adjustments are recorded in report.score_adjustments.
+
+function countOccurrences(haystack: string, needle: string): number {
+  if (!needle) return 0;
+  const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  const h = norm(haystack);
+  const n = norm(needle);
+  if (n.length < 3) return 0;
+  let count = 0;
+  let idx = 0;
+  while ((idx = h.indexOf(n, idx)) !== -1) { count++; idx += n.length; }
+  return count;
+}
+
+function applyDeterministicScoreCalibration(report: StoryReport, manuscript: string): void {
+  const adj: NonNullable<StoryReport["score_adjustments"]> = report.score_adjustments ?? [];
+
+  // ---- reread_value ----
+  const re = report.reread_evidence;
+  let refrainCount = 0;
+  let participationHits = 0;
+  let hasHiddenThread = false;
+  let hasCallback = false;
+  if (re) {
+    refrainCount = re.refrain_text ? countOccurrences(manuscript, re.refrain_text) : 0;
+    participationHits = (re.participation_beats ?? []).filter(p => countOccurrences(manuscript, p) > 0).length;
+    hasHiddenThread = !!(re.hidden_thread && re.hidden_thread.trim().length > 3);
+    hasCallback = !!re.callback_ending;
+  }
+  // Criteria for a genuine 90+.
+  const meets90 = refrainCount >= 3 && participationHits >= 2 && hasHiddenThread && hasCallback;
+  // Criteria for a genuine 85+.
+  const meets85 = refrainCount >= 2 && participationHits >= 1;
+
+  const rerBefore = report.reread_value_score;
+  if (rerBefore >= 90 && !meets90) {
+    const capped = meets85 ? 85 : 78;
+    report.reread_value_score = capped;
+    adj.push({ dimension: 'reread_value', from: rerBefore, to: capped, reason: `judge_cap: refrain_count=${refrainCount} participation=${participationHits} hidden=${hasHiddenThread} callback=${hasCallback}` });
+  } else if (rerBefore >= 85 && rerBefore < 90 && !meets85) {
+    report.reread_value_score = 78;
+    adj.push({ dimension: 'reread_value', from: rerBefore, to: 78, reason: `judge_cap: refrain_count=${refrainCount} participation=${participationHits}` });
+  } else if (rerBefore < 85 && meets85) {
+    // Judge was stingy but the evidence is real. Floor at 85 (or 90 if all criteria met).
+    const floored = meets90 ? 90 : 85;
+    report.reread_value_score = floored;
+    adj.push({ dimension: 'reread_value', from: rerBefore, to: floored, reason: `evidence_floor: refrain_count=${refrainCount} participation=${participationHits} hidden=${hasHiddenThread} callback=${hasCallback}` });
+  }
+
+  // ---- parent_buyer_value ----
+  const pe = report.parent_buyer_evidence;
+  const themeLen = pe?.developmental_theme_one_liner?.trim().length ?? 0;
+  const shown = !!pe?.lesson_is_shown_not_told;
+  const agency = !!pe?.child_has_agency;
+  const moralizes = (pe?.moralizing_lines ?? []).some(l => l && l.trim().length > 0);
+  const parentMeets90 = themeLen >= 20 && shown && agency && !moralizes;
+  const parentMeets85 = themeLen >= 10 && (shown || agency) && !moralizes;
+
+  const pbBefore = report.parent_buyer_value_score;
+  if (pbBefore >= 90 && !parentMeets90) {
+    const capped = parentMeets85 ? 85 : 78;
+    report.parent_buyer_value_score = capped;
+    adj.push({ dimension: 'parent_buyer_value', from: pbBefore, to: capped, reason: `judge_cap: theme_len=${themeLen} shown=${shown} agency=${agency} moralizes=${moralizes}` });
+  } else if (pbBefore >= 85 && pbBefore < 90 && !parentMeets85) {
+    report.parent_buyer_value_score = 78;
+    adj.push({ dimension: 'parent_buyer_value', from: pbBefore, to: 78, reason: `judge_cap: theme_len=${themeLen} shown=${shown} agency=${agency} moralizes=${moralizes}` });
+  } else if (pbBefore < 85 && parentMeets85) {
+    const floored = parentMeets90 ? 90 : 85;
+    report.parent_buyer_value_score = floored;
+    adj.push({ dimension: 'parent_buyer_value', from: pbBefore, to: floored, reason: `evidence_floor: theme_len=${themeLen} shown=${shown} agency=${agency}` });
+  }
+
+  report.score_adjustments = adj;
 }
 
 export function storyReportToFindings(s: StoryReport): RawFinding[] {
