@@ -1,0 +1,102 @@
+// Shared cost estimator + fire-and-forget logger for the kids pipeline.
+//
+// Writes to public.cost_log so `ebook_costs` view can roll per-book totals up
+// to the admin UI. NEVER throws — a failure to log must not break a build.
+//
+// Pricing sources (2026 rates, USD):
+//   Google Gemini (direct)    per 1M tokens in / out
+//   Fal image endpoints       per image or per MP
+// Lovable Gateway markup ≈ 30-50% on top; we log the same base rate so the
+// direct/gateway comparison is honest (small over-count on gateway is fine).
+
+import { createClient } from "npm:@supabase/supabase-js@2";
+type Db = ReturnType<typeof createClient>;
+
+interface TokRate { in: number; out: number } // per 1M tokens
+interface ImgRate { image: number }            // per image
+
+type Rate = TokRate | ImgRate;
+
+export const PRICE_TABLE: Record<string, Rate> = {
+  // Text / chat / vision
+  "google/gemini-3.1-pro-preview":     { in: 1.25, out: 10.00 },
+  "google/gemini-2.5-pro":             { in: 1.25, out: 10.00 },
+  "google/gemini-2.5-flash":           { in: 0.075, out: 0.30 },
+  "google/gemini-2.5-flash-lite":      { in: 0.05,  out: 0.20 },
+  "google/gemini-3-flash-preview":     { in: 0.075, out: 0.30 },
+  "google/gemini-3.5-flash":           { in: 0.15,  out: 0.60 },
+  "google/gemini-3.1-flash-lite":      { in: 0.05,  out: 0.20 },
+  // Image
+  "google/gemini-3.1-flash-image":     { image: 0.067 },
+  "google/gemini-3.1-flash-lite-image":{ image: 0.020 },
+  "google/gemini-2.5-flash-image":     { image: 0.039 },
+  "google/gemini-3-pro-image":         { image: 0.120 },
+  "fal-ai/flux/schnell":               { image: 0.003 },
+  "fal-ai/recraft-v3":                 { image: 0.040 },
+};
+
+export interface EstimateInput {
+  model: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  images?: number;
+}
+
+export function estimateCost({ model, input_tokens = 0, output_tokens = 0, images = 0 }: EstimateInput): number {
+  const rate = PRICE_TABLE[model];
+  if (!rate) return 0;
+  if ("image" in rate) return images * rate.image;
+  return (input_tokens / 1_000_000) * rate.in + (output_tokens / 1_000_000) * rate.out;
+}
+
+export interface LogAiCostRow {
+  ebook_id?: string | null;
+  idea_id?: string | null;
+  step: string;
+  model: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  images?: number;
+  cost_usd?: number;
+  provider?: "gateway" | "google_direct" | "fal_direct" | string;
+}
+
+/**
+ * Fire-and-forget cost logger. Never throws.
+ * Stores image count into `output_tokens` (per directive) so simple SUMs work.
+ */
+export function logAiCost(db: Db, row: LogAiCostRow): void {
+  try {
+    const cost_usd = row.cost_usd ?? estimateCost({
+      model: row.model,
+      input_tokens: row.input_tokens,
+      output_tokens: row.output_tokens,
+      images: row.images,
+    });
+    const out_tok = row.output_tokens ?? (row.images ? row.images : 0);
+    const insertRow = {
+      ebook_id: row.ebook_id ?? null,
+      idea_id: row.idea_id ?? null,
+      step: row.step,
+      model: row.model,
+      input_tokens: row.input_tokens ?? 0,
+      output_tokens: out_tok,
+      cost_usd: Number(cost_usd.toFixed(6)),
+    };
+    // fire & forget
+    void db.from("cost_log").insert(insertRow).then((r: { error: unknown }) => {
+      if (r?.error) console.warn("logAiCost insert failed", (r.error as Error)?.message ?? r.error);
+    }, (e: unknown) => console.warn("logAiCost promise rejected", (e as Error)?.message ?? e));
+  } catch (e) {
+    console.warn("logAiCost threw", (e as Error).message);
+  }
+}
+
+/** Convenience factory when the caller already has SUPABASE_URL + service key. */
+export function costDb(): Db {
+  return createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    { auth: { persistSession: false } },
+  );
+}

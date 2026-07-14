@@ -1,0 +1,103 @@
+// Direct Google AI Studio API client — bypasses Lovable Gateway markup when
+// GEMINI_API_KEY is present. Same models, same prompts, same output shape as
+// used through the gateway (returns PNG bytes for image gen, OpenAI-shaped
+// message JSON for chat).
+//
+// Callers ALWAYS check `hasGeminiDirect()` first and fall back to the gateway
+// path on missing key or on error, so behavior is identical when the key is
+// not configured.
+
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY");
+
+export function hasGeminiDirect(): boolean {
+  return !!GEMINI_KEY && GEMINI_KEY.length > 10;
+}
+
+// Strip vendor prefix ("google/gemini-3.1-flash-image" -> "gemini-3.1-flash-image").
+function normalize(model: string): string {
+  return model.replace(/^google\//, "");
+}
+
+async function fetchImageAsB64(url: string): Promise<{ data: string; mime: string }> {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`ref fetch ${r.status}`);
+  const mime = r.headers.get("content-type") ?? "image/png";
+  const buf = new Uint8Array(await r.arrayBuffer());
+  let s = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < buf.length; i += chunk) s += String.fromCharCode(...buf.subarray(i, i + chunk));
+  return { data: btoa(s), mime };
+}
+
+/**
+ * Reference-conditioned image generation via native Gemini generateContent.
+ * Returns raw PNG bytes.
+ */
+export async function geminiDirectImage(opts: {
+  prompt: string;
+  referenceUrls: string[];
+  model?: string;
+}): Promise<Uint8Array> {
+  if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set");
+  const model = normalize(opts.model ?? "google/gemini-3.1-flash-image");
+  const parts: Array<Record<string, unknown>> = [{ text: opts.prompt }];
+  for (const u of opts.referenceUrls) {
+    const { data, mime } = await fetchImageAsB64(u);
+    parts.push({ inlineData: { mimeType: mime, data } });
+  }
+  const body = {
+    contents: [{ role: "user", parts }],
+    generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
+  };
+  const r = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!r.ok) throw new Error(`gemini-direct ${model} ${r.status}: ${(await r.text()).slice(0, 400)}`);
+  const j = await r.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string } }> } }>;
+  };
+  const b64 = j.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData?.data;
+  if (!b64) throw new Error(`gemini-direct ${model}: no image in response`);
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
+
+/** Simple chat via native Gemini generateContent. Returns text + usage. */
+export async function geminiDirectChat(opts: {
+  system?: string;
+  user: string;
+  model?: string;
+  responseJson?: boolean;
+}): Promise<{ text: string; input_tokens: number; output_tokens: number; model: string }> {
+  if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set");
+  const model = normalize(opts.model ?? "google/gemini-2.5-flash");
+  const body: Record<string, unknown> = {
+    contents: [{ role: "user", parts: [{ text: opts.user }] }],
+    generationConfig: opts.responseJson ? { responseMimeType: "application/json" } : {},
+  };
+  if (opts.system) (body as { systemInstruction?: unknown }).systemInstruction = { parts: [{ text: opts.system }] };
+  const r = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!r.ok) throw new Error(`gemini-direct chat ${model} ${r.status}: ${(await r.text()).slice(0, 400)}`);
+  const j = await r.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+  };
+  const text = j.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+  return {
+    text,
+    input_tokens: j.usageMetadata?.promptTokenCount ?? 0,
+    output_tokens: j.usageMetadata?.candidatesTokenCount ?? 0,
+    model: `google/${model}`,
+  };
+}
