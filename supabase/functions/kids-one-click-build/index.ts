@@ -715,7 +715,9 @@ async function maybeLearnFromRepeatedFailures(
     .limit(30);
   for (const e of (recentShelved ?? []) as Array<Record<string, unknown>>) {
     const reason = String(e.blocker_reason ?? '');
-    if (!/story_gate|rer=|coh=|emo=|buyer=|generic_risk|age=|lang=/i.test(reason + JSON.stringify((e.qc_scorecard as Record<string, unknown> | null)?.story_gate ?? {}))) continue;
+    const storyGate = (e.qc_scorecard as Record<string, unknown> | null)?.story_gate as Record<string, unknown> | undefined;
+    const storyGateFailed = storyGate && storyGate.passed === false;
+    if (!storyGateFailed && !/story_gate|rer=|coh=|emo=|buyer=|generic_risk|age=|lang=/i.test(reason)) continue;
     const dims = failedDimensionsFromEbook(e, reason);
     for (const d of dims) {
       if (alreadyLearned.has(d.dimension)) continue;
