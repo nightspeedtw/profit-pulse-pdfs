@@ -12,6 +12,7 @@ import { writeSegmentedManuscript, renderSegmentsToMd, loadSegments, segmentsToP
 import { loadStoryCraftBlock } from '../_shared/story-craft-skill.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
 import { uploadAndSignImage, versionedKidsAssetPath } from '../_shared/versioned-assets.ts';
+import { computeLuminance } from '../_shared/image-luminance.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -575,11 +576,33 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     cb.accessory && `with ${cb.accessory}`,
   ].filter(Boolean).join(', ');
 
+  async function assertLiveCoverImage(bytes: Uint8Array, label: string) {
+    const lum = await computeLuminance(bytes);
+    if (lum.dead) {
+      throw new Error(`${label}_dead_image_gate: ${lum.reason} (mean=${lum.mean.toFixed(1)}, var=${lum.variance.toFixed(0)})`);
+    }
+    return lum;
+  }
+
   // Step: character reference sheet (only if we don't have one yet)
   let refUrl = bible!.character_reference_image_url as string | null;
   if (!refUrl) {
     const refPrompt = `Character reference sheet: a friendly children's book hero ${charDesc}. Full body, front view, neutral pose, plain white background, clear features, ${styleSuffix}`;
-    const refBytes = await falFluxSchnell({ prompt: refPrompt, image_size: 'square_hd' });
+    let refBytes: Uint8Array | null = null;
+    let lastRefErr = '';
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const candidate = await falFluxSchnell({ prompt: `${refPrompt}${attempt > 1 ? ' Bright, fully lit, no black background, no empty canvas.' : ''}`, image_size: 'square_hd', ebook_id: ctx.ebookId, step: 'kids_character_reference' });
+        const refLum = await computeLuminance(candidate);
+        if (refLum.mean < 12 || refLum.reason === 'near_black') throw new Error(`character_reference_dead_image_gate: ${refLum.reason} (mean=${refLum.mean.toFixed(1)}, var=${refLum.variance.toFixed(0)})`);
+        refBytes = candidate;
+        break;
+      } catch (e) {
+        lastRefErr = String((e as Error).message ?? e).slice(0, 220);
+        console.warn(`character reference attempt ${attempt} rejected: ${lastRefErr}`);
+      }
+    }
+    if (!refBytes) throw new Error(`character_reference_generation_failed_after_dead_image_gate: ${lastRefErr}`);
     const refPath = versionedKidsAssetPath(ctx.ebookId, 'character-ref');
     const refSigned = await uploadAndSignImage(db, 'ebook-covers', refPath, refBytes);
     refUrl = refSigned.signedUrl;
@@ -602,13 +625,29 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     `Avoid AI clichés: no purple/indigo gradients on white, no glossy 3D blobs, no stock face, no generic hero-on-gradient, no melted shapes, no six-finger hands.`,
   ].join(' ');
 
-  const coverBytes = await falRecraftV3({
-    prompt: coverPrompt,
-    image_url: refUrl ?? undefined,
-    strength: 0.6,
-    image_size: 'portrait_4_3',
-    negative_prompt: `${negativePrompt}, text, letters, numbers, words, title, typography, watermark, logo, book mockup, ui, caption, subtitle, spine, gradient on white, glossy 3d blob, stock photo, six fingers, deformed hands, generic ai look`,
-  });
+  let coverBytes: Uint8Array | null = null;
+  let coverLum: Awaited<ReturnType<typeof computeLuminance>> | null = null;
+  let lastCoverErr = '';
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const candidate = await falRecraftV3({
+        prompt: `${coverPrompt}${attempt > 1 ? ` Retry ${attempt}: previous cover was unusable (${lastCoverErr}). Render a bright, fully illustrated, non-black cover with visible character and rich background.` : ''}`,
+        image_url: refUrl ?? undefined,
+        strength: 0.6,
+        image_size: 'portrait_4_3',
+        negative_prompt: `${negativePrompt}, black canvas, near-black image, empty image, blank image, text, letters, numbers, words, title, typography, watermark, logo, book mockup, ui, caption, subtitle, spine, gradient on white, glossy 3d blob, stock photo, six fingers, deformed hands, generic ai look`,
+        ebook_id: ctx.ebookId,
+        step: 'kids_cover_master',
+      });
+      coverLum = await assertLiveCoverImage(candidate, 'cover_master');
+      coverBytes = candidate;
+      break;
+    } catch (e) {
+      lastCoverErr = String((e as Error).message ?? e).slice(0, 220);
+      console.warn(`cover master attempt ${attempt} rejected: ${lastCoverErr}`);
+    }
+  }
+  if (!coverBytes) throw new Error(`cover_generation_failed_after_dead_image_gate: ${lastCoverErr}`);
 
   // Upload the TEXTLESS AI master (used as the visual anchor for interior gen
   // and as the input to the illustrated title-treatment compositor).
@@ -634,6 +673,7 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     width: 1600,
     height: 1600,
   });
+  const finalLum = await assertLiveCoverImage(treatment.png, 'final_cover');
 
   const composedPath = versionedKidsAssetPath(ctx.ebookId, 'cover');
   const pub = await uploadAndSignImage(db, 'ebook-covers', composedPath, treatment.png);
@@ -650,7 +690,7 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     cover_url: coverUrl,
     thumbnail_url: coverUrl,
     status: 'rendering', pipeline_status: 'rendering',
-    storefront_meta: { ...existingMeta, title_treatment: treatment.metadata },
+    storefront_meta: { ...existingMeta, title_treatment: treatment.metadata, cover_luminance: { master: coverLum, final: finalLum } },
   }).eq('id', ctx.ebookId);
   return {
     output: {

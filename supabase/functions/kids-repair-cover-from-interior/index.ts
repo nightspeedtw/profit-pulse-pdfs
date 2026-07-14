@@ -13,6 +13,7 @@ import { PDFDocument, rgb } from 'npm:pdf-lib@1.17.1';
 import { geminiDirectImage, hasGeminiDirect } from '../_shared/gemini-direct.ts';
 import { qcCoverLettering } from '../_shared/qc/kids-cover-lettering-qc.ts';
 import { uploadAndSignImage, versionedKidsAssetPath, storagePathFromUrl, IMAGE_SIGNED_TTL_SECONDS } from '../_shared/versioned-assets.ts';
+import { computeLuminance } from '../_shared/image-luminance.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -159,6 +160,15 @@ Deno.serve(async (req) => {
         }
         continue;
       }
+      const lum = await computeLuminance(bytes);
+      if (lum.dead) {
+        lastReason = `cover_dead_image_gate:${lum.reason}:mean=${lum.mean.toFixed(1)},var=${lum.variance.toFixed(0)}`;
+        console.warn(`attempt ${attempt} rejected by luminance gate`, lastReason);
+        if (attempt === max_attempts) {
+          return json({ ok: false, error: `cover_repair_dead_image_after_${max_attempts}`, last_reason: lastReason }, 422);
+        }
+        continue;
+      }
       const qc = await qcCoverLettering({ expectedTitle: title, imageBytes: bytes });
       const detected = String(qc.detected_title_text ?? '').trim();
       const titleNorm = title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -176,6 +186,7 @@ Deno.serve(async (req) => {
         attempt,
         qc,
         detected,
+        luminance: lum,
         all_text_detected: allText,
         extraneous_words: extraWords,
       };
