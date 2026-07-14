@@ -308,6 +308,12 @@ Deno.serve(async (req) => {
         handler = 'kids-global-style-fallback';
         repairBody = { ebook_id, publish_if_sellable: true };
         break;
+      case 'image_missing':
+        // Interior page(s) have no image. Rebuild via global style fallback which
+        // regenerates all interiors + cover in the stable style.
+        handler = 'kids-global-style-fallback';
+        repairBody = { ebook_id, publish_if_sellable: true };
+        break;
       case 'pdf_glyph':
         handler = 'kids-final-text-repair';
         repairBody = { ebook_id, publish: true };
