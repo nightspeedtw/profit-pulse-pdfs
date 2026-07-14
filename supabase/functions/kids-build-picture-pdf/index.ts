@@ -368,8 +368,7 @@ Deno.serve(async (req) => {
     });
 
     if (nextLane !== 'done') {
-      // @ts-expect-error EdgeRuntime is a Deno Deploy global
-      EdgeRuntime.waitUntil(selfChain(ebook_id, publish));
+      selfChainDoubleTap(db, ebook_id, publish, scorecard);
       return json({ ok: true, stage: stageLabel, next_stage: nextStageLabel, result: stageResult });
     }
 
