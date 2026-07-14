@@ -144,9 +144,9 @@ export default function Kids() {
                   <Link key={p.id} to={`/product/${p.id}`} className="block border-2 border-foreground hover:shadow-brutal transition-all bg-card">
                     <div className="relative">
                       {p.cover_url ? (
-                        <img src={p.cover_url} alt={p.title} className="w-full aspect-[2/3] object-cover border-b-2 border-foreground" />
+                        <img src={p.cover_url} alt={p.title} className="w-full aspect-square object-cover border-b-2 border-foreground" />
                       ) : (
-                        <div className="w-full aspect-[2/3] bg-muted flex items-center justify-center border-b-2 border-foreground">
+                        <div className="w-full aspect-square bg-muted flex items-center justify-center border-b-2 border-foreground">
                           <FileText className="h-10 w-10 text-muted-foreground" />
                         </div>
                       )}
