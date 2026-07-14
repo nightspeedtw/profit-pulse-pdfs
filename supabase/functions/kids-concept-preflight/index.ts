@@ -171,12 +171,15 @@ async function generateConcept(ageBand: string, avoidList: string[], attemptLabe
 
   const system = `You are a bestselling picture-book concept designer for ages ${ageBand}. Invent ONE original, distinctive, giftable picture-book concept.
 
+${storyCraftBlock()}
+
 CRITICAL ORDER OF INVENTION (do not skip):
-1. Invent the STORY ENGINE first (the escalating mechanism/rule).
-2. Invent the CALLBACKS second (two concrete planted objects that pay off).
-3. Invent the FINAL PAGE PAYOFF third (specific reveal tying both callbacks).
-4. Only THEN write the TITLE. The title must describe the mechanism, not just a funny name.
-Reject concepts that are funny-name-first with no mechanism.${laneDirective}
+1. Pick the PARENT_HOOK first from the menu above (rule: parent_hook_anchor). Every downstream choice must serve it.
+2. Invent the STORY ENGINE (the escalating mechanism/rule).
+3. Invent the CALLBACKS — two concrete planted objects that pay off.
+4. Invent the FINAL PAGE PAYOFF that lands the parent hook in ONE warm specific image.
+5. Only THEN write the TITLE. The title must describe the mechanism, not just a funny name.
+Reject concepts that are funny-name-first with no mechanism, or concepts with no parent hook.${laneDirective}
 
 Reply as STRICT JSON only (no markdown fences), matching EXACTLY this schema:
 {
@@ -185,6 +188,7 @@ Reply as STRICT JSON only (no markdown fences), matching EXACTLY this schema:
   "hero": "",
   "hero_specificity": "",
   "setting": "",
+  "parent_hook": "",
   "core_story_engine": "",
   "central_problem": "",
   "story_rule": "",
