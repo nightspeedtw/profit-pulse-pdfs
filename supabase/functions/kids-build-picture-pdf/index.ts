@@ -129,6 +129,21 @@ async function chainQcAndPublish(ebook_id: string, publish: boolean) {
   });
 }
 
+function isDeterministicGateFailure(msg: string): boolean {
+  return /cover_dead_image_gate|dead_page_gate|text_mapping_gate|PDF_WRONG_TRIM|PDF_PAGE_COUNT_OUT_OF_RANGE|FAKE_PDF_MIME_TYPE|INVALID_PDF|MISSING_PAGE/i.test(msg);
+}
+
+function dispatchSupervisorForGate(ebook_id: string, error: string) {
+  const task = fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify({ ebook_id, source: 'kids-build-picture-pdf', async: true, gate_error: error }),
+  }).then((r) => r.text()).catch((e) => console.error('pdf gate supervisor dispatch failed', e));
+  // deno-lint-ignore no-explicit-any
+  const rt = (globalThis as any).EdgeRuntime;
+  if (rt?.waitUntil) rt.waitUntil(task); else void task;
+}
+
 async function fetchImage(url: string): Promise<Uint8Array> {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`image fetch ${r.status}`);
@@ -387,6 +402,7 @@ Deno.serve(async (req) => {
           error: msg, failed_at: new Date().toISOString(),
         });
       } catch { /* ignore persistence failures */ }
+      if (isDeterministicGateFailure(msg)) dispatchSupervisorForGate(ebook_id, msg);
     }
     return json({ ok: false, error: msg }, 500);
   }

@@ -29,6 +29,7 @@ const MAX_PER_CLASS: Record<string, number> = {
   cover: 2,
   image_missing: 2,
   text_mapping: 2,
+  dead_interior_page: 2,
 };
 
 function json(body: unknown, status = 200) {
@@ -101,6 +102,28 @@ function countAttempts(meta: Record<string, unknown> | null, klass: string): num
   return entries.filter(e => e.blocker_class === klass && e.result !== 'error').length;
 }
 
+function isCoverHardFailText(text: string): boolean {
+  return /cover_dead_image_gate|KIDS_TITLE_TREATMENT_INVALID|COVER_TITLE_MISMATCH|IMAGE_PLACEHOLDER|COVER_MISSING|cover_lettering|title_misspelled|lettering QC|wrong cover character|cover_wrong_character/i.test(text);
+}
+
+function parseDeadInteriorPageNumbers(detail: string): number[] {
+  const list = detail.match(/pages=([0-9,\s]+)/i);
+  if (list) {
+    return list[1].split(',').map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n >= 3);
+  }
+  const m = detail.match(/dead page\(s\)[^:]*:\s*(\[[\s\S]*\])\s*$/i);
+  if (!m) return [];
+  try {
+    const rows = JSON.parse(m[1]) as Array<{ index?: number }>;
+    return rows
+      .map((r) => Number(r.index))
+      .filter((n) => Number.isInteger(n) && n >= 0)
+      .map((storyIndex) => storyIndex + 3);
+  } catch {
+    return [];
+  }
+}
+
 
 function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_name?: string; error_message?: string } | null): { klass: string; detail: string } | null {
   const sc = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
@@ -118,6 +141,25 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
   const errMsg = String(latestFailedStep?.error_message ?? '');
   const pdfJobError = String(pdfJob?.error ?? '');
   const qcText = [...criticalErrors, ...reasons, String(ebook.human_review_reason ?? ''), String(ebook.blocker_reason ?? ''), errMsg, pdfJobError].join(' | ');
+  const deadFindings = Array.isArray(sc.dead_page_findings) ? (sc.dead_page_findings as Array<Record<string, unknown>>) : [];
+
+  // Cover hard-fails are deterministic gates with a concrete repair: regenerate
+  // the cover from verified interior pages, then rebuild the PDF. Classify them
+  // before generic PDF-resume/vision handlers so watchdog cannot loop forever.
+  const coverDead = deadFindings.some((f) => String((f.measured_value as Record<string, unknown> | undefined)?.label ?? f.label ?? '').toLowerCase() === 'cover' || Number(f.index) === -1);
+  if (isCoverHardFailText(qcText) || coverDead) {
+    return { klass: 'cover', detail: `cover_hard_fail: ${qcText.slice(0, 260)}` };
+  }
+
+  const deadInteriorPages = deadFindings
+    .filter((f) => Number(f.index) >= 0 || /^interior_/i.test(String((f.measured_value as Record<string, unknown> | undefined)?.label ?? f.label ?? '')))
+    .map((f) => Number(f.index) >= 0 ? Number(f.index) + 3 : null)
+    .filter((n): n is number => Number.isInteger(n));
+  if (/dead_page_gate/i.test(qcText) || deadInteriorPages.length > 0) {
+    const parsed = deadInteriorPages.length ? deadInteriorPages : parseDeadInteriorPageNumbers(qcText);
+    return { klass: 'dead_interior_page', detail: `dead_interior_page: pages=${parsed.join(',') || 'unknown'} ${qcText.slice(0, 220)}` };
+  }
+
   if (pdfJob?.next_stage) {
     return { klass: 'worker_resource_limit', detail: `pdf_repair_in_progress:${pdfJob.next_stage}` };
   }
@@ -150,6 +192,12 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
 
   // 5. Vision / character-identity blockers via measured QC.
   const measured = sc.measured as Record<string, unknown> | undefined;
+  const coverOnlyMismatch = /VISION_COVER_INTERIOR_MISMATCH/i.test(qcText)
+    && !/VISION_CHARACTER_CONSISTENCY_FAIL|CHARACTER_IDENTITY_BREAK|KIDS_MIXED_ART_STYLES|page \d+ character/i.test(qcText);
+  if (coverOnlyMismatch) {
+    return { klass: 'cover', detail: `cover_wrong_character_or_style: ${qcText.slice(0, 240)}` };
+  }
+
   if (criticalErrors.some((id) => [
     'VISION_CHARACTER_CONSISTENCY_FAIL',
     'VISION_COVER_INTERIOR_MISMATCH',
@@ -389,11 +437,12 @@ Deno.serve(async (req) => {
       // Count prior resume_pdf attempts so we don't loop forever on a
       // genuinely broken build.
       const priorPdfResumes = allEntries.filter((e) => e.blocker_class === 'resume_pdf').length;
+      const pdfErrorNeedsRepair = isCoverHardFailText(pdfJobError) || /dead_page_gate|text_mapping_gate/i.test(pdfJobError);
       // FREE RESUME for pdf_building — always allowed until we've tried 5x.
       // Fixes the "supervisor_declined: unrecognized_stall in pdf_building"
       // retirement: PDF assembly is deterministic and free; resume it instead
       // of retiring the book.
-      if (!hasPdf && status === 'pdf_building' && interiors.length >= Math.min(expected, 12) && priorPdfResumes < 5) {
+      if (!pdfErrorNeedsRepair && !hasPdf && status === 'pdf_building' && interiors.length >= Math.min(expected, 12) && priorPdfResumes < 5) {
         const stage = pdfAssemblyNeverStarted ? 'pdf_prepare' : 'resume';
         const r = await invoke('kids-build-picture-pdf', { ebook_id, publish: true, stage });
         const t = await r.text().catch(() => '');
@@ -573,6 +622,12 @@ Deno.serve(async (req) => {
         handler = 'kids-final-text-repair';
         repairBody = { ebook_id, publish: true, reason: 'text_mapping_gate' };
         break;
+      case 'dead_interior_page': {
+        const pages = parseDeadInteriorPageNumbers(blocker.detail);
+        handler = 'kids-regenerate-offmodel-pages';
+        repairBody = { ebook_id, run_id, publish: true, page_numbers: pages.length ? pages : undefined };
+        break;
+      }
       case 'worker_resource_limit':
         handler = 'kids-build-picture-pdf';
         repairBody = { ebook_id, publish: true, stage: 'resume' };
@@ -582,8 +637,8 @@ Deno.serve(async (req) => {
         repairBody = { ebook_id, run_id, use_cached_story_judge_if_hash_matches: true, auto_repair_on_fail: false };
         break;
       case 'cover':
-        handler = 'kids-repair-cover';
-        repairBody = { ebook_id };
+        handler = 'kids-repair-cover-from-interior';
+        repairBody = { ebook_id, max_attempts: 2, splice_pdf: false };
         break;
       default:
         handler = 'autopilot-kids-pipeline (resume)';
@@ -606,7 +661,12 @@ Deno.serve(async (req) => {
         try { repairResult = JSON.parse(t); } catch { repairResult = t.slice(0, 400); }
         handlerOk = r.ok;
         // Chain a pipeline resume unless the handler itself already resumes.
-        const alreadyResumes = ['kids-surgical-story-repair', 'kids-repair-story-gate', 'kids-global-style-fallback', 'kids-final-text-repair', 'kids-build-picture-pdf', 'kids-regenerate-offmodel-pages'].includes(handler);
+        const alreadyResumes = ['kids-surgical-story-repair', 'kids-repair-story-gate', 'kids-global-style-fallback', 'kids-final-text-repair', 'kids-build-picture-pdf', 'kids-regenerate-offmodel-pages', 'kids-repair-cover-from-interior'].includes(handler);
+        if (handlerOk && handler === 'kids-repair-cover-from-interior') {
+          await db.from('ebooks_kids').update({ pipeline_status: 'pdf_building' }).eq('id', ebook_id);
+          try { await db.storage.from('ebook-pdfs').remove([`kids/${ebook_id}/book-inprogress.pdf`]); } catch { /* ignore */ }
+          await invoke('kids-build-picture-pdf', { ebook_id, publish: true, stage: 'pdf_prepare', run_qc_after: true });
+        }
         if (handlerOk && !alreadyResumes && run_id) {
           await resumePipeline(run_id);
         }
@@ -618,13 +678,32 @@ Deno.serve(async (req) => {
 
     // Re-read ebook to capture post-repair state.
     const { data: after } = await db.from('ebooks_kids').select('id, listing_status, sellable, pipeline_status, qc_scorecard').eq('id', ebook_id).single();
-    const afterListing = String(after?.listing_status ?? 'draft');
-    const afterSellable = Boolean(after?.sellable);
+    let afterListing = String(after?.listing_status ?? 'draft');
+    let afterSellable = Boolean(after?.sellable);
     const afterSg = (after?.qc_scorecard as Record<string, unknown> | null)?.story_gate as { scores?: Record<string, number> } | undefined;
     const scores_after = afterSg?.scores;
 
     let result: RepairEntry['result'];
-    if (afterListing === 'live' && afterSellable) result = 'published';
+    if (!handlerOk && klass === 'cover') {
+      await db.from('ebooks_kids').update({
+        listing_status: 'draft',
+        sellable: false,
+        pipeline_status: 'retired',
+        blocker_reason: `budget_exhausted:cover:${blocker.detail}`,
+        storefront_meta: {
+          ...meta,
+          shelved: {
+            reason: 'cover_repair_failed',
+            blocker: blocker.detail,
+            repair_result: repairResult,
+            shelved_at: new Date().toISOString(),
+          },
+        },
+      }).eq('id', ebook_id);
+      afterListing = 'draft';
+      afterSellable = false;
+      result = 'shelved';
+    } else if (afterListing === 'live' && afterSellable) result = 'published';
     else if (!handlerOk) result = 'error';
     else result = 'repaired';
 
