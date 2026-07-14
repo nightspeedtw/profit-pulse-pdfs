@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    return json({ ok: true, ebook_id, publishState, verdict: qcBody?.verdict, story_qc_status: qcBody?.story_qc_status, supervisor_dispatched: supervisorDispatched });
+    return json({ ok: true, ebook_id, publishState, verdict: qcBody?.verdict, story_qc_status: qcBody?.story_qc_status, supervisor_dispatched: supervisorDispatched, copy_generated: copyGenerated });
   } catch (e) {
     console.error('kids-publish-if-qc-passed error', e);
     return json({ ok: false, error: String((e as Error)?.message ?? e) }, 500);
