@@ -18,6 +18,7 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { runKidsStoryJudge, type StoryReport } from '../_shared/kids-story-judge.ts';
 import { computeManuscriptHash } from '../_shared/manuscript-hash.ts';
+import { logAiCost, costDb } from '../_shared/cost-log.ts';
 import { loadRepairGuidanceForDimension, loadStoryCraftBlock, repairGuidanceForDimension } from '../_shared/story-craft-skill.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -226,7 +227,7 @@ Deno.serve(async (req) => {
       const { system, user } = buildRewritePrompt(i, String(ebook.title ?? ''), ageBand, currentManuscript, currentReport, skillBlock, liveRepairGuidance);
       let rewritten: string;
       try {
-        rewritten = await rewriteManuscript(system, user);
+        rewritten = await rewriteManuscript(system, user, ebook_id);
       } catch (e) {
         attempts.push({ attempt: i, scores: {}, passed: false, blockers: [`rewrite_error: ${(e as Error).message.slice(0, 160)}`], word_count: 0 });
         continue;
