@@ -167,17 +167,21 @@ Return STRICT JSON only.`;
     }
 
     const bullets = Array.isArray(copy.benefit_bullets) ? copy.benefit_bullets.slice(0, 4).map(String) : [];
+    const vc = copy.value_cards ?? {} as CopyOut['value_cards'];
+    const value_cards = {
+      whats_inside: Array.isArray(vc.whats_inside) ? vc.whats_inside.slice(0, 4).map(String) : [],
+      why_kids_love_it: Array.isArray(vc.why_kids_love_it) ? vc.why_kids_love_it.slice(0, 3).map(String) : [],
+      perfect_for: Array.isArray(vc.perfect_for) ? vc.perfect_for.slice(0, 4).map(String) : [],
+    };
 
     const nextMeta: Record<string, unknown> = {
       ...meta,
-      ad_promise: copy.ad_promise ?? null,
+      ad_promise: copy.ad_promise ?? meta.ad_promise ?? null,
+      value_cards,
       conversion_copy_generated_at: new Date().toISOString(),
       read_aloud_minutes: readAloudMin,
     };
 
-    // ebooks_kids has only {title, subtitle, description, storefront_meta} for
-    // copy today, so stash the extended conversion copy inside storefront_meta.
-    // Product/Kids UI reads it from storefront_meta.conversion_copy.
     const nextMeta2: Record<string, unknown> = {
       ...nextMeta,
       conversion_copy: {
@@ -187,6 +191,7 @@ Return STRICT JSON only.`;
         shopping_card_description: (copy.shopping_card_description ?? '').slice(0, 320),
         preview_blurb: (copy.preview_blurb ?? '').slice(0, 200),
         benefit_bullets: bullets,
+        value_cards,
         read_aloud_minutes: readAloudMin,
         pages,
       },
@@ -196,6 +201,9 @@ Return STRICT JSON only.`;
       description: (copy.product_description ?? '').slice(0, 2000),
       storefront_meta: nextMeta2,
     }).eq('id', ebook_id);
+
+    // Ensure join tables have the age/theme rows so the storefront can render badges.
+    await syncKidsTaxonomy(db, ebook_id);
 
     return json({ ok: true, ebook_id, copy });
   } catch (e) {
