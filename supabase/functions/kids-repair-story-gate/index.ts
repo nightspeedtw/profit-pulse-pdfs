@@ -72,23 +72,32 @@ function buildRewritePrompt(
     );
   }
   if (report.reread_value_score < 85) {
+    const c = critiqueFor('reread');
     dimensionalGuidance.push(
-      `**Reread value (rer=${report.reread_value_score}, must be >=85)**: Add ONE chantable refrain that a 4-6-year-old can shout on every re-read (repeat it at least 4 times with escalation). Plant 2 small callback moments that pay off on the final page. Add a final-page joke/reveal that only lands on the second read.`,
+      `**Reread value (rer=${report.reread_value_score}, must be >=85)**: Add ONE chantable refrain (4-8 words) repeated at least 4 times with escalation. Plant 2 callback moments early that pay off on the final page. Add a final-page joke that only lands on the second read.\n  Judge said:\n${c || '    · (no specific evidence — assume prior attempt lacked a chant + callback structure)'}`,
     );
   }
   if (report.emotional_payoff_score < 85) {
+    const c = critiqueFor('emotion') || critiqueFor('payoff');
     dimensionalGuidance.push(
-      `**Emotional payoff (emo=${report.emotional_payoff_score}, must be >=85)**: Give the hero a tiny, felt want at page 1 that gets a warmer, more specific answer at the end than "everyone dances." Show, don't tell.`,
+      `**Emotional payoff (emo=${report.emotional_payoff_score}, must be >=85)**: Give the hero a tiny, felt want on page 1 that gets a warmer, specific answer at the end. Show it with a small physical gesture, not a speech.\n  Judge said:\n${c || '    · (no specific evidence — the ending felt generic/detached; make the final image emotionally specific)'}`,
     );
   }
   if (report.language_level_score < 90) {
     dimensionalGuidance.push(
-      `**Language level (lang=${report.language_level_score}, must be >=90)**: Cap sentences at ~12 words. Prefer punchy verbs. Read-aloud rhythm. No adult words. Kindergarten cadence.`,
+      `**Language level (lang=${report.language_level_score}, must be >=90)**: Cap sentences at ~12 words. Punchy verbs. Read-aloud rhythm. Kindergarten cadence.`,
     );
   }
   if (report.parent_buyer_value_score < 85) {
+    const c = critiqueFor('parent') || critiqueFor('buyer');
     dimensionalGuidance.push(
-      `**Parent value (buyer=${report.parent_buyer_value_score}, must be >=85)**: The ending should give a parent a reason to re-buy or gift — a warm implicit takeaway (never preachy) about noticing what makes each friend uniquely wonderful. Do NOT add a moral speech.`,
+      `**Parent value (buyer=${report.parent_buyer_value_score}, must be >=85)**: The ending must give a parent a clear, warm reason to gift or re-buy — a takeaway they'd recognize (kindness, noticing, courage). Warm implicit takeaway on the final spread; never a moral speech.\n  Judge said:\n${c || '    · (no specific evidence — prior attempts felt formulaic; make the parent-facing payoff distinctive)'}`,
+    );
+  }
+  // Attempts 2+ tend to oscillate on the same 80s. Force a structural break.
+  if (attempt >= 2) {
+    dimensionalGuidance.push(
+      `**Oscillation-break directive (attempt ${attempt})**: The previous rewrite hit the same failing scores as attempt ${attempt - 1}. That means you kept the same underlying structure. This attempt MUST change the story engine — pick a new central event/complication (keep the hero + title), and reshape the middle spreads around it. Do not merely tweak sentences.`,
     );
   }
 
