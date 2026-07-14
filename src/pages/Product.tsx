@@ -205,6 +205,7 @@ export default function Product() {
             spreads={previewSpreads}
             priceLabel={priceText}
             onBuy={handleBuy}
+            valueCards={product.value_cards ?? null}
           />
         )}
 
