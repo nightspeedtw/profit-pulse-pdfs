@@ -3016,6 +3016,26 @@ export type Database = {
       }
     }
     Views: {
+      ebook_costs: {
+        Row: {
+          ebook_id: string | null
+          image_usd: number | null
+          last_call_at: string | null
+          n_calls: number | null
+          n_images: number | null
+          text_usd: number | null
+          total_usd: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cost_log_ebook_id_fkey"
+            columns: ["ebook_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_review_stats: {
         Row: {
           average_rating: number | null
