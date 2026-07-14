@@ -15,6 +15,7 @@ interface KidsBook {
   price_cents: number;
   age_group_id: string | null;
   theme_ids: string[];
+  storefront_meta: Record<string, any> | null;
 }
 
 export default function Kids() {
