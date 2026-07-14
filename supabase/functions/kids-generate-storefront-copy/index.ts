@@ -40,23 +40,8 @@ interface CopyOut {
   };
 }
 
-async function syncKidsTaxonomy(db: any, ebook_id: string) {
-  try {
-    const { data: ek } = await db.from('ebooks_kids')
-      .select('age_group_id, theme_ids').eq('id', ebook_id).maybeSingle();
-    if (!ek) return;
-    if (ek.age_group_id) {
-      await db.from('ebook_kids_ages').upsert(
-        { ebook_id, age_group_id: ek.age_group_id }, { onConflict: 'ebook_id,age_group_id' },
-      );
-    }
-    const themes = Array.isArray(ek.theme_ids) ? ek.theme_ids.filter(Boolean) : [];
-    if (themes.length > 0) {
-      const rows = themes.map((tid: string) => ({ ebook_id, theme_id: tid }));
-      await db.from('ebook_kids_themes').upsert(rows, { onConflict: 'ebook_id,theme_id' });
-    }
-  } catch (e) { console.warn('syncKidsTaxonomy failed', (e as Error).message); }
-}
+// (kids-native taxonomy lives on ebooks_kids.age_group_id + theme_ids; the
+// public store resolves slugs directly from those, no join-table sync needed.)
 
 async function callGemini(system: string, user: string): Promise<string> {
   const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
