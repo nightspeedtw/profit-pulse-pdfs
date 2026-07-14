@@ -49,7 +49,7 @@ export interface RunStoryJudgeOpts {
   ebook_id?: string;
 }
 
-const JUDGE_VERSION = "v2-2026-07-13";
+const JUDGE_VERSION = "v3-2026-07-14";
 
 const SYSTEM = `You are a strict but FAIR children's picture book editor and buyer.
 You judge a real manuscript, not marketing metadata.
@@ -119,7 +119,54 @@ Examples:
   Child names feelings with a comforting object.
   Toy/animal learns it is okay to be different.
   Generic "invention goes wrong, kid learns lesson" WITHOUT a specific mechanical rule.
-  Cozy bedtime object that hums lullabies.`;
+  Cozy bedtime object that hums lullabies.
+
+===========================================================================
+REREAD_VALUE RUBRIC ANCHORS (v3) — measurable, not vibes.
+Do NOT default to 80 because you are unsure. Score against these criteria and
+FILL reread_evidence. If you cannot fill reread_evidence, the score is <80.
+
+--- reread_value 90-100 (kid demands "again!") ---
+ALL of:
+  * A chantable refrain (a short repeatable line kids can say aloud) appears
+    ≥3 times in the manuscript, ideally with escalating variation.
+  * Participation beats on most spreads: call-and-response, a body movement
+    (stomp, sneeze, whisper), or a prediction the child completes.
+  * Cumulative or predictable structure so a returning kid knows what's coming
+    but still enjoys the reveal.
+  * At least one hidden-detail thread designed to be spotted on re-reads
+    (recurring visual motif, hidden character, running-gag object).
+  * Last line invites another read (question, callback, reset, or "let's do
+    it again" moment) — not a moral summary.
+
+--- reread_value 80-89 (has one hook but incomplete) ---
+Refrain present but appears <3 times OR is not chantable (too long / abstract);
+OR participation beats exist but only on 1-2 spreads; OR hidden thread missing.
+
+--- reread_value 60-79 (decorative repetition only) ---
+Words repeat but there's no chantable phrase kids would say aloud, no
+participation trigger, no re-read hunt, no callback ending.
+
+--- reread_value below 60 ---
+Purely narrated. No repetition, no participation, no hook to return.
+
+===========================================================================
+PARENT_BUYER_VALUE RUBRIC ANCHORS (v3) — measurable.
+Score against these; fill parent_buyer_evidence.
+
+--- parent_buyer_value 90-100 ---
+ALL of: clear developmental theme a parent can name in one sentence (e.g.
+"handles sibling frustration", "regulates big feelings", "problem-solving
+through iteration"); implicit lesson emerges from the plot, not a spoken
+moral; child character has real agency and initiates the solution; ends on
+warmth without preaching; reading experience is FUN first, teaching second.
+
+--- parent_buyer_value 80-89 ---
+Theme is present but a shopping parent might not spot it in 3 seconds; OR the
+lesson is stated ("and that's how she learned...") instead of shown.
+
+--- parent_buyer_value below 80 ---
+No clear developmental hook a parent would pay for OR overtly moralizing.`;
 
 const SCHEMA_HINT = `Return JSON exactly like:
 {
@@ -141,6 +188,19 @@ const SCHEMA_HINT = `Return JSON exactly like:
    "generic_details": ["what exact details feel generic"],
    "could_be_retitled": false,
    "specific_page_turn_moments": ["page-turn moments that are specific to THIS premise"]
+ },
+ "reread_evidence": {
+   "refrain_text": "the exact chantable line, verbatim, or empty string",
+   "refrain_count": 0,
+   "participation_beats": ["short phrases from the manuscript that trigger a call-and-response or body movement"],
+   "hidden_thread": "recurring motif designed for re-read hunts, or empty string",
+   "callback_ending": false
+ },
+ "parent_buyer_evidence": {
+   "developmental_theme_one_liner": "one sentence a parent would recognize on a storefront",
+   "lesson_is_shown_not_told": true,
+   "child_has_agency": true,
+   "moralizing_lines": ["quotes of any lecturing lines, or empty array"]
  },
  "evidence": [
    {"dimension":"age_appropriateness","quote":"...","page":3,"reason":"...","repair_action":"none|rewrite_page|rewrite_ending|simplify_vocab|add_refrain|rewrite_manuscript"}
