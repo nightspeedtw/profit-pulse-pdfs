@@ -217,7 +217,11 @@ Deno.serve(async (req) => {
         // Insert new cover page at index 0, then remove old page 1 (now index 1).
         const newPage = doc.insertPage(0, [w0, h0]);
         const img = await doc.embedPng(bestBytes);
-        const scale = Math.max(w0 / img.width, h0 / img.height);
+        // FIT-INSIDE (letterbox) instead of full-bleed crop, so a square cover
+        // in a portrait/landscape legacy page doesn't clip the title text.
+        // Fill background with a warm off-white to match storybook aesthetic.
+        newPage.drawRectangle({ x: 0, y: 0, width: w0, height: h0, color: rgb(0.98, 0.95, 0.88) });
+        const scale = Math.min(w0 / img.width, h0 / img.height);
         const dw = img.width * scale;
         const dh = img.height * scale;
         newPage.drawImage(img, { x: (w0 - dw) / 2, y: (h0 - dh) / 2, width: dw, height: dh });
