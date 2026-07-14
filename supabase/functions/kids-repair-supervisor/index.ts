@@ -130,6 +130,15 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
     return { klass: 'worker_resource_limit', detail: 'worker_resource_limit' };
   }
 
+  // 7b. Image missing on interior page(s) — treat as art regression, rebuild via global style fallback.
+  const interiors = Array.isArray(ebook.interior_illustrations) ? (ebook.interior_illustrations as Array<Record<string, unknown>>) : [];
+  const anyMissing = interiors.some(p => !p?.image_url && !p?.url);
+  if (errMsg.includes('IMAGE_MISSING') || (interiors.length > 0 && interiors.length < 12) || (interiors.length >= 12 && anyMissing)) {
+    return { klass: 'image_missing', detail: `image_missing: interiors=${interiors.length}, any_missing=${anyMissing}` };
+  }
+
+
+
   // 8. QC missing.
   if (errMsg.includes('KIDS_MEASURED_QC_MISSING') || !measured) {
     // Only classify if we're past art generation.
