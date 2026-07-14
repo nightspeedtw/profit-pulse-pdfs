@@ -192,8 +192,23 @@ export default function Product() {
         </div>
       </div>
 
-      <div className="mt-12 space-y-12">
-        {hasStoryPreview ? (
+      <div className="mt-10 space-y-12">
+        {isKids && (
+          <StoryPreviewModule
+            title={product.title}
+            excerpt={product.preview_excerpt ?? null}
+            shortHook={product.short_hook ?? product.hook_description ?? null}
+            ageBand={ageBand}
+            readAloudMin={product.read_aloud_minutes ?? null}
+            themeLabel={themeLabel}
+            pageCount={product.page_count ?? totalPages ?? null}
+            spreads={previewSpreads}
+            priceLabel={priceText}
+            onBuy={handleBuy}
+          />
+        )}
+
+        {!isKids && (hasStoryPreview ? (
           <StoryPreviewReader
             spreads={previewSpreads}
             totalPages={totalPages}
@@ -204,7 +219,7 @@ export default function Product() {
           />
         ) : (
           <ProductPreview images={previewImages} onBuyClick={scrollToBuy} />
-        )}
+        ))}
 
         <section className="space-y-4">
           <h2 className="font-display text-2xl uppercase">More details</h2>
