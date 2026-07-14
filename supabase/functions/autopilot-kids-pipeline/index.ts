@@ -16,9 +16,15 @@ const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
 
 // Sentinel error that the pipeline loop recognizes to short-circuit before art.
 const STORY_GATE_BLOCK = 'STORY_GATE_BLOCK';
+// Sentinel: interior rendering is running asynchronously in kids-render-interior.
+// Not a failure — the run pauses and the render function resumes it via
+// force_finish when all pages are written.
+const INTERIOR_STAGED = 'INTERIOR_STAGED';
 
 const MIN_INTERIOR = 12;
+const TARGET_INTERIOR = 28;
 const MIN_PREVIEWS = 3;
+
 
 type StepResult = { output: Record<string, unknown>; fallbackUsed?: boolean };
 type Step = {
