@@ -142,12 +142,13 @@ Return ONLY the new manuscript body in markdown. English only.`;
   return { system, user };
 }
 
-async function rewriteManuscript(system: string, user: string): Promise<string> {
+async function rewriteManuscript(system: string, user: string, ebook_id?: string): Promise<string> {
+  const model = 'google/gemini-2.5-pro';
   const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
     body: JSON.stringify({
-      model: 'google/gemini-2.5-pro',
+      model,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
@@ -156,6 +157,9 @@ async function rewriteManuscript(system: string, user: string): Promise<string> 
   });
   if (!res.ok) throw new Error(`rewrite ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const j = await res.json();
+  const usage = j?.usage ?? {};
+  logAiCost(costDb(), { ebook_id, step: 'kids_repair_story_gate_rewrite', model,
+    input_tokens: usage.prompt_tokens ?? 0, output_tokens: usage.completion_tokens ?? 0, provider: 'gateway' });
   const text = j?.choices?.[0]?.message?.content ?? '';
   return String(text).replace(/^```(?:markdown|md)?\s*|\s*```$/g, '').trim();
 }
