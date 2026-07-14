@@ -111,7 +111,7 @@ export default function Kids() {
         age_group_id: b.age_group_id,
         theme_ids: b.theme_ids ?? [],
         storefront_meta: b.storefront_meta,
-        interior_preview_urls: b.interior_preview_urls ?? [],
+        interior_preview_urls: ((b.storefront_meta as { preview_urls?: string[] } | null)?.preview_urls) ?? [],
         _matchScore: s,
       };
     });
