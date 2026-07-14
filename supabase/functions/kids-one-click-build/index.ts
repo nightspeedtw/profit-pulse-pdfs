@@ -177,8 +177,28 @@ async function pollUntilResolved(
       return { outcome: classifyShelve(reason), ebook: e, reason };
     }
 
+    // Retired = story/art/qc exhausted its own budget. Move to next concept.
+    if (e.pipeline_status === 'retired') {
+      const reason = String(e.blocker_reason ?? 'retired');
+      return { outcome: classifyShelve(reason), ebook: e, reason };
+    }
+
     if (e.pipeline_status === 'human_review_required') {
       const blocker = String(e.blocker_reason ?? '');
+      // Story-gate blockers = the reviser exhausted its budget with oscillating
+      // scores. Do NOT re-poke the supervisor (it would just shelve). Auto-retire
+      // this child and rotate to a fresh concept.
+      const isStoryTerminal = /story_gate|needs_concept|oscillat|budget_exhausted:story_gate/i.test(blocker);
+      if (isStoryTerminal) {
+        await db.from('ebooks_kids').update({
+          pipeline_status: 'retired',
+          listing_status: 'draft',
+          sellable: false,
+          blocker_reason: `auto_retired_for_fresh_concept: ${blocker.slice(0, 180)}`,
+        }).eq('id', ebookId);
+        return { outcome: 'shelved_story', ebook: e, reason: `story_retired: ${blocker.slice(0, 180)}` };
+      }
+
       const now = Date.now();
       if (now - supervisorDispatchedAt > SUPERVISOR_COOLDOWN_MS) {
         supervisorDispatchedAt = now;
@@ -186,12 +206,10 @@ async function pollUntilResolved(
         invoke('kids-repair-supervisor', { ebook_id: ebookId, run_id: runId }, 145_000)
           .catch(err => console.error('supervisor dispatch error', err));
         await saveParent(db, parentRunId, {
-          status: /story_gate|needs_concept/i.test(blocker) ? 'repairing_story' : 'building_assets',
+          status: 'building_assets',
           last_blocker: blocker.slice(0, 200),
         });
       }
-      // Don't return yet — keep polling. Only storefront_meta.shelved OR the
-      // deadline should end the wait for this child.
       continue;
     }
 

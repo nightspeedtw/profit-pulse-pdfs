@@ -22,11 +22,12 @@ const MAX_PER_CLASS: Record<string, number> = {
   metadata_gate: 2,
   bible_check: 1,
   title_treatment: 1,
-  character_identity: 2,
-  pdf_glyph: 1,
+  character_identity: 3,
+  pdf_glyph: 2,
   worker_resource_limit: 2,
-  qc_missing: 3, // one per subsystem worst-case
+  qc_missing: 3,
   cover: 2,
+  image_missing: 2,
 };
 
 function json(body: unknown, status = 200) {
@@ -129,6 +130,15 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
     return { klass: 'worker_resource_limit', detail: 'worker_resource_limit' };
   }
 
+  // 7b. Image missing on interior page(s) — treat as art regression, rebuild via global style fallback.
+  const interiors = Array.isArray(ebook.interior_illustrations) ? (ebook.interior_illustrations as Array<Record<string, unknown>>) : [];
+  const anyMissing = interiors.some(p => !p?.image_url && !p?.url);
+  if (errMsg.includes('IMAGE_MISSING') || (interiors.length > 0 && interiors.length < 12) || (interiors.length >= 12 && anyMissing)) {
+    return { klass: 'image_missing', detail: `image_missing: interiors=${interiors.length}, any_missing=${anyMissing}` };
+  }
+
+
+
   // 8. QC missing.
   if (errMsg.includes('KIDS_MEASURED_QC_MISSING') || !measured) {
     // Only classify if we're past art generation.
@@ -193,7 +203,7 @@ Deno.serve(async (req) => {
       await db.from('ebooks_kids').update({
         listing_status: 'draft',
         sellable: false,
-        pipeline_status: 'human_review_required',
+        pipeline_status: 'retired',
         blocker_reason: 'supervisor_budget_exhausted',
         storefront_meta: {
           ...meta,
@@ -238,7 +248,10 @@ Deno.serve(async (req) => {
       await db.from('ebooks_kids').update({
         listing_status: 'draft',
         sellable: false,
-        pipeline_status: 'human_review_required',
+        // Autopilot must never end in human_review_required. Mark 'retired' so
+        // the parent one-click loop rotates to a fresh concept and admins see
+        // a plain-language reason instead of a manual-review flag.
+        pipeline_status: 'retired',
         blocker_reason: `budget_exhausted:${klass}:${blocker.detail}`,
         storefront_meta: {
           ...meta,
@@ -295,6 +308,12 @@ Deno.serve(async (req) => {
       case 'character_identity':
         // Any consistency failure → global style fallback (regenerates cover + interiors
         // in the stable watercolor_soft style, then re-runs multi-stage PDF + QC).
+        handler = 'kids-global-style-fallback';
+        repairBody = { ebook_id, publish_if_sellable: true };
+        break;
+      case 'image_missing':
+        // Interior page(s) have no image. Rebuild via global style fallback which
+        // regenerates all interiors + cover in the stable style.
         handler = 'kids-global-style-fallback';
         repairBody = { ebook_id, publish_if_sellable: true };
         break;
