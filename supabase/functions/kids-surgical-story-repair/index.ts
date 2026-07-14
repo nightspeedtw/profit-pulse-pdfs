@@ -215,6 +215,8 @@ Deno.serve(async (req) => {
         adopted: adopt,
         passed_after: passed,
       },
+      generic_risk_analysis: finalReport.generic_risk_analysis,
+      evidence: finalReport.evidence,
       judge_version: finalReport.judge_version,
       computed_at: finalReport.computed_at,
       manuscript_hash: newHash,

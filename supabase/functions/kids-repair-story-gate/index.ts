@@ -287,6 +287,7 @@ Deno.serve(async (req) => {
         trope_dependency: currentReport.trope_dependency_score,
       },
       generic_risk_analysis: currentReport.generic_risk_analysis,
+      evidence: currentReport.evidence,
       judge_version: currentReport.judge_version,
       computed_at: currentReport.computed_at,
       repair_attempts: attempts,

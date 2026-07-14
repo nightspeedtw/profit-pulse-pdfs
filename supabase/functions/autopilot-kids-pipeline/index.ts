@@ -285,6 +285,7 @@ async function storyGate(ctx: Ctx): Promise<StepResult> {
       trope_dependency: report.trope_dependency_score,
     },
     generic_risk_analysis: report.generic_risk_analysis,
+    evidence: report.evidence,
     judge_version: report.judge_version,
     computed_at: report.computed_at,
   };
