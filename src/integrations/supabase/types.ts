@@ -602,13 +602,6 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "cost_log_ebook_id_fkey"
-            columns: ["ebook_id"]
-            isOneToOne: false
-            referencedRelation: "ebooks"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "cost_log_idea_id_fkey"
             columns: ["idea_id"]
             isOneToOne: false
@@ -3065,15 +3058,7 @@ export type Database = {
           text_usd: number | null
           total_usd: number | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "cost_log_ebook_id_fkey"
-            columns: ["ebook_id"]
-            isOneToOne: false
-            referencedRelation: "ebooks"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       product_review_stats: {
         Row: {
