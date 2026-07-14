@@ -146,7 +146,7 @@ async function listStoragePaths(db: ReturnType<typeof createClient>, ebookId: st
 async function loadContext(db: ReturnType<typeof createClient>, ebookId: string) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: ebook } = await (db.from("ebooks_kids") as any)
-    .select("id, title, manuscript_md, cover_url, interior_illustrations, qc_scorecard, style_bible_json")
+    .select("id, title, manuscript_md, cover_url, interior_illustrations, qc_scorecard, style_bible_json, storefront_meta, kids_scene_briefs_json")
     .eq("id", ebookId).single();
   if (!ebook) throw new Error(`ebook ${ebookId} not found`);
 
