@@ -82,6 +82,7 @@ export function logAiCost(db: Db, row: LogAiCostRow): void {
       input_tokens: row.input_tokens ?? 0,
       output_tokens: out_tok,
       cost_usd: Number(cost_usd.toFixed(6)),
+      provider: row.provider ?? null,
     };
     // fire & forget
     void db.from("cost_log").insert(insertRow).then((r: { error: unknown }) => {
