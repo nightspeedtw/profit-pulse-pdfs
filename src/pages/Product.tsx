@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { fetchStorefrontById, type StorefrontEbook } from "@/lib/storefront";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, Download } from "lucide-react";
@@ -12,6 +13,7 @@ import ProductReviews from "@/components/product/ProductReviews";
 import TrustBadges from "@/components/product/TrustBadges";
 import StickyBuyBar from "@/components/product/StickyBuyBar";
 import StoryPreviewReader from "@/components/product/StoryPreviewReader";
+import StoryPreviewModule from "@/components/product/StoryPreviewModule";
 
 export default function Product() {
   const { handle } = useParams();
