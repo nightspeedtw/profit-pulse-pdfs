@@ -153,7 +153,7 @@ Deno.serve(async (req) => {
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
 
     const { data: ebook, error } = await db.from('ebooks_kids').select(
-      'id, title, subtitle, cover_url, interior_illustrations, manuscript_md, qc_scorecard',
+      'id, title, subtitle, cover_url, interior_illustrations, manuscript_md, qc_scorecard, storefront_meta',
     ).eq('id', ebook_id).single();
     if (error || !ebook) return json({ ok: false, error: 'ebook not found' }, 404);
 
@@ -167,14 +167,26 @@ Deno.serve(async (req) => {
     const recs = allRecs.slice(0, MAX_INTERIOR);
     const numStoryPages = recs.length;
 
-    const rawCaptions = splitManuscriptForSpreads(String(ebook.manuscript_md ?? ''), numStoryPages);
-    // Gate 4: hard-fail if any caption is empty or placeholder. No "Page N" fallback.
+    // KILLER 2: prefer structured segments (1:1 with story pages). The legacy
+    // splitter is kept only as a safety net for pre-segment books.
+    const segs = loadSegments(ebook as Record<string, unknown>);
+    let rawCaptions: string[];
+    let captionsSource: 'segments' | 'splitter';
+    if (segs && segs.pages.length >= numStoryPages) {
+      rawCaptions = segmentsToPageTexts(segs).slice(0, numStoryPages);
+      captionsSource = 'segments';
+    } else {
+      rawCaptions = splitManuscriptForSpreads(String(ebook.manuscript_md ?? ''), numStoryPages);
+      captionsSource = 'splitter';
+    }
+    // Safety net: this should never fire on segmented books.
     const badIdx: number[] = [];
     rawCaptions.forEach((c, i) => { if (isPlaceholderCaption(c)) badIdx.push(i); });
     if (badIdx.length) {
-      throw new Error(`text_mapping_gate: ${badIdx.length} pages have empty/placeholder captions (indices ${badIdx.slice(0,5).join(',')}${badIdx.length>5?'…':''}). Manuscript has ${rawCaptions.filter(c=>c && c.trim()).length}/${numStoryPages} usable segments — repair manuscript_md before assembly.`);
+      throw new Error(`text_mapping_gate[${captionsSource}]: ${badIdx.length} pages have empty/placeholder captions (indices ${badIdx.slice(0,5).join(',')}${badIdx.length>5?'…':''}). Manuscript has ${rawCaptions.filter(c=>c && c.trim()).length}/${numStoryPages} usable segments — repair manuscript before assembly.`);
     }
     const captions = rawCaptions;
+    console.log(`[build-picture-pdf] captions source=${captionsSource} pages=${numStoryPages}`);
 
     scorecard = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
     const job = ((scorecard.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job ?? null) as Record<string, unknown> | null;
