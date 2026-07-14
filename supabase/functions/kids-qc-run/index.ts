@@ -15,6 +15,7 @@ import { QC_RULE_VERSION } from "../_shared/qc/weights.ts";
 import { verifyTitleSpelling, type TitleTreatmentMetadata } from "../_shared/covers/kids-title-treatment.ts";
 import { computeLuminanceFromUrl } from "../_shared/image-luminance.ts";
 import { splitManuscriptForSpreads } from "../_shared/kids-picture-pdf.ts";
+import { loadSegments, segmentsToPageTexts } from "../_shared/kids-segments.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
