@@ -1,0 +1,206 @@
+// One-shot cover repair that PINS the actual interior pages as character +
+// style reference, so the cover shows the SAME kid drawn in the SAME style
+// as the story. Bakes the title INTO the artwork (hand-lettered) — no SVG
+// overlay, so there can never be double-text. Then splices the new cover
+// as PDF page 1 (leaves interior pages intact).
+//
+// Owner order (2026-07-14): fix "The Sneeze-Powered Sock Sorter" cover and
+// enshrine "cover generated from interior reference" as a permanent skill.
+
+import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+import { createClient } from 'npm:@supabase/supabase-js@2';
+import { PDFDocument } from 'npm:pdf-lib@1.17.1';
+import { geminiDirectImage, hasGeminiDirect } from '../_shared/gemini-direct.ts';
+import { qcCoverLettering } from '../_shared/qc/kids-cover-lettering-qc.ts';
+import { uploadAndSignImage, versionedKidsAssetPath, storagePathFromUrl, IMAGE_SIGNED_TTL_SECONDS } from '../_shared/versioned-assets.ts';
+
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+async function signPath(db: ReturnType<typeof createClient>, bucket: string, path: string): Promise<string> {
+  const { data, error } = await db.storage.from(bucket).createSignedUrl(path, IMAGE_SIGNED_TTL_SECONDS);
+  if (error || !data?.signedUrl) throw new Error(`sign ${path}: ${error?.message ?? 'no url'}`);
+  return data.signedUrl;
+}
+
+async function downloadBytes(url: string): Promise<Uint8Array> {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`download ${r.status}`);
+  return new Uint8Array(await r.arrayBuffer());
+}
+
+interface RepairOpts {
+  ebook_id: string;
+  max_attempts?: number;
+  splice_pdf?: boolean;
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const db = createClient(SUPABASE_URL, SERVICE_KEY);
+  try {
+    const { ebook_id, max_attempts = 3, splice_pdf = true } = (await req.json()) as RepairOpts;
+    if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
+    if (!hasGeminiDirect()) return json({ ok: false, error: 'GEMINI_API_KEY required for reference-conditioned generation' }, 500);
+
+    const { data: eb, error: ebErr } = await db.from('ebooks_kids').select('*').eq('id', ebook_id).single();
+    if (ebErr || !eb) return json({ ok: false, error: 'ebook not found' }, 404);
+
+    const title = String(eb.title ?? '').trim();
+    const subtitle = String(eb.subtitle ?? '').trim();
+    const illos = Array.isArray(eb.interior_illustrations) ? eb.interior_illustrations as Array<{ path: string; prompt?: string }> : [];
+    if (illos.length === 0) return json({ ok: false, error: 'no interior_illustrations to reference' }, 400);
+
+    // ── Pin FIRST 2 interior pages as character + style reference ──
+    const refPaths = illos.slice(0, 2).map((i) => i.path).filter(Boolean);
+    const refUrls: string[] = [];
+    for (const p of refPaths) refUrls.push(await signPath(db, 'ebook-covers', p));
+
+    // Derive character description from the first interior prompt (if present) —
+    // the reference IMAGE is authoritative, this is belt-and-suspenders text.
+    const firstPrompt = String(illos[0]?.prompt ?? '');
+    const charDesc = (() => {
+      // Extract "named X, ... perched..." blob if present.
+      const m = firstPrompt.match(/named[^.]*perched[^.]*\./i) ?? firstPrompt.match(/Hero character[^.]*\./i);
+      return (m?.[0] ?? '').slice(0, 500);
+    })();
+
+    const basePrompt = [
+      `Whimsical children's picture-book cover artwork, SQUARE 1:1 format.`,
+      `Use the two attached interior illustrations as the DEFINITIVE reference for the hero character's identity (face, skin, hair, glasses, freckles, outfit, proportions) AND for the overall art style (line quality, palette, lighting, texture). The cover MUST show the SAME child drawn in the SAME style — no restyling, no different character.`,
+      charDesc ? `Character notes: ${charDesc}` : ``,
+      `Composition: hero character centered/upper-middle, joyful hero moment from the story (the sneeze-powered sock-sorting machine whizzing socks through tubes). Warm painterly lighting, generous space in the upper third for the title.`,
+      `TYPOGRAPHY (must be drawn INTO the artwork as hand-lettered painted title): the ONLY text visible on the cover is the exact title "${title}"${subtitle ? ` and the subtitle "${subtitle}" underneath in a smaller hand-lettered style` : ''}. The lettering must be chunky, playful, bouncy baseline, watercolor-style, sitting in the upper third with clear readability armor (soft outline or shadow) so it survives at 100×160 thumbnail size.`,
+      `ABSOLUTE RULES: (1) do NOT invent any other words, names, tag-lines, author lines, publisher marks, badges, or signatures — the ONLY text is the title${subtitle ? ' + subtitle' : ''} above. (2) Spell the title EXACTLY: "${title}". (3) No glossy 3D, no stock photo, no six-finger hands, no generic purple gradient. (4) Square 1:1 aspect ratio.`,
+    ].filter(Boolean).join(' ');
+
+    let lastReason = '';
+    let bestBytes: Uint8Array | null = null;
+    let bestReport: unknown = null;
+
+    for (let attempt = 1; attempt <= max_attempts; attempt++) {
+      let bytes: Uint8Array;
+      try {
+        bytes = await geminiDirectImage({
+          prompt: basePrompt + (attempt > 1 ? ` (Previous attempt failed: ${lastReason} — fix that specifically.)` : ''),
+          referenceUrls: refUrls,
+          model: 'google/gemini-3.1-flash-image',
+        });
+      } catch (e) {
+        lastReason = `gen_error:${(e as Error).message.slice(0, 200)}`;
+        continue;
+      }
+      const qc = await qcCoverLettering({ expectedTitle: title, imageBytes: bytes });
+      const detected = String(qc.detected_title_text ?? '').trim();
+      const detectedNorm = detected.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+      const titleNorm = title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+      // "extraneous text" heuristic: detected text has 40%+ more characters
+      // than the title (allowing subtitle), OR contains a suspicious extra
+      // word not in title/subtitle.
+      const subNorm = subtitle.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+      const allowed = new Set((titleNorm + ' ' + subNorm).split(' ').filter(Boolean));
+      const extraWords = detectedNorm.split(' ').filter((w) => w.length >= 3 && !allowed.has(w));
+      const extraneous = extraWords.length > 0;
+
+      const passReport = {
+        attempt,
+        qc,
+        detected,
+        extraneous_words: extraWords,
+      };
+      bestReport = passReport;
+      bestBytes = bytes; // keep latest as fallback
+
+      if (qc.passed && !extraneous) {
+        // success
+        console.log('cover repaired attempt', attempt, 'title=', detected);
+        break;
+      }
+      lastReason = qc.reasons.concat(extraneous ? [`extraneous_text:${extraWords.slice(0, 3).join(',')}`] : []).join('; ') || 'unknown';
+      if (attempt === max_attempts) {
+        return json({
+          ok: false,
+          error: `cover_repair_qc_failed_after_${max_attempts}`,
+          last_reason: lastReason,
+          report: passReport,
+        }, 422);
+      }
+    }
+    if (!bestBytes) return json({ ok: false, error: 'no cover bytes produced' }, 500);
+
+    // ── Upload versioned cover ──
+    const coverPath = versionedKidsAssetPath(ebook_id, 'cover');
+    const { signedUrl: coverUrl } = await uploadAndSignImage(db, 'ebook-covers', coverPath, bestBytes);
+
+    // ── Splice PDF page 1 (keep everything else) ──
+    let pdfUrlOut: string | null = null;
+    if (splice_pdf && eb.pdf_url) {
+      try {
+        const pdfPath = storagePathFromUrl(eb.pdf_url as string, 'ebook-pdfs');
+        if (!pdfPath) throw new Error('cannot resolve pdf storage path');
+        const signedPdf = await signPath(db, 'ebook-pdfs', pdfPath);
+        const existingPdf = await downloadBytes(signedPdf);
+        const doc = await PDFDocument.load(existingPdf);
+        // Preserve original page 1 size (this book is legacy 612×792).
+        const page0 = doc.getPage(0);
+        const { width: w0, height: h0 } = page0.getSize();
+        // Insert new cover page at index 0, then remove old page 1 (now index 1).
+        const newPage = doc.insertPage(0, [w0, h0]);
+        const img = await doc.embedPng(bestBytes);
+        const scale = Math.max(w0 / img.width, h0 / img.height);
+        const dw = img.width * scale;
+        const dh = img.height * scale;
+        newPage.drawImage(img, { x: (w0 - dw) / 2, y: (h0 - dh) / 2, width: dw, height: dh });
+        doc.removePage(1);
+        const rebuilt = await doc.save();
+        // Upload versioned PDF path
+        const newPdfPath = `kids/${ebook_id}/book-${Date.now()}-repaired.pdf`;
+        const up = await db.storage.from('ebook-pdfs').upload(newPdfPath, rebuilt, {
+          contentType: 'application/pdf', upsert: false,
+        });
+        if (up.error) throw up.error;
+        const { data: signed } = await db.storage.from('ebook-pdfs').createSignedUrl(newPdfPath, IMAGE_SIGNED_TTL_SECONDS);
+        pdfUrlOut = signed?.signedUrl ?? null;
+      } catch (e) {
+        console.error('pdf splice failed', e);
+      }
+    }
+
+    const existingMeta = (eb.storefront_meta as Record<string, unknown> | null) ?? {};
+    const patch: Record<string, unknown> = {
+      cover_url: coverUrl,
+      thumbnail_url: coverUrl,
+      storefront_meta: {
+        ...existingMeta,
+        cover_source: 'interior_reference_v1',
+        cover_repaired_at: new Date().toISOString(),
+        cover_qc_report: bestReport,
+        legacy_format: (page_count_is_legacy(eb.page_count as number | null) ? true : (existingMeta.legacy_format ?? false)),
+      },
+    };
+    if (pdfUrlOut) patch.pdf_url = pdfUrlOut;
+    await db.from('ebooks_kids').update(patch).eq('id', ebook_id);
+
+    return json({
+      ok: true,
+      ebook_id,
+      cover_url: coverUrl,
+      pdf_url: pdfUrlOut,
+      report: bestReport,
+    });
+  } catch (e) {
+    console.error('kids-repair-cover-from-interior error', e);
+    return json({ ok: false, error: String((e as Error)?.message ?? e) }, 500);
+  }
+});
+
+function page_count_is_legacy(n: number | null | undefined): boolean {
+  if (!n) return false;
+  return n < 20; // pre-standard 32-40p book
+}
