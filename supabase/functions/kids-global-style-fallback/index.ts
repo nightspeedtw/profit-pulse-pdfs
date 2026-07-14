@@ -21,6 +21,7 @@ import { falRecraftV3 } from '../_shared/fal.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
 import { buildScenePlan, renderInteriorIllustrations } from '../_shared/kids-interior.ts';
 import { buildPicturePdf } from '../_shared/kids-picture-pdf.ts';
+import { uploadAndSignImage, versionedKidsAssetPath } from '../_shared/versioned-assets.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -232,13 +233,9 @@ Deno.serve(async (req) => {
         image_size: 'portrait_4_3',
         negative_prompt: negativePrompt.slice(0, 480),
       });
-      const masterPath = `kids/${ebook_id}/cover-master.png`;
-      const upMaster = await db.storage.from('ebook-covers').upload(masterPath, coverBytes, {
-        contentType: 'image/png', upsert: true,
-      });
-      if (upMaster.error) throw upMaster.error;
-      const { data: masterSigned } = await db.storage.from('ebook-covers').createSignedUrl(masterPath, 60 * 60 * 24 * 365);
-      coverMasterUrl = masterSigned?.signedUrl ?? null;
+      const masterPath = versionedKidsAssetPath(ebook_id, 'cover-master');
+      const masterSigned = await uploadAndSignImage(db, 'ebook-covers', masterPath, coverBytes);
+      coverMasterUrl = masterSigned.signedUrl;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (db.from('kids_book_bibles') as any).update({ cover_master_url: coverMasterUrl }).eq('ebook_id', ebook_id);
       log.push({ step: 'cover_master', status: 'regenerated' });
@@ -254,13 +251,9 @@ Deno.serve(async (req) => {
         ageBadge: ageBand ? `AGES ${ageBand}` : null,
         width: 1600, height: 1600,
       });
-      const composedPath = `kids/${ebook_id}/cover.png`;
-      const upComposed = await db.storage.from('ebook-covers').upload(composedPath, treatment.png, {
-        contentType: 'image/png', upsert: true,
-      });
-      if (upComposed.error) throw upComposed.error;
-      const { data: composedSigned } = await db.storage.from('ebook-covers').createSignedUrl(composedPath, 60 * 60 * 24 * 365);
-      const coverUrl = composedSigned?.signedUrl ?? null;
+      const composedPath = versionedKidsAssetPath(ebook_id, 'cover');
+      const composedSigned = await uploadAndSignImage(db, 'ebook-covers', composedPath, treatment.png);
+      const coverUrl = composedSigned.signedUrl;
 
       const existingMeta = (ebook.storefront_meta as Record<string, unknown> | null) ?? {};
       await db.from('ebooks_kids').update({

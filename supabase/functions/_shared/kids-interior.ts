@@ -1,3 +1,5 @@
+import { uploadAndSignImage, versionedKidsInteriorPath } from './versioned-assets.ts';
+
 // Kids interior illustration generator.
 //
 // Strategy:
@@ -219,13 +221,8 @@ export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Pro
 
   async function persistOne(i: number, bytes: Uint8Array, model: string, prompt: string, hash: string) {
     const s = opts.scenes[i];
-    const path = `kids/${opts.ebookId}/interior/page-${String(i + 1).padStart(2, "0")}.png`;
-    const up = await opts.db.storage.from("ebook-covers").upload(path, bytes, {
-      contentType: "image/png", upsert: true,
-    });
-    if (up.error) throw up.error;
-    const { data: signed } = await opts.db.storage.from("ebook-covers").createSignedUrl(path, 60 * 60 * 24 * 365);
-    if (!signed?.signedUrl) throw new Error(`no signed url for ${path}`);
+    const path = versionedKidsInteriorPath(opts.ebookId, i);
+    const signed = await uploadAndSignImage(opts.db, "ebook-covers", path, bytes);
     records[i] = {
       index: i + 1, page_number: opts.startPageNumber + i, scene: s.scene,
       prompt, url: signed.signedUrl, path, model, bytes: bytes.length, hash,
@@ -317,13 +314,8 @@ export async function renderAndUploadOne(o: RenderOneOpts): Promise<SceneRecord>
   }
 
   const hash = await sha256Hex(out.bytes);
-  const path = `kids/${o.ebookId}/interior/page-${String(o.sceneIndex + 1).padStart(2, "0")}.png`;
-  const up = await o.db.storage.from("ebook-covers").upload(path, out.bytes, {
-    contentType: "image/png", upsert: true,
-  });
-  if (up.error) throw up.error;
-  const { data: signed } = await o.db.storage.from("ebook-covers").createSignedUrl(path, 60 * 60 * 24 * 365);
-  if (!signed?.signedUrl) throw new Error(`no signed url for ${path}`);
+  const path = versionedKidsInteriorPath(o.ebookId, o.sceneIndex);
+  const signed = await uploadAndSignImage(o.db, "ebook-covers", path, out.bytes);
 
   return {
     index: o.sceneIndex + 1,

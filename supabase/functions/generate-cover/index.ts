@@ -13,6 +13,7 @@ import {
 import { buildKidsCoverSVG, buildKidsCoverSVGWithMetrics, buildKidsCoverSVGLetteringOnly, rasterizeKidsSVG } from "../_shared/covers/kids-cover-render.ts";
 import { buildKidsCoverQc } from "../_shared/qc/kids-cover-qc.ts";
 import { qcCoverLettering } from "../_shared/qc/kids-cover-lettering-qc.ts";
+import { uploadAndSignImage, versionedEbookAssetPath } from "../_shared/versioned-assets.ts";
 
 /** How many lines the kids title will wrap to — mirrors the SVG builder's rule. */
 function wrapKidsTitle(title: string): number {
@@ -575,6 +576,8 @@ async function processCover(ebook: EbookRow, opts: ProcessOpts) {
     let lastReasons: string[] = [];
     let lastAssetType: ThumbnailAssetType | null = null;
     let passed = false;
+    let coverPathForSign = `${ebook_id}/cover.png`;
+    let thumbPathForSign = `${ebook_id}/thumbnail.png`;
 
     // Single attempt per invocation to stay under Edge Runtime CPU cap.
     // The autopilot-recovery-worker + autofix-action loop retries externally
@@ -776,11 +779,11 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
           usedMode = "svg_overlay_fallback";
         }
 
-        const kidsCoverPath = `${ebook_id}/cover.png`;
-        await db.storage.from("ebook-covers").upload(kidsCoverPath, kidsCoverPng!, { contentType: "image/png", upsert: true });
-        // Kids thumbnail = the same composed cover (passthrough); no 3D mockup.
-        const kidsThumbPath = `${ebook_id}/thumbnail.png`;
-        await db.storage.from("ebook-covers").upload(kidsThumbPath, kidsCoverPng!, { contentType: "image/png", upsert: true });
+        const kidsCoverPath = versionedEbookAssetPath(ebook_id, 'cover');
+        await uploadAndSignImage(db, "ebook-covers", kidsCoverPath, kidsCoverPng!);
+        // Kids thumbnail = the same composed cover (passthrough); no duplicate CDN path.
+        coverPathForSign = kidsCoverPath;
+        thumbPathForSign = kidsCoverPath;
 
         const kidsQc = buildKidsCoverQc({
           hasBible: !!bible && (bible.characters?.length ?? 0) > 0,
@@ -841,14 +844,16 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
         // book-mockup thumbnail so we don't pay for the same raster twice.
         const svg = buildCoverSVG(spec, bgBytes!);
         const coverPng = await rasterizeSVG(svg, 1200);
-        const coverPath = `${ebook_id}/cover.png`;
-        await db.storage.from("ebook-covers").upload(coverPath, coverPng, { contentType: "image/png", upsert: true });
+        const coverPath = versionedEbookAssetPath(ebook_id, 'cover');
+        await uploadAndSignImage(db, "ebook-covers", coverPath, coverPng);
+        coverPathForSign = coverPath;
 
         const thumbResult = await renderThumbnail(spec, bgBytes!, coverPng, styleRef);
         const thumbPng = thumbResult.bytes;
         const thumbAssetType: ThumbnailAssetType = thumbResult.assetType;
-        const thumbPath = `${ebook_id}/thumbnail.png`;
-        await db.storage.from("ebook-covers").upload(thumbPath, thumbPng, { contentType: "image/png", upsert: true });
+        const thumbPath = versionedEbookAssetPath(ebook_id, 'thumbnail');
+        await uploadAndSignImage(db, "ebook-covers", thumbPath, thumbPng);
+        thumbPathForSign = thumbPath;
 
         // 4) QC — asset-type-aware rubric (photoreal_mockup vs flat_cover_fallback).
         const qc = await aiJSON<QCResult>({
@@ -878,9 +883,9 @@ ${JSON.stringify(spec, null, 2)}`,
     }
 
     const [{ data: coverSigned }, { data: bgSigned }, { data: thumbSigned }] = await Promise.all([
-      db.storage.from("ebook-covers").createSignedUrl(`${ebook_id}/cover.png`, 60 * 60 * 24 * 365),
+      db.storage.from("ebook-covers").createSignedUrl(coverPathForSign, 60 * 60 * 24 * 365),
       db.storage.from("ebook-covers").createSignedUrl(`${ebook_id}/bg.png`, 60 * 60 * 24 * 365),
-      db.storage.from("ebook-covers").createSignedUrl(`${ebook_id}/thumbnail.png`, 60 * 60 * 24 * 365),
+      db.storage.from("ebook-covers").createSignedUrl(thumbPathForSign, 60 * 60 * 24 * 365),
     ]);
 
     const finalAssetType: ThumbnailAssetType = lastAssetType ?? "flat_cover_fallback";

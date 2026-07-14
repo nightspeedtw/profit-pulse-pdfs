@@ -256,8 +256,13 @@ Deno.serve(async (req) => {
     const storagePaths = await listStoragePaths(db, ebookId);
     const doneIdx = new Set<number>();
     for (const r of existing) {
-      const fname = `page-${String(r.index).padStart(2, "0")}.png`;
-      if (storagePaths.has(fname)) doneIdx.add(r.index - 1);
+      const legacyName = `page-${String(r.index).padStart(2, "0")}.png`;
+      const recordedName = typeof (r as { path?: unknown }).path === 'string'
+        ? String((r as { path: string }).path).split('/').pop()
+        : null;
+      if ((recordedName && storagePaths.has(recordedName)) || storagePaths.has(legacyName)) {
+        doneIdx.add(r.index - 1);
+      }
     }
 
     const missing: number[] = [];

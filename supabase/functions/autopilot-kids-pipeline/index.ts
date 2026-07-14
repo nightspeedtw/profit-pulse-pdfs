@@ -9,6 +9,7 @@ import { buildScenePlan } from '../_shared/kids-interior.ts';
 import { runKidsStoryJudge } from '../_shared/kids-story-judge.ts';
 import { detectBibleStoryMismatch, detectMetadataStoryMismatch, METADATA_STORY_MISMATCH } from '../_shared/bible-story-mismatch.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
+import { uploadAndSignImage, versionedKidsAssetPath } from '../_shared/versioned-assets.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -533,13 +534,9 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
   if (!refUrl) {
     const refPrompt = `Character reference sheet: a friendly children's book hero ${charDesc}. Full body, front view, neutral pose, plain white background, clear features, ${styleSuffix}`;
     const refBytes = await falFluxSchnell({ prompt: refPrompt, image_size: 'square_hd' });
-    const refPath = `kids/${ctx.ebookId}/character-ref.png`;
-    const up = await db.storage.from('ebook-covers').upload(refPath, refBytes, {
-      contentType: 'image/png', upsert: true,
-    });
-    if (up.error) throw up.error;
-    const { data: refSigned } = await db.storage.from('ebook-covers').createSignedUrl(refPath, 60 * 60 * 24 * 365);
-    refUrl = refSigned?.signedUrl ?? null;
+    const refPath = versionedKidsAssetPath(ctx.ebookId, 'character-ref');
+    const refSigned = await uploadAndSignImage(db, 'ebook-covers', refPath, refBytes);
+    refUrl = refSigned.signedUrl;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (db.from('kids_book_bibles') as any).update({
       character_reference_image_url: refUrl,
@@ -569,13 +566,9 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
 
   // Upload the TEXTLESS AI master (used as the visual anchor for interior gen
   // and as the input to the illustrated title-treatment compositor).
-  const masterPath = `kids/${ctx.ebookId}/cover-master.png`;
-  const upMaster = await db.storage.from('ebook-covers').upload(masterPath, coverBytes, {
-    contentType: 'image/png', upsert: true,
-  });
-  if (upMaster.error) throw upMaster.error;
-  const { data: masterSigned } = await db.storage.from('ebook-covers').createSignedUrl(masterPath, 60 * 60 * 24 * 365);
-  const coverMasterUrl = masterSigned?.signedUrl ?? null;
+  const masterPath = versionedKidsAssetPath(ctx.ebookId, 'cover-master');
+  const masterSigned = await uploadAndSignImage(db, 'ebook-covers', masterPath, coverBytes);
+  const coverMasterUrl = masterSigned.signedUrl;
 
   // Compose the illustrated title treatment (hand-lettered feel, layered
   // stroke/shadow/highlight/texture, per-letter jitter, themed decorations).
@@ -596,13 +589,9 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     height: 1600,
   });
 
-  const composedPath = `kids/${ctx.ebookId}/cover.png`;
-  const up = await db.storage.from('ebook-covers').upload(composedPath, treatment.png, {
-    contentType: 'image/png', upsert: true,
-  });
-  if (up.error) throw up.error;
-  const { data: pub } = await db.storage.from('ebook-covers').createSignedUrl(composedPath, 60 * 60 * 24 * 365);
-  const coverUrl = pub?.signedUrl ?? null;
+  const composedPath = versionedKidsAssetPath(ctx.ebookId, 'cover');
+  const pub = await uploadAndSignImage(db, 'ebook-covers', composedPath, treatment.png);
+  const coverUrl = pub.signedUrl;
 
   // Store both: textless master (interior anchor) + composed cover (product asset).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -613,6 +602,7 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
   const existingMeta = (ctx.ebook.storefront_meta ?? {}) as Record<string, unknown>;
   await db.from('ebooks_kids').update({
     cover_url: coverUrl,
+    thumbnail_url: coverUrl,
     status: 'rendering', pipeline_status: 'rendering',
     storefront_meta: { ...existingMeta, title_treatment: treatment.metadata },
   }).eq('id', ctx.ebookId);

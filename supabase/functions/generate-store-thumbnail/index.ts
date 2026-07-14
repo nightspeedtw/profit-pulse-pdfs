@@ -10,6 +10,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/stripe.ts";
 import { buildStoreThumbnailSVG, rasterizeThumbnail, qcThumbnail } from "../_shared/store-thumbnail.ts";
 import { generateBookMockup } from "../_shared/book-mockup.ts";
+import { uploadAndSignImage, versionedEbookAssetPath } from "../_shared/versioned-assets.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -209,13 +210,8 @@ Deno.serve(async (req) => {
     }
 
     // Upload
-    const path = `${ebookId}/store_thumbnail.png`;
-    const { error: upErr } = await supabase.storage.from("ebook-covers")
-      .upload(path, bytes, { contentType: "image/png", upsert: true });
-    if (upErr) throw upErr;
-    const { data: signed, error: signErr } = await supabase.storage.from("ebook-covers")
-      .createSignedUrl(path, SIGNED_TTL);
-    if (signErr) throw signErr;
+    const path = versionedEbookAssetPath(ebookId, 'store-thumbnail');
+    const signed = await uploadAndSignImage(supabase, "ebook-covers", path, bytes, SIGNED_TTL);
 
     const url = signed.signedUrl;
 
