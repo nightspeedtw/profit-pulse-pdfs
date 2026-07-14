@@ -361,10 +361,13 @@ Deno.serve(async (req) => {
     const judged: JudgedConcept[] = [];
     const triedTitles: string[] = [...seedAvoid];
 
+    const db = createClient(SUPABASE_URL, SERVICE_KEY);
+    const skillBlock = await loadStoryCraftBlock(db, ageBand);
+
     // Attempt 1
     let c1: Concept;
     try {
-      c1 = await generateConcept(ageBand, triedTitles, 'primary', batchLane);
+      c1 = await generateConcept(ageBand, triedTitles, 'primary', skillBlock, batchLane);
     } catch (e) {
       return json({ ok: false, error: `concept1_gen_failed: ${(e as Error).message.slice(0, 200)}` }, 500);
     }
@@ -378,7 +381,7 @@ Deno.serve(async (req) => {
     if (!e1.passed) {
       for (let i = 0; i < 2; i++) {
         try {
-          const cN = await generateConcept(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`, batchLane);
+          const cN = await generateConcept(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`, skillBlock, batchLane);
           triedTitles.push(cN.title);
           const sN = await scoreConcept(cN, ageBand);
           const bN = detectBannedLaneHits(cN);
