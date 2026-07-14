@@ -53,9 +53,17 @@ function buildRewritePrompt(
   const blockers = blockersFromReport(report);
   const genericDetails = report.generic_risk_analysis?.generic_details ?? [];
   const distinctiveDetails = report.generic_risk_analysis?.distinctive_details ?? [];
-  const evidenceLines = (report.evidence ?? []).slice(0, 8).map(e =>
+  const allEvidence = report.evidence ?? [];
+  const evidenceLines = allEvidence.slice(0, 12).map(e =>
     `- ${e.dimension}: ${e.reason}${e.quote ? ` — "${e.quote}"` : ''} → repair: ${e.repair_action}`
   ).join('\n');
+  // Per-dimension verbatim critique — feed the reviser the judge's actual words
+  // for the failing dimensions so it stops guessing and oscillating.
+  function critiqueFor(dim: string): string {
+    const rows = allEvidence.filter(e => (e.dimension ?? '').toLowerCase().includes(dim));
+    if (rows.length === 0) return '';
+    return rows.slice(0, 4).map(r => `    · ${r.reason}${r.quote ? ` — "${r.quote}"` : ''} → ${r.repair_action}`).join('\n');
+  }
 
   const dimensionalGuidance: string[] = [];
   if (report.generic_story_risk_score > 25) {
