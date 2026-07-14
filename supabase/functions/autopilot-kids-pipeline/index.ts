@@ -2,7 +2,7 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { falFluxSchnell, falRecraftV3 } from '../_shared/fal.ts';
 import { pickStyle, markStyleUsed } from '../_shared/style-picker.ts';
-import { buildScenePlan, renderInteriorIllustrations } from '../_shared/kids-interior.ts';
+import { buildScenePlan } from '../_shared/kids-interior.ts';
 // PDF assembly is delegated to the multi-stage `kids-build-picture-pdf`
 // worker — no direct pdf-lib import needed here.
 
@@ -33,7 +33,7 @@ type Step = {
   critical?: boolean;
   run: (ctx: Ctx) => Promise<StepResult>;
 };
-type Ctx = { supabase: ReturnType<typeof createClient>; ebookId: string; ebook: Record<string, unknown> };
+type Ctx = { supabase: ReturnType<typeof createClient>; ebookId: string; ebook: Record<string, unknown>; runId?: string };
 
 const STEPS: Step[] = [
   { name: 'generate_idea', label: 'Generate story idea', critical: true, run: generateIdea },
