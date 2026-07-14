@@ -18,7 +18,7 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
 
-const MIN_INTERIOR = 12;
+const MIN_INTERIOR = 28; // square picture-book default: 28-36 story pages
 const MIN_PREVIEWS = 3;
 
 async function callAI(prompt: string, system: string): Promise<string> {
