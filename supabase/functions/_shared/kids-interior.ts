@@ -314,13 +314,21 @@ export async function renderAndUploadOne(o: RenderOneOpts): Promise<SceneRecord>
 
   let out: { bytes: Uint8Array; model: string; prompt: string };
   if (useReference) {
+    // CHARACTER PAGES MUST USE REFERENCE-CONDITIONED GENERATION.
+    // Fal Schnell has no image conditioning → guaranteed off-model drift.
+    // If gemini fails, retry once with a longer nudge, then throw so the
+    // caller records the failure and the batch retries next invocation
+    // instead of silently producing a wrong-character page.
     try {
       out = await renderOneReference(o.scene, o.characterDescription, o.styleSuffix, refs, attempt, o.ebookId, step);
     } catch (e) {
-      console.warn(`ref-gen page ${o.sceneIndex + 1} failed, fal fallback:`, (e as Error).message);
-      out = await renderOneFal(o.scene, o.characterDescription, o.styleSuffix, o.negativePrompt, attempt);
+      console.warn(`ref-gen page ${o.sceneIndex + 1} attempt ${attempt} failed:`, (e as Error).message);
+      out = await renderOneReference(o.scene, o.characterDescription, o.styleSuffix, refs, attempt + 1, o.ebookId, step);
     }
   } else {
+    // No cover reference yet (should never happen after cover step) — fall back
+    // to Fal so the pipeline doesn't hard-block, and log loudly.
+    console.warn(`[kids-interior] no cover reference for page ${o.sceneIndex + 1} — using Fal fallback (character drift risk)`);
     out = await renderOneFal(o.scene, o.characterDescription, o.styleSuffix, o.negativePrompt, attempt);
   }
 
