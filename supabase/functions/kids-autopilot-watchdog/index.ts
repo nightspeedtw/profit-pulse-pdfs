@@ -21,20 +21,39 @@ function json(body: unknown, status = 200) {
   });
 }
 
-async function dispatchSupervisor(row: { id: string; title?: string | null; pipeline_status?: string | null }) {
+async function dispatchSupervisor(row: { id: string; title?: string | null; pipeline_status?: string | null }): Promise<Record<string, unknown>> {
   const ctl = new AbortController();
-  const timeout = setTimeout(() => ctl.abort(), 10_000);
+  const timeout = setTimeout(() => ctl.abort(), 25_000);
   try {
+    // Synchronous supervisor call so we see the ACTUAL decision (resumed /
+    // no_op / shelved / repaired / error) instead of just 202-accepted. That
+    // makes silent declines visible in watchdog logs.
     const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-      body: JSON.stringify({ ebook_id: row.id, source: 'kids-autopilot-watchdog', async: true }),
+      body: JSON.stringify({ ebook_id: row.id, source: 'kids-autopilot-watchdog' }),
       signal: ctl.signal,
     });
     const t = await r.text().catch(() => '');
-    console.log('watchdog dispatched supervisor', JSON.stringify({ ebook_id: row.id, status: r.status, body: t.slice(0, 240) }));
+    let parsed: Record<string, unknown> = {};
+    try { parsed = JSON.parse(t); } catch { parsed = { raw: t.slice(0, 240) }; }
+    const summary = {
+      ebook_id: row.id,
+      title: row.title ?? null,
+      status_before: row.pipeline_status ?? null,
+      http_status: r.status,
+      result: parsed.result ?? null,
+      kind: parsed.kind ?? null,
+      blocker_class: parsed.blocker_class ?? null,
+      reason: parsed.reason ?? null,
+      handler: parsed.handler ?? null,
+    };
+    console.log('watchdog supervisor decision', JSON.stringify(summary));
+    return summary;
   } catch (e) {
-    console.error('watchdog supervisor dispatch failed', JSON.stringify({ ebook_id: row.id, error: String((e as Error).message ?? e) }));
+    const err = { ebook_id: row.id, error: String((e as Error).message ?? e) };
+    console.error('watchdog supervisor dispatch failed', JSON.stringify(err));
+    return { ...err, result: 'error' };
   } finally {
     clearTimeout(timeout);
   }
@@ -69,7 +88,8 @@ async function scanAndDispatch() {
     if (error) throw error;
 
     console.log('watchdog scan complete', JSON.stringify({ checked_at: new Date().toISOString(), stuck_count: stuck?.length ?? 0 }));
-    await Promise.allSettled((stuck ?? []).map(dispatchSupervisor));
+    const decisions = await Promise.all((stuck ?? []).map(dispatchSupervisor));
+    console.log('watchdog decisions summary', JSON.stringify({ n: decisions.length, decisions }));
 
     const { data: parentRuns, error: parentErr } = await db
       .from('autopilot_kids_runs')

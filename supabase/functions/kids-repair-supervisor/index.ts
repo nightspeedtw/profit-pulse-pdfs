@@ -259,14 +259,18 @@ Deno.serve(async (req) => {
     }
 
     const meta = (ebook.storefront_meta as Record<string, unknown> | null) ?? {};
-    const totalAttempts = ((meta.repair_supervisor as { entries?: RepairEntry[] } | undefined)?.entries?.length) ?? 0;
+    const allEntries = ((meta.repair_supervisor as { entries?: RepairEntry[] } | undefined)?.entries) ?? [];
+    // Free resume entries (see tryFreeResume below) never count toward the
+    // repair budget — resuming an interrupted build is not a repair.
+    const FREE_CLASSES = new Set(['resume_interior', 'resume_pdf']);
+    const totalAttempts = allEntries.filter(e => !FREE_CLASSES.has(e.blocker_class)).length;
     const stage_before = latestFailedStep?.step_name ?? String(ebook.pipeline_status ?? 'unknown');
     if (totalAttempts >= 12) {
       await db.from('ebooks_kids').update({
         listing_status: 'draft',
         sellable: false,
         pipeline_status: 'retired',
-        blocker_reason: 'supervisor_budget_exhausted',
+        blocker_reason: 'supervisor_declined: budget_exhausted',
         storefront_meta: {
           ...meta,
           shelved: {
@@ -299,11 +303,97 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ---- FREE RESUME PATH (always allowed, does not consume repair budget) ----
+    // Resuming an interrupted staged build is NOT a repair. If the book is mid-flight
+    // (illustrating / pdf_building) and its state is coherent, hand it back to the
+    // stage function.
+    {
+      const status = String(ebook.pipeline_status ?? '');
+      const interiors = Array.isArray(ebook.interior_illustrations)
+        ? (ebook.interior_illustrations as Array<Record<string, unknown>>) : [];
+      const hasPdf = Boolean(ebook.pdf_url);
+      const scenePlan = (scorecard.scene_plan as { scenes?: unknown[] } | undefined);
+      const plannedCount = Array.isArray(scenePlan?.scenes) ? scenePlan!.scenes!.length : 0;
+      // Expected interior count: prefer persisted scene plan; else 28 for 4-6 age
+      // band standard; else 16 as safety floor above MIN_TOTAL=12.
+      const expected = plannedCount > 0 ? plannedCount : 28;
+      const inFlight = status === 'illustrating' || status === 'pdf_building';
+
+      if (!hasPdf && inFlight && interiors.length < expected) {
+        const r = await invoke('kids-render-interior', { ebook_id });
+        const t = await r.text().catch(() => '');
+        await appendLog(db, ebook_id, {
+          attempt: totalAttempts + 1,
+          current_blocker: `interior_incomplete:${interiors.length}/${expected}`,
+          blocker_class: 'resume_interior',
+          repair_handler: 'kids-render-interior (free resume)',
+          stage_before, stage_after: status,
+          result: 'no_op',
+          detail: { free_resume: true, dispatch_status: r.status, body: t.slice(0, 240) },
+          updated_at: new Date().toISOString(),
+        });
+        return json({ ok: true, result: 'resumed', kind: 'resume_interior', have: interiors.length, expected, dispatch_status: r.status });
+      }
+
+      if (!hasPdf && status === 'pdf_building' && interiors.length >= Math.min(expected, 12)) {
+        const r = await invoke('kids-build-picture-pdf', { ebook_id, publish: true, stage: 'resume' });
+        const t = await r.text().catch(() => '');
+        await appendLog(db, ebook_id, {
+          attempt: totalAttempts + 1,
+          current_blocker: 'pdf_build_incomplete',
+          blocker_class: 'resume_pdf',
+          repair_handler: 'kids-build-picture-pdf (free resume)',
+          stage_before, stage_after: status,
+          result: 'no_op',
+          detail: { free_resume: true, dispatch_status: r.status, body: t.slice(0, 240) },
+          updated_at: new Date().toISOString(),
+        });
+        return json({ ok: true, result: 'resumed', kind: 'resume_pdf', dispatch_status: r.status });
+      }
+    }
+
     const blocker = detectBlocker(ebook, latestFailedStep);
 
     if (!blocker) {
-      // If we can't recognize a blocker, try resuming the pipeline once (in case
-      // it's just paused mid-way). Otherwise shelve.
+      // No recognizable blocker AND no free-resume path applied. Count how many
+      // consecutive unrecognized no-ops we've already had — after 3, retire so
+      // the parent run rotates instead of the book sitting in silent limbo.
+      let consecUnknown = 0;
+      for (let i = allEntries.length - 1; i >= 0; i--) {
+        if (allEntries[i].blocker_class === 'unknown') consecUnknown++;
+        else break;
+      }
+      const currentStatus = String(ebook.pipeline_status ?? 'unknown');
+      const isTerminal = ['live', 'published', 'retired', 'exhausted', 'shelved'].includes(currentStatus);
+      if (consecUnknown >= 2 || isTerminal) {
+        // NO SILENT DEAD-ENDS: retire with a clear reason so the parent
+        // one-click loop rotates to a fresh concept.
+        await db.from('ebooks_kids').update({
+          listing_status: 'draft',
+          sellable: false,
+          pipeline_status: 'retired',
+          blocker_reason: `supervisor_declined: unrecognized_stall in ${currentStatus}`,
+          storefront_meta: {
+            ...meta,
+            shelved: {
+              reason: 'supervisor_declined_unrecognized_stall',
+              status_at_retire: currentStatus,
+              consec_unknown: consecUnknown + 1,
+              shelved_at: new Date().toISOString(),
+            },
+          },
+        }).eq('id', ebook_id);
+        await appendLog(db, ebook_id, {
+          attempt: totalAttempts + 1,
+          current_blocker: `unrecognized_stall_in_${currentStatus}`,
+          blocker_class: 'unknown',
+          repair_handler: 'retire',
+          stage_before, stage_after: 'retired', result: 'shelved',
+          detail: { consec_unknown: consecUnknown + 1 },
+          updated_at: new Date().toISOString(),
+        });
+        return json({ ok: true, result: 'shelved', reason: 'supervisor_declined_unrecognized_stall' });
+      }
       if (run_id && ebook.listing_status !== 'live') {
         await resumePipeline(run_id);
         await appendLog(db, ebook_id, {
