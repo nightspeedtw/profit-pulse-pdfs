@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
   try {
-    const { ebook_id, run_id, skip_vision = false, skip_story = false, use_cached_story_judge_if_hash_matches = false } = await req.json();
+    const { ebook_id, run_id, skip_vision = false, skip_story = false, use_cached_story_judge_if_hash_matches = false, auto_repair_on_fail = true } = await req.json();
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
 
     const { data: ebook, error } = await supabase
@@ -224,12 +224,17 @@ Deno.serve(async (req) => {
       rule_id: f.rule_id, category: f.category, passed: f.passed, severity: f.severity,
     })));
 
+    const existingScorecard = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
+    const preservedScorecard: Record<string, unknown> = {};
+    if (existingScorecard.final_text_repair) preservedScorecard.final_text_repair = existingScorecard.final_text_repair;
+    if (existingScorecard.repair_log) preservedScorecard.repair_log = existingScorecard.repair_log;
+
     await supabase.from("ebooks_kids").update({
       sellable: verdict.sellable,
       overall_qc_score: verdict.overall_score,
       qc_rule_version: QC_RULE_VERSION,
       qc_scorecard: {
-        ...(((ebook.qc_scorecard as Record<string, unknown> | null)?.final_text_repair as Record<string, unknown> | null) ? { final_text_repair: (ebook.qc_scorecard as Record<string, unknown>).final_text_repair } : {}),
+        ...preservedScorecard,
         version: QC_RULE_VERSION,
         overall_score: verdict.overall_score,
         category_scores: verdict.category_scores,
@@ -246,9 +251,19 @@ Deno.serve(async (req) => {
         computed_at: new Date().toISOString(),
       },
       human_review_reason: verdict.sellable ? null : verdict.reasons.join(" | "),
+      blocker_reason: verdict.sellable ? null : verdict.reasons.join(" | "),
     }).eq("id", ebook_id);
 
-    return json({ ok: true, verdict, finding_count: raw.length, vision_report: visionReport, story_report: storyReport, story_qc_status: storyStatus, manuscript_hash: manuscriptHash, pdf_glyph_audit: glyphAudit.audit });
+    if (!verdict.sellable && auto_repair_on_fail) {
+      // @ts-expect-error EdgeRuntime is a Deno Deploy global
+      EdgeRuntime.waitUntil(fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
+        body: JSON.stringify({ ebook_id, run_id: run_id ?? undefined, source: "kids-qc-run", async: true }),
+      }).then((r) => r.text()).catch((e) => console.error("kids-qc-run supervisor dispatch failed", e)));
+    }
+
+    return json({ ok: true, verdict, finding_count: raw.length, vision_report: visionReport, story_report: storyReport, story_qc_status: storyStatus, manuscript_hash: manuscriptHash, pdf_glyph_audit: glyphAudit.audit, supervisor_dispatched: !verdict.sellable && auto_repair_on_fail });
   } catch (e) {
     console.error(e);
     return json({ ok: false, error: String(e) }, 500);

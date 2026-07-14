@@ -58,15 +58,38 @@ async function invoke(path: string, body: Record<string, unknown>): Promise<Resp
   });
 }
 
+async function invokeSupervisorInBackground(body: Record<string, unknown>) {
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify({ ...body, async: false, background_parent_source: body.source ?? 'unknown' }),
+  });
+  await r.text().catch(() => '');
+}
+
 async function appendLog(db: ReturnType<typeof createClient>, ebook_id: string, entry: RepairEntry) {
-  const { data: e } = await db.from('ebooks_kids').select('storefront_meta').eq('id', ebook_id).single();
+  const { data: e } = await db.from('ebooks_kids').select('storefront_meta, qc_scorecard').eq('id', ebook_id).single();
   const meta = ((e?.storefront_meta as Record<string, unknown> | null) ?? {}) as Record<string, unknown>;
+  const scorecard = ((e?.qc_scorecard as Record<string, unknown> | null) ?? {}) as Record<string, unknown>;
   const list = Array.isArray((meta.repair_supervisor as { entries?: unknown }[])?.entries)
     ? ((meta.repair_supervisor as { entries: RepairEntry[] }).entries)
     : [];
   const newList = [...list, entry];
   meta.repair_supervisor = { entries: newList, last_entry: entry, updated_at: entry.updated_at };
-  await db.from('ebooks_kids').update({ storefront_meta: meta }).eq('id', ebook_id);
+
+  const repairLog = ((scorecard.repair_log ?? {}) as Record<string, unknown>);
+  const scorecardSupervisor = ((repairLog.repair_supervisor ?? {}) as { entries?: RepairEntry[] });
+  const scorecardEntries = Array.isArray(scorecardSupervisor.entries) ? scorecardSupervisor.entries : [];
+  scorecard.repair_log = {
+    ...repairLog,
+    repair_supervisor: {
+      entries: [...scorecardEntries, entry],
+      last_entry: entry,
+      updated_at: entry.updated_at,
+    },
+  };
+
+  await db.from('ebooks_kids').update({ storefront_meta: meta, qc_scorecard: scorecard }).eq('id', ebook_id);
 }
 
 function countAttempts(meta: Record<string, unknown> | null, klass: string): number {
@@ -86,6 +109,16 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
 
   const stepName = latestFailedStep?.step_name;
   const errMsg = String(latestFailedStep?.error_message ?? '');
+  const criticalErrors = Array.isArray(sc.critical_errors) ? (sc.critical_errors as unknown[]).map(String) : [];
+  const reasons = Array.isArray(sc.reasons) ? (sc.reasons as unknown[]).map(String) : [];
+  const qcText = [...criticalErrors, ...reasons, String(ebook.human_review_reason ?? ''), String(ebook.blocker_reason ?? ''), errMsg].join(' | ');
+
+  // If an async PDF rebuild is already mid-chain, never start a new art/style
+  // repair from stale QC errors. Just resume the PDF chain.
+  const pdfJob = ((sc.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job ?? null) as { next_stage?: string | null; stage?: string; updated_at?: string } | null;
+  if (pdfJob?.next_stage) {
+    return { klass: 'worker_resource_limit', detail: `pdf_repair_in_progress:${pdfJob.next_stage}` };
+  }
 
   // 1. Story gate — direct step failure OR persisted scorecard flag.
   const sg = sc.story_gate as { passed?: boolean; scores?: Record<string, number> } | undefined;
@@ -105,42 +138,59 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
   }
 
   // 4. Title treatment.
-  if (errMsg.includes('KIDS_TITLE_TREATMENT_INVALID')) {
+  if (qcText.includes('KIDS_TITLE_TREATMENT_INVALID')) {
     return { klass: 'title_treatment', detail: 'title_treatment_invalid' };
   }
 
   // 5. Vision / character-identity blockers via measured QC.
   const measured = sc.measured as Record<string, unknown> | undefined;
+  if (criticalErrors.some((id) => [
+    'VISION_CHARACTER_CONSISTENCY_FAIL',
+    'VISION_COVER_INTERIOR_MISMATCH',
+    'VISION_STYLE_BIBLE_MISMATCH',
+    'CHARACTER_IDENTITY_BREAK',
+    'DUPLICATE_ILLUSTRATION_DETECTED',
+  ].includes(id)) || /VISION_CHARACTER_CONSISTENCY_FAIL|VISION_COVER_INTERIOR_MISMATCH|VISION_STYLE_BIBLE_MISMATCH|CHARACTER_IDENTITY_BREAK/i.test(qcText)) {
+    return { klass: 'character_identity', detail: `vision_qc: ${criticalErrors.join(',') || qcText.slice(0, 220)}` };
+  }
   if (measured) {
     const cc = Number(measured.character_consistency ?? 100);
     const cim = Number(measured.cover_interior_match ?? 100);
     const sbm = Number(measured.style_bible_match ?? 100);
-    if (cc < 90 || cim < 90 || sbm < 90 || errMsg.includes('CHARACTER_IDENTITY_BREAK')) {
+    if (cc < 90 || cim < 90 || sbm < 90 || qcText.includes('CHARACTER_IDENTITY_BREAK')) {
       return { klass: 'character_identity', detail: `vision: cc=${cc},cim=${cim},sbm=${sbm}` };
     }
   }
 
+  // 5b. Post-PDF story judge failures. These use the same autonomous story
+  // repair path as the pre-art story gate, but only after visual blockers have
+  // had first chance because art-only repair must not rewrite a passing story.
+  const storyReport = sc.story_report as { story_qc_passed?: boolean } | undefined;
+  if (storyReport?.story_qc_passed === false || criticalErrors.some((id) => id.startsWith('STORY_')) || /STORY_AGE_APPROPRIATENESS|STORY_COHERENCE|STORY_EMOTIONAL_PAYOFF|STORY_REREAD_VALUE|STORY_LANGUAGE_LEVEL|STORY_PARENT_BUYER_VALUE|STORY_GENERIC_RISK_HIGH/i.test(qcText)) {
+    return { klass: 'story_gate', detail: `post_pdf_story_qc: ${criticalErrors.filter((id) => id.startsWith('STORY_')).join(',') || qcText.slice(0, 220)}` };
+  }
+
   // 6. PDF glyph mangling.
-  if (errMsg.includes('PDF_GLYPH_MANGLING') || errMsg.includes('glyph')) {
+  if (qcText.includes('PDF_GLYPH_MANGLING') || /glyph/i.test(qcText)) {
     return { klass: 'pdf_glyph', detail: 'pdf_glyph_mangling' };
   }
 
   // 7. Worker resource limit.
-  if (errMsg.includes('WORKER_RESOURCE_LIMIT') || errMsg.includes('resource limit')) {
+  if (qcText.includes('WORKER_RESOURCE_LIMIT') || qcText.includes('resource limit')) {
     return { klass: 'worker_resource_limit', detail: 'worker_resource_limit' };
   }
 
   // 7b. Image missing on interior page(s) — treat as art regression, rebuild via global style fallback.
   const interiors = Array.isArray(ebook.interior_illustrations) ? (ebook.interior_illustrations as Array<Record<string, unknown>>) : [];
   const anyMissing = interiors.some(p => !p?.image_url && !p?.url);
-  if (errMsg.includes('IMAGE_MISSING') || (interiors.length > 0 && interiors.length < 12) || (interiors.length >= 12 && anyMissing)) {
+  if (qcText.includes('IMAGE_MISSING') || qcText.includes('INTERIOR_ILLUSTRATIONS_MISSING') || (interiors.length > 0 && interiors.length < 12) || (interiors.length >= 12 && anyMissing)) {
     return { klass: 'image_missing', detail: `image_missing: interiors=${interiors.length}, any_missing=${anyMissing}` };
   }
 
 
 
   // 8. QC missing.
-  if (errMsg.includes('KIDS_MEASURED_QC_MISSING') || !measured) {
+  if (qcText.includes('KIDS_MEASURED_QC_MISSING') || !measured) {
     // Only classify if we're past art generation.
     const hasPdf = Boolean(ebook.pdf_url);
     const hasInteriors = Array.isArray(ebook.interior_illustrations) && (ebook.interior_illustrations as unknown[]).length >= 12;
@@ -169,6 +219,17 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const ebook_id: string = body.ebook_id;
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
+
+    if (body.async === true) {
+      // The supervisor can legitimately take longer than callers such as pg_net
+      // or the publish/QC worker should wait. Return immediately and let the
+      // actual repair run out-of-band.
+      // deno-lint-ignore no-explicit-any
+      const rt = (globalThis as any).EdgeRuntime;
+      const task = invokeSupervisorInBackground(body).catch((e) => console.error('kids-repair-supervisor async dispatch failed', e));
+      if (rt?.waitUntil) rt.waitUntil(task); else task.catch((e) => console.error('kids-repair-supervisor async fallback failed', e));
+      return json({ ok: true, accepted: true, ebook_id }, 202);
+    }
 
     const { data: ebook, error: ebErr } = await db.from('ebooks_kids').select('*').eq('id', ebook_id).single();
     if (ebErr || !ebook) return json({ ok: false, error: 'ebook not found' }, 404);
@@ -199,6 +260,7 @@ Deno.serve(async (req) => {
 
     const meta = (ebook.storefront_meta as Record<string, unknown> | null) ?? {};
     const totalAttempts = ((meta.repair_supervisor as { entries?: RepairEntry[] } | undefined)?.entries?.length) ?? 0;
+    const stage_before = latestFailedStep?.step_name ?? String(ebook.pipeline_status ?? 'unknown');
     if (totalAttempts >= 12) {
       await db.from('ebooks_kids').update({
         listing_status: 'draft',
@@ -217,8 +279,27 @@ Deno.serve(async (req) => {
       return json({ ok: true, result: 'shelved', reason: 'supervisor_budget_exhausted', total_attempts: totalAttempts });
     }
 
+    const scorecard = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
+    const pdfJob = ((scorecard.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job ?? null) as { next_stage?: string | null; updated_at?: string } | null;
+    if (pdfJob?.next_stage && pdfJob.updated_at) {
+      const ageMs = Date.now() - Date.parse(pdfJob.updated_at);
+      if (Number.isFinite(ageMs) && ageMs < 8 * 60_000) {
+        await appendLog(db, ebook_id, {
+          attempt: totalAttempts + 1,
+          current_blocker: `pdf_repair_in_progress:${pdfJob.next_stage}`,
+          blocker_class: 'worker_resource_limit',
+          repair_handler: 'wait_for_active_pdf_chain',
+          stage_before,
+          stage_after: String(ebook.pipeline_status ?? 'unknown'),
+          result: 'no_op',
+          detail: { next_stage: pdfJob.next_stage, updated_at: pdfJob.updated_at, age_ms: ageMs },
+          updated_at: new Date().toISOString(),
+        });
+        return json({ ok: true, result: 'no_op', reason: 'pdf_repair_chain_active', next_stage: pdfJob.next_stage });
+      }
+    }
+
     const blocker = detectBlocker(ebook, latestFailedStep);
-    const stage_before = latestFailedStep?.step_name ?? String(ebook.pipeline_status ?? 'unknown');
 
     if (!blocker) {
       // If we can't recognize a blocker, try resuming the pipeline once (in case
@@ -309,13 +390,13 @@ Deno.serve(async (req) => {
         // Any consistency failure → global style fallback (regenerates cover + interiors
         // in the stable watercolor_soft style, then re-runs multi-stage PDF + QC).
         handler = 'kids-global-style-fallback';
-        repairBody = { ebook_id, publish_if_sellable: true };
+        repairBody = { ebook_id, publish_if_sellable: true, async: true };
         break;
       case 'image_missing':
         // Interior page(s) have no image. Rebuild via global style fallback which
         // regenerates all interiors + cover in the stable style.
         handler = 'kids-global-style-fallback';
-        repairBody = { ebook_id, publish_if_sellable: true };
+        repairBody = { ebook_id, publish_if_sellable: true, async: true };
         break;
       case 'pdf_glyph':
         handler = 'kids-final-text-repair';
@@ -327,7 +408,7 @@ Deno.serve(async (req) => {
         break;
       case 'qc_missing':
         handler = 'kids-qc-run';
-        repairBody = { ebook_id, run_id, use_cached_story_judge_if_hash_matches: true };
+        repairBody = { ebook_id, run_id, use_cached_story_judge_if_hash_matches: true, auto_repair_on_fail: false };
         break;
       case 'cover':
         handler = 'kids-repair-cover';

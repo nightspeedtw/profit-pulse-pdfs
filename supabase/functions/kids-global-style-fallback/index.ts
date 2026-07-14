@@ -41,6 +41,15 @@ function json(body: unknown, status = 200) {
   });
 }
 
+async function selfChain(ebook_id: string, body: Record<string, unknown>) {
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-global-style-fallback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify({ ebook_id, ...body }),
+  });
+  await r.text().catch(() => '');
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -49,14 +58,25 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const ebook_id: string = body.ebook_id;
+    if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
+    if (body.async === true) {
+      const nextBody = { ...body, async: false };
+      // deno-lint-ignore no-explicit-any
+      const rt = (globalThis as any).EdgeRuntime;
+      const task = selfChain(ebook_id, nextBody).catch((e) => console.error('kids-global-style-fallback async dispatch failed', e));
+      if (rt?.waitUntil) rt.waitUntil(task); else task.catch((e) => console.error('kids-global-style-fallback async fallback failed', e));
+      return json({ ok: true, accepted: true, ebook_id, stage: body.stage ?? 'style_and_cover' }, 202);
+    }
     const requestedSlug: string | null = body.new_style_slug ?? null;
     const publish_if_sellable: boolean = body.publish_if_sellable !== false;
-    const stage: 'all' | 'style_and_cover' | 'interiors' | 'pdf' | 'qc_and_publish' | 'pdf_and_qc' = body.stage ?? 'all';
-    if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
-    const runStyle = stage === 'all' || stage === 'style_and_cover';
-    const runInteriors = stage === 'all' || stage === 'interiors';
-    const runPdf = stage === 'all' || stage === 'pdf' || stage === 'pdf_and_qc';
-    const runQc = stage === 'all' || stage === 'qc_and_publish' || stage === 'pdf_and_qc';
+    const autochain: boolean = body.autochain !== false;
+    const requestedStage = String(body.stage ?? 'style_and_cover');
+    const stage: 'style_and_cover' | 'interiors' | 'pdf' | 'qc_and_publish' | 'pdf_and_qc' =
+      requestedStage === 'all' ? 'style_and_cover' : requestedStage as 'style_and_cover' | 'interiors' | 'pdf' | 'qc_and_publish' | 'pdf_and_qc';
+    const runStyle = stage === 'style_and_cover';
+    const runInteriors = stage === 'interiors';
+    const runPdf = stage === 'pdf' || stage === 'pdf_and_qc';
+    const runQc = stage === 'qc_and_publish' || stage === 'pdf_and_qc';
 
     const { data: ebook, error } = await db.from('ebooks_kids').select('*').eq('id', ebook_id).single();
     if (error || !ebook) return json({ ok: false, error: 'ebook not found' }, 404);
@@ -115,6 +135,16 @@ Deno.serve(async (req) => {
 
     // Build the new locked style bible (structural fields — QC reads these).
     const cb = (bible.character_bible_json ?? {}) as Record<string, string>;
+    const heroIdentity = [
+      cb.name && `name: ${cb.name}`,
+      cb.species && `species: ${cb.species}`,
+      cb.hair && `hair/fur: ${cb.hair}`,
+      cb.eyes && `eyes: ${cb.eyes}`,
+      cb.skin && `skin/details: ${cb.skin}`,
+      cb.outfit && `outfit: ${cb.outfit}`,
+      cb.accessory && `accessory: ${cb.accessory}`,
+    ].filter(Boolean).join('; ') || 'the exact recurring hero described by the manuscript and character bible';
+
     const newStyleBible = {
       style_slug: newSlug,
       style_label: preset.label as string,
@@ -125,21 +155,20 @@ Deno.serve(async (req) => {
       texture: 'Cold-press watercolor paper texture with light pigment granulation on flats, occasional soft wash bleeds around edges; uniform texture strength across all pages.',
       medium: preset.label ?? 'Soft watercolor + light ink',
       mood: 'Warm, hopeful, playful problem-solving.',
-      character_proportions: 'Consistent kid proportions across every page: same head-to-body ratio, same face shape, same glasses shape, same pigtail placement.',
+      character_proportions: `Consistent proportions across every page for this specific hero: ${heroIdentity}. Keep the same silhouette, face shape, body scale, outfit, colors, and accessories on cover and interiors.`,
       character_consistency_rules: [
-        `Hero is ${cb.name ?? 'Tali'}, a human kid-inventor girl aged 7–9`,
-        'Brown pigtails with visible hair ties, never loose long hair',
-        'Round oversized glasses on every page, never sunglasses, never removed',
-        'Red-and-white horizontally striped t-shirt under denim overalls',
-        'Fair skin tone, warm brown eyes, no color drift across pages',
-        'Same sock-sorter machine language (twisty tubes, tin-can trumpets, funnel mouth) reused visually',
+        `Hero identity must remain: ${heroIdentity}`,
+        'Never swap species, age, costume, fur/hair color, skin tone, eye shape, or signature accessory between pages',
+        'Cover hero and every interior hero must read as the same character at a glance',
+        'Reuse the same visual motif, prop language, and setting details introduced by this book title/description',
+        'Do not introduce a different protagonist from any prior book or fallback template',
       ],
       forbidden_variations: [
         'no 3D render, no Pixar look, no plastic/CGI polish',
         'no photorealism',
         'no dramatic night/dusk lighting',
         'no character redesign (hair, glasses, outfit, skin tone must never change)',
-        'no Barnaby, no bear cub, no moon/star/bedtime, no tooth/tooth-fairy, no wormhole',
+        'no characters, props, or scenes from unrelated prior books',
         'no baked text/letters/words on any illustration',
       ],
       locked_at: new Date().toISOString(),
@@ -165,7 +194,7 @@ Deno.serve(async (req) => {
       cb.hair && `${cb.hair} hair`, cb.eyes && `${cb.eyes} eyes`,
       cb.skin && `${cb.skin} skin`, cb.outfit && `wearing ${cb.outfit}`,
       cb.accessory && `with ${cb.accessory}`,
-    ].filter(Boolean).join(', ') || 'a kid-inventor girl with brown pigtails, round glasses, striped shirt, denim overalls';
+    ].filter(Boolean).join(', ') || 'the exact recurring hero described in the manuscript and character bible';
 
     const styleParts = [
       promptSuffix,
@@ -182,11 +211,16 @@ Deno.serve(async (req) => {
       `palette ${newStyleBible.palette.slice(0, 4).join(', ')}`,
       'soft watercolor + fine ink, hand-drawn, warm daylight, storybook',
     ].filter(Boolean).join('; ').slice(0, 260);
+    const storyScene = [
+      String(ebook.description ?? '').trim(),
+      String(ebook.subtitle ?? '').trim(),
+      String(ebook.manuscript_md ?? '').replace(/\s+/g, ' ').slice(0, 260),
+    ].filter(Boolean).join(' ').slice(0, 420) || 'a playful scene from this exact story premise';
 
     const coverPrompt = [
       `Children's picture book cover art (textless) for "${String(ebook.title ?? '').slice(0, 60)}".`,
       `Hero: ${shortChar}.`,
-      `Scene: cozy invention/laundry room with a sneeze-powered sock-sorting machine and mismatched sock characters.`,
+      `Scene: ${storyScene}.`,
       `Portrait, reserve top 25% calm for later title. Style: ${shortStyle}. Definitely NOT 3D/Pixar/CGI.`,
       `Textless artwork only: no letters, no words, no title, no signage.`,
     ].join(' ').slice(0, 980);
@@ -336,6 +370,24 @@ Deno.serve(async (req) => {
       'cover_url, pdf_url, thumbnail_url, preview_page_urls, interior_illustrations, page_count, sellable, overall_qc_score, listing_status, pipeline_status, qc_scorecard, storefront_meta',
     ).eq('id', ebook_id).single();
 
+    let chained_next: Record<string, unknown> | null = null;
+    if (autochain) {
+      const nextBatchStart = batchStart + batchSize;
+      if (stage === 'style_and_cover') {
+        chained_next = { stage: 'interiors', batch_start: 0, batch_size: 4, publish_if_sellable, autochain: true };
+      } else if (stage === 'interiors' && nextBatchStart < MIN_INTERIOR) {
+        chained_next = { stage: 'interiors', batch_start: nextBatchStart, batch_size: 4, publish_if_sellable, autochain: true };
+      } else if (stage === 'interiors') {
+        chained_next = { stage: 'pdf_and_qc', publish_if_sellable, autochain: false };
+      }
+
+      if (chained_next) {
+        // @ts-expect-error EdgeRuntime is a Deno Deploy global
+        EdgeRuntime.waitUntil(selfChain(ebook_id, chained_next));
+        log.push({ step: 'autochain', status: 'dispatched', detail: chained_next });
+      }
+    }
+
     return json({
       ok: true, ebook_id,
       old_style_slug: oldStyleSlug, new_style_slug: newSlug,
@@ -343,6 +395,7 @@ Deno.serve(async (req) => {
       log, verdict: qcBody?.verdict ?? null,
       story_qc_status: qcBody?.story_qc_status ?? null,
       manuscript_hash: manuscriptHash,
+      chained_next,
       final,
     });
   } catch (e) {

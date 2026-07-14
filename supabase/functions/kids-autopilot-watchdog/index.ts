@@ -21,8 +21,40 @@ function json(body: unknown, status = 200) {
   });
 }
 
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+async function dispatchSupervisor(row: { id: string; title?: string | null; pipeline_status?: string | null }) {
+  const ctl = new AbortController();
+  const timeout = setTimeout(() => ctl.abort(), 10_000);
+  try {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ ebook_id: row.id, source: 'kids-autopilot-watchdog', async: true }),
+      signal: ctl.signal,
+    });
+    const t = await r.text().catch(() => '');
+    console.log('watchdog dispatched supervisor', JSON.stringify({ ebook_id: row.id, status: r.status, body: t.slice(0, 240) }));
+  } catch (e) {
+    console.error('watchdog supervisor dispatch failed', JSON.stringify({ ebook_id: row.id, error: String((e as Error).message ?? e) }));
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resumeParentRun(row: { id: string }) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-one-click-build`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ resume_parent_run_id: row.id, age_band: '4-6' }),
+    });
+    const t = await r.text().catch(() => '');
+    console.log('watchdog resumed parent run', JSON.stringify({ run_id: row.id, status: r.status, body: t.slice(0, 240) }));
+  } catch (e) {
+    console.error('watchdog parent resume failed', JSON.stringify({ run_id: row.id, error: String((e as Error).message ?? e) }));
+  }
+}
+
+async function scanAndDispatch() {
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
   try {
     const twentyMinAgo = new Date(Date.now() - 20 * 60_000).toISOString();
@@ -36,26 +68,29 @@ Deno.serve(async (req) => {
       .limit(20);
     if (error) throw error;
 
-    const dispatched: Array<{ ebook_id: string; title: string; pipeline_status: string; result: unknown }> = [];
-    for (const row of stuck ?? []) {
-      try {
-        const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-          body: JSON.stringify({ ebook_id: row.id }),
-        });
-        const t = await r.text();
-        let parsed: unknown = t.slice(0, 400);
-        try { parsed = JSON.parse(t); } catch { /* keep text */ }
-        dispatched.push({ ebook_id: row.id, title: String(row.title ?? ''), pipeline_status: String(row.pipeline_status ?? ''), result: parsed });
-      } catch (e) {
-        dispatched.push({ ebook_id: row.id, title: String(row.title ?? ''), pipeline_status: String(row.pipeline_status ?? ''), result: { error: String((e as Error).message ?? e) } });
-      }
-    }
+    console.log('watchdog scan complete', JSON.stringify({ checked_at: new Date().toISOString(), stuck_count: stuck?.length ?? 0 }));
+    await Promise.allSettled((stuck ?? []).map(dispatchSupervisor));
 
-    return json({ ok: true, checked_at: new Date().toISOString(), stuck_count: stuck?.length ?? 0, dispatched });
+    const { data: parentRuns, error: parentErr } = await db
+      .from('autopilot_kids_runs')
+      .select('id, updated_at, status, current_step')
+      .eq('status', 'running')
+      .eq('current_step', 'parent_job')
+      .lt('updated_at', twentyMinAgo)
+      .limit(5);
+    if (parentErr) throw parentErr;
+    console.log('watchdog parent scan complete', JSON.stringify({ stuck_parent_count: parentRuns?.length ?? 0 }));
+    await Promise.allSettled((parentRuns ?? []).map(resumeParentRun));
   } catch (e) {
     console.error('kids-autopilot-watchdog error', e);
-    return json({ ok: false, error: String((e as Error)?.message ?? e) }, 500);
   }
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const task = scanAndDispatch();
+  // deno-lint-ignore no-explicit-any
+  const rt = (globalThis as any).EdgeRuntime;
+  if (rt?.waitUntil) rt.waitUntil(task); else task.catch((e) => console.error('watchdog background error', e));
+  return json({ ok: true, accepted: true, checked_at: new Date().toISOString() }, 202);
 });
