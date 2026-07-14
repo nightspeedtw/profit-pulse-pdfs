@@ -161,6 +161,8 @@ async function renderOneReference(
   styleSuffix: string,
   refs: string[],
   attempt: number,
+  ebookId?: string,
+  step = "kids_interior_page",
 ): Promise<{ bytes: Uint8Array; model: string; prompt: string }> {
   const nudge = attempt > 0
     ? `Vary the camera angle, distance, and framing significantly from any previous page. Emphasize: ${s.scene}. Keep the 1:1 square shape.`
@@ -168,9 +170,11 @@ async function renderOneReference(
   const prompt = buildScenePrompt(s, charDesc, styleSuffix, nudge);
   const bytes = await generateWithReference({
     prompt, referenceUrls: refs, model: "google/gemini-3.1-flash-image",
+    ebook_id: ebookId, step,
   });
   return { bytes, model: "google/gemini-3.1-flash-image", prompt };
 }
+
 
 async function renderOneFal(
   s: ScenePlan["scenes"][number],
