@@ -52,13 +52,31 @@ export function BuildKidsBookButton({ onStarted }: Props) {
   const start = async () => {
     setBusy(true);
     try {
+      // Resolve the admin's picked slugs to real DB ids. The backend
+      // (kids-one-click-build) reads `age_group_id` (single uuid) and
+      // `theme_ids` (uuid[]) — it does NOT read `age_band`/`theme_slugs`
+      // for categorization, only `age_band` as a free-text label for the
+      // story prompt. Sending slugs only here silently drops the admin's
+      // actual picks and falls back to hardcoded default ids that may not
+      // even exist in this project's kids_age_groups/kids_themes tables.
+      const selectedAge = ages.find(a => a.slug === ageSlug) ?? ages.find(a => a.slug === "4-6");
+      const selectedThemeIds = themes.filter(t => themeSlugs.includes(t.slug)).map(t => t.id);
+      if (!selectedAge) {
+        throw new Error("No matching age group found — check kids_age_groups has a '4-6' row.");
+      }
+      if (themeSlugs.length > 0 && selectedThemeIds.length === 0) {
+        throw new Error("Selected theme(s) not found in kids_themes — refresh and try again.");
+      }
+
       // One-click parent production job. Internally cycles concept →
       // manuscript → story gate → art → PDF → QC, self-healing within
       // bounded budgets. Concept/story misses are recorded as internal
       // attempts, not surfaced as red FAILED rows.
       const { data, error } = await supabase.functions.invoke("kids-one-click-build", {
         body: {
-          age_band: ageSlug === "all" ? "4-6" : ageSlug,
+          age_band: selectedAge.slug,
+          age_group_id: selectedAge.id,
+          theme_ids: selectedThemeIds.length > 0 ? selectedThemeIds : undefined,
           theme_slugs: themeSlugs,
           preferred_lanes: [
             "food_kitchen_chaos",

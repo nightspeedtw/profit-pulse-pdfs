@@ -15,8 +15,22 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-const AGE_4_6 = 'fb6aad48-5bb3-4547-8700-35f6e160e70a';
-const THEME_HUMOR = '08c870b2-d7c4-4fd6-8c31-d0b76d8d997a';
+// NOTE: these used to be hardcoded literal UUIDs. kids_age_groups/kids_themes
+// rows are created with `gen_random_uuid()` in the seed migration, so a
+// literal id baked into source almost never matches this project's actual
+// database and causes the very first `ebooks_kids` insert (age_group_id has
+// an FK to kids_age_groups) to fail with a foreign-key violation before any
+// generation work happens. Resolve defaults by slug at request time instead.
+async function defaultAgeGroupId(db: ReturnType<typeof createClient>): Promise<string> {
+  const { data, error } = await db.from('kids_age_groups').select('id').eq('slug', '4-6').maybeSingle();
+  if (error || !data) throw new Error(`default age group '4-6' not found in kids_age_groups: ${error?.message ?? 'no row'}`);
+  return data.id as string;
+}
+async function defaultThemeId(db: ReturnType<typeof createClient>): Promise<string> {
+  const { data, error } = await db.from('kids_themes').select('id').eq('slug', 'humor-fun').maybeSingle();
+  if (error || !data) throw new Error(`default theme 'humor-fun' not found in kids_themes: ${error?.message ?? 'no row'}`);
+  return data.id as string;
+}
 
 const LANE_ROTATION = [
   'food_kitchen_chaos',
@@ -391,8 +405,10 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const ageBand: string = body.age_band ?? '4-6';
-    const ageGroupId: string = body.age_group_id ?? AGE_4_6;
-    const themeIds: string[] = body.theme_ids ?? [THEME_HUMOR];
+    const ageGroupId: string = body.age_group_id ?? await defaultAgeGroupId(db);
+    const themeIds: string[] = (Array.isArray(body.theme_ids) && body.theme_ids.length > 0)
+      ? body.theme_ids
+      : [await defaultThemeId(db)];
     const preferredLanes: string[] = Array.isArray(body.preferred_lanes) ? body.preferred_lanes : [];
 
     // Create placeholder ebook + parent run atomically.
