@@ -1,94 +1,58 @@
 
-# Kids Pipeline Hardening — 6 Gates + Repair + Acceptance Run
+## Evidence gathered
 
-The 5 defects the owner found in Detective Pip (old cover in PDF, solid-black page, 3 mixed art styles, "Page 28" caption, cover/story mismatch) are all symptoms of missing enforcement in the assembly and QC stages. This plan installs each gate as code, then uses those gates to either honestly republish or retire dc037de5, then runs one clean end-to-end build as the acceptance test.
+**Hypothesis (a) — skill IS reaching the writer.** All three writer paths call `loadStoryCraftBlock(db, ageBand)` before prompting:
+- `supabase/functions/rewrite-kids-manuscript/index.ts:57`
+- `supabase/functions/kids-repair-story-gate/index.ts:220`
+- `supabase/functions/kids-concept-preflight/index.ts:420`
 
----
+The skill-learner has written 21 versions of `playbook_reread_value` (latest `2026-07-14 09:31Z`, 4504 chars, source=`learned`). Loader in `_shared/story-craft-skill.ts:495` overlays the learned rows on top of the bundled seed. The writer is receiving the latest playbook. **This is not the wall.**
 
-## Part A — Install the 6 gates
+**Hypothesis (b) — the JUDGE is the wall.** In `_shared/kids-story-judge.ts` the prompt has 60+ lines of criterion-based rubric anchors for `generic_story_risk_score` (0-25 / 40-60 / 75-100 with example books) but **zero rubric anchors for `reread_value_score`** — the judge is asked for a number with no definition of what earns 85/90/95. LLM judges default to the safe "80" every time. No amount of playbook v22, v23 changes writer output enough to break the anchor bias, because the judge doesn't know what a 90 looks like.
 
-### Gate 1: COVER SPLICE (in `kids-build-picture-pdf`)
-- Right before PDF assembly, re-fetch `ebooks_kids.cover_url` (the versioned URL) and download bytes.
-- Assert bytes exist, `content-type` starts with `image/`, `content-length > 30 KB`, and image is non-monochrome (reuse Gate 2 luminance check).
-- Always render this cover as page 1. Never trust a cached page 1.
-- After every `kids-repair-cover` success, enqueue `kids-build-picture-pdf` automatically so an existing PDF is rebuilt with the new cover (the current bug: cover was updated, PDF was not).
+**Rotation regression.** Recent runs died in ~30s at `start_run` / `manuscript_qc` with `status=needs_admin`. The ebook's `pipeline_status` gets set to `human_review_required` at `autopilot-kids-pipeline/index.ts:162 & 175` and `kids-repair-story-gate/index.ts:356`. `kids-one-click-build`'s rotation check at line 210 only branches on `pipeline_status === 'retired'`, so `human_review_required` never rotates → run dead-ends. Also the last 3 runs never even entered the `kids-one-click-build` polling loop — they were direct `autopilot-kids-pipeline` invocations that ended at story_gate without an orchestrator.
 
-### Gate 2: BLACK/BLANK PAGE GATE (deterministic)
-- New shared helper `_shared/image-luminance.ts`: decode PNG/JPEG (use `npm:sharp` or the existing decoder in the project), compute mean luminance and variance on a downsampled 64×64 grid.
-- Reject when `variance < 200` OR (`mean < 12` (near-black)) OR (`mean > 243` (near-white)) OR (`variance < 400 AND |mean-128| < 8` (flat gray)).
-- Applied in two places:
-  1. `kids-render-interior` — after each page render; failure → immediate re-render (max 2 retries), then mark the page for supervisor repair.
-  2. `kids-build-picture-pdf` — rasterize each page of the final PDF (via pdfium/pdf.js already used in the project, or re-check the source PNGs which are the same bytes) and hard-fail assembly on any dead page.
+## Changes
 
-### Gate 3: ONE-STYLE-PER-BOOK
-- Migration: add `style_fingerprint TEXT` to whatever table stores per-page interiors (likely `ebook_assets` for kids, or `ebooks_kids.interior_manifest jsonb`). Also add `style_anchor_fingerprint TEXT` to `ebooks_kids`.
-- Fingerprint = `sha1(style_bible_id || ':' || model_id || ':' || style_preset_id)`.
-- On page write, store fingerprint. On `kids-repair-supervisor` / RESUME: any page whose fingerprint ≠ book's `style_anchor_fingerprint` is regenerated, not reused.
-- The anchor is set once at first successful render and is what the cover matches.
+### 1. Give the judge a criterion-based reread rubric (fixes hypothesis b)
+Edit `supabase/functions/_shared/kids-story-judge.ts`:
+- Add a `REREAD_VALUE RUBRIC ANCHORS` block modeled on the `generic_story_risk` section. Explicit measurable criteria:
+  - **90-100:** chantable refrain appears ≥3× with variation; call-and-response OR body-movement beats kids can perform aloud; cumulative/predictable structure; ≥1 hidden-detail thread across spreads for re-read hunts; last line invites another read.
+  - **80-89:** refrain present but non-chantable OR appears <3×; some participation beats but not on every spread.
+  - **60-79:** decorative repetition only; no participation trigger; nothing to hunt across spreads.
+  - **<60:** no repetition, no participation, purely narrated.
+- Add matching `reread_evidence` fields the judge must fill (refrain_text, refrain_count, participation_beats[], hidden_thread) so we can hard-verify with regex — if the judge claims 90 but refrain_count<3, we cap the score deterministically.
+- Apply the same deterministic-cap treatment for `parent_buyer_value` (also chronically stuck at 80) using the existing PARENT_BUYER_VALUE playbook criteria.
 
-### Gate 4: TEXT-TO-PAGE MAPPING GATE (in `kids-build-picture-pdf`)
-- Load the current `manuscript_md` and split to `pages[]` using the same splitter the writer uses.
-- For every page in the interior manifest, assert `page.caption_text.trim() === manuscript.pages[page.index].text.trim()`.
-- Regex-detect placeholders: `/^Page\s+\d+\s*$/i`, empty strings, lorem-ipsum → hard fail.
-- On fail: repair the single page's text and rebuild that page only.
+### 2. Deterministic post-judge score verifier
+In the same file, after `runKidsStoryJudge` parses the report, run a `verifyRereadClaim(report, manuscript_md)` that:
+- Counts refrain occurrences in `manuscript_md` (case-insensitive).
+- Confirms `participation_beats` phrases actually appear.
+- If judge said ≥85 but evidence fails, cap the score at 80 with a `judge_cap_applied` note.
+- If evidence passes AND judge said 80, floor at 85 with `evidence_floor_applied`.
+This kills the "vibes 80" default in both directions and gives the skill-learner a real signal.
 
-### Gate 5: QC ON RENDERED PDF (in `kids-qc-run`)
-- Change source of truth from per-page interior PNGs to rasterized pages of `pdf_url`.
-- Rasterize with pdfium (already a dep) at 150 dpi and feed those images to the vision judge.
-- Add hard scorecard deductions that cap score:
-  - Any dead page (Gate 2) → cap 30.
-  - Any style mismatch (Gate 3) → cap 40.
-  - Any text mismatch (Gate 4) → cap 40.
-  - Cover art missing character or lettering illegible → cap 50.
-- Investigate: run `kids-qc-run` history for dc037de5 and log which checks returned pass; write the diagnosis into `pipeline_skills` as `qc_lessons/detective-pip-100` so the skill-learner remembers.
+### 3. Bump `playbook_reread_value` to v22 (source=learned) via `kids-skill-learner`
+Update its prompt guidance so the manuscript writer explicitly targets the new judge criteria (refrain ≥3×, one participation beat per spread, hidden thread). This is a data-only insert into `pipeline_skills` — no schema change.
 
-### Gate 6: COVER-INTERIOR STORY MATCH
-- In the cover generation path (`generate-cover` / kids branch inside `kids-repair-cover`), require inputs to come from `ebooks_kids.manuscript_md` (final), not `concept_draft`. Read the manuscript, extract protagonist, setting, one hero moment; feed those into the cover prompt and the subtitle line.
-- Persist `cover_prompt_source='manuscript@<hash>'` alongside the cover asset.
-- Reject cover if subtitle contains any concept-only entity absent from the manuscript.
+### 4. Restore concept rotation for `human_review_required`
+Edit `supabase/functions/kids-one-click-build/index.ts` around line 210:
+- Treat `pipeline_status in ('retired','human_review_required')` with a story-gate blocker as the same terminal-rotate path.
+- Auto-flip such ebooks to `retired` with `blocker_reason='auto_retired_for_fresh_concept: <reason>'` and continue the outer loop (same as line 220-228 already does for story-terminal blockers).
 
----
+Edit `supabase/functions/autopilot-kids-pipeline/index.ts` (lines 162, 175) and `kids-repair-story-gate/index.ts:356`:
+- When a story-gate exhausts repair budget, set `pipeline_status='retired'` directly (not `human_review_required`) with a clear blocker_reason. Autopilot must never rest in a human-review state per the owner's standing rule.
 
-## Part B — Repair or retire Detective Pip (dc037de5)
+### 5. Fire one fresh one-click build
+Invoke `kids-one-click-build` with defaults after the code deploys. Report each stage's outcome from `autopilot_pipeline_steps` + `ebooks_kids.pipeline_status`.
 
-1. Run the hardened `kids-repair-supervisor` on dc037de5:
-   - Splice current cover (Gate 1)
-   - Regenerate solid-black p12 (Gate 2)
-   - Regenerate p6/p21 (off-style vs. anchor) in the anchor style (Gate 3)
-   - Fix p31 caption "Page 28" (Gate 4)
-   - Regenerate cover subtitle + scene from manuscript (Gate 6)
-2. Re-run hardened `kids-qc-run` on the freshly assembled PDF.
-3. Decision:
-   - If honest score ≥ 90 → set `sellable=true`, `listing_status='live'`.
-   - If < 90 after 2 repair passes → mark `retired` and rotate.
+## Out of scope
+- Do NOT un-retire Detective Pip.
+- Do NOT lower any gate threshold.
+- Do NOT touch cover/PDF/QC gate code — those are hardened and working.
 
-## Part C — Clean acceptance run
-
-- Fire `kids-one-click-build` with defaults, empty inputs, hands-off.
-- Monitor the run steps in `autopilot_kids_steps` and report per-stage: concept → story → interiors (one style) → cover (from manuscript) → PDF (with spliced cover, no dead pages, correct captions) → QC (rendered pages) → live.
-- Do not touch the run mid-flight. Report final `pdf_url`, `cover_url`, `listing_status`, honest QC score.
-
----
-
-## Technical notes
-
-- Migration for style fingerprint fields runs first (schema change is a prereq of Gate 3).
-- pdfium rasterization: reuse whatever's already imported by `kids-build-picture-pdf`; if not present, add `npm:@cantoo/pdf-lib` for assembly and `npm:pdfjs-dist` for rasterization.
-- All gate failures must chain into `kids-repair-supervisor` (fire-and-forget), never leave a book in `human_review_required` — per project rule #2.
-- Never lower a threshold to make a book pass — per project rule #1.
-
-## Files to touch
-
-- `supabase/functions/kids-build-picture-pdf/index.ts` (Gates 1, 2, 4)
-- `supabase/functions/kids-render-interior/index.ts` + `_shared/kids-interior.ts` (Gates 2, 3)
-- `supabase/functions/kids-qc-run/index.ts` (Gate 5)
-- `supabase/functions/kids-repair-cover/index.ts` and/or `generate-cover/index.ts` (Gates 1, 6)
-- `supabase/functions/kids-repair-supervisor/index.ts` (Gate 3 resume logic, chaining)
-- New: `supabase/functions/_shared/image-luminance.ts`, `_shared/style-fingerprint.ts`, `_shared/pdf-rasterize.ts`
-- Migration: `style_fingerprint`, `style_anchor_fingerprint`, `cover_prompt_source`
-
-## Estimated size
-
-~1.5–2k lines changed across 8 edge functions + 1 migration. Multi-turn. After Part A deploys, Part B and Part C are shell + monitoring turns.
-
-**Approve this plan and I'll start with the migration and Gate 2 (cheapest, unblocks everything else), then Gates 1/4 in the PDF builder, then 3/5/6, then repair dc037de5, then fire the acceptance run.**
+## Verification
+1. Deploy edge functions, then replay the judge on the last 3 story_gate failures (`kids-story-judge-replay`) and confirm the new rubric + verifier now produce differentiated scores (some ≥85, some capped correctly).
+2. Insert playbook_reread_value v22 and confirm loader returns it.
+3. Fire one-click build; watch it flow concept → story_gate PASS (or rotate to fresh concept, never dead-end) → interiors → cover → PDF → QC → live. Report each stage's score.
+4. When a book goes live, provide `pdf_url` + `cover_url` for the owner to render pages and independently verify.
