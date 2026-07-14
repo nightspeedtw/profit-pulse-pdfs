@@ -58,13 +58,21 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const ebook_id: string = body.ebook_id;
+    if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
+    if (body.async === true) {
+      const nextBody = { ...body, async: false };
+      // deno-lint-ignore no-explicit-any
+      const rt = (globalThis as any).EdgeRuntime;
+      const task = selfChain(ebook_id, nextBody).catch((e) => console.error('kids-global-style-fallback async dispatch failed', e));
+      if (rt?.waitUntil) rt.waitUntil(task); else task.catch((e) => console.error('kids-global-style-fallback async fallback failed', e));
+      return json({ ok: true, accepted: true, ebook_id, stage: body.stage ?? 'style_and_cover' }, 202);
+    }
     const requestedSlug: string | null = body.new_style_slug ?? null;
     const publish_if_sellable: boolean = body.publish_if_sellable !== false;
     const autochain: boolean = body.autochain !== false;
     const requestedStage = String(body.stage ?? 'style_and_cover');
     const stage: 'style_and_cover' | 'interiors' | 'pdf' | 'qc_and_publish' | 'pdf_and_qc' =
       requestedStage === 'all' ? 'style_and_cover' : requestedStage as 'style_and_cover' | 'interiors' | 'pdf' | 'qc_and_publish' | 'pdf_and_qc';
-    if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
     const runStyle = stage === 'style_and_cover';
     const runInteriors = stage === 'interiors';
     const runPdf = stage === 'pdf' || stage === 'pdf_and_qc';

@@ -363,13 +363,13 @@ Deno.serve(async (req) => {
         // Any consistency failure → global style fallback (regenerates cover + interiors
         // in the stable watercolor_soft style, then re-runs multi-stage PDF + QC).
         handler = 'kids-global-style-fallback';
-        repairBody = { ebook_id, publish_if_sellable: true };
+        repairBody = { ebook_id, publish_if_sellable: true, async: true };
         break;
       case 'image_missing':
         // Interior page(s) have no image. Rebuild via global style fallback which
         // regenerates all interiors + cover in the stable style.
         handler = 'kids-global-style-fallback';
-        repairBody = { ebook_id, publish_if_sellable: true };
+        repairBody = { ebook_id, publish_if_sellable: true, async: true };
         break;
       case 'pdf_glyph':
         handler = 'kids-final-text-repair';
