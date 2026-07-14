@@ -9,6 +9,7 @@
 
 import { admin, aiJSON, corsHeaders, logCost } from "../_shared/ai.ts";
 import { resolveTrack, wrongTrackResponse } from "../_shared/track-registry.ts";
+import { storyCraftBlock } from "../_shared/story-craft-skill.ts";
 
 type Spread = {
   spread_number: number;
