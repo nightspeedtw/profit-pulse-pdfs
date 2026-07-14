@@ -58,13 +58,12 @@ export async function preflightPdf(pdfUrl: string | null | undefined): Promise<R
   if (!isRealPdf) {
     findings.push(critical(
       "FAKE_PDF_MIME_TYPE", "pdf_preflight",
-      { first_bytes: head, content_type: contentType, byte_size: bytes.length },
+      { first_bytes: head, content_type: contentType, byte_size: bytes.length, fetch_attempts: attempts, last_fetch_error: lastFetchErr },
       { must_start_with: "%PDF-" },
       "regenerate_pdf",
     ));
-    // Also flag as INVALID_PDF so downstream repair strategies can pick it up.
-    findings.push(critical("INVALID_PDF", "pdf_preflight", { first_bytes: head }, { must_start_with: "%PDF-" }, "rebuild_pdf_from_source"));
-    return findings; // no point parsing further
+    findings.push(critical("INVALID_PDF", "pdf_preflight", { first_bytes: head, fetch_attempts: attempts, last_fetch_error: lastFetchErr }, { must_start_with: "%PDF-" }, "rebuild_pdf_from_source"));
+    return findings;
   }
 
   // 2. Placeholder / "pending render" body detection.
