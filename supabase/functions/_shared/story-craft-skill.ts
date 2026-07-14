@@ -288,6 +288,27 @@ TITLE TREATMENT (composed by app, not by AI):
 - Max 3 lines, wrapped for balance. Heavy stroke outline for legibility against any hero-scene background.
 - One accent colour, chosen from the visual bible palette, that contrasts with the sky/upper-third pixels beneath it.`;
 
+export const CONVERSION_COVER_LETTERING_SKILL = `CONVERSION_COVER_LETTERING — the title on a kids picture-book cover is DESIGNED HAND-LETTERED ARTWORK integrated into the illustration, never a plain system-font stamp.
+
+REFERENCE STANDARD: premium published picture books (e.g. "Giraffes Can't Dance", "This Moose Belongs to Me", "My Quiet Imagination", Plan For Kids titles). Their titles feel commissioned, painted, part of the scene.
+
+HARD RULES for the image model (inject these VERBATIM into the cover generation prompt):
+1. The AI MUST render the title text "<EXACT TITLE>" ON the cover as hand-lettered artwork — commissioned lettering, drawn in the SAME medium and style as the illustration (watercolor brush strokes, chunky painted letters, crayon/gouache texture), lit by the same light, sharing the palette.
+2. Letterforms are PLAYFUL and ORGANIC: bouncing baseline (letters dance up and down), size variation between words (the fun/emotive word is largest), gentle arc or curve following the composition. NEVER a straight rigid line of type. NEVER a system font. NEVER Times/Arial/Helvetica look.
+3. READABILITY ARMOR — one of: thick contrasting outline (2-4% of letter height) around every glyph, OR soft drop shadow, OR a subtle painted banner / ribbon / wooden-sign / cloud shape behind the lettering. So the title reads clearly at 100×160px thumbnail size on a busy illustration.
+4. COLOUR: title uses the 1–2 highest-contrast colours from the scene palette — cream/white letters over dark areas, deep saturated colour over light sky. Must POP against its background zone but still harmonize with the scene.
+5. INTEGRATION: a character or prop can gently overlap the bottom of ONE letter, or the lettering can arc around the hero — makes it feel hand-made. Keep overlap subtle so no letter becomes ambiguous or unreadable.
+6. PLACEMENT: upper third of the cover, occupying 40–60% of cover WIDTH, hero character below or beside, hero making eye contact with camera.
+7. SPELLING IS MANDATORY. Every letter of the title must be rendered correctly, in reading order, no missing/duplicated/mangled letters. Kern the lettering with confident spacing.
+8. Thai-market bonus (for Thai editions only): bubbly rounded letterforms with thick white outlines + small decorative stars/sparkles.
+
+HARD BANS: no plain system font stamped on top of art, no thin geometric type, no all-caps rigid line of type, no misspelled or gibberish lettering, no lettering that vanishes into the background, no lettering that covers the hero's face.
+
+REPAIR LADDER when lettering QC fails:
+- attempt 1 (misspelled / hard to read) → regenerate cover, simplify: shorter effective title zone, BIGGER letters, fewer decorative elements, thicker outline, plainer background behind the title zone.
+- attempt 2 (still misspelled) → regenerate once more with the strongest simplification: single-line arc, one accent colour, painted banner behind the lettering.
+- LAST RESORT (still failing after simplification): composite a chunky rounded hand-lettered-feel webfont (Fredoka / Baloo / equivalent) with heavy stroke outline over the AI background — never ship a misspelled cover.`;
+
 export const CONVERSION_TITLE_HOOK_SKILL = `CONVERSION_TITLE_HOOK — the title IS the ad headline.
 
 TITLE FORMULA: [child-appealing fun element] + [parent-legible developmental benefit], ≤6 words, chantable.
