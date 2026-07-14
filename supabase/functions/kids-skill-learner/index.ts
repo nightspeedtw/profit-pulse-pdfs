@@ -21,13 +21,41 @@ const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
 
 // Map dimension → skill_key we improve.
 const DIMENSION_TO_SKILL_KEY: Record<string, string> = {
+  rer: 'playbook_reread_value',
+  reread: 'playbook_reread_value',
   parent_buyer_value: 'playbook_parent_buyer_value',
+  buyer: 'playbook_parent_buyer_value',
   emotional_payoff: 'playbook_emotional_payoff',
+  emo: 'playbook_emotional_payoff',
   reread_value: 'playbook_reread_value',
   language_level: 'craft_rules',
+  lang: 'craft_rules',
   age_appropriateness: 'anti_preachy',
+  age: 'anti_preachy',
   story_coherence: 'craft_rules',
+  coh: 'craft_rules',
   generic_risk: 'craft_rules',
+};
+
+const DIMENSION_ALIASES: Record<string, string> = {
+  rer: 'reread_value',
+  reread: 'reread_value',
+  reread_value: 'reread_value',
+  coh: 'story_coherence',
+  coherence: 'story_coherence',
+  story_coherence: 'story_coherence',
+  emo: 'emotional_payoff',
+  emotional: 'emotional_payoff',
+  emotional_payoff: 'emotional_payoff',
+  buyer: 'parent_buyer_value',
+  parent_buyer_value: 'parent_buyer_value',
+  lang: 'language_level',
+  language: 'language_level',
+  language_level: 'language_level',
+  age: 'age_appropriateness',
+  age_appropriateness: 'age_appropriateness',
+  generic: 'generic_risk',
+  generic_risk: 'generic_risk',
 };
 
 function json(body: unknown, status = 200) {
@@ -41,13 +69,14 @@ Deno.serve(async (req) => {
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
   try {
     const body = await req.json();
-    const dimension: string = String(body.dimension ?? '');
+    const requestedDimension: string = String(body.dimension ?? '').trim();
+    const dimension: string = DIMENSION_ALIASES[requestedDimension] ?? requestedDimension;
     const ageBand: string = String(body.age_band ?? '4-6');
-    const failures: Array<{ title?: string; score?: number; judge_critique?: string }> =
+    const failures: Array<{ title?: string; score?: number; judge_critique?: string; manuscript_structure?: string }> =
       Array.isArray(body.recent_failures) ? body.recent_failures : [];
     if (!dimension) return json({ ok: false, error: 'dimension required' }, 400);
 
-    const skillKey = DIMENSION_TO_SKILL_KEY[dimension] ?? `playbook_${dimension}`;
+    const skillKey = DIMENSION_TO_SKILL_KEY[dimension] ?? DIMENSION_TO_SKILL_KEY[requestedDimension] ?? `playbook_${dimension}`;
 
     // Fetch current latest version of this skill_key.
     const { data: existing } = await db.from('pipeline_skills')
@@ -62,7 +91,7 @@ Deno.serve(async (req) => {
 
     const failuresBlock = failures.length
       ? failures.slice(0, 8).map((f, i) =>
-          `Failure ${i + 1}: "${f.title ?? 'untitled'}" scored ${f.score ?? '?'}/100 on ${dimension}.\nJudge critique: ${(f.judge_critique ?? '(no critique)').slice(0, 800)}`
+          `Failure ${i + 1}: "${f.title ?? 'untitled'}" scored ${f.score ?? '?'}/100 on ${dimension}.\nJudge critique: ${(f.judge_critique ?? '(no critique)').slice(0, 1000)}\nManuscript/refrain/structure evidence: ${(f.manuscript_structure ?? '(not supplied)').slice(0, 1800)}`
         ).join('\n\n')
       : '(no failure evidence supplied)';
 
@@ -73,12 +102,14 @@ CONSTRAINTS:
 - Draw on established best practice from published picture books, editorial/agent guidance, Nielsen buyer research, award-committee criteria (Caldecott, Kate Greenaway), and read-aloud research.
 - Be MORE specific than the current version. Add concrete rules, concrete examples, and concrete anti-patterns.
 - Keep it directly usable as a prompt fragment (markdown, no meta-commentary about "I improved…").
+- If the dimension is reread_value, be prescriptive: require a call-and-response refrain with a kid action, a cumulative three-tries pattern with escalating size/sound words, and a hidden-object/callback thread that illustration briefs can carry across spreads.
 - Preserve any references to rule ids used elsewhere (e.g. hero_solves_it_themselves, final_spread_warm_payoff, chantable_or_ritual_repetition).
 - Length target: 900–1600 characters. Denser is better; do not pad.
 
 Return ONLY the new playbook body. No preamble.`;
 
     const user = `DIMENSION TO LIFT: ${dimension}
+REQUESTED TOKEN: ${requestedDimension}
 AGE BAND: ${ageBand}
 
 CURRENT PLAYBOOK (version ${currentVersion}) — the writer is following this and still failing:
@@ -131,6 +162,7 @@ Rewrite the playbook so a manuscript following it would score ≥85 on ${dimensi
 
     return json({
       ok: true,
+      requested_dimension: requestedDimension,
       dimension,
       skill_key: skillKey,
       prior_version: currentVersion,
