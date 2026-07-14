@@ -54,17 +54,20 @@ Deno.serve(async (req) => {
     const world = bible?.world || "";
     const moral = bible?.moral_lesson || bible?.story_theme || "";
 
+    const skillBlock = await loadStoryCraftBlock(db, '4-6');
+
     const system = `You are a professional children's picture-book author writing for ages 4-7.
 Follow the "Children's Storybook Consistency Lock" skill: age-appropriate warm read-aloud voice,
 short sentences, sensory detail, gentle rhythm, implicit moral (never preachy), satisfying resolution.
 Return valid JSON only. No markdown. Write everything in English only — never use Thai or any other language.
 
-${storyCraftBlock()}
+${skillBlock}
 
 Every one of the 14 spreads you produce must serve the PARENT HOOK from the concept.
-The final spread MUST land the parent hook as a warm specific payoff (rule: final_spread_warm_payoff),
-NOT as a moral sentence. Bake in at least one chantable refrain OR ritual sentence (rule:
-chantable_or_ritual_repetition) and echo it 3-4 times across the book with escalation.`;
+The final spread MUST land the parent hook as a warm specific IMAGE (rule: final_spread_warm_payoff),
+NOT as a moral sentence. THE HERO must solve the problem themselves (rule: hero_solves_it_themselves) —
+never let an adult resolve it. Bake in at least one chantable refrain OR ritual sentence and echo it 3-4
+times across the book with slight evolution.`;
 
     const user = `Write a 14-spread picture-book manuscript for the industry-standard 32-page format
 (1 cover page + 1 copyright + 1 half-title + 14 story spreads (28 pages) + 1 back page = 32 pages).
