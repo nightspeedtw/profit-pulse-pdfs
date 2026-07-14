@@ -325,6 +325,18 @@ function styleBlock(bible: KidsVisualBible): string {
  * the same character appears identically across pages and the whole book
  * looks illustrated by one artist.
  */
+// Inline conversion-cover directive. Kept here (not fetched from the DB) so
+// the cover prompt is always self-contained even during a cold isolate — the
+// full CONVERSION_COVER_SKILL lives in story-craft-skill.ts and pipeline_skills.
+const CONVERSION_COVER_DIRECTIVE = `
+CONVERSION-FIRST COVER RULES (the cover is an AD CREATIVE at 100x160 first):
+- ONE hero character only, filling 40-60% of the vertical, facing camera, MAKING EYE CONTACT, expressive readable emotion (joy / surprise / determination — never neutral).
+- BRIGHT, HIGH-CONTRAST, saturated warm/primary palette. No muted / dusty / smoky palettes. No dark backgrounds behind the title zone.
+- Leave the UPPER THIRD as a clean, uncluttered soft-colour / open-sky zone with hard contrast to the intended title colour, so the app-rendered title reads at 100x160.
+- The cover must telegraph the SAME developmental theme as the title (e.g. first-day fears → hero visibly nervous at a schoolhouse door).
+- ONE hero, ONE prop, ONE mood. Less busy = better. No second character crowding the frame. No back-turned hero. No tiny hero.
+`;
+
 export function kidsIllustrationPrompt(
   bible: KidsVisualBible,
   sceneBrief: string,
@@ -336,7 +348,7 @@ export function kidsIllustrationPrompt(
     ? `\nLeave clear negative space in the ${opts.reservedZone} for typography to be added later.`
     : "";
   const roleClause = opts?.role === "cover"
-    ? "\nComposition: single strong front-cover hero moment, cinematic warm light, storybook charm."
+    ? `\nComposition: single strong front-cover hero moment, cinematic warm light, storybook charm.\n${CONVERSION_COVER_DIRECTIVE}`
     : "\nComposition: interior storybook page, character-focused, clear action, expressive body language.";
   const drift = (bible.forbidden_style_drift ?? []).join("; ");
   const continuity = (bible.continuity_rules ?? []).join("; ");

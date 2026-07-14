@@ -94,8 +94,69 @@ Deno.serve(async (req) => {
       query = query.in("id", taxonomyIds);
     }
 
-    const { data, error } = await query;
+    let { data, error } = await query;
     if (error) throw error;
+
+    // Kids fallback: if we're looking up a single id and it's not in the adult
+    // ebooks table, look it up in ebooks_kids and shape the response to match.
+    if (id && (!data || data.length === 0)) {
+      const { data: kid } = await supabase
+        .from("ebooks_kids")
+        .select("id, title, subtitle, description, cover_url, thumbnail_url, price_cents, listing_status, storefront_meta, page_count, preview_page_urls, interior_illustrations, age_group_id, theme_ids")
+        .eq("id", id)
+        .eq("listing_status", "live")
+        .maybeSingle();
+      if (kid) {
+        const meta = (kid.storefront_meta ?? {}) as any;
+        const cc = (meta.conversion_copy ?? {}) as any;
+        const ap = (meta.ad_promise ?? {}) as any;
+        const previews = Array.isArray(kid.interior_illustrations)
+          ? (kid.interior_illustrations as any[]).slice(0, 4).map((r, i) => ({
+              page: r?.page_number ?? i + 3,
+              image_url: r?.url ?? '',
+              text: r?.scene ?? null,
+              caption: null,
+            })).filter((s) => s.image_url)
+          : [];
+        data = [{
+          id: kid.id,
+          title: kid.title,
+          subtitle: kid.subtitle,
+          price: (kid.price_cents ?? 799) / 100,
+          cover_url: kid.cover_url,
+          store_thumbnail_url: kid.thumbnail_url,
+          product_description: cc.product_description ?? kid.description,
+          selling_hook: cc.selling_hook ?? null,
+          short_hook: cc.short_hook ?? null,
+          shopping_card_description: cc.shopping_card_description ?? null,
+          preview_blurb: cc.preview_blurb ?? null,
+          benefit_bullets: cc.benefit_bullets ?? [],
+          key_benefits: cc.benefit_bullets ?? [],
+          who_it_is_for: ap.theme ? `Perfect for a child working on: ${ap.theme}` : null,
+          what_you_get: [],
+          long_description: cc.product_description ?? kid.description,
+          category_slug: 'children_illustrated',
+          listing_status: kid.listing_status,
+          product_type: 'children_illustrated',
+          seo_title: kid.title,
+          seo_meta: cc.short_hook ?? kid.description,
+          tags: ap.theme ? [ap.theme] : [],
+          sales_count: 0,
+          listed_at: null,
+          inside_illustrations_json: null,
+          is_bestseller: false,
+          series_id: null,
+          cliffhanger_hook: null,
+          preview_page_count: previews.length,
+          hook_description: cc.selling_hook ?? null,
+          // extra fields not on adult schema — used by Product.tsx directly.
+          _kids_preview_spreads: previews,
+          _kids_total_spreads: kid.page_count ?? previews.length,
+          _kids_read_aloud_minutes: cc.read_aloud_minutes ?? null,
+          _kids_ad_promise: ap ?? null,
+        }] as any;
+      }
+    }
 
     // Fetch taxonomy for the returned rows so the frontend can render badges.
     const rowIds = (data ?? []).map((r: any) => r.id);
@@ -148,7 +209,14 @@ Deno.serve(async (req) => {
             caption: typeof v.caption === "string" ? v.caption : null,
           }));
       }
-      const { inside_illustrations_json, ...rest } = row;
+      // Kids fallback rows carry `_kids_preview_spreads` etc — prefer those
+      // over the adult inside_illustrations_json path.
+      if (Array.isArray(row._kids_preview_spreads)) {
+        preview_spreads = row._kids_preview_spreads;
+        preview_images = row._kids_preview_spreads.map((s: any) => s.image_url).filter(Boolean);
+        total_spreads = row._kids_total_spreads ?? preview_spreads.length;
+      }
+      const { inside_illustrations_json, _kids_preview_spreads, _kids_total_spreads, _kids_read_aloud_minutes, _kids_ad_promise, ...rest } = row;
       return {
         ...rest,
         preview_images,
@@ -156,6 +224,8 @@ Deno.serve(async (req) => {
         total_spreads,
         age_group_slugs: ageBy[row.id] ?? [],
         theme_slugs: themeBy[row.id] ?? [],
+        read_aloud_minutes: _kids_read_aloud_minutes ?? null,
+        ad_promise: _kids_ad_promise ?? null,
       };
     });
     return new Response(JSON.stringify({ items }), {

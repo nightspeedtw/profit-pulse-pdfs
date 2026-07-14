@@ -263,6 +263,104 @@ PRICE ANCHOR: around $4.99 for a digital picture book keeps it in impulse-buy ra
 TITLE + COVER already covered under PARENT_BUYER_VALUE playbook — the title itself is 80% of the sellability job.`;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CONVERSION SKILL — the pipeline's ad-creative + storefront playbook.
+// Every artifact exists to convert a parent landing from a paid ad. Injected
+// into cover generation, title/hook, description, and the frontend.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const CONVERSION_COVER_SKILL = `CONVERSION_COVER — the cover is an AD CREATIVE first, a book cover second.
+
+RESEARCH: parents give a cover <1s of eye time in a feed/search grid. The cover must pass the THUMBNAIL TEST: at 100×160px the title is readable AND the subject is identifiable.
+
+HARD RULES for the AI illustration prompt:
+1. ONE hero character only, filling 40–60% of the vertical, facing camera, MAKING EYE CONTACT, expressive readable emotion (joy / surprise / determination — never neutral). Multi-character scenes read as noise at thumbnail size.
+2. BRIGHT, HIGH-CONTRAST palette that reads as a kids-book genre signal — saturated warm/primary hues with clean shape blocking. No muted / dusty / smoky palettes. No dark backgrounds behind where the title will sit.
+3. Background must contrast HARD with the intended title colour so the title never fights the art.
+4. Leave a clean UPPER THIRD zone with soft shape / open sky / uncluttered colour — the app will render the title there.
+5. Cover must telegraph the SAME developmental theme as the title. If the parent-hook is "first-day fears", the hero must visibly be nervous facing a threshold (schoolhouse door, playground gate) — not a random unrelated scene.
+6. Less busy = better. ONE hero, ONE prop, ONE mood.
+
+HARD BANS: no second character crowding the frame, no dark/smoky backgrounds, no tiny hero (hero <30% of vertical fails), no back-turned hero, no neutral / cool expressions, no photorealism, no complex parallax scenes.
+
+TITLE TREATMENT (composed by app, not by AI):
+- Chunky, friendly, hand-lettered-feel display face (Fredoka / Baloo / equivalent). 68% of bestseller covers use rounded chunky sans. NEVER thin/geometric.
+- Title occupies 40–60% of cover HEIGHT, placed in the UPPER THIRD (bottom-placed titles vanish under storefront UI overlays).
+- Max 3 lines, wrapped for balance. Heavy stroke outline for legibility against any hero-scene background.
+- One accent colour, chosen from the visual bible palette, that contrasts with the sky/upper-third pixels beneath it.`;
+
+export const CONVERSION_TITLE_HOOK_SKILL = `CONVERSION_TITLE_HOOK — the title IS the ad headline.
+
+TITLE FORMULA: [child-appealing fun element] + [parent-legible developmental benefit], ≤6 words, chantable.
+   ✓ "Luna's Big Sharing Day" — fun (Luna, Big Day) + parent benefit (Sharing).
+   ✓ "Bruno Braves the New School" — fun (Bruno Braves) + parent benefit (first-day fears).
+   ✗ "The Wobbly Wheel's Whodunit" — no parent-legible benefit; parent cannot guess theme.
+   ✗ "A Very Curious Adventure" — no theme, no fun-specific hero.
+
+DUAL TEST every title must pass:
+1. A parent who reads ONLY the title guesses the developmental theme within 2 seconds.
+2. A 4-year-old can and WANTS to say the title out loud for fun.
+If either test fails, retitle.
+
+HOOK LINE (first line of description AND the future ad headline):
+- Must be a question or scenario the parent instantly recognizes from THEIR OWN LIFE.
+- Emotional recognition beats cleverness.
+   ✓ "Does bedtime turn into a battle at your house?"
+   ✓ "Is your little one nervous about their first day of school?"
+   ✗ "Meet Bruno, a curious young owl who loves adventures." (plot summary, not a hook)
+- ONE hook = ONE pain/desire. Never stack.
+
+MESSAGE MATCH: the same theme promise must repeat across ad → cover → title → hook → description. 90%+ message match converts ~2.3x better.`;
+
+export const CONVERSION_DESCRIPTION_SKILL = `CONVERSION_DESCRIPTION — the storefront paragraph exists to convert, not to summarize.
+
+STRUCTURE (in this exact order, short lines, scannable):
+
+1. HOOK (1 line): the recognizable parent moment. Question or scenario. Emotional recognition.
+   Example: "Does your little one melt down when plans suddenly change?"
+
+2. STORY PROMISE (2–3 short lines): what the CHILD experiences, using concrete imagery from the ACTUAL book — the refrain, the funniest moment, the callback object. NEVER a plot summary written like a book report.
+   Example: "Meet Bruno, a brave little owl. When his big feelings bubble up, Bruno chants his magic four words — and the whole forest joins in."
+
+3. OUTCOME (1 line): what the PARENT gets — the felt benefit at home.
+   Example: "Giggles at bedtime, and an easier way to talk about big feelings."
+
+4. SPECS LINE (1 line, dot-separated):
+   "Perfect for ages 4-6 · [theme] · read-aloud ~7 min · [XX] pages"
+
+BULLET LIST (optional, 2–4 items): benefit-led, not feature-led.
+   ✓ "A chantable refrain your child will echo by page 3"
+   ✓ "A warm ending that names big feelings without a lecture"
+   ✗ "24 illustrated pages" (feature, not benefit)
+
+EMOTIONAL TRIGGERS that work on parents: care/protection, pride in the child's growth, shared-moment nostalgia. Emotionally engaged buyers are 3× more likely to purchase and recommend.
+
+FIELDS to populate on ebooks_kids:
+- selling_hook (eyebrow, ≤14 words) — the parent recognition line
+- short_hook — same, shorter (≤12 words) for cards
+- product_description — full block above
+- shopping_card_description — HOOK + STORY_PROMISE lines only, ≤60 words
+- preview_blurb — one warm line hinting at the payoff
+- benefit_bullets[] — 3–4 benefit-led bullets
+
+storefront_meta MUST include \`ad_promise\`: { theme, hook_line, primary_benefit } so future ad campaigns reuse the exact same message-matched copy.`;
+
+export const CONVERSION_PRODUCT_PAGE_SKILL = `CONVERSION_PRODUCT_PAGE — the storefront page + kids grid.
+
+MOBILE-FIRST (73% of ecom traffic is mobile). Page must load <3s; every extra second costs ~7% conversion.
+
+ABOVE THE FOLD on mobile: cover · title · hook line · price · primary CTA — no scrolling needed to buy.
+
+PROOF: show 2–3 preview spreads (the funniest/warmest interior pages). For books, "look inside" is the single strongest proof element.
+
+NEAR THE CTA (badge row): age band · theme · read-aloud time (~X min).
+
+PRICE ANCHOR: ~$4.99 (impulse-buy range).
+
+SOCIAL PROOF: star rating + review count once reviews exist. Until then show a "New release" badge. Never fake reviews. Never fake scarcity ("only 3 left" for a digital file).
+
+MESSAGE MATCH: the ad, cover, title, hook and landing page all repeat the same theme promise. Store each book's ad_promise in storefront_meta so paid campaigns reuse it verbatim.`;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // EXEMPLAR PATTERNS — short paraphrases from the reference books.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -514,6 +612,34 @@ export function seedRows(): SeedRow[] {
       age_band: null,
       target_dimension: null,
       content_md: exemplarsText(),
+    },
+    {
+      skill_key: 'conversion_cover',
+      sort_index: 100,
+      age_band: null,
+      target_dimension: 'cover_conversion',
+      content_md: CONVERSION_COVER_SKILL,
+    },
+    {
+      skill_key: 'conversion_title_hook',
+      sort_index: 110,
+      age_band: null,
+      target_dimension: 'commercial_metadata',
+      content_md: CONVERSION_TITLE_HOOK_SKILL,
+    },
+    {
+      skill_key: 'conversion_description',
+      sort_index: 120,
+      age_band: null,
+      target_dimension: 'commercial_metadata',
+      content_md: CONVERSION_DESCRIPTION_SKILL,
+    },
+    {
+      skill_key: 'conversion_product_page',
+      sort_index: 130,
+      age_band: null,
+      target_dimension: 'commercial_metadata',
+      content_md: CONVERSION_PRODUCT_PAGE_SKILL,
     },
   ];
   for (const s of AGE_BAND_SPECS) {

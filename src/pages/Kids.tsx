@@ -15,6 +15,7 @@ interface KidsBook {
   price_cents: number;
   age_group_id: string | null;
   theme_ids: string[];
+  storefront_meta: Record<string, any> | null;
 }
 
 export default function Kids() {
@@ -52,7 +53,7 @@ export default function Kids() {
     (async () => {
       let query = supabase
         .from("ebooks_kids")
-        .select("id,title,subtitle,description,cover_url,price_cents,age_group_id,theme_ids")
+        .select("id,title,subtitle,description,cover_url,price_cents,age_group_id,theme_ids,storefront_meta")
         .eq("listing_status", "live")
         .eq("sellable", true)
         .order("created_at", { ascending: false })
@@ -129,23 +130,46 @@ export default function Kids() {
         ) : (
           <>
             <p className="font-mono uppercase tracking-widest text-xs mb-4">[ {results.length} book{results.length === 1 ? "" : "s"} ]</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {results.map((p) => (
-                <Link key={p.id} to={`/product/${p.id}`} className="block border-2 border-foreground hover:shadow-brutal transition-all bg-card">
-                  {p.cover_url ? (
-                    <img src={p.cover_url} alt={p.title} className="w-full aspect-[2/3] object-cover border-b-2 border-foreground" />
-                  ) : (
-                    <div className="w-full aspect-[2/3] bg-muted flex items-center justify-center border-b-2 border-foreground">
-                      <FileText className="h-10 w-10 text-muted-foreground" />
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+              {results.map((p) => {
+                const cc = (p.storefront_meta?.conversion_copy ?? null) as
+                  | { short_hook?: string; selling_hook?: string; read_aloud_minutes?: number }
+                  | null;
+                const ap = (p.storefront_meta?.ad_promise ?? null) as { theme?: string } | null;
+                const hook = cc?.short_hook || cc?.selling_hook || null;
+                const rmin = cc?.read_aloud_minutes;
+                const theme = ap?.theme || null;
+                const priceLabel = `$${(p.price_cents / 100).toFixed(2)}`;
+                return (
+                  <Link key={p.id} to={`/product/${p.id}`} className="block border-2 border-foreground hover:shadow-brutal transition-all bg-card">
+                    <div className="relative">
+                      {p.cover_url ? (
+                        <img src={p.cover_url} alt={p.title} className="w-full aspect-[2/3] object-cover border-b-2 border-foreground" />
+                      ) : (
+                        <div className="w-full aspect-[2/3] bg-muted flex items-center justify-center border-b-2 border-foreground">
+                          <FileText className="h-10 w-10 text-muted-foreground" />
+                        </div>
+                      )}
+                      <span className="absolute top-2 right-2 px-2 py-1 text-xs font-display border-2 border-foreground bg-white">
+                        {priceLabel}
+                      </span>
                     </div>
-                  )}
-                  <div className="p-4">
-                    <h3 className="font-display uppercase text-lg leading-tight line-clamp-2">{p.title}</h3>
-                    {p.subtitle && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{p.subtitle}</p>}
-                    <p className="mt-3 font-bold tabular-nums">${(p.price_cents / 100).toFixed(2)}</p>
-                  </div>
-                </Link>
-              ))}
+                    <div className="p-3 md:p-4">
+                      {hook && (
+                        <p className="text-[10px] font-mono uppercase tracking-widest text-accent-foreground font-bold line-clamp-2 mb-1">
+                          {hook}
+                        </p>
+                      )}
+                      <h3 className="font-display uppercase text-base md:text-lg leading-tight line-clamp-2">{p.title}</h3>
+                      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-mono uppercase tracking-wide">
+                        {theme && <span className="px-2 py-0.5 border border-foreground bg-highlight">{theme}</span>}
+                        {rmin != null && <span className="px-2 py-0.5 border border-foreground">~{rmin} min read</span>}
+                        <span className="px-2 py-0.5 border border-foreground bg-accent text-accent-foreground">New</span>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           </>
         )}

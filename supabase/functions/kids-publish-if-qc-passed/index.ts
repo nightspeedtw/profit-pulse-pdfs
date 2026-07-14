@@ -44,7 +44,22 @@ Deno.serve(async (req) => {
 
     let publishState = 'not_attempted';
     let supervisorDispatched = false;
+    let copyGenerated = false;
     if (publish && sellable) {
+      // Generate conversion-optimized storefront copy BEFORE flipping to live so
+      // parents landing from paid ads see the hook + benefit-led description,
+      // not the raw concept brief.
+      try {
+        const cpRes = await fetch(`${SUPABASE_URL}/functions/v1/kids-generate-storefront-copy`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+          body: JSON.stringify({ ebook_id }),
+        });
+        const cp = await cpRes.json().catch(() => ({}));
+        copyGenerated = !!cp?.ok;
+      } catch (e) {
+        console.warn('storefront copy generation failed (publishing anyway)', (e as Error).message);
+      }
       await db.from('ebooks_kids').update({
         listing_status: 'live', status: 'live', pipeline_status: 'published',
       }).eq('id', ebook_id);
@@ -62,7 +77,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    return json({ ok: true, ebook_id, publishState, verdict: qcBody?.verdict, story_qc_status: qcBody?.story_qc_status, supervisor_dispatched: supervisorDispatched });
+    return json({ ok: true, ebook_id, publishState, verdict: qcBody?.verdict, story_qc_status: qcBody?.story_qc_status, supervisor_dispatched: supervisorDispatched, copy_generated: copyGenerated });
   } catch (e) {
     console.error('kids-publish-if-qc-passed error', e);
     return json({ ok: false, error: String((e as Error)?.message ?? e) }, 500);

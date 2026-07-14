@@ -118,10 +118,25 @@ export default function Product() {
 
           <ProductRating ebookId={product.id} />
 
-          <div className="inline-block border-2 border-foreground bg-background px-4 py-2">
-            <p className="font-display text-3xl md:text-4xl font-black text-foreground tracking-tight">
-              {priceText}
-            </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="inline-block border-2 border-foreground bg-background px-4 py-2">
+              <p className="font-display text-3xl md:text-4xl font-black text-foreground tracking-tight">
+                {priceText}
+              </p>
+            </div>
+            {product.read_aloud_minutes != null && (
+              <span className="inline-block px-3 py-1 border-2 border-foreground bg-highlight text-xs font-mono uppercase tracking-wide">
+                ~{product.read_aloud_minutes} min read-aloud
+              </span>
+            )}
+            {product.ad_promise?.theme && (
+              <span className="inline-block px-3 py-1 border-2 border-foreground bg-accent text-accent-foreground text-xs font-mono uppercase tracking-wide">
+                {product.ad_promise.theme}
+              </span>
+            )}
+            <span className="inline-block px-3 py-1 border-2 border-foreground text-xs font-mono uppercase tracking-wide">
+              New release
+            </span>
           </div>
 
           {hookText && (

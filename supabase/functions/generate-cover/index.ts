@@ -10,7 +10,7 @@ import {
   getOrBuildKidsVisualBible,
   kidsIllustrationPrompt,
 } from "../_shared/kids-visual-bible.ts";
-import { buildKidsCoverSVG, rasterizeKidsSVG } from "../_shared/covers/kids-cover-render.ts";
+import { buildKidsCoverSVG, buildKidsCoverSVGWithMetrics, rasterizeKidsSVG } from "../_shared/covers/kids-cover-render.ts";
 import { buildKidsCoverQc } from "../_shared/qc/kids-cover-qc.ts";
 
 /** How many lines the kids title will wrap to — mirrors the SVG builder's rule. */
@@ -700,14 +700,15 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
           hook: ebook.hook,
         });
         const ageLabel = bible.target_age_range ? `AGES ${bible.target_age_range}` : null;
-        const wrappedTitle = wrapKidsTitle(ebook.title);
-        const kidsSvg = buildKidsCoverSVG({
+        // wrapKidsTitle metric no longer used; wrapping done inside the SVG builder.
+        const built = buildKidsCoverSVGWithMetrics({
           bibleBg: bgBytes!,
           title: ebook.title,
           subtitle: ebook.subtitle,
           ageBadge: ageLabel,
           bible,
         });
+        const kidsSvg = built.svg;
         const kidsCoverPng = await rasterizeKidsSVG(kidsSvg, 1200);
         const kidsCoverPath = `${ebook_id}/cover.png`;
         await db.storage.from("ebook-covers").upload(kidsCoverPath, kidsCoverPng, { contentType: "image/png", upsert: true });
@@ -718,8 +719,11 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
         const kidsQc = buildKidsCoverQc({
           hasBible: !!bible && (bible.characters?.length ?? 0) > 0,
           paletteFromBible: (bible.palette?.length ?? 0) >= 2,
-          titleLineCount: wrappedTitle,
+          titleLineCount: built.lineCount,
           hasScrim: true,
+          titleTopFraction: built.titleTopFraction,
+          titleBlockFraction: built.titleBlockFraction,
+          minTitleFontPx: built.minTitleFontPx,
         });
         lastQC = {
           scores: {

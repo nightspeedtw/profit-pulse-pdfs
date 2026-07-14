@@ -114,7 +114,19 @@ export interface KidsCoverInputs {
   bible: KidsVisualBible;
 }
 
+export interface KidsCoverBuildResult {
+  svg: string;
+  titleTopFraction: number;
+  titleBlockFraction: number;
+  minTitleFontPx: number;
+  lineCount: number;
+}
+
 export function buildKidsCoverSVG(input: KidsCoverInputs): string {
+  return buildKidsCoverSVGWithMetrics(input).svg;
+}
+
+export function buildKidsCoverSVGWithMetrics(input: KidsCoverInputs): KidsCoverBuildResult {
   const { bibleBg, title, subtitle, ageBadge, bible } = input;
   const palette = (bible.palette && bible.palette.length ? bible.palette : ["#FFF6E5", "#2A1A0A", "#E9B44C"]);
   const { fill, stroke } = pickTitleColor(palette);
@@ -122,36 +134,46 @@ export function buildKidsCoverSVG(input: KidsCoverInputs): string {
 
   const bgB64 = toB64(bibleBg);
 
-  // Title layout — up to 3 lines, centered in top third reserved zone.
+  // Conversion rule: title occupies 40-60% of cover HEIGHT, placed in the
+  // UPPER THIRD. At H=1600 → title block target ~640-720px, top edge starts
+  // at ~120px so title block finishes well inside the top 48% of the cover.
   const lines = wrapTitle(title, 3);
-  const titleY0 = 240;
-  const lineGap = 148;
+  const lineCount = lines.length;
+  const titleTop = 120;               // ~7.5% from top
   const longestLine = Math.max(...lines.map((l) => l.length));
-  // Fit longest line into ~1080px with 60px padding each side of the 1200px canvas.
-  const targetPx = 1080;
-  const approxCharWidth = 0.62; // Fredoka bold cap width factor
+  // Scale font aggressively so 1-3 lines together fill ~44% of cover height.
+  const targetPx = 1400;              // give the widest line more room
+  const approxCharWidth = 0.60;
   let titleFontSize = Math.floor(targetPx / (longestLine * approxCharWidth));
-  titleFontSize = Math.max(72, Math.min(titleFontSize, 176));
+  // Floors + caps keep even 1-line titles chunky and 3-line titles legible.
+  const minFont = lineCount === 1 ? 220 : lineCount === 2 ? 180 : 150;
+  const maxFont = lineCount === 1 ? 320 : lineCount === 2 ? 260 : 220;
+  titleFontSize = Math.max(minFont, Math.min(titleFontSize, maxFont));
+  const lineGap = Math.round(titleFontSize * 1.05);
+  const titleBlockPx = lineCount === 1 ? titleFontSize : (lineCount - 1) * lineGap + titleFontSize;
+  const titleTopFraction = titleTop / H;
+  const titleBlockFraction = titleBlockPx / H;
 
   // Only render subtitle if short enough to fit one line comfortably.
   const trimmedSubtitle = (subtitle ?? "").trim();
   const showSubtitle = trimmedSubtitle.length > 0 && trimmedSubtitle.length <= 32;
 
-  // Fonts are loaded into resvg via rasterizeKidsSVG (below). Use inline
-  // attributes only — resvg-wasm's CSS class parsing on <text> is unreliable.
   const titleFontFamily = "Fredoka";
   const bodyFontFamily = "Baloo 2";
   const titleTspans = lines
-    .map((line, i) => `<text x="${W / 2}" y="${titleY0 + i * lineGap}" text-anchor="middle"
+    .map((line, i) => {
+      const yBase = titleTop + titleFontSize + i * lineGap;
+      return `<text x="${W / 2}" y="${yBase}" text-anchor="middle"
       font-family="${titleFontFamily}" font-weight="700" font-size="${titleFontSize}"
-      fill="${fill}" stroke="${stroke}" stroke-width="${Math.max(6, Math.round(titleFontSize * 0.06))}" paint-order="stroke fill"
-      letter-spacing="1" filter="url(#titleShadow)">${esc(line)}</text>`)
+      fill="${fill}" stroke="${stroke}" stroke-width="${Math.max(8, Math.round(titleFontSize * 0.07))}" paint-order="stroke fill"
+      letter-spacing="1" filter="url(#titleShadow)">${esc(line)}</text>`;
+    })
     .join("\n");
 
-  const subtitleY = titleY0 + lines.length * lineGap + 48;
+  const subtitleY = titleTop + titleBlockPx + 96;
   const subtitleEl = showSubtitle
     ? `<text x="${W / 2}" y="${subtitleY}" text-anchor="middle"
-        font-family="${bodyFontFamily}" font-weight="800" font-size="46"
+        font-family="${bodyFontFamily}" font-weight="800" font-size="52"
         fill="${fill}" stroke="${stroke}" stroke-width="3" paint-order="stroke fill"
         letter-spacing="2">${esc(trimmedSubtitle)}</text>`
     : "";
@@ -167,16 +189,18 @@ export function buildKidsCoverSVG(input: KidsCoverInputs): string {
       </g>`
     : "";
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
+  // Scrim covers the whole top zone that contains the title (title bottom + subtitle padding)
+  const scrimH = Math.max(Math.floor(H * 0.5), titleTop + titleBlockPx + 200);
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
   <defs>
     <linearGradient id="topScrim" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"  stop-color="#000000" stop-opacity="0.55"/>
-      <stop offset="55%" stop-color="#000000" stop-opacity="0.20"/>
+      <stop offset="0%"  stop-color="#000000" stop-opacity="0.60"/>
+      <stop offset="60%" stop-color="#000000" stop-opacity="0.25"/>
       <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
     </linearGradient>
     <filter id="titleShadow" x="-10%" y="-10%" width="120%" height="140%">
-      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#1a0e04" flood-opacity="0.60"/>
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#1a0e04" flood-opacity="0.65"/>
     </filter>
   </defs>
 
@@ -184,10 +208,18 @@ export function buildKidsCoverSVG(input: KidsCoverInputs): string {
   <image href="data:image/png;base64,${bgB64}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="xMidYMid slice"/>
 
   <!-- Soft scrim behind top-third title zone -->
-  <rect x="0" y="0" width="${W}" height="${Math.floor(H * 0.48)}" fill="url(#topScrim)"/>
+  <rect x="0" y="0" width="${W}" height="${scrimH}" fill="url(#topScrim)"/>
 
   ${titleTspans}
   ${subtitleEl}
   ${ageBadgeEl}
 </svg>`;
+
+  return {
+    svg,
+    titleTopFraction,
+    titleBlockFraction,
+    minTitleFontPx: titleFontSize,
+    lineCount,
+  };
 }
