@@ -642,6 +642,13 @@ export function seedRows(): SeedRow[] {
       content_md: CONVERSION_COVER_SKILL,
     },
     {
+      skill_key: 'conversion_cover_lettering',
+      sort_index: 105,
+      age_band: null,
+      target_dimension: 'cover_conversion',
+      content_md: CONVERSION_COVER_LETTERING_SKILL,
+    },
+    {
       skill_key: 'conversion_title_hook',
       sort_index: 110,
       age_band: null,
