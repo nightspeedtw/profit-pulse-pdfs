@@ -34,6 +34,8 @@ export interface StorefrontEbook {
   series_id?: string | null;
   age_group_slugs?: string[];
   theme_slugs?: string[];
+  read_aloud_minutes?: number | null;
+  ad_promise?: { theme?: string; hook_line?: string; primary_benefit?: string } | null;
 }
 
 export interface PreviewSpread {
