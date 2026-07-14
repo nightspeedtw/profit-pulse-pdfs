@@ -84,12 +84,41 @@ async function persistJob(db: any, ebook_id: string, scorecardIn: Record<string,
   return next;
 }
 
-async function selfChain(ebook_id: string, publish: boolean) {
-  await fetch(`${SUPABASE_URL}/functions/v1/kids-build-picture-pdf`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-    body: JSON.stringify({ ebook_id, stage: 'resume', publish }),
-  });
+// Double-tap self-chain: fire → wait 5s → if child didn't ack, fire again.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function selfChainDoubleTap(db: any, ebook_id: string, publish: boolean, scorecardIn: Record<string, unknown>) {
+  const dispatchedAt = new Date().toISOString();
+  const dispatchOnce = async () => {
+    try {
+      await fetch(`${SUPABASE_URL}/functions/v1/kids-build-picture-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+        body: JSON.stringify({ ebook_id, stage: 'resume', publish, dispatched_at: dispatchedAt }),
+      });
+    } catch (e) {
+      console.error('selfChain dispatch failed', (e as Error).message);
+    }
+  };
+  const task = (async () => {
+    await persistJob(db, ebook_id, scorecardIn, { next_dispatched_at: dispatchedAt });
+    await dispatchOnce();
+    await new Promise((r) => setTimeout(r, 5000));
+    try {
+      const { data } = await db.from('ebooks_kids').select('qc_scorecard').eq('id', ebook_id).single();
+      const qc = (data?.qc_scorecard ?? {}) as Record<string, unknown>;
+      const job = (((qc.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job as Record<string, unknown> | undefined) ?? {});
+      const acked = (job.acked_at as string | undefined) ?? '';
+      if (!acked || acked < dispatchedAt) {
+        console.warn(`[build-picture-pdf] chain ack missing after 5s (acked=${acked}); double-tapping ebook=${ebook_id}`);
+        await dispatchOnce();
+      }
+    } catch (e) {
+      console.warn('selfChain ack check failed', (e as Error).message);
+    }
+  })();
+  // deno-lint-ignore no-explicit-any
+  const rt = (globalThis as any).EdgeRuntime;
+  if (rt?.waitUntil) rt.waitUntil(task); else void task;
 }
 
 async function chainQcAndPublish(ebook_id: string, publish: boolean) {
@@ -156,6 +185,22 @@ Deno.serve(async (req) => {
       'id, title, subtitle, cover_url, interior_illustrations, manuscript_md, qc_scorecard, storefront_meta',
     ).eq('id', ebook_id).single();
     if (error || !ebook) return json({ ok: false, error: 'ebook not found' }, 404);
+
+    // Handoff ack: mark that this child actually started so the parent's
+    // double-tap retry can skip. Covers both intra-stage self-chain (writes
+    // pdf_repair_job.acked_at) and cross-function handoff from render-interior
+    // (writes pdf_handoff.acked_at). Fire-and-forget.
+    {
+      const ackedAt = new Date().toISOString();
+      const scIn = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
+      void persistJob(db, ebook_id, scIn, { acked_at: ackedAt });
+      if (requestedStage === 'pdf_prepare') {
+        const h = (scIn.pdf_handoff as Record<string, unknown> | undefined) ?? {};
+        void db.from('ebooks_kids').update({
+          qc_scorecard: { ...scIn, pdf_handoff: { ...h, acked_at: ackedAt } },
+        }).eq('id', ebook_id);
+      }
+    }
 
     const allRecs: Array<{ url: string; scene?: string }> = Array.isArray(ebook.interior_illustrations)
       ? (ebook.interior_illustrations as Array<{ url: string; scene?: string }>) : [];
@@ -323,8 +368,7 @@ Deno.serve(async (req) => {
     });
 
     if (nextLane !== 'done') {
-      // @ts-expect-error EdgeRuntime is a Deno Deploy global
-      EdgeRuntime.waitUntil(selfChain(ebook_id, publish));
+      selfChainDoubleTap(db, ebook_id, publish, scorecard);
       return json({ ok: true, stage: stageLabel, next_stage: nextStageLabel, result: stageResult });
     }
 
