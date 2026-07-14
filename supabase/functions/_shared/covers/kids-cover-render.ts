@@ -223,3 +223,42 @@ export function buildKidsCoverSVGWithMetrics(input: KidsCoverInputs): KidsCoverB
     lineCount,
   };
 }
+
+/**
+ * Lettering-mode cover: the AI illustration already contains the hand-lettered
+ * title. We just wrap it full-bleed at 1600×1600 and optionally add the small
+ * bottom-right age badge. NO scrim, NO SVG title overlay — that would clash
+ * with the painted lettering.
+ */
+export function buildKidsCoverSVGLetteringOnly(input: {
+  bibleBg: Uint8Array;
+  ageBadge?: string | null;
+  bible: KidsVisualBible;
+}): { svg: string } {
+  const { bibleBg, ageBadge, bible } = input;
+  const palette = (bible.palette && bible.palette.length ? bible.palette : ["#FFF6E5", "#2A1A0A", "#E9B44C"]);
+  const accent = palette[2] ?? palette[1] ?? "#E9B44C";
+  const stroke = "#2A1A0A";
+  const bodyFontFamily = "Baloo 2";
+  const bgB64 = toB64(bibleBg);
+
+  const ageBadgeEl = ageBadge
+    ? `
+      <g transform="translate(${W - 320}, ${H - 140})">
+        <rect x="0" y="0" width="260" height="86" rx="43" ry="43" fill="${accent}" opacity="0.95" stroke="${stroke}" stroke-width="5"/>
+        <text x="130" y="60" text-anchor="middle" font-family="${bodyFontFamily}"
+              font-weight="800" font-size="40" fill="${stroke}" letter-spacing="3">
+          ${esc(ageBadge)}
+        </text>
+      </g>`
+    : "";
+
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+  <image href="data:image/png;base64,${bgB64}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="xMidYMid slice"/>
+  ${ageBadgeEl}
+</svg>`;
+
+  return { svg };
+}
+
