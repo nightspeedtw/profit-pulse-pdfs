@@ -613,6 +613,34 @@ export function seedRows(): SeedRow[] {
       target_dimension: null,
       content_md: exemplarsText(),
     },
+    {
+      skill_key: 'conversion_cover',
+      sort_index: 100,
+      age_band: null,
+      target_dimension: 'cover_conversion',
+      content_md: CONVERSION_COVER_SKILL,
+    },
+    {
+      skill_key: 'conversion_title_hook',
+      sort_index: 110,
+      age_band: null,
+      target_dimension: 'commercial_metadata',
+      content_md: CONVERSION_TITLE_HOOK_SKILL,
+    },
+    {
+      skill_key: 'conversion_description',
+      sort_index: 120,
+      age_band: null,
+      target_dimension: 'commercial_metadata',
+      content_md: CONVERSION_DESCRIPTION_SKILL,
+    },
+    {
+      skill_key: 'conversion_product_page',
+      sort_index: 130,
+      age_band: null,
+      target_dimension: 'commercial_metadata',
+      content_md: CONVERSION_PRODUCT_PAGE_SKILL,
+    },
   ];
   for (const s of AGE_BAND_SPECS) {
     rows.push({
