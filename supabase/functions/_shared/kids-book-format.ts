@@ -35,9 +35,10 @@ export const KIDS_BOOK_FORMAT = {
   // Cover matches interior trim.
   cover_aspect: "1:1 square",
 
-  // PDF-build staging: split N story pages into ≤8-page batches so each Edge
-  // invocation stays under the worker memory limit.
-  pdf_pages_per_stage: 8,
+  // PDF-build staging: split N story pages into ≤5-page batches so each Edge
+  // invocation stays under the worker memory/CPU wall-clock limit while the
+  // in-progress PDF grows.
+  pdf_pages_per_stage: 5,
 } as const;
 
 export type KidsBookFormat = typeof KIDS_BOOK_FORMAT;
