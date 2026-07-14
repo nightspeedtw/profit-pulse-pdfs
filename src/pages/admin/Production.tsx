@@ -15,6 +15,7 @@ import { StatusBadge, resolveEbookBadge, type EbookBadgeKind } from "@/component
 import { WorksheetOverflowReview } from "@/components/admin/WorksheetOverflowReview";
 import { LiveProductionQueue } from "@/components/admin/LiveProductionQueue";
 import { SystemHeartbeatCard } from "@/components/admin/SystemHeartbeatCard";
+import { AiProvidersCard } from "@/components/admin/AiProvidersCard";
 
 type Ebook = {
   id: string; title: string;
