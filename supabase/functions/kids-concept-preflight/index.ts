@@ -8,8 +8,11 @@
 // No image cost, no ebook rows. Story-only cheap step.
 
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
-import { storyCraftBlock, PARENT_HOOK_MENU } from '../_shared/story-craft-skill.ts';
+import { createClient } from 'npm:@supabase/supabase-js@2';
+import { loadStoryCraftBlock, PARENT_HOOK_MENU } from '../_shared/story-craft-skill.ts';
 
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
 
 const BANNED_LANES = [
