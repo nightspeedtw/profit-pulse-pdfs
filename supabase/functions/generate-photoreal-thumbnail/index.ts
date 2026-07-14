@@ -14,6 +14,7 @@ import {
 } from "../_shared/cover-face.ts";
 import { renderPhotorealMockup } from "../_shared/photoreal-mockup.ts";
 import { qcPhotorealThumbnail } from "../_shared/thumbnail-qc-photoreal.ts";
+import { uploadAndSignImage, versionedEbookAssetPath } from "../_shared/versioned-assets.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -80,13 +81,8 @@ Deno.serve(async (req) => {
         .from("ebook-covers").download(inspectionPath);
       if (dlErr || !file) throw new Error(`no inspection png to promote: ${dlErr?.message ?? "not found"}`);
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const finalPath = `${ebookId}/store_thumbnail.png`;
-      const { error: upErr } = await supabase.storage.from("ebook-covers")
-        .upload(finalPath, bytes, { contentType: "image/png", upsert: true });
-      if (upErr) throw upErr;
-      const { data: signed, error: signErr } = await supabase.storage.from("ebook-covers")
-        .createSignedUrl(finalPath, SIGNED_TTL);
-      if (signErr) throw signErr;
+      const finalPath = versionedEbookAssetPath(ebookId, 'store-thumbnail');
+      const signed = await uploadAndSignImage(supabase, "ebook-covers", finalPath, bytes, SIGNED_TTL);
       const url = signed.signedUrl;
       const { error: updErr } = await supabase.from("ebooks").update({
         store_thumbnail_url: url,
@@ -170,13 +166,8 @@ Deno.serve(async (req) => {
     }
 
     // Pass: promote to store_thumbnail_url
-    const finalPath = `${ebookId}/store_thumbnail.png`;
-    const { error: upErr } = await supabase.storage.from("ebook-covers")
-      .upload(finalPath, mockupBytes, { contentType: "image/png", upsert: true });
-    if (upErr) throw upErr;
-    const { data: signed, error: signErr } = await supabase.storage.from("ebook-covers")
-      .createSignedUrl(finalPath, SIGNED_TTL);
-    if (signErr) throw signErr;
+    const finalPath = versionedEbookAssetPath(ebookId, 'store-thumbnail');
+    const signed = await uploadAndSignImage(supabase, "ebook-covers", finalPath, mockupBytes, SIGNED_TTL);
 
     const url = signed.signedUrl;
     const { error: updErr } = await supabase.from("ebooks").update({
