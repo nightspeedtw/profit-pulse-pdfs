@@ -8,6 +8,7 @@
 // No image cost, no ebook rows. Story-only cheap step.
 
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+import { storyCraftBlock, PARENT_HOOK_MENU } from '../_shared/story-craft-skill.ts';
 
 const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
 
