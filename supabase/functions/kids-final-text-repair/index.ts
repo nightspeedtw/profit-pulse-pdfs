@@ -166,7 +166,7 @@ ${manuscript}
 """`;
 
     const ai = await aiJSON<{ manuscript_md: string }>({
-      model: 'google/gemini-3.1-pro-preview',
+      model: 'google/gemini-2.5-flash',
       system: 'You are a careful children\'s picture-book line editor. Return valid JSON only. Edit minimally and preserve scene/art alignment.',
       user,
       maxTokens: 5000,

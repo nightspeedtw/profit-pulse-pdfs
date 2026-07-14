@@ -8,8 +8,10 @@
 // familiar-object non-penalty rules, subscores, and few-shot examples.
 
 import type { RawFinding } from "./pdf-preflight.ts";
+import { logAiCost, costDb } from "./cost-log.ts";
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+const JUDGE_MODEL = "google/gemini-2.5-flash";
 
 export interface StoryReport {
   age_appropriateness_score: number;
@@ -44,6 +46,7 @@ export interface RunStoryJudgeOpts {
   ageBand?: string | null;
   manuscript_md: string;
   page_texts?: string[];
+  ebook_id?: string;
 }
 
 const JUDGE_VERSION = "v2-2026-07-13";
@@ -172,7 +175,7 @@ ${SCHEMA_HINT}`;
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: JUDGE_MODEL,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: SYSTEM },
@@ -182,10 +185,18 @@ ${SCHEMA_HINT}`;
     });
     if (!r.ok) throw new Error(`story judge ${r.status}: ${(await r.text()).slice(0, 200)}`);
     const j = await r.json();
+    const usage = j.usage ?? {};
+    logAiCost(costDb(), {
+      ebook_id: opts.ebook_id,
+      step: "kids_story_judge",
+      model: JUDGE_MODEL,
+      input_tokens: usage.prompt_tokens ?? 0,
+      output_tokens: usage.completion_tokens ?? 0,
+      provider: "gateway",
+    });
     const raw = (j.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
     try { return JSON.parse(raw) as Record<string, unknown>; }
     catch (_e) {
-      // Best-effort recovery: slice from first `{` to last `}`.
       const s = raw.indexOf("{"); const e = raw.lastIndexOf("}");
       if (s >= 0 && e > s) {
         try { return JSON.parse(raw.slice(s, e + 1)) as Record<string, unknown>; } catch { /* fall through */ }

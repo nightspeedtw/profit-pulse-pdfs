@@ -9,8 +9,10 @@
 // later, but URL/hash duplicates are the most common failure and must fail QC.
 
 import type { RawFinding } from "./pdf-preflight.ts";
+import { logAiCost, costDb } from "./cost-log.ts";
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+const VISION_MODEL = "google/gemini-2.5-flash-lite";
 
 export interface VisionPageScore {
   page_number: number;
@@ -51,6 +53,7 @@ async function callVision(
   systemPrompt: string,
   userPrompt: string,
   imageUrls: string[],
+  meta?: { ebook_id?: string; step?: string },
 ): Promise<Record<string, unknown>> {
   const content: Array<Record<string, unknown>> = [{ type: "text", text: userPrompt }];
   for (const u of imageUrls) content.push({ type: "image_url", image_url: { url: u } });
@@ -59,7 +62,7 @@ async function callVision(
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash-lite",
+      model: VISION_MODEL,
       messages: [
         { role: "system", content: `${systemPrompt}\n\nCRITICAL: Return ONLY JSON. No prose. No markdown fences. Use integer scores 0-100.` },
         { role: "user", content },
@@ -68,6 +71,15 @@ async function callVision(
   });
   if (!r.ok) throw new Error(`vision ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json();
+  const usage = j.usage ?? {};
+  logAiCost(costDb(), {
+    ebook_id: meta?.ebook_id,
+    step: meta?.step ?? "kids_vision_qc",
+    model: VISION_MODEL,
+    input_tokens: usage.prompt_tokens ?? 0,
+    output_tokens: usage.completion_tokens ?? 0,
+    provider: "gateway",
+  });
   const raw = (j.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
   try { return JSON.parse(raw); } catch { throw new Error(`vision bad JSON: ${raw.slice(0, 200)}`); }
 }
@@ -106,6 +118,7 @@ export interface RunKidsVisionOpts {
   styleBible: Record<string, unknown> | null;
   characterBible: Record<string, unknown> | null;
   concurrency?: number;
+  ebook_id?: string;
 }
 
 export async function runKidsVisionQc(opts: RunKidsVisionOpts): Promise<VisionReport> {
@@ -128,6 +141,7 @@ export async function runKidsVisionQc(opts: RunKidsVisionOpts): Promise<VisionRe
           PAGE_SYSTEM,
           `${styleSummary}\n${charSummary}\nRequested scene for this page: ${p.scene ?? "(unspecified)"}\n\n${PAGE_SCHEMA_HINT}`,
           [opts.coverUrl, p.url],
+          { ebook_id: opts.ebook_id, step: "kids_vision_qc_page" },
         );
         pages.push({
           page_number: p.page_number,
@@ -270,4 +284,120 @@ export function visionReportToFindings(v: VisionReport): RawFinding[] {
     }
   }
   return out;
+}
+
+// ---------------- Batched 3×3 contact-sheet QC ----------------
+//
+// One vision call judges 9 pages at once by asking the model to look at a
+// composite grid. Each cell is labeled 1-9. Cuts vision-QC volume ~89% for
+// full-book passes (35 pages → 4 calls instead of 35). Single-page path
+// (runKidsVisionQc) stays for repair re-checks where we only regenerated one
+// page and don't need to re-judge all others.
+
+import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
+
+export interface BatchCellVerdict {
+  cell: number;               // 1..9
+  page_number: number;
+  index: number;
+  url: string;
+  overall_score: number;
+  character_match_score: number;
+  cover_interior_match_score: number;
+  page_scene_match_score: number;
+  evidence: string;
+  repair_action: string;
+}
+
+async function makeContactSheet(urls: string[]): Promise<string> {
+  const CELL = 384;
+  const canvas = new Image(CELL * 3, CELL * 3);
+  canvas.fill(0xffffffff);
+  for (let i = 0; i < urls.length && i < 9; i++) {
+    try {
+      const res = await fetch(urls[i]);
+      if (!res.ok) continue;
+      const img = await Image.decode(new Uint8Array(await res.arrayBuffer()));
+      const resized = img.resize(CELL, CELL);
+      const row = Math.floor(i / 3), col = i % 3;
+      canvas.composite(resized, col * CELL, row * CELL);
+    } catch (e) {
+      console.warn("contact-sheet cell decode failed", i, (e as Error).message);
+    }
+  }
+  const png = await canvas.encode();
+  let s = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < png.length; i += chunk) s += String.fromCharCode(...png.subarray(i, i + chunk));
+  return `data:image/png;base64,${btoa(s)}`;
+}
+
+const BATCH_SYSTEM =
+  "You are a strict picture-book art director doing visual QC on a 3x3 contact sheet. " +
+  "Cells are numbered 1-9 in reading order (row-major, top-left = 1). " +
+  "For each cell that has an image, judge how well the page matches the reference cover shown first, " +
+  "and whether the page scene reads clearly. Give integer scores 0-100. Return JSON only.";
+
+/**
+ * Batch vision QC. `coverUrl` is the reference cover pinned as the first image;
+ * `pages` are grouped into 3x3 sheets and judged in one call per sheet.
+ */
+export async function runKidsVisionQcBatched(opts: {
+  coverUrl: string;
+  interior: Interior[];
+  ebook_id?: string;
+}): Promise<BatchCellVerdict[]> {
+  const results: BatchCellVerdict[] = [];
+  for (let start = 0; start < opts.interior.length; start += 9) {
+    const group = opts.interior.slice(start, start + 9);
+    const sheetDataUrl = await makeContactSheet(group.map((g) => g.url));
+    const sceneLines = group.map((g, i) =>
+      `cell ${i + 1} (page ${g.page_number}): scene = ${g.scene ?? "(unspecified)"}`,
+    ).join("\n");
+    const user = `Reference cover is image 1. Image 2 is a 3x3 contact sheet of interior pages.
+
+${sceneLines}
+
+For each cell 1-${group.length} return an object. Return JSON:
+{"cells":[{"cell":1,"character_match_score":0,"cover_interior_match_score":0,"page_scene_match_score":0,"overall_score":0,"evidence":"...","repair_action":"none|regenerate_page|adjust_palette"} ...]}`;
+
+    try {
+      const j = await callVision(BATCH_SYSTEM, user, [opts.coverUrl, sheetDataUrl], {
+        ebook_id: opts.ebook_id,
+        step: "kids_vision_qc_batch",
+      });
+      const cells = Array.isArray((j as { cells?: unknown }).cells)
+        ? (j as { cells: Record<string, unknown>[] }).cells
+        : [];
+      for (const c of cells) {
+        const cellNo = num(c.cell as number);
+        const g = group[cellNo - 1];
+        if (!g) continue;
+        results.push({
+          cell: cellNo,
+          page_number: g.page_number,
+          index: g.index,
+          url: g.url,
+          character_match_score: num(c.character_match_score),
+          cover_interior_match_score: num(c.cover_interior_match_score),
+          page_scene_match_score: num(c.page_scene_match_score),
+          overall_score: num(c.overall_score),
+          evidence: String(c.evidence ?? "").slice(0, 400),
+          repair_action: String(c.repair_action ?? "none"),
+        });
+      }
+    } catch (e) {
+      console.warn("batch vision qc failed for group", start, (e as Error).message);
+      for (let i = 0; i < group.length; i++) {
+        const g = group[i];
+        results.push({
+          cell: i + 1, page_number: g.page_number, index: g.index, url: g.url,
+          character_match_score: 0, cover_interior_match_score: 0, page_scene_match_score: 0,
+          overall_score: 0, evidence: `batch vision failed: ${(e as Error).message.slice(0, 120)}`,
+          repair_action: "regenerate_page",
+        });
+      }
+    }
+  }
+  return results;
 }

@@ -1,17 +1,24 @@
 // Fal.ai helper — call Flux Schnell (fast draft) and Recraft V3 (final quality).
 // Returns raw PNG bytes so callers can upload to storage themselves.
+//
+// Fal is already a direct-billing API (no gateway markup) so we just add
+// cost_log accounting per call.
 
-const FAL_KEY = Deno.env.get("FAL_API_KEY");
+import { logAiCost, costDb } from "./cost-log.ts";
+
+const FAL_KEY = Deno.env.get("FAL_API_KEY") ?? Deno.env.get("FAL_KEY");
 
 type FalImageOpts = {
   prompt: string;
-  image_url?: string;   // when set → image-to-image
-  strength?: number;    // 0..1, default 0.65 (character fidelity)
+  image_url?: string;
+  strength?: number;
   image_size?: "square_hd" | "portrait_4_3" | "portrait_16_9" | "landscape_4_3" | "landscape_16_9";
   negative_prompt?: string;
+  ebook_id?: string;
+  step?: string;
 };
 
-async function callFal(endpoint: string, body: Record<string, unknown>): Promise<Uint8Array> {
+async function callFal(endpoint: string, body: Record<string, unknown>, meta?: { ebook_id?: string; step?: string; model: string }): Promise<Uint8Array> {
   if (!FAL_KEY) throw new Error("FAL_API_KEY not configured");
   const res = await fetch(`https://fal.run/${endpoint}`, {
     method: "POST",
@@ -27,13 +34,19 @@ async function callFal(endpoint: string, body: Record<string, unknown>): Promise
   if (!url) throw new Error(`fal ${endpoint} returned no image url: ${JSON.stringify(j).slice(0, 300)}`);
   const imgRes = await fetch(url);
   if (!imgRes.ok) throw new Error(`fal image fetch ${imgRes.status}`);
-  return new Uint8Array(await imgRes.arrayBuffer());
+  const bytes = new Uint8Array(await imgRes.arrayBuffer());
+  if (meta) {
+    logAiCost(costDb(), {
+      ebook_id: meta.ebook_id,
+      step: meta.step ?? "kids_fal_image",
+      model: meta.model,
+      images: 1,
+      provider: "fal_direct",
+    });
+  }
+  return bytes;
 }
 
-/** Flux Schnell — ~4 steps, ~$0.003, good for drafts / character reference sheets.
- *  image_url is accepted for API compatibility but ignored — fal's public
- *  schnell endpoint is text-to-image only. Character fidelity relies on a
- *  detailed prompt describing the invariant character traits. */
 export function falFluxSchnell(opts: FalImageOpts): Promise<Uint8Array> {
   const body: Record<string, unknown> = {
     prompt: opts.prompt,
@@ -42,22 +55,19 @@ export function falFluxSchnell(opts: FalImageOpts): Promise<Uint8Array> {
     num_images: 1,
     enable_safety_checker: true,
   };
-  return callFal("fal-ai/flux/schnell", body);
+  return callFal("fal-ai/flux/schnell", body, { ebook_id: opts.ebook_id, step: opts.step, model: "fal-ai/flux/schnell" });
 }
 
-/** Recraft V3 — higher quality illustration, ~$0.04. Use for finals + covers.
- *  Note: Recraft V3 on fal.run only exposes text-to-image. To keep character
- *  fidelity when a reference image is provided, we fall back to Flux Schnell
- *  image-to-image (which does support i2i) and let Recraft handle pure t2i. */
 export async function falRecraftV3(opts: FalImageOpts & { style?: string }): Promise<Uint8Array> {
   if (opts.image_url) {
-    // Use Flux Schnell i2i to preserve the character reference — Recraft has no i2i endpoint.
     return falFluxSchnell({
       prompt: opts.prompt,
       image_url: opts.image_url,
       strength: opts.strength ?? 0.6,
       image_size: opts.image_size,
       negative_prompt: opts.negative_prompt,
+      ebook_id: opts.ebook_id,
+      step: opts.step,
     });
   }
   const body: Record<string, unknown> = {
@@ -66,5 +76,5 @@ export async function falRecraftV3(opts: FalImageOpts & { style?: string }): Pro
     style: opts.style ?? "digital_illustration",
   };
   if (opts.negative_prompt) body.negative_prompt = opts.negative_prompt;
-  return callFal("fal-ai/recraft-v3", body);
+  return callFal("fal-ai/recraft-v3", body, { ebook_id: opts.ebook_id, step: opts.step, model: "fal-ai/recraft-v3" });
 }

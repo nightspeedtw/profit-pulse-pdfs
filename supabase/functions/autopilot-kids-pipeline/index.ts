@@ -262,6 +262,7 @@ async function storyGate(ctx: Ctx): Promise<StepResult> {
     ageBand,
     manuscript_md: manuscript,
     page_texts: pageTexts,
+    ebook_id: ctx.ebook.id as string,
   });
 
   // Persist scorecard even on pass so the admin UI can display subscores.

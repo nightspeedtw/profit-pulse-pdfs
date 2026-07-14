@@ -130,6 +130,8 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      <ApiKeyStatusCard />
+
       {/* ===== Essentials ===== */}
       <Card className="border-2 border-foreground">
         <CardHeader><CardTitle>Production</CardTitle></CardHeader>
@@ -394,4 +396,30 @@ function AdvancedSection({ title, children, onOpen }: { title: string; children:
     </Collapsible>
   );
 }
+
+function ApiKeyStatusCard() {
+  const [status, setStatus] = useState<{ gemini_direct: boolean; fal_direct: boolean; lovable_gateway: boolean } | null>(null);
+  useEffect(() => {
+    supabase.functions.invoke("settings-secret-status", { body: {} })
+      .then((r) => setStatus((r.data as { keys?: typeof status })?.keys ?? null))
+      .catch(() => setStatus(null));
+  }, []);
+  const Dot = ({ on }: { on: boolean }) => (
+    <span className={`inline-block size-2.5 rounded-full ${on ? "bg-green-500" : "bg-muted-foreground/40"}`} />
+  );
+  return (
+    <Card className="border-2 border-foreground">
+      <CardHeader><CardTitle>Cost-saving API keys</CardTitle></CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        <div className="flex items-center gap-2"><Dot on={!!status?.gemini_direct} /> Gemini direct API (GEMINI_API_KEY) {status?.gemini_direct ? "active" : "not set"}</div>
+        <div className="flex items-center gap-2"><Dot on={!!status?.fal_direct} /> Fal direct API (FAL_API_KEY) {status?.fal_direct ? "active" : "not set"}</div>
+        <div className="flex items-center gap-2"><Dot on={!!status?.lovable_gateway} /> Lovable AI Gateway {status?.lovable_gateway ? "active" : "not set"}</div>
+        <p className="text-xs text-muted-foreground pt-1">
+          ใส่ API key ตรงเพื่อประหยัด ~30–50%. Add <code>GEMINI_API_KEY</code> in Project Settings → Secrets to route image + text calls directly to Google (same models, no gateway markup). Fal is already direct.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 
