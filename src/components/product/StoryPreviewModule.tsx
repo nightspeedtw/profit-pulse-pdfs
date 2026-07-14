@@ -98,11 +98,18 @@ export default function StoryPreviewModule({
                 {showMore ? "Hide sample" : `Read a longer sample (${spreads.length} spreads)`}
               </button>
               {showMore && (
-                <div className="mt-4 grid sm:grid-cols-2 gap-3">
+                <div className="mt-4 grid sm:grid-cols-2 gap-4">
                   {spreads.slice(0, 6).map((s) => (
-                    <figure key={s.page} className="rounded-lg overflow-hidden border border-border bg-muted">
-                      <img src={s.image_url} alt={`Page ${s.page}`} loading="lazy" className="w-full h-auto object-contain" />
-                      <figcaption className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground px-2 py-1 border-t border-border">
+                    <figure key={s.page} className="rounded-lg overflow-hidden border border-border bg-card flex flex-col">
+                      <img src={s.image_url} alt={`Page ${s.page}`} loading="lazy" className="w-full h-auto object-cover" />
+                      {s.text && s.text.trim().length > 0 && (
+                        <div className="px-3 py-3 border-t border-border">
+                          <p className="font-serif text-sm md:text-[15px] leading-relaxed text-foreground whitespace-pre-line">
+                            {s.text}
+                          </p>
+                        </div>
+                      )}
+                      <figcaption className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground px-3 py-1.5 border-t border-border bg-muted/40">
                         Page {s.page}
                       </figcaption>
                     </figure>
