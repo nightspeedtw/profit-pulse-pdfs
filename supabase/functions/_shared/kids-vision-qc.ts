@@ -9,8 +9,10 @@
 // later, but URL/hash duplicates are the most common failure and must fail QC.
 
 import type { RawFinding } from "./pdf-preflight.ts";
+import { logAiCost, costDb } from "./cost-log.ts";
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+const VISION_MODEL = "google/gemini-2.5-flash-lite";
 
 export interface VisionPageScore {
   page_number: number;
@@ -51,6 +53,7 @@ async function callVision(
   systemPrompt: string,
   userPrompt: string,
   imageUrls: string[],
+  meta?: { ebook_id?: string; step?: string },
 ): Promise<Record<string, unknown>> {
   const content: Array<Record<string, unknown>> = [{ type: "text", text: userPrompt }];
   for (const u of imageUrls) content.push({ type: "image_url", image_url: { url: u } });
@@ -59,7 +62,7 @@ async function callVision(
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash-lite",
+      model: VISION_MODEL,
       messages: [
         { role: "system", content: `${systemPrompt}\n\nCRITICAL: Return ONLY JSON. No prose. No markdown fences. Use integer scores 0-100.` },
         { role: "user", content },
@@ -68,6 +71,15 @@ async function callVision(
   });
   if (!r.ok) throw new Error(`vision ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json();
+  const usage = j.usage ?? {};
+  logAiCost(costDb(), {
+    ebook_id: meta?.ebook_id,
+    step: meta?.step ?? "kids_vision_qc",
+    model: VISION_MODEL,
+    input_tokens: usage.prompt_tokens ?? 0,
+    output_tokens: usage.completion_tokens ?? 0,
+    provider: "gateway",
+  });
   const raw = (j.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
   try { return JSON.parse(raw); } catch { throw new Error(`vision bad JSON: ${raw.slice(0, 200)}`); }
 }
