@@ -319,6 +319,9 @@ function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): {
   if (!c.refrain || c.refrain.split(/\s+/).length < 3) {
     blockers.push('refrain_too_short');
   }
+  if (!c.parent_hook || !(PARENT_HOOK_MENU as readonly string[]).includes(c.parent_hook)) {
+    blockers.push(`parent_hook_missing_or_off_menu (got "${(c.parent_hook ?? '').slice(0, 60)}")`);
+  }
   if (scores.final_concept_score < CONCEPT_SCORE_FLOOR) {
     blockers.push(`final_concept_score=${scores.final_concept_score}<${CONCEPT_SCORE_FLOOR}`);
   }
