@@ -360,7 +360,7 @@ Deno.serve(async (req) => {
     // within ±2 AND at least 2 non-free repair rounds have already run, the
     // book is thrashing. Retire honestly so the batch can rotate to a fresh
     // concept instead of burning image credits on flat scores.
-    if (totalAttempts >= 2) {
+    if (totalAttempts >= 2 && !hasPaidStall) {
       const { data: recentQc } = await db.from('qc_reports')
         .select('final_quality_score, created_at, stage')
         .eq('ebook_id', ebook_id)
@@ -396,7 +396,7 @@ Deno.serve(async (req) => {
         return json({ ok: true, result: 'shelved', reason: 'repair_not_converging', recent_scores: scores });
       }
     }
-    if (totalAttempts >= 12) {
+    if (totalAttempts >= 12 && !hasPaidStall) {
       await db.from('ebooks_kids').update({
         listing_status: 'draft',
         sellable: false,
@@ -413,6 +413,13 @@ Deno.serve(async (req) => {
       }).eq('id', ebook_id);
       return json({ ok: true, result: 'shelved', reason: 'supervisor_budget_exhausted', total_attempts: totalAttempts });
     }
+    // If we ARE in a paid stall and either retire branch would have fired,
+    // OR if we're just entering with no obvious blocker, force a free resume
+    // right here — never let paid assets languish waiting for the next tick.
+    if (hasPaidStall && totalAttempts >= 12) {
+      return await forceResumePaidStall(`budget_would_exhaust_at_${totalAttempts}`);
+    }
+
 
     const scorecard = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
     const pdfJob = ((scorecard.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job ?? null) as { next_stage?: string | null; updated_at?: string; error?: string | null; prepared?: boolean } | null;
