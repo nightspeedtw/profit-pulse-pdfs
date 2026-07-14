@@ -21,6 +21,20 @@ import {
   startPicturePdf, appendSpreadsToPdf, finalizePicturePdf, splitManuscriptForSpreads,
 } from '../_shared/kids-picture-pdf.ts';
 import { KIDS_BOOK_FORMAT } from '../_shared/kids-book-format.ts';
+import { computeLuminance } from '../_shared/image-luminance.ts';
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Gate 4: reject placeholder / empty captions that would print "Page 28"
+// into the caption panel of story page 31.
+const PLACEHOLDER_RX = /^\s*(page\s*\d+|lorem\s+ipsum|placeholder|tbd|todo)\s*$/i;
+function isPlaceholderCaption(s: string): boolean {
+  if (!s || !s.trim()) return true;
+  return PLACEHOLDER_RX.test(s.trim());
+}
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -152,11 +166,24 @@ Deno.serve(async (req) => {
     const recs = allRecs.slice(0, MAX_INTERIOR);
     const numStoryPages = recs.length;
 
-    const captions = splitManuscriptForSpreads(String(ebook.manuscript_md ?? ''), numStoryPages)
-      .map((c, i) => c || recs[i].scene || `Page ${i + 1}`);
+    const rawCaptions = splitManuscriptForSpreads(String(ebook.manuscript_md ?? ''), numStoryPages);
+    // Gate 4: hard-fail if any caption is empty or placeholder. No "Page N" fallback.
+    const badIdx: number[] = [];
+    rawCaptions.forEach((c, i) => { if (isPlaceholderCaption(c)) badIdx.push(i); });
+    if (badIdx.length) {
+      throw new Error(`text_mapping_gate: ${badIdx.length} pages have empty/placeholder captions (indices ${badIdx.slice(0,5).join(',')}${badIdx.length>5?'…':''}). Manuscript has ${rawCaptions.filter(c=>c && c.trim()).length}/${numStoryPages} usable segments — repair manuscript_md before assembly.`);
+    }
+    const captions = rawCaptions;
 
     scorecard = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
     const job = ((scorecard.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job ?? null) as Record<string, unknown> | null;
+
+    // Gate 1 (cover splice): if the cover bytes changed since the in-progress
+    // PDF was prepared, discard it and rebuild from prepare so the current
+    // cover ends up on page 1.
+    const currentCoverBytes = await fetchImage(ebook.cover_url as string);
+    const currentCoverHash = await sha256Hex(currentCoverBytes);
+    const priorCoverHash = (job?.cover_bytes_hash as string | undefined) ?? null;
 
     // Auto-heal: if we thought we were mid-interior but the file is gone, restart.
     let pos = resolvePosition(job, requestedStage);
@@ -164,6 +191,10 @@ Deno.serve(async (req) => {
       const exists = await db.storage.from('ebook-pdfs').download(INPROGRESS_PATH(ebook_id));
       if (exists.error || !exists.data) {
         console.warn(`kids-build-picture-pdf: lane=${pos.lane} but no in-progress pdf; restarting from prepare`);
+        pos = { lane: 'prepare', pages_done: 0 };
+      } else if (priorCoverHash && priorCoverHash !== currentCoverHash) {
+        console.warn(`kids-build-picture-pdf: cover changed (${priorCoverHash?.slice(0,8)} -> ${currentCoverHash.slice(0,8)}); rebuilding from prepare to splice new cover`);
+        try { await db.storage.from('ebook-pdfs').remove([INPROGRESS_PATH(ebook_id)]); } catch { /* ignore */ }
         pos = { lane: 'prepare', pages_done: 0 };
       }
     }
@@ -201,14 +232,18 @@ Deno.serve(async (req) => {
     let finalized = false;
 
     if (pos.lane === 'prepare') {
-      const coverBytes = await fetchImage(ebook.cover_url as string);
+      // Gate 2: cover must be a real image, not a dead / near-monochrome tile.
+      const coverLum = await computeLuminance(currentCoverBytes);
+      if (coverLum.dead) {
+        throw new Error(`cover_dead_image_gate: cover is ${coverLum.reason} (mean=${coverLum.mean.toFixed(1)}, var=${coverLum.variance.toFixed(0)}). Regenerate cover before assembly.`);
+      }
       const bytes = await startPicturePdf({
         title: String(ebook.title ?? ''),
         subtitle: (ebook.subtitle as string | null) ?? null,
-        coverPng: coverBytes,
+        coverPng: currentCoverBytes,
       });
       await writeInprogress(db, ebook_id, bytes);
-      stageResult = { pdf_size: bytes.length, pages_added: 3, format: 'square_612' };
+      stageResult = { pdf_size: bytes.length, pages_added: 3, format: 'square_612', cover_bytes_hash: currentCoverHash, cover_luminance: coverLum };
     } else if (pos.lane === 'finalize') {
       const existing = await readInprogress(db, ebook_id);
       const bytes = await finalizePicturePdf(existing);
@@ -225,18 +260,27 @@ Deno.serve(async (req) => {
         pdf_url: signed?.signedUrl ?? null, page_count: pageCount,
       }).eq('id', ebook_id);
       try { await db.storage.from('ebook-pdfs').remove([INPROGRESS_PATH(ebook_id)]); } catch { /* ignore */ }
-      stageResult = { pdf_size: bytes.length, page_count: pageCount, pdf_url: signed?.signedUrl ?? null, format: 'square_612' };
+      stageResult = { pdf_size: bytes.length, page_count: pageCount, pdf_url: signed?.signedUrl ?? null, format: 'square_612', cover_bytes_hash: currentCoverHash };
       finalized = true;
     } else {
       // Interior batch — fetch, downscale to JPEG, embed, save.
       const [start, end] = range!;
       const slice = recs.slice(start, end);
       const spreads: Array<{ caption: string; imagePng: Uint8Array }> = [];
+      const deadPages: Array<{ index: number; reason: string; mean: number; variance: number }> = [];
       for (let i = 0; i < slice.length; i++) {
         const abs = start + i;
         const raw = await fetchImage(slice[i].url);
+        // Gate 2 (dead-page): fail hard on solid black/white/gray interiors.
+        const lum = await computeLuminance(raw);
+        if (lum.dead) {
+          deadPages.push({ index: abs, reason: lum.reason ?? 'dead', mean: lum.mean, variance: lum.variance });
+        }
         const jpeg = await toJpegBytes(raw);
         spreads.push({ caption: captions[abs], imagePng: jpeg });
+      }
+      if (deadPages.length) {
+        throw new Error(`dead_page_gate: ${deadPages.length} dead page(s) in batch ${range![0]}..${range![1]}: ${JSON.stringify(deadPages)}`);
       }
       const existing = await readInprogress(db, ebook_id);
       const bytes = await appendSpreadsToPdf(existing, spreads);
@@ -259,6 +303,9 @@ Deno.serve(async (req) => {
       finalized,
       total_story_pages: numStoryPages,
       per_stage: PER_STAGE,
+      // Persist cover hash on prepare so future runs can detect a regenerated
+      // cover and rebuild page 1 (Gate 1).
+      cover_bytes_hash: pos.lane === 'prepare' ? currentCoverHash : (job?.cover_bytes_hash ?? currentCoverHash),
       error: null,
     });
 
