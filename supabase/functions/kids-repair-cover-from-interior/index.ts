@@ -146,29 +146,52 @@ Deno.serve(async (req) => {
       let bytes: Uint8Array;
       const prompt = basePrompt + (attempt > 1 ? ` (Previous attempt failed: ${lastReason} — fix that specifically.)` : '');
       try {
-        try {
-          bytes = await geminiDirectImage({ prompt, referenceUrls: refUrls, model: 'google/gemini-3.1-flash-image' });
-        } catch (direct) {
-          console.warn(`gemini-direct failed (${(direct as Error).message.slice(0, 120)}) — falling back to gateway`);
-          bytes = await gatewayImageWithRefs({ prompt, referenceUrls: refUrls });
-        }
+        // Dead frames are rejected AT BIRTH — the generator retries up to 3
+        // times in-call with jitter + reference-order swap on attempt 2, and
+        // logs Gemini response metadata (finish reason, safety filters, part
+        // count, bytes length) so we can root-cause black frames. Dead frames
+        // never consume the outer `attempt` budget.
+        const live = await generateLiveImage({
+          label: 'cover_from_interior',
+          attempts: 3,
+          gen: async (inner) => {
+            // Jitter: append a tiny variation phrase per inner attempt.
+            const jitter = inner === 1
+              ? ''
+              : inner === 2
+                ? ' Slight variation: shift lighting warmer and pose energy higher.'
+                : ' Retry with a fresh composition: different camera angle, brighter palette.';
+            // Swap reference order on inner attempt 2 to knock the model out
+            // of any degenerate attractor tied to a specific ref ordering.
+            const refs = inner === 2 && refUrls.length > 1
+              ? [...refUrls].reverse()
+              : refUrls;
+            const seed = 1000 * attempt + inner * 37;
+            try {
+              const { bytes: b, meta } = await geminiDirectImageWithMeta({
+                prompt: prompt + jitter,
+                referenceUrls: refs,
+                model: 'google/gemini-3.1-flash-image',
+                seed,
+              });
+              return { bytes: b, meta };
+            } catch (direct) {
+              console.warn(`gemini-direct failed (${(direct as Error).message.slice(0, 120)}) — falling back to gateway`);
+              const b = await gatewayImageWithRefs({ prompt: prompt + jitter, referenceUrls: refs });
+              return { bytes: b, meta: { provider: 'google_direct', model: 'google/gemini-3.1-flash-image', partCount: 1, bytesLen: b.length, finishReason: 'gateway_fallback', safetyRatings: null } };
+            }
+          },
+        });
+        bytes = live.bytes;
       } catch (e) {
-        lastReason = `gen_error:${(e as Error).message.slice(0, 400)}`;
-        console.error(`attempt ${attempt} gen error`, lastReason);
+        lastReason = (e as Error).message.slice(0, 400);
+        console.error(`attempt ${attempt} gen/dead-image error`, lastReason);
         if (attempt === max_attempts) {
-          return json({ ok: false, error: 'all_generation_attempts_failed', last_reason: lastReason }, 500);
+          return json({ ok: false, error: `cover_repair_generation_failed_after_${max_attempts}`, last_reason: lastReason }, 422);
         }
         continue;
       }
-      const lum = await computeLuminance(bytes);
-      if (lum.dead) {
-        lastReason = `cover_dead_image_gate:${lum.reason}:mean=${lum.mean.toFixed(1)},var=${lum.variance.toFixed(0)}`;
-        console.warn(`attempt ${attempt} rejected by luminance gate`, lastReason);
-        if (attempt === max_attempts) {
-          return json({ ok: false, error: `cover_repair_dead_image_after_${max_attempts}`, last_reason: lastReason }, 422);
-        }
-        continue;
-      }
+
       const qc = await qcCoverLettering({ expectedTitle: title, imageBytes: bytes });
       const detected = String(qc.detected_title_text ?? '').trim();
       const titleNorm = title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
