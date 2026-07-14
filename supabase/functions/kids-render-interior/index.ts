@@ -340,6 +340,69 @@ Deno.serve(async (req) => {
         await writer(rec);
       });
 
+      // ---- VERIFY-AS-YOU-GO: batched vision QC on the just-rendered pages ----
+      // Any page that scores below the character/cover threshold gets one
+      // in-place regenerate attempt (attempt=1) with a stronger nudge, tracked
+      // in qc_scorecard.page_regen_attempts so we cap at 2 retries per page and
+      // never re-verify the same page infinitely.
+      try {
+        if (cover) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: fresh1 } = await (db.from("ebooks_kids") as any)
+            .select("interior_illustrations, qc_scorecard")
+            .eq("id", ebookId).single();
+          const arr: SceneRecord[] = Array.isArray(fresh1?.interior_illustrations)
+            ? (fresh1.interior_illustrations as SceneRecord[]) : [];
+          const justRendered = arr.filter((r) => batch.includes(r.index - 1));
+          if (justRendered.length > 0) {
+            const verdicts = await runKidsVisionQcBatched({
+              coverUrl: cover,
+              interior: justRendered.map((r) => ({
+                index: r.index, page_number: r.page_number, url: r.url, scene: r.scene, hash: r.hash,
+              })),
+              ebook_id: ebookId,
+            });
+            const qc1 = (fresh1?.qc_scorecard ?? {}) as Record<string, unknown>;
+            const attemptsMap = { ...((qc1.page_regen_attempts as Record<string, number>) ?? {}) };
+            const failingIdx: number[] = [];
+            for (const v of verdicts) {
+              const bad = v.character_match_score < 78 || v.cover_interior_match_score < 75;
+              const key = String(v.index);
+              const prev = attemptsMap[key] ?? 0;
+              if (bad && prev < 2) {
+                failingIdx.push(v.index - 1);
+                attemptsMap[key] = prev + 1;
+              }
+            }
+            // Persist attempts + verdicts for observability.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (db.from("ebooks_kids") as any).update({
+              qc_scorecard: {
+                ...qc1,
+                page_regen_attempts: attemptsMap,
+                last_batch_verdicts: { at: new Date().toISOString(), verdicts: verdicts.slice(0, 32) },
+              },
+            }).eq("id", ebookId);
+            if (failingIdx.length > 0) {
+              console.log(`[render-interior] verify-as-you-go regenerating ${failingIdx.length} off-model pages: ${failingIdx.map((i) => i + 1).join(",")}`);
+              await runBatch(failingIdx, async (i) => {
+                const rec = await renderAndUploadOne({
+                  ebookId, db,
+                  scene: plan.scenes[i], sceneIndex: i, startPageNumber: START_PAGE,
+                  characterDescription, styleSuffix, negativePrompt,
+                  coverReferenceUrl: cover, extraReferenceUrls: [],
+                  attempt: attemptsMap[String(i + 1)] ?? 1,
+                  step: "kids_interior_verify_regen",
+                });
+                await writer(rec);
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[render-interior] verify-as-you-go failed (non-fatal):", (e as Error).message);
+      }
+
       const remaining = missing.length - batch.length;
       if (remaining > 0) {
         console.log(`[render-interior] ${remaining} pages remain — self-chaining`);
