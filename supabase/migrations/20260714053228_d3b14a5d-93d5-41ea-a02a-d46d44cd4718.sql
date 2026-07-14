@@ -1,0 +1,1 @@
+ALTER TABLE public.cost_log DROP CONSTRAINT IF EXISTS cost_log_ebook_id_fkey;

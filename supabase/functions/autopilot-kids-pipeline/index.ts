@@ -2,7 +2,7 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { falFluxSchnell, falRecraftV3 } from '../_shared/fal.ts';
 import { pickStyle, markStyleUsed } from '../_shared/style-picker.ts';
-import { buildScenePlan, renderInteriorIllustrations } from '../_shared/kids-interior.ts';
+import { buildScenePlan } from '../_shared/kids-interior.ts';
 // PDF assembly is delegated to the multi-stage `kids-build-picture-pdf`
 // worker — no direct pdf-lib import needed here.
 
@@ -16,9 +16,15 @@ const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
 
 // Sentinel error that the pipeline loop recognizes to short-circuit before art.
 const STORY_GATE_BLOCK = 'STORY_GATE_BLOCK';
+// Sentinel: interior rendering is running asynchronously in kids-render-interior.
+// Not a failure — the run pauses and the render function resumes it via
+// force_finish when all pages are written.
+const INTERIOR_STAGED = 'INTERIOR_STAGED';
 
 const MIN_INTERIOR = 12;
+const TARGET_INTERIOR = 28;
 const MIN_PREVIEWS = 3;
+
 
 type StepResult = { output: Record<string, unknown>; fallbackUsed?: boolean };
 type Step = {
@@ -27,7 +33,7 @@ type Step = {
   critical?: boolean;
   run: (ctx: Ctx) => Promise<StepResult>;
 };
-type Ctx = { supabase: ReturnType<typeof createClient>; ebookId: string; ebook: Record<string, unknown> };
+type Ctx = { supabase: ReturnType<typeof createClient>; ebookId: string; ebook: Record<string, unknown>; runId?: string };
 
 const STEPS: Step[] = [
   { name: 'generate_idea', label: 'Generate story idea', critical: true, run: generateIdea },
@@ -77,7 +83,7 @@ Deno.serve(async (req) => {
     }).eq('id', run_id);
 
     const { data: ebook } = await supabase.from('ebooks_kids').select('*').eq('id', run.ebook_kids_id).single();
-    const ctx: Ctx = { supabase, ebookId: run.ebook_kids_id as string, ebook: ebook ?? {} };
+    const ctx: Ctx = { supabase, ebookId: run.ebook_kids_id as string, ebook: ebook ?? {}, runId: run_id };
 
     const criticalFailures: string[] = [];
     const softFailures: string[] = [];
@@ -115,6 +121,23 @@ Deno.serve(async (req) => {
         };
       } catch (e) {
         const msg = String((e as Error)?.message ?? e);
+        // Not a failure — interior render is running asynchronously and will
+        // resume this run via force_finish when all pages exist.
+        if (msg.includes(INTERIOR_STAGED)) {
+          console.log(`step ${step.name} → interior render dispatched, pausing run`);
+          outcome = { status: 'in_progress', output: { staged: true, reason: 'interior render dispatched' } };
+          await supabase.from('autopilot_kids_steps').update({
+            status: 'in_progress',
+            completed_at: new Date().toISOString(),
+            duration_ms: Date.now() - stepStart,
+            output: outcome.output,
+          }).eq('id', stepRow!.id);
+          await supabase.from('autopilot_kids_runs').update({
+            status: 'waiting_for_interior',
+            blocker_reason: null,
+          }).eq('id', run_id);
+          return json({ ok: true, ebook_id: ctx.ebookId, status: 'waiting_for_interior', staged: true });
+        }
         console.error(`step ${step.name} unrecoverable`, msg);
         outcome = { status: 'failed', output: {}, error: msg };
         if (step.critical) criticalFailures.push(`${step.name}: ${msg}`);
@@ -157,6 +180,7 @@ Deno.serve(async (req) => {
 
       // Never break the loop for other steps — keep pushing forward. Later steps decide what to do given prior state.
     }
+
 
     const finalStatus = criticalFailures.length > 0 ? 'failed' : 'completed';
     const blocker = criticalFailures.length > 0
@@ -633,63 +657,74 @@ Return JSON only: {"line_quality":"","palette":["#","#","#","#","#"],"lighting":
 }
 
 // ---------- Interior illustrations ----------
+// Interior generation used to run all ~28 reference-conditioned image calls
+// inside this single edge invocation. That reliably hit the worker
+// wall-clock, killed the run without persisting stage state, and made
+// every watchdog resume restart from scratch — burning image credits.
+//
+// New flow: build (or reuse) the scene plan here, persist it into
+// qc_scorecard.scene_plan, then hand off to `kids-render-interior` which
+// generates in batches of 8, persists per-page to interior_illustrations,
+// self-chains until every page exists, and finally resumes THIS run via
+// force_finish so thumbnail/previews/PDF steps continue automatically.
 async function generateInterior(ctx: Ctx): Promise<StepResult> {
   const db = ctx.supabase;
   const existing = Array.isArray(ctx.ebook.interior_illustrations) ? ctx.ebook.interior_illustrations : [];
-  if (existing.length >= MIN_INTERIOR) {
-    return { output: { skipped: true, count: existing.length } };
-  }
+  const qc = (ctx.ebook.qc_scorecard ?? {}) as Record<string, unknown>;
+  const persistedPlan = qc.scene_plan as { scenes?: unknown[] } | undefined;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: bible } = await (db.from('kids_book_bibles') as any).select('*').eq('ebook_id', ctx.ebookId).maybeSingle();
   if (!bible) throw new Error('no bible — cover step must run first');
-  const cb = (bible.character_bible_json ?? {}) as Record<string, string>;
-  const sb = (bible.style_bible_json ?? ctx.ebook.style_bible_json ?? {}) as Record<string, unknown>;
-  const styleSlug = bible.style_slug as string | null;
-  const { data: stylePreset } = await db.from('kids_style_presets')
-    .select('prompt_suffix, negative_prompt').eq('slug', styleSlug ?? '').maybeSingle();
 
-  const styleParts = [
-    stylePreset?.prompt_suffix as string | undefined,
-    sb.line_quality && `line quality: ${sb.line_quality}`,
-    sb.lighting && `lighting: ${sb.lighting}`,
-    sb.mood && `mood: ${sb.mood}`,
-    sb.medium && `medium: ${sb.medium}`,
-    Array.isArray(sb.palette) && (sb.palette as string[]).length ? `palette: ${(sb.palette as string[]).join(', ')}` : null,
-  ].filter(Boolean).join('; ') || "warm whimsical storybook illustration, cozy painterly, soft edges";
-  const negativePrompt = (stylePreset?.negative_prompt as string | undefined) ?? 'text, watermark, scary, photorealistic';
+  // If plan not yet persisted, build it once here and store on the ebook so
+  // every resume (and kids-render-interior itself) reuses the same beats.
+  let plan = persistedPlan as { scenes: Array<{ scene: string; emotion: string; setting: string }> } | undefined;
+  if (!plan || !Array.isArray(plan.scenes) || plan.scenes.length < MIN_INTERIOR) {
+    plan = await buildScenePlan({
+      title: String(ctx.ebook.title ?? ''),
+      manuscript_md: String(ctx.ebook.manuscript_md ?? ''),
+      min_scenes: TARGET_INTERIOR,
+    });
+    await db.from('ebooks_kids').update({
+      qc_scorecard: { ...qc, scene_plan: plan },
+    }).eq('id', ctx.ebookId);
+  }
+  const total = plan.scenes.length;
 
-  const charDesc = [
-    cb.name && `named ${cb.name}`,
-    cb.species && `(${cb.species})`,
-    cb.hair && `${cb.hair} hair`,
-    cb.eyes && `${cb.eyes} eyes`,
-    cb.skin && `${cb.skin} skin`,
-    cb.outfit && `wearing ${cb.outfit}`,
-    cb.accessory && `with ${cb.accessory}`,
-  ].filter(Boolean).join(', ') || 'the story hero';
+  // Skip when interior is fully rendered (resume-after-completion path).
+  if (existing.length >= total) {
+    return { output: { skipped: true, count: existing.length, total } };
+  }
 
-  const plan = await buildScenePlan({
-    title: String(ctx.ebook.title ?? ''),
-    manuscript_md: String(ctx.ebook.manuscript_md ?? ''),
-    min_scenes: MIN_INTERIOR,
-  });
-
-  const records = await renderInteriorIllustrations({
-    ebookId: ctx.ebookId,
-    db,
-    characterDescription: charDesc,
-    styleSuffix: styleParts,
-    negativePrompt,
-    scenes: plan.scenes.slice(0, MIN_INTERIOR),
-    startPageNumber: 3,
-  });
-
+  // Set progress marker so the admin UI + watchdog see the staged state.
   await db.from('ebooks_kids').update({
-    interior_illustrations: records,
     pipeline_status: 'illustrating',
+    qc_scorecard: {
+      ...qc,
+      scene_plan: plan,
+      interior_build: { done: existing.length, total, updated_at: new Date().toISOString() },
+    },
   }).eq('id', ctx.ebookId);
-  return { output: { count: records.length } };
+
+  // Dispatch the staged renderer. It will self-chain in batches of 8 and
+  // resume this run via force_finish when every page is on disk.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const runIdFromCtx: string | null = ((ctx as any).runId ?? null);
+  try {
+    await fetch(`${SUPABASE_URL}/functions/v1/kids-render-interior`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ ebook_id: ctx.ebookId, run_id: runIdFromCtx }),
+    });
+  } catch (e) {
+    console.warn('dispatch kids-render-interior failed (will be retried by watchdog):', (e as Error).message);
+  }
+
+  // Sentinel — the outer loop treats this as a clean pause, not a failure.
+  throw new Error(`${INTERIOR_STAGED}: dispatched kids-render-interior (${existing.length}/${total} rendered)`);
 }
+
 
 // ---------- Thumbnail (kids picture books use the cover as thumbnail) ----------
 async function generateThumbnail(ctx: Ctx): Promise<StepResult> {
