@@ -16,13 +16,23 @@ Deno.serve(async (req) => {
     const { ebook_id } = await req.json();
     if (!ebook_id || typeof ebook_id !== "string") throw new Error("ebook_id required");
 
-    const { data: e, error } = await supabase
+    let { data: e, error } = await supabase
       .from("ebooks")
       .select("id, title, pdf_url, listed_at")
       .eq("id", ebook_id)
       .maybeSingle();
     if (error) throw error;
-    if (!e) throw new Error("Ebook not found");
+    if (!e) {
+      // Fallback: kids books live in ebooks_kids
+      const { data: k, error: ke } = await supabase
+        .from("ebooks_kids")
+        .select("id, title, pdf_url, listing_status")
+        .eq("id", ebook_id)
+        .maybeSingle();
+      if (ke) throw ke;
+      if (!k) throw new Error("Ebook not found");
+      e = { id: k.id, title: k.title, pdf_url: k.pdf_url, listed_at: k.listing_status === "live" ? new Date().toISOString() : null } as any;
+    }
     if (!e.listed_at) throw new Error("Ebook not available");
     if (!e.pdf_url) throw new Error("PDF not available");
 
