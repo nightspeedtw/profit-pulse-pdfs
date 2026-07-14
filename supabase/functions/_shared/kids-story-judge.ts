@@ -36,6 +36,20 @@ export interface StoryReport {
     could_be_retitled: boolean;
     specific_page_turn_moments: string[];
   };
+  reread_evidence?: {
+    refrain_text: string;
+    refrain_count: number;
+    participation_beats: string[];
+    hidden_thread: string;
+    callback_ending: boolean;
+  };
+  parent_buyer_evidence?: {
+    developmental_theme_one_liner: string;
+    lesson_is_shown_not_told: boolean;
+    child_has_agency: boolean;
+    moralizing_lines: string[];
+  };
+  score_adjustments?: Array<{ dimension: string; from: number; to: number; reason: string }>;
   judge_version?: string;
   computed_at: string;
 }
