@@ -10,6 +10,7 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { loadStoryCraftBlock } from '../_shared/story-craft-skill.ts';
+import { hasGeminiDirect, geminiDirectChat } from '../_shared/gemini-direct.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -33,9 +34,27 @@ interface CopyOut {
     hook_line: string;
     primary_benefit: string;
   };
+  value_cards: {
+    whats_inside: string[];       // 3-4 concrete inclusions
+    why_kids_love_it: string[];   // 2-3 kid-appeal bullets from the book
+    perfect_for: string[];        // 3-4 gifting/occasion bullets
+  };
 }
 
+// (kids-native taxonomy lives on ebooks_kids.age_group_id + theme_ids; the
+// public store resolves slugs directly from those, no join-table sync needed.)
+
 async function callGemini(system: string, user: string): Promise<string> {
+  // Prefer direct Google AI Studio when GEMINI_API_KEY is set (bypasses
+  // Lovable Gateway markup + credit limit). Fall back to the gateway.
+  if (hasGeminiDirect()) {
+    try {
+      const { text } = await geminiDirectChat({ system, user, responseJson: true, model: 'google/gemini-flash-latest' });
+      return String(text ?? '').replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+    } catch (e) {
+      console.warn('gemini-direct failed, falling back to gateway:', (e as Error).message);
+    }
+  }
   const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
@@ -70,7 +89,7 @@ Deno.serve(async (req) => {
 
     const skillBlock = await loadStoryCraftBlock(db, age_band ?? '4-6');
 
-    const manuscript = String(e.manuscript_md ?? '').slice(0, 8000);
+    const manuscript = String(e.manuscript_md ?? '').slice(0, 3500);
     const pages = Number(e.page_count ?? 32);
     const readAloudMin = Math.max(4, Math.min(12, Math.round(pages * 0.4)));
     const priceUsd = (Number(e.price_cents ?? 799) / 100).toFixed(2);
@@ -82,7 +101,7 @@ ${skillBlock}
 
 Return STRICT JSON matching:
 {
-  "selling_hook": "eyebrow line, <=14 words, the parent-recognition hook (question or scenario)",
+  "selling_hook": "eyebrow line, <=14 words, PARENT-RECOGNITION QUESTION or SCENARIO",
   "short_hook": "same hook but <=12 words, for grid cards",
   "product_description": "Full block: HOOK line \\n\\n STORY PROMISE (2-3 short lines with concrete imagery from the book — refrain / funniest moment / callback object) \\n\\n OUTCOME line (what the parent gets) \\n\\n SPECS line: Perfect for ages [X-Y] · [theme] · read-aloud ~${readAloudMin} min · ${pages} pages",
   "shopping_card_description": "HOOK + STORY PROMISE lines only, <=60 words",
@@ -92,14 +111,31 @@ Return STRICT JSON matching:
     "theme": "the single developmental theme (must match parent_hook)",
     "hook_line": "the same selling_hook — reused verbatim in future ads for message-match",
     "primary_benefit": "what the parent gets in one short sentence"
+  },
+  "value_cards": {
+    "whats_inside": [
+      "${pages} full-color illustrated pages",
+      "Chantable refrain kids will repeat: \\"<exact refrain from the book>\\"",
+      "Read-aloud ~${readAloudMin} min · perfect bedtime length",
+      "Instant PDF download, print-at-home ready"
+    ],
+    "why_kids_love_it": [
+      "3 concrete kid-appeal bullets pulled from the ACTUAL book (funny moment, silly sound, favourite object). <=14 words each."
+    ],
+    "perfect_for": [
+      "3-4 gifting/occasion bullets (bedtime giggles · STEM-curious kids · ages X-Y · gift for a new-reader birthday). <=10 words each."
+    ]
   }
 }
 
 RULES:
-- HOOK is a QUESTION or SCENARIO a parent instantly recognizes ("Does your little one melt down when plans change?"). Never plot summary.
+- HOOK MUST be a QUESTION or SCENARIO a parent instantly recognizes ("Does your little one melt down when plans change?"). NEVER a plot summary. NEVER start with the hero's name.
 - Emotional recognition beats cleverness.
 - STORY PROMISE names the hero + the concrete refrain or callback object from the actual book.
 - OUTCOME names the felt at-home benefit (giggles, easier bedtime, easier conversation about X).
+- value_cards.whats_inside: keep the first three items EXACTLY in the shape above (page count, refrain in quotes, read-aloud). Add one more if useful.
+- value_cards.why_kids_love_it: MUST reference concrete book details (character name, refrain, funniest moment). No generic "engaging story".
+- value_cards.perfect_for: include age band + theme + one gifting occasion.
 - NEVER include fake reviews, fake scarcity, or made-up awards.
 - Language: English only.`;
 
@@ -127,17 +163,21 @@ Return STRICT JSON only.`;
     }
 
     const bullets = Array.isArray(copy.benefit_bullets) ? copy.benefit_bullets.slice(0, 4).map(String) : [];
+    const vc = copy.value_cards ?? {} as CopyOut['value_cards'];
+    const value_cards = {
+      whats_inside: Array.isArray(vc.whats_inside) ? vc.whats_inside.slice(0, 4).map(String) : [],
+      why_kids_love_it: Array.isArray(vc.why_kids_love_it) ? vc.why_kids_love_it.slice(0, 3).map(String) : [],
+      perfect_for: Array.isArray(vc.perfect_for) ? vc.perfect_for.slice(0, 4).map(String) : [],
+    };
 
     const nextMeta: Record<string, unknown> = {
       ...meta,
-      ad_promise: copy.ad_promise ?? null,
+      ad_promise: copy.ad_promise ?? meta.ad_promise ?? null,
+      value_cards,
       conversion_copy_generated_at: new Date().toISOString(),
       read_aloud_minutes: readAloudMin,
     };
 
-    // ebooks_kids has only {title, subtitle, description, storefront_meta} for
-    // copy today, so stash the extended conversion copy inside storefront_meta.
-    // Product/Kids UI reads it from storefront_meta.conversion_copy.
     const nextMeta2: Record<string, unknown> = {
       ...nextMeta,
       conversion_copy: {
@@ -147,6 +187,7 @@ Return STRICT JSON only.`;
         shopping_card_description: (copy.shopping_card_description ?? '').slice(0, 320),
         preview_blurb: (copy.preview_blurb ?? '').slice(0, 200),
         benefit_bullets: bullets,
+        value_cards,
         read_aloud_minutes: readAloudMin,
         pages,
       },

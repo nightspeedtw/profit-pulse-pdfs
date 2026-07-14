@@ -110,6 +110,22 @@ Deno.serve(async (req) => {
         const meta = (kid.storefront_meta ?? {}) as any;
         const cc = (meta.conversion_copy ?? {}) as any;
         const ap = (meta.ad_promise ?? {}) as any;
+        // Resolve kids-native taxonomy from ebooks_kids scalar columns (they
+        // don't use the adult ebook_kids_ages/themes join tables).
+        let kidsAgeSlugs: string[] = [];
+        let kidsThemeSlugs: string[] = [];
+        try {
+          if ((kid as any).age_group_id) {
+            const { data: ag } = await supabase.from('kids_age_groups')
+              .select('slug').eq('id', (kid as any).age_group_id).maybeSingle();
+            if (ag?.slug) kidsAgeSlugs = [ag.slug];
+          }
+          const tids = Array.isArray((kid as any).theme_ids) ? (kid as any).theme_ids.filter(Boolean) : [];
+          if (tids.length > 0) {
+            const { data: ts } = await supabase.from('kids_themes').select('slug').in('id', tids);
+            kidsThemeSlugs = (ts ?? []).map((r: any) => r.slug).filter(Boolean);
+          }
+        } catch (_) { /* non-fatal */ }
         // Build previews (up to 6 spreads) with actual per-page manuscript text.
         // Priority: storefront_meta.preview_pairs (canonical, set by build/repair)
         // → derive from interior_illustrations + manuscript_md split.
@@ -220,6 +236,9 @@ Deno.serve(async (req) => {
           _kids_total_spreads: kid.page_count ?? previews.length,
           _kids_read_aloud_minutes: cc.read_aloud_minutes ?? 6,
           _kids_ad_promise: ap ?? null,
+          _kids_value_cards: (meta.value_cards ?? cc.value_cards ?? null),
+          _kids_age_slugs: kidsAgeSlugs,
+          _kids_theme_slugs: kidsThemeSlugs,
         }] as any;
       }
     }
@@ -282,16 +301,19 @@ Deno.serve(async (req) => {
         preview_images = row._kids_preview_spreads.map((s: any) => s.image_url).filter(Boolean);
         total_spreads = row._kids_total_spreads ?? preview_spreads.length;
       }
-      const { inside_illustrations_json, _kids_preview_spreads, _kids_total_spreads, _kids_read_aloud_minutes, _kids_ad_promise, ...rest } = row;
+      const { inside_illustrations_json, _kids_preview_spreads, _kids_total_spreads, _kids_read_aloud_minutes, _kids_ad_promise, _kids_value_cards, _kids_age_slugs, _kids_theme_slugs, ...rest } = row;
+      const ages = (Array.isArray(_kids_age_slugs) && _kids_age_slugs.length > 0) ? _kids_age_slugs : (ageBy[row.id] ?? []);
+      const themes = (Array.isArray(_kids_theme_slugs) && _kids_theme_slugs.length > 0) ? _kids_theme_slugs : (themeBy[row.id] ?? []);
       return {
         ...rest,
         preview_images,
         preview_spreads,
         total_spreads,
-        age_group_slugs: ageBy[row.id] ?? [],
-        theme_slugs: themeBy[row.id] ?? [],
+        age_group_slugs: ages,
+        theme_slugs: themes,
         read_aloud_minutes: _kids_read_aloud_minutes ?? null,
         ad_promise: _kids_ad_promise ?? null,
+        value_cards: _kids_value_cards ?? null,
       };
     });
     return new Response(JSON.stringify({ items }), {

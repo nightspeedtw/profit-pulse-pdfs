@@ -39,6 +39,11 @@ export interface StorefrontEbook {
   preview_excerpt?: string | null;
   persona?: string | null;
   page_count?: number | null;
+  value_cards?: {
+    whats_inside?: string[];
+    why_kids_love_it?: string[];
+    perfect_for?: string[];
+  } | null;
 }
 
 export interface PreviewSpread {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, BookOpen, Clock, Shield, Zap, FileText } from "lucide-react";
+import { Download, BookOpen, Clock, Shield, Zap, FileText, Gift, Heart, PackageOpen, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PreviewSpread } from "@/lib/storefront";
 
@@ -14,14 +14,31 @@ interface Props {
   spreads: PreviewSpread[];
   priceLabel: string;
   onBuy: () => void;
+  valueCards?: {
+    whats_inside?: string[];
+    why_kids_love_it?: string[];
+    perfect_for?: string[];
+  } | null;
 }
 
 export default function StoryPreviewModule({
   title, excerpt, shortHook, ageBand, readAloudMin, themeLabel,
-  pageCount, spreads, priceLabel, onBuy,
+  pageCount, spreads, priceLabel, onBuy, valueCards,
 }: Props) {
   const [showMore, setShowMore] = useState(false);
   const warmestSpread = spreads[Math.min(1, spreads.length - 1)] ?? spreads[0] ?? null;
+  const themeReadable = themeLabel ? themeLabel.replace(/[-_]/g, ' ') : null;
+  const specsLine = [
+    ageBand ? `Perfect for ages ${ageBand}` : null,
+    themeReadable,
+    readAloudMin ? `read-aloud ~${readAloudMin} min` : null,
+    pageCount ? `${pageCount} pages` : null,
+  ].filter(Boolean).join(' · ');
+  const hasCards = !!(valueCards && (
+    (valueCards.whats_inside?.length ?? 0) > 0 ||
+    (valueCards.why_kids_love_it?.length ?? 0) > 0 ||
+    (valueCards.perfect_for?.length ?? 0) > 0
+  ));
 
   return (
     <section aria-label="Story preview" className="border-2 border-foreground bg-card rounded-2xl overflow-hidden">
@@ -77,8 +94,28 @@ export default function StoryPreviewModule({
           )}
         </div>
 
-        {/* 5. CTA + secondary */}
-        <div className="pt-2 space-y-3">
+        {/* 4b. Marketplace-style value cards */}
+        {hasCards && (
+          <div className="grid md:grid-cols-3 gap-4 pt-2">
+            {(valueCards?.whats_inside?.length ?? 0) > 0 && (
+              <ValueCard icon={PackageOpen} title="What's inside" items={valueCards!.whats_inside!} accent="bg-highlight/60" />
+            )}
+            {(valueCards?.why_kids_love_it?.length ?? 0) > 0 && (
+              <ValueCard icon={Heart} title="Why kids love it" items={valueCards!.why_kids_love_it!} accent="bg-accent/20" />
+            )}
+            {(valueCards?.perfect_for?.length ?? 0) > 0 && (
+              <ValueCard icon={Gift} title="Perfect for" items={valueCards!.perfect_for!} accent="bg-muted/60" />
+            )}
+          </div>
+        )}
+
+        {/* 5. Offer stack: specs → CTA → reassurance → trust */}
+        <div className="pt-2 space-y-3 border-t-2 border-foreground/10 mt-2">
+          {specsLine && (
+            <p className="text-sm font-mono uppercase tracking-wider text-foreground/80 pt-3">
+              {specsLine}
+            </p>
+          )}
           <Button
             onClick={onBuy}
             className="w-full md:w-auto h-14 px-8 gap-2 text-base font-display tracking-wide"
@@ -86,6 +123,7 @@ export default function StoryPreviewModule({
             <Download className="h-5 w-5" />
             Buy · {priceLabel} <span className="opacity-70 text-sm font-sans font-normal ml-1">(Instant PDF download)</span>
           </Button>
+
 
           {spreads.length > 1 && (
             <div>
@@ -143,5 +181,31 @@ function Badge({ icon: Icon, children }: { icon?: React.ComponentType<{ classNam
       {Icon && <Icon className="h-3 w-3" />}
       {children}
     </span>
+  );
+}
+
+function ValueCard({
+  icon: Icon, title, items, accent,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  items: string[];
+  accent?: string;
+}) {
+  return (
+    <div className={`rounded-xl border-2 border-foreground p-4 ${accent ?? "bg-card"}`}>
+      <div className="flex items-center gap-2 mb-3">
+        <Icon className="h-4 w-4" />
+        <h3 className="font-display text-sm uppercase tracking-wide">{title}</h3>
+      </div>
+      <ul className="space-y-1.5">
+        {items.map((it, i) => (
+          <li key={i} className="flex items-start gap-2 text-[13px] leading-snug">
+            <Check className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 opacity-70" />
+            <span>{it}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
