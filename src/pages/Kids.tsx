@@ -17,7 +17,6 @@ interface RawBook {
   age_group_id: string | null;
   theme_ids: string[] | null;
   storefront_meta: Record<string, unknown> | null;
-  interior_preview_urls?: string[] | null;
   created_at: string;
 }
 
