@@ -359,7 +359,7 @@ Deno.serve(async (req) => {
     const s1 = await scoreConcept(c1, ageBand);
     const b1 = detectBannedLaneHits(c1);
     const e1 = evaluate(s1, b1, c1);
-    judged.push({ concept: c1, concept_scores: s1, decision: e1.decision, passed: e1.passed, blockers: e1.blockers, banned_lane_hits: b1 });
+    judged.push({ concept: c1, concept_scores: s1, decision: e1.decision, passed: e1.passed, blockers: e1.blockers, banned_lane_hits: b1, weak_dimensions: e1.weak_dimensions });
 
     // Exactly TWO alternatives if first fails
     if (!e1.passed) {
@@ -370,7 +370,7 @@ Deno.serve(async (req) => {
           const sN = await scoreConcept(cN, ageBand);
           const bN = detectBannedLaneHits(cN);
           const eN = evaluate(sN, bN, cN);
-          judged.push({ concept: cN, concept_scores: sN, decision: eN.decision, passed: eN.passed, blockers: eN.blockers, banned_lane_hits: bN });
+          judged.push({ concept: cN, concept_scores: sN, decision: eN.decision, passed: eN.passed, blockers: eN.blockers, banned_lane_hits: bN, weak_dimensions: eN.weak_dimensions });
           if (eN.passed) break;
         } catch (e) {
           judged.push({
@@ -384,6 +384,7 @@ Deno.serve(async (req) => {
             passed: false,
             blockers: [`alt${i + 1}_gen_failed: ${(e as Error).message.slice(0, 160)}`],
             banned_lane_hits: [],
+            weak_dimensions: [],
           });
         }
       }
