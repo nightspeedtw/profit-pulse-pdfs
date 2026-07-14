@@ -1,18 +1,14 @@
-import { Link } from "react-router-dom";
 import { ShieldCheck, BookOpen, Sparkles } from "lucide-react";
-
-export interface SampleBook {
-  id: string;
-  title: string;
-  cover_url: string | null;
-}
+import type { KidsTheme } from "@/lib/kidsTaxonomy";
+import { KidsBookCard, type KidsBookCardData } from "./KidsBookCard";
 
 interface Props {
   bookCount: number;
-  sampleBooks: SampleBook[];
+  sampleBooks: KidsBookCardData[];
+  themes: KidsTheme[];
 }
 
-export const SocialProofStrip = ({ bookCount, sampleBooks }: Props) => {
+export const SocialProofStrip = ({ bookCount, sampleBooks, themes }: Props) => {
   return (
     <section className="bg-highlight/40 border-y border-border py-10 md:py-14">
       <div className="container">
@@ -24,29 +20,13 @@ export const SocialProofStrip = ({ bookCount, sampleBooks }: Props) => {
 
         {sampleBooks.length > 0 && (
           <>
-            <p className="text-center font-mono uppercase tracking-widest text-xs text-muted-foreground mb-3">
+            <p className="text-center font-mono uppercase tracking-widest text-xs text-muted-foreground mb-4">
               [ ตัวอย่างจากเล่มจริงในคลัง ]
             </p>
-            <div className="overflow-x-auto -mx-6 px-6">
-              <div className="flex gap-3 md:gap-4 min-w-min">
-                {sampleBooks.slice(0, 12).map((b) => (
-                  <Link
-                    key={b.id}
-                    to={`/product/${b.id}`}
-                    aria-label={b.title}
-                    className="group cursor-pointer flex-shrink-0 h-32 w-32 md:h-40 md:w-40 rounded-xl overflow-hidden shadow-soft ring-1 ring-border transition-all hover:-translate-y-1 hover:shadow-brand hover:ring-accent"
-                  >
-                    {b.cover_url ? (
-                      <img
-                        src={b.cover_url}
-                        alt={b.title}
-                        loading="lazy"
-                        className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                      />
-                    ) : (
-                      <div className="h-full w-full bg-muted" />
-                    )}
-                  </Link>
+            <div className="overflow-x-auto -mx-6 px-6 pb-2">
+              <div className="flex gap-4 min-w-min">
+                {sampleBooks.slice(0, 12).map((b, i) => (
+                  <KidsBookCard key={b.id} book={b} themes={themes} variant="strip" index={i} />
                 ))}
               </div>
             </div>
