@@ -84,19 +84,28 @@ interface JudgedConcept {
   passed: boolean;
   blockers: string[];
   banned_lane_hits: string[];
+  weak_dimensions: Array<{ dimension: string; score: number; note: string }>;
 }
 
+// SOFT thresholds — informational only, surfaced as weak_dimensions so the
+// writer can strengthen them. Hard gate uses FLOOR/GENERIC_MAX below.
+const SOFT_MIN = 90;
 const T = {
-  distinctiveness_score: 90,
-  story_engine_score: 90,
-  reread_mechanism_score: 90,
-  parent_buyer_value_score: 90,
-  emotional_payoff_seed_score: 90,
-  visual_spread_potential_score: 90,
-  age_fit_score: 90,
-  generic_risk_score: 25, // <=
-  final_concept_score: 90,
+  distinctiveness_score: SOFT_MIN,
+  story_engine_score: SOFT_MIN,
+  reread_mechanism_score: SOFT_MIN,
+  parent_buyer_value_score: SOFT_MIN,
+  emotional_payoff_seed_score: SOFT_MIN,
+  visual_spread_potential_score: SOFT_MIN,
+  age_fit_score: SOFT_MIN,
+  generic_risk_score: 25,
+  final_concept_score: SOFT_MIN,
 };
+
+// HARD gate: concept stage is a best-of selector, not a product-grade gate.
+// Real quality bars live at story_gate (>=85 per dim) and final QC (>=90).
+const CONCEPT_SCORE_FLOOR = 85;   // final_concept_score must be >= this
+const CONCEPT_GENERIC_MAX = 40;   // generic_risk_score must be <= this
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
