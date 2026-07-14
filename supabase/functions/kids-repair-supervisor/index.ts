@@ -272,6 +272,48 @@ Deno.serve(async (req) => {
     const FREE_CLASSES = new Set(['resume_interior', 'resume_pdf']);
     const totalAttempts = allEntries.filter(e => !FREE_CLASSES.has(e.blocker_class)).length;
     const stage_before = latestFailedStep?.step_name ?? String(ebook.pipeline_status ?? 'unknown');
+
+    // ---- CONVERGENCE GUARD ----
+    // If two most-recent QC reports (final_quality_score) for this ebook are
+    // within ±2 AND at least 2 non-free repair rounds have already run, the
+    // book is thrashing. Retire honestly so the batch can rotate to a fresh
+    // concept instead of burning image credits on flat scores.
+    if (totalAttempts >= 2) {
+      const { data: recentQc } = await db.from('qc_reports')
+        .select('final_quality_score, created_at, stage')
+        .eq('ebook_id', ebook_id)
+        .not('final_quality_score', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(2);
+      const scores = (recentQc ?? []).map(r => Number(r.final_quality_score)).filter(n => Number.isFinite(n));
+      if (scores.length >= 2 && Math.abs(scores[0] - scores[1]) <= 2) {
+        await db.from('ebooks_kids').update({
+          listing_status: 'draft',
+          sellable: false,
+          pipeline_status: 'retired',
+          blocker_reason: `repair_not_converging: qc ${scores[1]}→${scores[0]} across ${totalAttempts} repair rounds`,
+          storefront_meta: {
+            ...meta,
+            shelved: {
+              reason: 'repair_not_converging',
+              qc_scores_recent: scores,
+              total_attempts: totalAttempts,
+              shelved_at: new Date().toISOString(),
+            },
+          },
+        }).eq('id', ebook_id);
+        await appendLog(db, ebook_id, {
+          attempt: totalAttempts + 1,
+          current_blocker: `qc_flatlined:${scores.join(',')}`,
+          blocker_class: 'convergence',
+          repair_handler: 'retire',
+          stage_before, stage_after: 'retired', result: 'shelved',
+          detail: { recent_scores: scores },
+          updated_at: new Date().toISOString(),
+        });
+        return json({ ok: true, result: 'shelved', reason: 'repair_not_converging', recent_scores: scores });
+      }
+    }
     if (totalAttempts >= 12) {
       await db.from('ebooks_kids').update({
         listing_status: 'draft',
