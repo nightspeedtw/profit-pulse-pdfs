@@ -10,10 +10,10 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { PDFDocument, rgb } from 'npm:pdf-lib@1.17.1';
-import { geminiDirectImage, hasGeminiDirect } from '../_shared/gemini-direct.ts';
+import { geminiDirectImageWithMeta, hasGeminiDirect } from '../_shared/gemini-direct.ts';
 import { qcCoverLettering } from '../_shared/qc/kids-cover-lettering-qc.ts';
 import { uploadAndSignImage, versionedKidsAssetPath, storagePathFromUrl, IMAGE_SIGNED_TTL_SECONDS } from '../_shared/versioned-assets.ts';
-import { computeLuminance } from '../_shared/image-luminance.ts';
+import { generateLiveImage } from '../_shared/image-luminance.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
