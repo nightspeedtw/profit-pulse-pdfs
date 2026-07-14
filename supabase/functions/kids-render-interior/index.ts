@@ -343,10 +343,16 @@ Deno.serve(async (req) => {
   const startedAt = Date.now();
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
 
-  let body: { ebook_id?: string; run_id?: string; chained?: boolean } = {};
+  let body: { ebook_id?: string; run_id?: string; chained?: boolean; dispatched_at?: string } = {};
   try { body = await req.json(); } catch { /* empty body ok */ }
   const ebookId = body.ebook_id;
   if (!ebookId) return json({ error: "ebook_id required" }, 400);
+
+  // Handoff ack: signal the dispatching parent that this child actually started
+  // so its double-tap retry can skip. Fire-and-forget.
+  if (body.chained) {
+    void patchInteriorBuild(db, ebookId, { acked_at: new Date().toISOString() });
+  }
 
   try {
     const { ebook, characterDescription, styleSuffix, negativePrompt } = await loadContext(db, ebookId);
