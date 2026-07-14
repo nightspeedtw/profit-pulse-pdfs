@@ -187,9 +187,6 @@ Return STRICT JSON only.`;
       storefront_meta: nextMeta2,
     }).eq('id', ebook_id);
 
-    // Ensure join tables have the age/theme rows so the storefront can render badges.
-    await syncKidsTaxonomy(db, ebook_id);
-
     return json({ ok: true, ebook_id, copy });
   } catch (e) {
     console.error('kids-generate-storefront-copy error', e);
