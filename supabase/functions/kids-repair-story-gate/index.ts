@@ -109,7 +109,7 @@ No preamble, no explanation, no JSON — just the story text.
 Never mention the judge, scores, or repair. Never break the fourth wall.
 Keep the same title ("${title}") and the same broad category (funny daytime animal-buddy comedy). Do NOT switch to bedtime, moon/star, or tooth/bathroom lanes.
 
-${storyCraftBlock()}
+${skillBlock}
 
 Use the STORY CRAFT SKILL above as your working playbook. Every craft rule maps to a QC dimension — apply the rules called out in TARGETED REPAIR INSTRUCTIONS below.`;
 
