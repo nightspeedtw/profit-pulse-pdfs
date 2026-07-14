@@ -141,6 +141,24 @@ async function appendAttempt(db: ReturnType<typeof createClient>, runId: string,
   await db.from('autopilot_kids_runs').update({ metadata: meta }).eq('id', runId);
 }
 
+async function appendSkillLearningEvent(
+  db: ReturnType<typeof createClient>,
+  runId: string,
+  event: { dimension: string; skill_key: string; new_version: number; ts: string },
+) {
+  const { data: row } = await db.from('autopilot_kids_runs').select('metadata').eq('id', runId).single();
+  const meta = (row?.metadata as Record<string, unknown> | null) ?? {};
+  const parent = (meta.parent_job as ParentJob & { skill_learning_events?: unknown[] } | undefined) ?? {} as ParentJob & { skill_learning_events?: unknown[] };
+  const list = Array.isArray(parent.skill_learning_events) ? parent.skill_learning_events : [];
+  parent.skill_learning_events = [...list, {
+    ...event,
+    message: `ระบบเรียนรู้เพิ่ม: ${event.dimension}`,
+  }];
+  parent.updated_at = new Date().toISOString();
+  meta.parent_job = parent;
+  await db.from('autopilot_kids_runs').update({ metadata: meta }).eq('id', runId);
+}
+
 function friendlyLabel(s: ParentStatus): string {
   switch (s) {
     case 'searching_for_concept': return 'Searching for a strong concept';
@@ -285,12 +303,19 @@ async function runLoop(parentRunId: string, ebookId: string, ageBand: string, pr
     try {
       const learned = await maybeLearnFromRepeatedFailures(db, parentRunId, ageBand);
       if (learned) {
+        const learnedAt = new Date().toISOString();
         await appendAttempt(db, parentRunId, {
           outcome: 'skill_learned',
           lane,
           reason: `learned: ${learned.dimension} → ${learned.skill_key} v${learned.new_version}`,
-          ts: new Date().toISOString(),
+          ts: learnedAt,
         } as any);
+        await appendSkillLearningEvent(db, parentRunId, {
+          dimension: learned.dimension,
+          skill_key: learned.skill_key,
+          new_version: learned.new_version,
+          ts: learnedAt,
+        });
       }
     } catch (e) {
       console.error('skill_learner_trigger_error', e);
