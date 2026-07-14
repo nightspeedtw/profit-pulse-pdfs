@@ -549,6 +549,16 @@ export const DIMENSION_TO_PLAYBOOK: Record<string, string> = {
   reread_value: REREAD_VALUE_PLAYBOOK,
 };
 
+const DIMENSION_TO_SKILL_KEY: Record<string, string> = {
+  parent_buyer_value: 'playbook_parent_buyer_value',
+  emotional_payoff: 'playbook_emotional_payoff',
+  reread_value: 'playbook_reread_value',
+  language_level: 'craft_rules',
+  age_appropriateness: 'anti_preachy',
+  story_coherence: 'craft_rules',
+  generic_risk: 'craft_rules',
+};
+
 export function craftRulesForDimension(dimension: string): CraftRule[] {
   const ids = DIMENSION_TO_RULES[dimension] ?? [];
   return CRAFT_RULES.filter(r => ids.includes(r.id));
@@ -561,6 +571,34 @@ export function repairGuidanceForDimension(dimension: string): string {
     : '';
   const playbook = DIMENSION_TO_PLAYBOOK[dimension];
   return playbook ? `${rulesBlock}\n  ─── DIMENSION PLAYBOOK ───\n${playbook}` : rulesBlock;
+}
+
+export async function loadRepairGuidanceForDimension(
+  db: SupabaseClient,
+  dimension: string,
+  ageBand?: string | null,
+): Promise<string> {
+  const rules = craftRulesForDimension(dimension);
+  const rulesBlock = rules.length
+    ? rules.map(r => `  · [${r.id}] ${r.title} — ${r.rule}`).join("\n")
+    : '';
+  const skillKey = DIMENSION_TO_SKILL_KEY[dimension];
+  if (!skillKey) return repairGuidanceForDimension(dimension);
+  try {
+    const wanted = String(ageBand ?? '4-6');
+    const { data, error } = await db
+      .from('pipeline_skills')
+      .select('content_md, source, version, age_band')
+      .eq('skill_key', skillKey)
+      .or(`age_band.is.null,age_band.eq.${wanted}`)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data?.content_md) return repairGuidanceForDimension(dimension);
+    return `${rulesBlock}\n  ─── LIVE DIMENSION PLAYBOOK (${skillKey} v${data.version}${data.source === 'learned' ? ' · learned' : ''}) ───\n${data.content_md}`;
+  } catch (_e) {
+    return repairGuidanceForDimension(dimension);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
