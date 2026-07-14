@@ -30,6 +30,7 @@ import {
   type ScenePlan,
   type SceneRecord,
 } from "../_shared/kids-interior.ts";
+import { hardenCharacterDescription } from "../_shared/character-anti-confusion.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -129,7 +130,7 @@ async function loadContext(db: ReturnType<typeof createClient>, ebookId: string)
   const negativePrompt = (stylePreset?.negative_prompt as string | undefined)
     ?? "text, watermark, scary, photorealistic";
 
-  const characterDescription = [
+  const baseCharDescription = [
     cb.name && `named ${cb.name}`,
     cb.species && `(${cb.species})`,
     cb.hair && `${cb.hair} hair`,
@@ -138,6 +139,10 @@ async function loadContext(db: ReturnType<typeof createClient>, ebookId: string)
     cb.outfit && `wearing ${cb.outfit}`,
     cb.accessory && `with ${cb.accessory}`,
   ].filter(Boolean).join(", ") || "the story hero";
+
+  // Auto-inject species-derived anti-confusion clause (e.g. "dust bunny is NOT
+  // a rabbit"). This is the root fix for the Detective Dot rabbit drift.
+  const characterDescription = hardenCharacterDescription(baseCharDescription, cb.species);
 
   return { ebook, characterDescription, styleSuffix, negativePrompt };
 }

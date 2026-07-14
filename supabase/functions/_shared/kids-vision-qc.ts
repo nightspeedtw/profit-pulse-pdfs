@@ -85,7 +85,7 @@ async function callVision(
 }
 
 const PAGE_SYSTEM =
-  "You are a strict picture-book art director doing visual QC. Compare the INTERIOR PAGE (image 2) against the COVER MASTER (image 1). Judge how consistently the hero character, palette, line quality, lighting, and world style match the cover. Also judge whether the page image plausibly depicts the requested scene. Give integer scores 0-100. Provide short concrete evidence naming what you actually see. Never invent scores without visual evidence.";
+  "You are a strict picture-book art director doing visual QC. Compare the INTERIOR PAGE (image 2) against the COVER MASTER (image 1). Judge how consistently the hero character, palette, line quality, lighting, and world style match the cover. Also judge whether the page image plausibly depicts the requested scene. Give integer scores 0-100. Provide short concrete evidence naming what you actually see. Never invent scores without visual evidence. FAIRNESS RULE: if the COVER MASTER is lettering-forward with no hero character illustration visible (typography-only or near-empty), do NOT penalize cover_interior_match on character presence — score cover_interior_match on STYLE, PALETTE, LINE QUALITY, LIGHTING, and WORLD continuity only, and mention 'cover_lettering_only' in evidence. Character_match_score in that case is still judged against the character bible description text, not against the cover.";
 
 const PAGE_SCHEMA_HINT = `Return JSON exactly like:
 {
