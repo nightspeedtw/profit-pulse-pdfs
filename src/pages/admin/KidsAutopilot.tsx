@@ -7,6 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import { RefreshCw, Play, Sparkles, Zap } from "lucide-react";
 import { listAgeGroups, listThemes, type KidsAgeGroup, type KidsTheme } from "@/lib/kidsTaxonomy";
 import { BuildKidsBookButton } from "@/components/admin/BuildKidsBookButton";
+import { KidsBatchOrderCard } from "@/components/admin/KidsBatchOrderCard";
 
 interface ParentJob {
   status?: string;
@@ -221,6 +222,8 @@ export default function KidsAutopilot() {
           </Button>
         </div>
       </div>
+
+      <KidsBatchOrderCard />
 
       <Card className="p-4 border-2 border-foreground overflow-auto">
         <table className="w-full text-sm">
