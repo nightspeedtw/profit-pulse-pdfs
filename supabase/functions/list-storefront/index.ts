@@ -220,6 +220,7 @@ Deno.serve(async (req) => {
           _kids_total_spreads: kid.page_count ?? previews.length,
           _kids_read_aloud_minutes: cc.read_aloud_minutes ?? 6,
           _kids_ad_promise: ap ?? null,
+          _kids_value_cards: (meta.value_cards ?? cc.value_cards ?? null),
         }] as any;
       }
     }
