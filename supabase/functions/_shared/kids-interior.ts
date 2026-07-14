@@ -62,7 +62,7 @@ export interface ScenePlan {
 }
 
 export async function buildScenePlan(opts: BuildScenePlanOpts): Promise<ScenePlan> {
-  const target = Math.max(opts.min_scenes, 12);
+  const target = Math.max(opts.min_scenes, 28);
   const raw = await callGemini(
     `Story title: "${opts.title}"
 Story text:
