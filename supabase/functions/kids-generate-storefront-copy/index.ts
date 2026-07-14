@@ -45,6 +45,16 @@ interface CopyOut {
 // public store resolves slugs directly from those, no join-table sync needed.)
 
 async function callGemini(system: string, user: string): Promise<string> {
+  // Prefer direct Google AI Studio when GEMINI_API_KEY is set (bypasses
+  // Lovable Gateway markup + credit limit). Fall back to the gateway.
+  if (hasGeminiDirect()) {
+    try {
+      const { text } = await geminiDirectChat({ system, user, responseJson: true });
+      return String(text ?? '').replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+    } catch (e) {
+      console.warn('gemini-direct failed, falling back to gateway:', (e as Error).message);
+    }
+  }
   const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
