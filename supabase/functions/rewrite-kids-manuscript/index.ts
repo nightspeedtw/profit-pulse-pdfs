@@ -7,20 +7,10 @@
 // Uses the locked Story Bible (kids_visual_bible) so tone, character, world
 // and moral stay consistent with the cover and existing illustrations.
 
-import { admin, aiJSON, corsHeaders, logCost } from "../_shared/ai.ts";
+import { admin, corsHeaders, logCost } from "../_shared/ai.ts";
 import { resolveTrack, wrongTrackResponse } from "../_shared/track-registry.ts";
 import { loadStoryCraftBlock } from "../_shared/story-craft-skill.ts";
-
-type Spread = {
-  spread_number: number;
-  scene_title: string;
-  story_text: string;
-  scene_summary: string;
-  characters_present: string[];
-  emotion: string;
-  location: string;
-  continuity_notes: string;
-};
+import { writeSegmentedManuscript } from "../_shared/kids-segments.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -50,102 +40,67 @@ Deno.serve(async (req) => {
     const subtitle = ebook.storefront_subtitle || ebook.subtitle || "";
     const bible = (ebook.kids_visual_bible ?? {}) as Record<string, any>;
     const heroName = bible?.characters?.[0]?.name || "the hero";
-    const heroDesc = bible?.characters?.[0]?.invariant_features || "";
-    const world = bible?.world || "";
-    const moral = bible?.moral_lesson || bible?.story_theme || "";
 
     const skillBlock = await loadStoryCraftBlock(db, '4-6');
+    const descHint = `${ebook.hook || ebook.product_description || ""} Hero: ${heroName}. World: ${bible?.world || ""}. Moral (implicit only): ${bible?.moral_lesson || bible?.story_theme || ""}.`;
 
-    const system = `You are a professional children's picture-book author writing for ages 4-7.
-Follow the "Children's Storybook Consistency Lock" skill: age-appropriate warm read-aloud voice,
-short sentences, sensory detail, gentle rhythm, implicit moral (never preachy), satisfying resolution.
-Return valid JSON only. No markdown. Write everything in English only — never use Thai or any other language.
-
-${skillBlock}
-
-Every one of the 14 spreads you produce must serve the PARENT HOOK from the concept.
-The final spread MUST land the parent hook as a warm specific IMAGE (rule: final_spread_warm_payoff),
-NOT as a moral sentence. THE HERO must solve the problem themselves (rule: hero_solves_it_themselves) —
-never let an adult resolve it. Bake in at least one chantable refrain OR ritual sentence and echo it 3-4
-times across the book with slight evolution.`;
-
-    const user = `Write a 28-spread picture-book manuscript for the industry-standard SQUARE 8.5x8.5 inch format
-(1 cover + 1 title + 1 copyright + 28 story pages + 1 closing page = 32 pages total).
-Every story page carries a full-color illustration with 1-3 short read-aloud sentences.
-
-Book title: "${title}"
-Subtitle: "${subtitle}"
-Story promise: ${ebook.hook || ebook.product_description || ""}
-Hero: ${heroName} — ${heroDesc}
-World: ${world}
-Implicit moral: ${moral}
-Target reader: ages 4-7
-
-Rules:
-- 28 spreads total (one page/scene each — SQUARE format, one illustration per page).
-- 15-30 words per spread (1-3 SHORT read-aloud sentences). 500-800 words total for the whole book.
-- Grade-1/2 vocabulary. Warm, gentle, curious tone.
-- Clear arc across 28 beats: opening (1-4), rising problem (5-14), turning point/climax (15-22), warm resolution (23-28).
-- Never mention adult topics, tech, brands, or scary imagery.
-- Never write the moral as a lecture — show it through the character's actions.
-- Use ${heroName} by name; refer to them consistently.
-- Each spread also includes a short scene_title (max 4 words) used only internally,
-  a scene_summary for the illustrator, characters_present (names), emotion, location,
-  and continuity_notes (what must match previous spreads: outfit, palette, world).
-- Bake in at least one chantable refrain and repeat it 4-6 times across the 28 pages.
-
-Return: {"spreads":[{"spread_number":1,"scene_title":"","story_text":"","scene_summary":"","characters_present":[],"emotion":"","location":"","continuity_notes":""}, ... 28 items ...]}`;
-
-    const ai = await aiJSON<{ spreads: Spread[] }>({
-      model: "google/gemini-3.1-pro-preview",
-      system,
-      user,
-      maxTokens: 6000,
-      timeoutMs: 180_000,
+    const result = await writeSegmentedManuscript({
+      title,
+      subtitle,
+      description: descHint,
+      ageBand: '4-6',
+      target: 28,
+      heroName,
+      extraCraftBlock: skillBlock,
     });
 
-    await logCost(db, { ebook_id, step: "kids_manuscript_rewrite", model: ai.model, ...ai.usage });
-
-    const spreads = (ai.data.spreads ?? []).slice(0, 36);
-    if (spreads.length < 24) {
-      return json({ error: `AI returned only ${spreads.length} spreads (need at least 24, target 28)`, raw: ai.data }, 502);
+    if (!result.ok) {
+      return json({ error: `segmented_writer_gate_failed`, violations: result.validation.violations, attempts: result.attempts }, 502);
     }
 
-    // Reset ebook_chapters with one row per spread.
+    await logCost(db, { ebook_id, step: "kids_manuscript_rewrite", model: result.model, input_tokens: 0, output_tokens: 0, cost_usd: 0 });
+
+    const spreads = result.manuscript.pages.map((p, i) => ({
+      spread_number: p.page ?? i + 1,
+      scene_title: `Page ${i + 1}`,
+      story_text: p.text,
+      scene_summary: p.text.slice(0, 240),
+      characters_present: [heroName],
+      emotion: "",
+      location: "",
+      continuity_notes: "",
+    }));
+
+    // Reset ebook_chapters with one row per page (1:1 with segments).
     const { error: delErr } = await db.from("ebook_chapters").delete().eq("ebook_id", ebook_id);
     if (delErr) throw delErr;
 
     const rows = spreads.map((s, i) => ({
       ebook_id,
       chapter_index: i + 1,
-      title: s.scene_title || `Spread ${i + 1}`,
+      title: s.scene_title,
       content: s.story_text,
       brief: s.scene_summary,
-      metadata: {
-        kids_spread: true,
-        characters_present: s.characters_present ?? [],
-        emotion: s.emotion ?? "",
-        location: s.location ?? "",
-        continuity_notes: s.continuity_notes ?? "",
-      },
+      metadata: { kids_spread: true, characters_present: s.characters_present },
     }));
     const { error: insErr } = await db.from("ebook_chapters").insert(rows);
     if (insErr) throw insErr;
 
-    // Persist structured page plan for the illustrator and future QC.
     const pagePlan: Record<string, unknown> = {
-      version: 3,
+      version: 4,
       total_spreads: spreads.length,
-      total_pages: spreads.length + 4, // cover + title + copyright + N + end
+      total_pages: spreads.length + 4,
       format: 'square_8.5x8.5',
+      refrain: result.manuscript.refrain,
       spreads,
+      segments: result.manuscript,
     };
     await db.from("ebooks").update({
       kids_scene_briefs_json: pagePlan as unknown as never,
       word_count: spreads.reduce((n, s) => n + (s.story_text?.split(/\s+/).length ?? 0), 0),
     }).eq("id", ebook_id);
 
-    return json({ ok: true, spreads: spreads.length, model: ai.model });
+    return json({ ok: true, spreads: spreads.length, model: result.model, attempts: result.attempts, refrain: result.manuscript.refrain });
   } catch (e) {
     console.error("rewrite-kids-manuscript failed:", e);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);

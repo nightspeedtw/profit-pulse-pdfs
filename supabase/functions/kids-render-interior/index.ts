@@ -32,6 +32,7 @@ import {
 } from "../_shared/kids-interior.ts";
 import { hardenCharacterDescription } from "../_shared/character-anti-confusion.ts";
 import { runKidsVisionQcBatched } from "../_shared/kids-vision-qc.ts";
+import { loadSegments, segmentsToScenePlan } from "../_shared/kids-segments.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -145,7 +146,7 @@ async function listStoragePaths(db: ReturnType<typeof createClient>, ebookId: st
 async function loadContext(db: ReturnType<typeof createClient>, ebookId: string) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: ebook } = await (db.from("ebooks_kids") as any)
-    .select("id, title, manuscript_md, cover_url, interior_illustrations, qc_scorecard, style_bible_json")
+    .select("id, title, manuscript_md, cover_url, interior_illustrations, qc_scorecard, style_bible_json, storefront_meta")
     .eq("id", ebookId).single();
   if (!ebook) throw new Error(`ebook ${ebookId} not found`);
 
@@ -194,7 +195,7 @@ async function loadContext(db: ReturnType<typeof createClient>, ebookId: string)
 async function ensureScenePlan(
   db: ReturnType<typeof createClient>,
   ebookId: string,
-  ebook: { title?: string; manuscript_md?: string; qc_scorecard?: Record<string, unknown> | null },
+  ebook: { title?: string; manuscript_md?: string; qc_scorecard?: Record<string, unknown> | null; storefront_meta?: Record<string, unknown> | null },
   minScenes: number,
 ): Promise<ScenePlan> {
   const qc = (ebook.qc_scorecard ?? {}) as Record<string, unknown>;
@@ -202,13 +203,25 @@ async function ensureScenePlan(
   if (persisted && Array.isArray(persisted.scenes) && persisted.scenes.length >= MIN_TOTAL) {
     return persisted;
   }
-  console.log("[render-interior] building scene plan (first time)");
+
+  // Prefer structured segments (KILLER 2). Derive scene plan 1:1 — no splitter.
+  const segs = loadSegments(ebook as Record<string, unknown>);
+  if (segs && segs.pages.length >= MIN_TOTAL) {
+    const plan = segmentsToScenePlan(segs);
+    console.log(`[render-interior] derived scene plan 1:1 from ${segs.pages.length} segments`);
+    const nextQc = { ...qc, scene_plan: plan, scene_plan_source: 'segments' };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (db.from("ebooks_kids") as any).update({ qc_scorecard: nextQc }).eq("id", ebookId);
+    return plan;
+  }
+
+  console.log("[render-interior] building scene plan via legacy splitter (no segments)");
   const plan = await buildScenePlan({
     title: String(ebook.title ?? ""),
     manuscript_md: String(ebook.manuscript_md ?? ""),
     min_scenes: minScenes,
   });
-  const nextQc = { ...qc, scene_plan: plan };
+  const nextQc = { ...qc, scene_plan: plan, scene_plan_source: 'splitter' };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (db.from("ebooks_kids") as any).update({ qc_scorecard: nextQc }).eq("id", ebookId);
   return plan;
