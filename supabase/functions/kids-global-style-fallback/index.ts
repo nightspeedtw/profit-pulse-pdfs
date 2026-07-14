@@ -115,15 +115,15 @@ Deno.serve(async (req) => {
 
     // Build the new locked style bible (structural fields — QC reads these).
     const cb = (bible.character_bible_json ?? {}) as Record<string, string>;
-      const heroIdentity = [
-        cb.name && `name: ${cb.name}`,
-        cb.species && `species: ${cb.species}`,
-        cb.hair && `hair/fur: ${cb.hair}`,
-        cb.eyes && `eyes: ${cb.eyes}`,
-        cb.skin && `skin/details: ${cb.skin}`,
-        cb.outfit && `outfit: ${cb.outfit}`,
-        cb.accessory && `accessory: ${cb.accessory}`,
-      ].filter(Boolean).join('; ') || 'the exact recurring hero described by the manuscript and character bible';
+    const heroIdentity = [
+      cb.name && `name: ${cb.name}`,
+      cb.species && `species: ${cb.species}`,
+      cb.hair && `hair/fur: ${cb.hair}`,
+      cb.eyes && `eyes: ${cb.eyes}`,
+      cb.skin && `skin/details: ${cb.skin}`,
+      cb.outfit && `outfit: ${cb.outfit}`,
+      cb.accessory && `accessory: ${cb.accessory}`,
+    ].filter(Boolean).join('; ') || 'the exact recurring hero described by the manuscript and character bible';
 
     const newStyleBible = {
       style_slug: newSlug,

@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
   try {
-    const { ebook_id, run_id, skip_vision = false, skip_story = false, use_cached_story_judge_if_hash_matches = false, auto_repair_on_fail = false } = await req.json();
+    const { ebook_id, run_id, skip_vision = false, skip_story = false, use_cached_story_judge_if_hash_matches = false, auto_repair_on_fail = true } = await req.json();
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
 
     const { data: ebook, error } = await supabase

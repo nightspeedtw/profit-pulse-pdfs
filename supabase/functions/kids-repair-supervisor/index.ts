@@ -122,7 +122,7 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
   }
 
   // 4. Title treatment.
-  if (errMsg.includes('KIDS_TITLE_TREATMENT_INVALID')) {
+  if (qcText.includes('KIDS_TITLE_TREATMENT_INVALID')) {
     return { klass: 'title_treatment', detail: 'title_treatment_invalid' };
   }
 
