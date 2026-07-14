@@ -86,6 +86,49 @@ async function resumeParentRun(runId: string | null | undefined) {
   if (rt?.waitUntil) rt.waitUntil(task); else void task;
 }
 
+async function handoffToPdfPrepare(db: ReturnType<typeof createClient>, ebookId: string) {
+  const marker = {
+    fired_at: new Date().toISOString(),
+    target_stage: 'pdf_prepare',
+    source: 'kids-render-interior.complete',
+  };
+
+  try {
+    // Re-read/merge so silence at this joint is visible from the row even if
+    // the async invoke is interrupted later.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: fresh } = await (db.from("ebooks_kids") as any)
+      .select("qc_scorecard")
+      .eq("id", ebookId)
+      .single();
+    const qc = ((fresh?.qc_scorecard ?? {}) as Record<string, unknown>);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (db.from("ebooks_kids") as any).update({
+      pipeline_status: 'pdf_building',
+      qc_scorecard: { ...qc, pdf_handoff: marker },
+    }).eq("id", ebookId);
+  } catch (e) {
+    console.error("pdf handoff marker write failed", (e as Error).message);
+  }
+
+  const task = (async () => {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-build-picture-pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
+        body: JSON.stringify({ ebook_id: ebookId, stage: 'pdf_prepare', publish: true, run_qc_after: false }),
+      });
+      const text = await r.text().catch(() => '');
+      console.log("pdf prepare handoff", JSON.stringify({ ebook_id: ebookId, status: r.status, body: text.slice(0, 240) }));
+    } catch (e) {
+      console.error("pdf prepare handoff failed", (e as Error).message);
+    }
+  })();
+  // deno-lint-ignore no-explicit-any
+  const rt = (globalThis as any).EdgeRuntime;
+  if (rt?.waitUntil) rt.waitUntil(task); else void task;
+}
+
 async function listStoragePaths(db: ReturnType<typeof createClient>, ebookId: string): Promise<Set<string>> {
   const seen = new Set<string>();
   try {
@@ -363,14 +406,16 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ---- All done — hand off to parent autopilot run ----
+    // ---- All done — hand off to PDF assembly + parent autopilot run ----
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const completedAt = new Date().toISOString();
     await (db.from("ebooks_kids") as any).update({
-      pipeline_status: "illustrating",
-      qc_scorecard: { ...(ebook.qc_scorecard ?? {}), interior_build: { done: records.length, total, updated_at: new Date().toISOString(), complete: true } },
+      pipeline_status: "pdf_building",
+      qc_scorecard: { ...(ebook.qc_scorecard ?? {}), interior_build: { done: records.length, total, updated_at: completedAt, complete: true } },
     }).eq("id", ebookId);
 
-    console.log(`[render-interior] complete ebook=${ebookId} total=${records.length}. Resuming parent run=${parentRunId}`);
+    console.log(`[render-interior] complete ebook=${ebookId} total=${records.length}. Handoff pdf_prepare + resuming parent run=${parentRunId}`);
+    await handoffToPdfPrepare(db, ebookId);
     if (parentRunId) resumeParentRun(parentRunId);
 
     return json({
