@@ -93,7 +93,11 @@ Deno.serve(async (req) => {
           model: 'google/gemini-3.1-flash-image',
         });
       } catch (e) {
-        lastReason = `gen_error:${(e as Error).message.slice(0, 200)}`;
+        lastReason = `gen_error:${(e as Error).message.slice(0, 400)}`;
+        console.error(`attempt ${attempt} gen error`, lastReason);
+        if (attempt === max_attempts) {
+          return json({ ok: false, error: 'all_generation_attempts_failed', last_reason: lastReason }, 500);
+        }
         continue;
       }
       const qc = await qcCoverLettering({ expectedTitle: title, imageBytes: bytes });
