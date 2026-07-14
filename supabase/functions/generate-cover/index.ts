@@ -659,7 +659,21 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
               target_buyer: ebook.target_buyer,
               hook: ebook.hook,
             });
-            bgPrompt = kidsIllustrationPrompt(bible, "front cover hero scene: the primary character in a signature story moment, warm afternoon light, storybook charm, cinematic composition", { role: "cover", reservedZone: "top third" });
+            // Kids CONVERSION_COVER_LETTERING skill: ask the image model to
+            // render the title AS hand-lettered artwork inside the scene.
+            // After MAX_LETTERING_ATTEMPTS misspells we fall back to SVG overlay.
+            const letteringAttempts = Number(((ebook.qc ?? {}) as Record<string, unknown>).cover_lettering_attempts ?? 0);
+            const MAX_LETTERING_ATTEMPTS = 2;
+            const useLettering = letteringAttempts < MAX_LETTERING_ATTEMPTS;
+            bgPrompt = kidsIllustrationPrompt(
+              bible,
+              "front cover hero scene: the primary character in a signature story moment, warm afternoon light, storybook charm, cinematic composition",
+              {
+                role: "cover",
+                reservedZone: useLettering ? undefined : "top third",
+                titleLettering: useLettering ? ebook.title : null,
+              },
+            );
           }
           const bg = await generateBackgroundPNG(bgPrompt, styleRef);
           totalCost += bg.cost;
