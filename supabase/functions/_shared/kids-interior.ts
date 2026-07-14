@@ -140,10 +140,12 @@ function buildScenePrompt(
 ): string {
   return [
     `Whimsical illustrated children's picture book interior illustration.`,
+    `SQUARE 1:1 composition (this book is 8.5x8.5 in square trim). Full-bleed art that fills the entire square frame edge to edge.`,
     `Hero character (must remain visually identical to the attached reference on every page): ${charDesc}.`,
     `Scene: ${s.scene}`,
     `Setting: ${s.setting}. Emotional beat: ${s.emotion}.`,
-    `Composition: character clearly visible, warm painterly lighting, cozy storybook mood, generous negative space at the bottom for caption text.`,
+    `Composition: character clearly visible in the upper 2/3 of the square; keep the lower 1/3 visually calmer (soft background, ground, sky, or negative-value area) so a caption panel can rest there without fighting the art.`,
+    `Warm painterly lighting, cozy storybook mood.`,
     `Style lock (do not deviate): ${styleSuffix}.`,
     `ABSOLUTELY NO TEXT of any kind — no letters, no words, no captions, no speech bubbles.`,
     `Avoid AI clichés: no six-finger hands, no melted faces, no glossy 3d blobs, no stock photography look.`,
@@ -159,7 +161,7 @@ async function renderOneReference(
   attempt: number,
 ): Promise<{ bytes: Uint8Array; model: string; prompt: string }> {
   const nudge = attempt > 0
-    ? `Vary the camera angle, distance, and framing significantly from any previous page. Emphasize: ${s.scene}.`
+    ? `Vary the camera angle, distance, and framing significantly from any previous page. Emphasize: ${s.scene}. Keep the 1:1 square shape.`
     : "";
   const prompt = buildScenePrompt(s, charDesc, styleSuffix, nudge);
   const bytes = await generateWithReference({
@@ -176,12 +178,12 @@ async function renderOneFal(
   attempt: number,
 ): Promise<{ bytes: Uint8Array; model: string; prompt: string }> {
   const nudge = attempt > 0
-    ? `Distinct composition ${attempt + 1}: unique camera angle and framing, unique background details for: ${s.scene}.`
+    ? `Distinct composition ${attempt + 1}: unique camera angle and framing, unique background details for: ${s.scene}. Keep the 1:1 square shape.`
     : "";
   const prompt = buildScenePrompt(s, charDesc, styleSuffix, nudge);
   const bytes = await falFluxSchnell({
-    prompt, image_size: "landscape_4_3",
-    negative_prompt: `${negativePrompt}, text, letters, words, caption, watermark, logo, deformed hands, six fingers, extra fingers, off-model character`,
+    prompt, image_size: "square_hd",
+    negative_prompt: `${negativePrompt}, text, letters, words, caption, watermark, logo, deformed hands, six fingers, extra fingers, off-model character, letterbox, black bars`,
   });
   return { bytes, model: "fal-ai/flux/schnell", prompt };
 }
