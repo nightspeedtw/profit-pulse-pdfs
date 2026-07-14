@@ -12,7 +12,7 @@ import { writeSegmentedManuscript, renderSegmentsToMd, loadSegments, segmentsToP
 import { loadStoryCraftBlock } from '../_shared/story-craft-skill.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
 import { uploadAndSignImage, versionedKidsAssetPath } from '../_shared/versioned-assets.ts';
-import { computeLuminance } from '../_shared/image-luminance.ts';
+import { computeLuminance, generateLiveImage } from '../_shared/image-luminance.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
