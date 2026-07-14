@@ -274,8 +274,11 @@ Deno.serve(async (req) => {
       storefront_meta: existingMeta,
       qc_scorecard: sc,
       // Never change listing_status here — publish decision belongs to the QC path.
-      pipeline_status: currentReport.story_qc_passed ? 'illustrating' : 'human_review_required',
+      // On exhaustion, mark as 'retired' so the parent one-click loop rotates
+      // to a fresh concept instead of shelving into human_review_required.
+      pipeline_status: currentReport.story_qc_passed ? 'illustrating' : 'retired',
       status: currentReport.story_qc_passed ? 'illustrating' : 'needs_revision',
+      blocker_reason: currentReport.story_qc_passed ? null : `story_gate_retired_after_${MAX_ATTEMPTS}_attempts: ${blockersFromReport(currentReport).join(', ')}`,
     }).eq('id', ebook_id);
 
     // Optionally resume the canonical pipeline. Uses force_finish=true so the
