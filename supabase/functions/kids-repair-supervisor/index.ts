@@ -386,12 +386,28 @@ Deno.serve(async (req) => {
         handler = 'kids-repair-cover';
         repairBody = { ebook_id, title_treatment_only: true };
         break;
-      case 'character_identity':
-        // Any consistency failure → global style fallback (regenerates cover + interiors
-        // in the stable watercolor_soft style, then re-runs multi-stage PDF + QC).
-        handler = 'kids-global-style-fallback';
-        repairBody = { ebook_id, publish_if_sellable: true, async: true };
+      case 'character_identity': {
+        // Strategy 1 (FIRST attempt): targeted regen of only the pages vision
+        // flagged with low character_match. Uses top-scoring pages as pinned
+        // references. Cheapest and most surgical repair; only touches broken
+        // pages, keeps the ~20 good ones. This is the correct default —
+        // rebuilding the whole book was wasting 20+ image credits per attempt.
+        //
+        // Strategy 2+ (fallback): kids-global-style-fallback rebuilds cover
+        // + all interiors in the stable style. Reserved for cases where the
+        // targeted regen failed OR the base style itself drifted.
+        const sc = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
+        const vision = sc.vision_report as { pages?: Array<{ character_match_score?: number }> } | undefined;
+        const hasVisionPages = Array.isArray(vision?.pages) && vision!.pages.length > 0;
+        if (perClass === 0 && hasVisionPages) {
+          handler = 'kids-regenerate-offmodel-pages';
+          repairBody = { ebook_id, run_id, publish: true };
+        } else {
+          handler = 'kids-global-style-fallback';
+          repairBody = { ebook_id, publish_if_sellable: true, async: true };
+        }
         break;
+      }
       case 'image_missing':
         // Interior page(s) have no image. Rebuild via global style fallback which
         // regenerates all interiors + cover in the stable style.
@@ -435,7 +451,7 @@ Deno.serve(async (req) => {
         try { repairResult = JSON.parse(t); } catch { repairResult = t.slice(0, 400); }
         handlerOk = r.ok;
         // Chain a pipeline resume unless the handler itself already resumes.
-        const alreadyResumes = ['kids-surgical-story-repair', 'kids-repair-story-gate', 'kids-global-style-fallback', 'kids-final-text-repair', 'kids-build-picture-pdf'].includes(handler);
+        const alreadyResumes = ['kids-surgical-story-repair', 'kids-repair-story-gate', 'kids-global-style-fallback', 'kids-final-text-repair', 'kids-build-picture-pdf', 'kids-regenerate-offmodel-pages'].includes(handler);
         if (handlerOk && !alreadyResumes && run_id) {
           await resumePipeline(run_id);
         }
