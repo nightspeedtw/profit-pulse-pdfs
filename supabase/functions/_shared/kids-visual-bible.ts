@@ -340,18 +340,39 @@ CONVERSION-FIRST COVER RULES (the cover is an AD CREATIVE at 100x160 first):
 export function kidsIllustrationPrompt(
   bible: KidsVisualBible,
   sceneBrief: string,
-  opts?: { reservedZone?: string; role?: "cover" | "interior" },
+  opts?: { reservedZone?: string; role?: "cover" | "interior"; titleLettering?: string | null },
 ): string {
   const chars = bible.characters.map(characterBlock).join("\n");
   const style = styleBlock(bible);
-  const reserved = opts?.reservedZone
+  const isCover = opts?.role === "cover";
+  const wantsLettering = isCover && !!(opts?.titleLettering && opts.titleLettering.trim());
+  const reserved = opts?.reservedZone && !wantsLettering
     ? `\nLeave clear negative space in the ${opts.reservedZone} for typography to be added later.`
     : "";
-  const roleClause = opts?.role === "cover"
+  const roleClause = isCover
     ? `\nComposition: single strong front-cover hero moment, cinematic warm light, storybook charm.\n${CONVERSION_COVER_DIRECTIVE}`
     : "\nComposition: interior storybook page, character-focused, clear action, expressive body language.";
   const drift = (bible.forbidden_style_drift ?? []).join("; ");
   const continuity = (bible.continuity_rules ?? []).join("; ");
+
+  const letteringBlock = wantsLettering
+    ? `
+
+COVER TITLE LETTERING — REQUIRED (this cover MUST have the title rendered as hand-lettered artwork inside the illustration):
+- Render the EXACT title text: "${opts!.titleLettering!.trim()}"
+- Spell every letter correctly, in reading order — no missing, duplicated, mangled, or invented letters.
+- Draw it as COMMISSIONED HAND-LETTERING in the same medium/style as the scene (watercolor / gouache / chunky painted / crayon texture). NEVER a system font, NEVER thin geometric type, NEVER a rigid straight line of type.
+- Letterforms are PLAYFUL and ORGANIC: bouncing baseline (letters gently dance up and down), size variation between words (the fun/emotive word is largest), gentle arc or curve following the composition.
+- READABILITY ARMOR: give every glyph a thick contrasting outline OR a soft drop shadow OR sit the lettering inside a subtle painted banner / ribbon / wooden-sign / cloud shape. The title MUST stay readable at 100×160px thumbnail size.
+- COLOUR: use the 1–2 highest-contrast colours from the scene palette — cream/white letters over darker areas, deep saturated colour over light sky. Title colour POPS from its background zone yet harmonizes with the scene.
+- PLACEMENT: upper third of the cover, occupying 40–60% of cover WIDTH. Hero character sits below or beside the lettering, making eye contact with the camera.
+- INTEGRATION: a character hand/tail/prop MAY gently overlap the bottom of ONE letter, or the lettering MAY arc softly around the hero — this feels hand-made. Keep any overlap subtle so no letter becomes ambiguous. Never cover the hero's face.
+- NO other text of any kind (no subtitle, no author, no logo, no watermark, no page numbers) — the title is the only text on the cover.`
+    : "";
+
+  const textLock = wantsLettering
+    ? `The ONLY text allowed in the image is the hand-lettered title above; no other letters, numbers, logos, watermarks, UI, or book-mockup elements.`
+    : `Absolutely NO text, letters, numbers, words, typography, logos, watermarks, UI, or book-mockup inside the image. Title/typography will be added by the app afterwards.`;
 
   return `Create a children's storybook illustration.
 Use the locked Story Bible EXACTLY — do not redesign anything.
@@ -365,10 +386,10 @@ ${chars}
 WORLD: ${bible.world}
 ${continuity ? `CONTINUITY RULES: ${continuity}` : ""}
 
-SCENE: ${sceneBrief}.${roleClause}${reserved}
+SCENE: ${sceneBrief}.${roleClause}${reserved}${letteringBlock}
 
 HARD CONSTRAINTS: ${bible.negative}. ${drift ? `Avoid drift: ${drift}.` : ""}
-Absolutely NO text, letters, numbers, words, typography, logos, watermarks, UI, or book-mockup inside the image. Title/typography will be added by the app afterwards.
+${textLock}
 The image MUST look like it belongs to the same children's book as every other page — same artist, same style, same character.`;
 }
 
