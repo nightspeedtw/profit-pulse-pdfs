@@ -186,6 +186,22 @@ Deno.serve(async (req) => {
     ).eq('id', ebook_id).single();
     if (error || !ebook) return json({ ok: false, error: 'ebook not found' }, 404);
 
+    // Handoff ack: mark that this child actually started so the parent's
+    // double-tap retry can skip. Covers both intra-stage self-chain (writes
+    // pdf_repair_job.acked_at) and cross-function handoff from render-interior
+    // (writes pdf_handoff.acked_at). Fire-and-forget.
+    {
+      const ackedAt = new Date().toISOString();
+      const scIn = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
+      void persistJob(db, ebook_id, scIn, { acked_at: ackedAt });
+      if (requestedStage === 'pdf_prepare') {
+        const h = (scIn.pdf_handoff as Record<string, unknown> | undefined) ?? {};
+        void db.from('ebooks_kids').update({
+          qc_scorecard: { ...scIn, pdf_handoff: { ...h, acked_at: ackedAt } },
+        }).eq('id', ebook_id);
+      }
+    }
+
     const allRecs: Array<{ url: string; scene?: string }> = Array.isArray(ebook.interior_illustrations)
       ? (ebook.interior_illustrations as Array<{ url: string; scene?: string }>) : [];
     if (allRecs.length < MIN_INTERIOR) {
