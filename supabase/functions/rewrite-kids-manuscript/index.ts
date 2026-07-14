@@ -101,8 +101,6 @@ Deno.serve(async (req) => {
     }).eq("id", ebook_id);
 
     return json({ ok: true, spreads: spreads.length, model: result.model, attempts: result.attempts, refrain: result.manuscript.refrain });
-
-    return json({ ok: true, spreads: spreads.length, model: ai.model });
   } catch (e) {
     console.error("rewrite-kids-manuscript failed:", e);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
