@@ -36,6 +36,48 @@ const BANNED_LANES = [
   'everyone is special',
 ];
 
+// LEARNED RULE (2026-07-14) — visually_unambiguous_hero.
+// Root cause: Detective Dot's "dust bunny" hero was drawn as a rabbit on 6/28
+// interior pages, blowing the character_consistency gate. Image models
+// (Gemini flash-image, Fal nano) reliably render CONCRETE, NAMED subjects but
+// hallucinate a plausible substitute for abstract / homophone / phrase-based
+// heroes ("dust bunny" → rabbit, "shadow" → generic child, "whisper" → mouth).
+//
+// Rule: the hero MUST be a subject the image model can render unambiguously —
+// a specific animal, child, vehicle, robot, or monster with concrete visible
+// features. Abstract or ambiguous heroes are blocked unless
+// hero_specificity spells out (a) a concrete visual definition AND (b) an
+// explicit anti-confusion clause ("NOT a <thing it will be confused with>").
+const AMBIGUOUS_HERO_TOKENS: Array<{ token: string; confused_with: string }> = [
+  { token: 'dust bunny', confused_with: 'a rabbit / hare / animal with long ears' },
+  { token: 'shadow',     confused_with: 'a generic child silhouette or a black blob' },
+  { token: 'whisper',    confused_with: 'a floating mouth or generic speech bubble' },
+  { token: 'echo',       confused_with: 'sound waves / speech bubbles instead of a character' },
+  { token: 'feeling',    confused_with: 'an abstract heart/emoji instead of a body' },
+  { token: 'emotion',    confused_with: 'an abstract heart/emoji instead of a body' },
+  { token: 'sound',      confused_with: 'a music note without a body' },
+  { token: 'smell',      confused_with: 'wavy lines without a body' },
+  { token: 'scent',      confused_with: 'wavy lines without a body' },
+  { token: 'dream',      confused_with: 'a cloud without a body' },
+  { token: 'wish',       confused_with: 'a star / sparkle without a body' },
+  { token: 'giggle',     confused_with: 'a mouth without a body' },
+  { token: 'thought',    confused_with: 'a thought bubble without a body' },
+  { token: 'breeze',     confused_with: 'wind lines without a body' },
+  { token: 'mist',       confused_with: 'fog / cloud without a body' },
+  { token: 'glow',       confused_with: 'a light halo without a body' },
+  { token: 'sparkle',    confused_with: 'a star burst without a body' },
+];
+
+function detectAmbiguousHero(c: Concept): { hits: Array<{ token: string; confused_with: string }>; hasAntiConfusion: boolean; hasConcreteVisual: boolean } {
+  const heroText = `${c.hero ?? ''} ${c.hero_specificity ?? ''}`.toLowerCase();
+  const hits = AMBIGUOUS_HERO_TOKENS.filter(({ token }) => heroText.includes(token));
+  const spec = (c.hero_specificity ?? '').toLowerCase();
+  const hasAntiConfusion = /\bnot (a|an) [a-z]/.test(spec);
+  // "concrete visual" heuristic: mentions size, color, texture, body-part detail
+  const hasConcreteVisual = /(size|small|tiny|large|round|fluffy|furry|striped|spotted|feet|paws|eyes|ears|tail|body|arms|legs|nose|whiskers|fur|scales|feathers|color|colou?red)/.test(spec);
+  return { hits, hasAntiConfusion, hasConcreteVisual };
+}
+
 const PREFERRED_LANES = [
   'food/kitchen chaos with a specific object and escalating rules',
   'animal buddy comedy with a concrete mechanical problem',
@@ -249,6 +291,12 @@ DO NOT PRODUCE:
 - funny-name-first concepts without a real mechanism (e.g., "The Wobbly-Wumpus" with no engine)
 
 Aim WEIRD, SPECIFIC, MEMORABLE. Title must be unswappable with any other picture book.
+
+VISUALLY UNAMBIGUOUS HERO (HARD RULE — image models must be able to render the hero the same way every page):
+- The hero MUST be a concrete, nameable subject an image model renders reliably: a specific animal, child, robot, vehicle, or monster with concrete visible features.
+- Avoid abstract or ambiguous heroes (dust bunny, shadow, whisper, echo, feeling, sound, smell, dream, wish, giggle, breeze, mist, glow, sparkle) — image models will silently substitute a lookalike (a "dust bunny" gets drawn as a rabbit).
+- If you MUST use such a hero, hero_specificity MUST contain BOTH: (a) a concrete visual definition naming size, body parts, colour, texture; AND (b) an explicit anti-confusion clause using the phrase "NOT a <thing it will be confused with>" (e.g. "a round fluffy ball of gray dust with tiny sock feet and two black button eyes — NOT a rabbit, NOT any animal with long ears").
+
 Attempt label: ${attemptLabel}.`;
 
   const user = `Generate ONE fresh concept for ages ${ageBand}. English only. Strict JSON only.${avoidBlock}`;
@@ -330,6 +378,13 @@ function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): {
   }
   if (scores.generic_risk_score > CONCEPT_GENERIC_MAX) {
     blockers.push(`generic_risk_score=${scores.generic_risk_score}>${CONCEPT_GENERIC_MAX}`);
+  }
+
+  // Visually unambiguous hero — learned rule (character_consistency).
+  const amb = detectAmbiguousHero(c);
+  if (amb.hits.length && (!amb.hasAntiConfusion || !amb.hasConcreteVisual)) {
+    const hitList = amb.hits.map(h => `${h.token} (will be confused with ${h.confused_with})`).join('; ');
+    blockers.push(`visually_unambiguous_hero: ambiguous hero [${hitList}] without concrete visual definition + explicit "NOT a X" anti-confusion clause in hero_specificity`);
   }
 
   const passed = blockers.length === 0;

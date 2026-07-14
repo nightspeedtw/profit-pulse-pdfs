@@ -515,11 +515,38 @@ Deno.serve(async (req) => {
 
     if (body.resume_parent_run_id) {
       const parentRunId = String(body.resume_parent_run_id);
+      // Singleton guard: only one active parent run allowed. Confirm this run is still the active one.
+      const { data: thisRun } = await db.from('autopilot_kids_runs').select('id, status').eq('id', parentRunId).maybeSingle();
+      if (!thisRun) return json({ ok: false, error: 'run not found' }, 404);
+      if (thisRun.status === 'superseded' || thisRun.status === 'completed' || thisRun.status === 'failed') {
+        return json({ ok: false, error: `run terminal (${thisRun.status}) — not resumable` }, 409);
+      }
+      const { data: others } = await db.from('autopilot_kids_runs')
+        .select('id, updated_at')
+        .in('status', ['queued', 'running'])
+        .eq('current_step', 'parent_job')
+        .neq('id', parentRunId);
+      if ((others?.length ?? 0) > 0) {
+        return json({ ok: false, error: 'another parent run is active', active_ids: others!.map(o => o.id) }, 409);
+      }
       const task = resumeParentRun(parentRunId, ageBand, preferredLanes);
       // deno-lint-ignore no-explicit-any
       const rt = (globalThis as any).EdgeRuntime;
       if (rt?.waitUntil) rt.waitUntil(task); else task.catch(e => console.error('resume parent loop bg', e));
       return json({ ok: true, resumed_parent_run_id: parentRunId, age_band: ageBand }, 202);
+    }
+
+    // Singleton guard for NEW parent runs — reject if any parent run is already active.
+    const { data: activeParents } = await db.from('autopilot_kids_runs')
+      .select('id, ebook_kids_id, updated_at')
+      .in('status', ['queued', 'running'])
+      .eq('current_step', 'parent_job');
+    if ((activeParents?.length ?? 0) > 0) {
+      return json({
+        ok: false,
+        error: 'another kids parent run is already active — only one may run at a time',
+        active: activeParents,
+      }, 409);
     }
 
     // Create placeholder ebook + parent run atomically.

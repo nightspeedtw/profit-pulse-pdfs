@@ -77,10 +77,27 @@ async function scanAndDispatch() {
       .eq('status', 'running')
       .eq('current_step', 'parent_job')
       .lt('updated_at', twentyMinAgo)
+      .order('updated_at', { ascending: false })
       .limit(5);
     if (parentErr) throw parentErr;
-    console.log('watchdog parent scan complete', JSON.stringify({ stuck_parent_count: parentRuns?.length ?? 0 }));
-    await Promise.allSettled((parentRuns ?? []).map(resumeParentRun));
+
+    // Singleton enforcement: at most ONE active parent run at any time.
+    // If any parent run is already active AND fresh (updated within 20 min), do NOT revive anyone.
+    // Otherwise revive only the single newest stuck run.
+    const { data: freshActive } = await db
+      .from('autopilot_kids_runs')
+      .select('id')
+      .in('status', ['queued', 'running'])
+      .eq('current_step', 'parent_job')
+      .gte('updated_at', twentyMinAgo)
+      .limit(1);
+    const eligibleForResume = (parentRuns ?? []).slice(0, (freshActive?.length ?? 0) > 0 ? 0 : 1);
+    console.log('watchdog parent scan complete', JSON.stringify({
+      stuck_parent_count: parentRuns?.length ?? 0,
+      fresh_active_count: freshActive?.length ?? 0,
+      will_revive: eligibleForResume.length,
+    }));
+    await Promise.allSettled(eligibleForResume.map(resumeParentRun));
   } catch (e) {
     console.error('kids-autopilot-watchdog error', e);
   }
