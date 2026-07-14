@@ -238,6 +238,8 @@ export default function Production() {
 
       <SystemHeartbeatCard />
 
+      <AiProvidersCard />
+
       <LiveProductionQueue />
 
       <Card className="border-2 border-foreground">
