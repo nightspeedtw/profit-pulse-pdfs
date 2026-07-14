@@ -259,7 +259,7 @@ Deno.serve(async (req) => {
       EdgeRuntime.waitUntil(fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
-        body: JSON.stringify({ ebook_id, run_id: run_id ?? undefined, source: "kids-qc-run" }),
+        body: JSON.stringify({ ebook_id, run_id: run_id ?? undefined, source: "kids-qc-run", async: true }),
       }).then((r) => r.text()).catch((e) => console.error("kids-qc-run supervisor dispatch failed", e)));
     }
 

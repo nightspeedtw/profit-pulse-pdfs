@@ -18,7 +18,7 @@ async function dispatchRepairSupervisor(ebook_id: string, run_id?: string | null
   const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-    body: JSON.stringify({ ebook_id, run_id: run_id ?? undefined, source: 'kids-publish-if-qc-passed' }),
+    body: JSON.stringify({ ebook_id, run_id: run_id ?? undefined, source: 'kids-publish-if-qc-passed', async: true }),
   });
   await r.text().catch(() => '');
 }

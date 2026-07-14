@@ -28,7 +28,7 @@ async function dispatchSupervisor(row: { id: string; title?: string | null; pipe
     const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-      body: JSON.stringify({ ebook_id: row.id, source: 'kids-autopilot-watchdog' }),
+      body: JSON.stringify({ ebook_id: row.id, source: 'kids-autopilot-watchdog', async: true }),
       signal: ctl.signal,
     });
     const t = await r.text().catch(() => '');

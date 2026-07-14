@@ -58,6 +58,15 @@ async function invoke(path: string, body: Record<string, unknown>): Promise<Resp
   });
 }
 
+async function invokeSupervisorInBackground(body: Record<string, unknown>) {
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify({ ...body, async: false, background_parent_source: body.source ?? 'unknown' }),
+  });
+  await r.text().catch(() => '');
+}
+
 async function appendLog(db: ReturnType<typeof createClient>, ebook_id: string, entry: RepairEntry) {
   const { data: e } = await db.from('ebooks_kids').select('storefront_meta, qc_scorecard').eq('id', ebook_id).single();
   const meta = ((e?.storefront_meta as Record<string, unknown> | null) ?? {}) as Record<string, unknown>;
@@ -203,6 +212,17 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const ebook_id: string = body.ebook_id;
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
+
+    if (body.async === true) {
+      // The supervisor can legitimately take longer than callers such as pg_net
+      // or the publish/QC worker should wait. Return immediately and let the
+      // actual repair run out-of-band.
+      // deno-lint-ignore no-explicit-any
+      const rt = (globalThis as any).EdgeRuntime;
+      const task = invokeSupervisorInBackground(body).catch((e) => console.error('kids-repair-supervisor async dispatch failed', e));
+      if (rt?.waitUntil) rt.waitUntil(task); else task.catch((e) => console.error('kids-repair-supervisor async fallback failed', e));
+      return json({ ok: true, accepted: true, ebook_id }, 202);
+    }
 
     const { data: ebook, error: ebErr } = await db.from('ebooks_kids').select('*').eq('id', ebook_id).single();
     if (ebErr || !ebook) return json({ ok: false, error: 'ebook not found' }, 404);
