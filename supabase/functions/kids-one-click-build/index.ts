@@ -733,7 +733,7 @@ async function maybeLearnFromRepeatedFailures(
   }
 
   let bestDim: string | null = null;
-  let bestList: Array<{ title: string; score: number; critique: string }> = [];
+  let bestList: Array<{ title: string; score: number; critique: string; manuscript_structure?: string }> = [];
   for (const [dim, list] of dimCounts) {
     if (list.length >= 2 && list.length > bestList.length) {
       bestDim = dim; bestList = list;
