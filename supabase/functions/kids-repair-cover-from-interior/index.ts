@@ -134,7 +134,7 @@ Deno.serve(async (req) => {
       charDesc ? `Character notes: ${charDesc}` : ``,
       `Composition: hero character centered/upper-middle, joyful hero moment from the story (the sneeze-powered sock-sorting machine whizzing socks through tubes). Warm painterly lighting, generous space in the upper third for the title.`,
       `TYPOGRAPHY (must be drawn INTO the artwork as hand-lettered painted title): the ONLY text visible on the cover is the exact title "${title}"${subtitle ? ` and the subtitle "${subtitle}" underneath in a smaller hand-lettered style` : ''}. The lettering must be chunky, playful, bouncy baseline, watercolor-style, sitting in the upper third with clear readability armor (soft outline or shadow) so it survives at 100×160 thumbnail size.`,
-      `ABSOLUTE RULES: (1) do NOT invent any other words, names, tag-lines, author lines, publisher marks, badges, or signatures — the ONLY text is the title${subtitle ? ' + subtitle' : ''} above. (2) Spell the title EXACTLY: "${title}". (3) No glossy 3D, no stock photo, no six-finger hands, no generic purple gradient. (4) Square 1:1 aspect ratio.`,
+      `ABSOLUTE RULES: (1) The ONLY text anywhere on the entire canvas is the title${subtitle ? ' + subtitle' : ''} above. Do NOT draw any in-scene labels, basket tags, sign text, box labels, onomatopoeia (no "ah-choo", no "whizz", no "pop"), speech bubbles, tag-lines, author lines, publisher marks, badges, or signatures. If a container appears in the scene, it must be UNLABELED. (2) Spell the title EXACTLY: "${title}". (3) No glossy 3D, no stock photo, no six-finger hands, no generic purple gradient. (4) Square 1:1 aspect ratio.`,
     ].filter(Boolean).join(' ');
 
     let lastReason = '';
