@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
     }).eq('id', run_id);
 
     const { data: ebook } = await supabase.from('ebooks_kids').select('*').eq('id', run.ebook_kids_id).single();
-    const ctx: Ctx = { supabase, ebookId: run.ebook_kids_id as string, ebook: ebook ?? {} };
+    const ctx: Ctx = { supabase, ebookId: run.ebook_kids_id as string, ebook: ebook ?? {}, runId: run_id };
 
     const criticalFailures: string[] = [];
     const softFailures: string[] = [];
