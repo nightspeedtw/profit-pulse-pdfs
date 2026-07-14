@@ -335,8 +335,6 @@ Deno.serve(async (req) => {
               attempt: 1,
               step: "kids_interior_reroll",
             });
-            const h = await sha256Hex(new Uint8Array()); // placeholder, hash already computed inside
-            void h;
             await writer(rec);
           } catch (e) {
             console.warn(`reroll page ${i + 1} failed`, (e as Error).message);
