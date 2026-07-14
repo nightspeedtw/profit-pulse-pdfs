@@ -7,20 +7,10 @@
 // Uses the locked Story Bible (kids_visual_bible) so tone, character, world
 // and moral stay consistent with the cover and existing illustrations.
 
-import { admin, aiJSON, corsHeaders, logCost } from "../_shared/ai.ts";
+import { admin, corsHeaders, logCost } from "../_shared/ai.ts";
 import { resolveTrack, wrongTrackResponse } from "../_shared/track-registry.ts";
 import { loadStoryCraftBlock } from "../_shared/story-craft-skill.ts";
-
-type Spread = {
-  spread_number: number;
-  scene_title: string;
-  story_text: string;
-  scene_summary: string;
-  characters_present: string[];
-  emotion: string;
-  location: string;
-  continuity_notes: string;
-};
+import { writeSegmentedManuscript } from "../_shared/kids-segments.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
