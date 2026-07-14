@@ -211,8 +211,10 @@ Deno.serve(async (req) => {
       word_count: currentManuscript.split(/\s+/).filter(Boolean).length,
     }];
 
+    const skillBlock = await loadStoryCraftBlock(db, ageBand);
+
     for (let i = 1; i <= MAX_ATTEMPTS && !currentReport.story_qc_passed; i++) {
-      const { system, user } = buildRewritePrompt(i, String(ebook.title ?? ''), ageBand, currentManuscript, currentReport);
+      const { system, user } = buildRewritePrompt(i, String(ebook.title ?? ''), ageBand, currentManuscript, currentReport, skillBlock);
       let rewritten: string;
       try {
         rewritten = await rewriteManuscript(system, user);
