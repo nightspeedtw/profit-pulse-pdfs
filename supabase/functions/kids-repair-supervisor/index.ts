@@ -278,6 +278,26 @@ Deno.serve(async (req) => {
       return json({ ok: true, result: 'shelved', reason: 'supervisor_budget_exhausted', total_attempts: totalAttempts });
     }
 
+    const scorecard = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
+    const pdfJob = ((scorecard.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job ?? null) as { next_stage?: string | null; updated_at?: string } | null;
+    if (pdfJob?.next_stage && pdfJob.updated_at) {
+      const ageMs = Date.now() - Date.parse(pdfJob.updated_at);
+      if (Number.isFinite(ageMs) && ageMs < 8 * 60_000) {
+        await appendLog(db, ebook_id, {
+          attempt: totalAttempts + 1,
+          current_blocker: `pdf_repair_in_progress:${pdfJob.next_stage}`,
+          blocker_class: 'worker_resource_limit',
+          repair_handler: 'wait_for_active_pdf_chain',
+          stage_before,
+          stage_after: String(ebook.pipeline_status ?? 'unknown'),
+          result: 'no_op',
+          detail: { next_stage: pdfJob.next_stage, updated_at: pdfJob.updated_at, age_ms: ageMs },
+          updated_at: new Date().toISOString(),
+        });
+        return json({ ok: true, result: 'no_op', reason: 'pdf_repair_chain_active', next_stage: pdfJob.next_stage });
+      }
+    }
+
     const blocker = detectBlocker(ebook, latestFailedStep);
     const stage_before = latestFailedStep?.step_name ?? String(ebook.pipeline_status ?? 'unknown');
 
