@@ -13,6 +13,7 @@ import Bundles from "./pages/Bundles.tsx";
 import About from "./pages/About.tsx";
 import Download from "./pages/Download.tsx";
 import Kids from "./pages/Kids.tsx";
+import KidsCheckout from "./pages/KidsCheckout.tsx";
 import Checkout from "./pages/Checkout.tsx";
 import CheckoutReturn from "./pages/CheckoutReturn.tsx";
 import NotFound from "./pages/NotFound.tsx";
@@ -51,6 +52,7 @@ const App = () => (
             <Route path="/category/:slug" element={<Category />} />
             <Route path="/product/:handle" element={<Product />} />
             <Route path="/kids" element={<Kids />} />
+            <Route path="/kids/checkout/:id" element={<KidsCheckout />} />
             <Route path="/bundles" element={<Bundles />} />
             <Route path="/about" element={<About />} />
             <Route path="/download" element={<Download />} />

@@ -2196,6 +2196,41 @@ export type Database = {
           },
         ]
       }
+      kids_launch_leads: {
+        Row: {
+          created_at: string
+          ebook_id: string | null
+          email: string
+          id: string
+          metadata: Json
+          source: string
+        }
+        Insert: {
+          created_at?: string
+          ebook_id?: string | null
+          email: string
+          id?: string
+          metadata?: Json
+          source?: string
+        }
+        Update: {
+          created_at?: string
+          ebook_id?: string | null
+          email?: string
+          id?: string
+          metadata?: Json
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kids_launch_leads_ebook_id_fkey"
+            columns: ["ebook_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks_kids"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       kids_production_queue: {
         Row: {
           age_group_id: string | null

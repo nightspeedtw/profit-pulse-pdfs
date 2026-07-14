@@ -1,188 +1,175 @@
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams, Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { listAgeGroups, listThemes, type KidsAgeGroup, type KidsTheme } from "@/lib/kidsTaxonomy";
-import { AgeGroupTabs } from "@/components/kids/AgeGroupTabs";
-import { ThemeChips } from "@/components/kids/ThemeChips";
-import { Loader2, FileText } from "lucide-react";
+import { KidsHero } from "@/components/kids/KidsHero";
+import { JourneyWizard, type WizardValue } from "@/components/kids/JourneyWizard";
+import { MatchedResults, type MatchedBook } from "@/components/kids/MatchedResults";
+import { SocialProofStrip } from "@/components/kids/SocialProofStrip";
+import { PreviewLightbox } from "@/components/kids/PreviewLightbox";
+import { Loader2 } from "lucide-react";
 
-interface KidsBook {
+interface RawBook {
   id: string;
   title: string;
-  subtitle: string | null;
-  description: string | null;
   cover_url: string | null;
   price_cents: number;
   age_group_id: string | null;
-  theme_ids: string[];
-  storefront_meta: Record<string, any> | null;
+  theme_ids: string[] | null;
+  storefront_meta: Record<string, unknown> | null;
+  created_at: string;
 }
 
 export default function Kids() {
   const [ageGroups, setAgeGroups] = useState<KidsAgeGroup[]>([]);
   const [themes, setThemes] = useState<KidsTheme[]>([]);
-  const [params, setParams] = useSearchParams();
-
-  const age = params.get("age");
-  const themesSel = useMemo(
-    () => (params.get("themes") ?? "").split(",").filter(Boolean),
-    [params],
-  );
-
-  const [results, setResults] = useState<KidsBook[]>([]);
+  const [allBooks, setAllBooks] = useState<RawBook[]>([]);
   const [loading, setLoading] = useState(true);
+  const [previewBook, setPreviewBook] = useState<MatchedBook | null>(null);
+
+  const [params, setParams] = useSearchParams();
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+
+  // URL-backed wizard state
+  const wizardValue: WizardValue = useMemo(() => ({
+    theme: params.get("theme"),
+    audience: (params.get("audience") as WizardValue["audience"]) ?? null,
+    age: params.get("age"),
+  }), [params]);
+
+  const setWizardValue = (v: WizardValue) => {
+    const next = new URLSearchParams(params);
+    if (v.theme) next.set("theme", v.theme); else next.delete("theme");
+    if (v.audience) next.set("audience", v.audience); else next.delete("audience");
+    if (v.age) next.set("age", v.age); else next.delete("age");
+    setParams(next, { replace: true });
+  };
+
+  const deepLinked = wizardValue.theme && wizardValue.age && wizardValue.audience;
+  const [showResults, setShowResults] = useState<boolean>(!!deepLinked);
 
   useEffect(() => {
-    document.title = "Kids Books — Shop by Age & Theme | SecretPDF";
-    listAgeGroups().then(setAgeGroups).catch(() => {});
-    listThemes().then(setThemes).catch(() => {});
+    document.title = "Kids Books — หนังสือที่ลูกจะขอให้อ่านซ้ำ | SecretPDF";
+    const meta = document.querySelector('meta[name="description"]');
+    if (meta) meta.setAttribute("content", "Premium 8.5×8.5 picture books, matched to your child's age and interests. Instant download.");
   }, []);
-
-  const themeIds = useMemo(
-    () => themes.filter((t) => themesSel.includes(t.slug)).map((t) => t.id),
-    [themes, themesSel],
-  );
-  const ageId = useMemo(
-    () => ageGroups.find((g) => g.slug === age)?.id ?? null,
-    [ageGroups, age],
-  );
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     (async () => {
-      let query = supabase
-        .from("ebooks_kids")
-        .select("id,title,subtitle,description,cover_url,price_cents,age_group_id,theme_ids,storefront_meta")
-        .eq("listing_status", "live")
-        .eq("sellable", true)
-        .order("created_at", { ascending: false })
-        .limit(48);
-      if (ageId) query = query.eq("age_group_id", ageId);
-      if (themeIds.length > 0) query = query.overlaps("theme_ids", themeIds);
-      const { data } = await query;
-      if (!cancelled) setResults((data ?? []) as KidsBook[]);
-      if (!cancelled) setLoading(false);
+      const [ag, th, bk] = await Promise.all([
+        listAgeGroups().catch(() => []),
+        listThemes().catch(() => []),
+        supabase.from("ebooks_kids")
+          .select("id,title,cover_url,price_cents,age_group_id,theme_ids,storefront_meta,created_at")
+          .eq("listing_status", "live")
+          .eq("sellable", true)
+          .order("created_at", { ascending: false })
+          .limit(120)
+          .then((r) => (r.data ?? []) as unknown as RawBook[]),
+      ]);
+      if (cancelled) return;
+      setAgeGroups(ag);
+      setThemes(th);
+      setAllBooks(bk);
+      setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [ageId, themeIds.join(",")]);
+  }, []);
 
-  const setAge = (slug: string | null) => {
-    const next = new URLSearchParams(params);
-    if (slug) next.set("age", slug); else next.delete("age");
-    setParams(next, { replace: true });
+  const scrollToPicker = () => {
+    pickerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-  const setThemesSel = (slugs: string[]) => {
-    const next = new URLSearchParams(params);
-    if (slugs.length > 0) next.set("themes", slugs.join(",")); else next.delete("themes");
-    setParams(next, { replace: true });
+  const scrollToResults = () => {
+    setShowResults(true);
+    setTimeout(() => {
+      document.getElementById("results")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
   };
-  const clearAll = () => setParams(new URLSearchParams(), { replace: true });
 
-  const hasFilter = age !== null || themesSel.length > 0;
+  const matched: MatchedBook[] = useMemo(() => {
+    if (allBooks.length === 0) return [];
+    const themeObj = themes.find((t) => t.slug === wizardValue.theme);
+    const ageObj = ageGroups.find((g) => g.slug === wizardValue.age);
+    const wantTheme = wizardValue.theme && wizardValue.theme !== "any" ? themeObj?.id ?? null : null;
+    const wantAge   = wizardValue.age   && wizardValue.age   !== "any" ? ageObj?.id   ?? null : null;
+    const wantAud   = wizardValue.audience && wizardValue.audience !== "any" ? wizardValue.audience : null;
+
+    const scored = allBooks.map((b): MatchedBook => {
+      let s = 0;
+      if (wantTheme && b.theme_ids?.includes(wantTheme)) s += 2;
+      if (wantAge && b.age_group_id === wantAge) s += 2;
+      const bookAud = (b.storefront_meta as { audience?: string } | null)?.audience;
+      if (wantAud && bookAud === wantAud) s += 1;
+      if (wantAud && (bookAud === "any" || !bookAud)) s += 0.5;
+      if (!wantTheme && !wantAge && !wantAud) s = 1; // no filter → keep all
+      return {
+        id: b.id,
+        title: b.title,
+        cover_url: b.cover_url,
+        price_cents: b.price_cents,
+        age_group_id: b.age_group_id,
+        theme_ids: b.theme_ids ?? [],
+        storefront_meta: b.storefront_meta,
+        interior_preview_urls: ((b.storefront_meta as { preview_urls?: string[] } | null)?.preview_urls) ?? [],
+        _matchScore: s,
+      };
+    });
+
+    scored.sort((a, b) => b._matchScore - a._matchScore);
+    // If no filters selected show all; if any filter show top ~24
+    const cap = (wantTheme || wantAge || wantAud) ? 24 : 24;
+    // If filters exist and everything scored 0, fall back to newest so we never dead-end.
+    const anyMatch = scored.some((s) => s._matchScore >= 1);
+    return (anyMatch ? scored : scored.map((b) => ({ ...b, _matchScore: 0 }))).slice(0, cap);
+  }, [allBooks, ageGroups, themes, wizardValue]);
+
+  const heroCovers = useMemo(() => allBooks.map((b) => b.cover_url).filter(Boolean) as string[], [allBooks]);
+
+  const resetJourney = () => {
+    setWizardValue({ theme: null, audience: null, age: null });
+    setShowResults(false);
+    setTimeout(() => pickerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  };
 
   return (
     <>
-      <section className="border-b-2 border-foreground bg-highlight">
-        <div className="container py-14">
-          <p className="font-mono uppercase tracking-widest text-xs mb-3">[ Kids Hub ]</p>
-          <h1 className="font-display text-5xl lg:text-7xl uppercase leading-[0.95] max-w-3xl">
-            Kids books, curated <span className="underline-brutal">by age</span> and <span className="underline-brutal">by theme</span>
-          </h1>
-          <p className="mt-5 max-w-2xl text-base md:text-lg">
-            Pick your child's age band and the themes you love — we'll surface the books that fit best.
-          </p>
-        </div>
-      </section>
+      <KidsHero covers={heroCovers} onCTA={scrollToPicker} />
 
-      <section className="container py-8 space-y-6 border-b border-border">
-        <div>
-          <p className="font-mono uppercase tracking-widest text-xs mb-3">[ 1 ] Pick age band</p>
-          <AgeGroupTabs groups={ageGroups} value={age} onChange={setAge} />
-        </div>
-        <div>
-          <p className="font-mono uppercase tracking-widest text-xs mb-3">[ 2 ] Pick themes (multiple allowed)</p>
-          <ThemeChips themes={themes} value={themesSel} onChange={setThemesSel} />
-        </div>
-        {hasFilter && (
-          <button type="button" onClick={clearAll} className="font-mono uppercase text-xs underline hover:no-underline">
-            Clear all filters
-          </button>
+      <div ref={pickerRef}>
+        {!showResults && (
+          <JourneyWizard
+            themes={themes}
+            ageGroups={ageGroups}
+            value={wizardValue}
+            onChange={setWizardValue}
+            onComplete={scrollToResults}
+          />
         )}
-      </section>
+      </div>
 
-      <section className="container py-10">
-        {loading ? (
-          <div className="py-16 flex justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>
-        ) : results.length === 0 ? (
-          <div className="py-16 border-2 border-dashed border-foreground text-center px-6">
-            <div className="mx-auto mb-4 h-16 w-16 border-2 border-foreground flex items-center justify-center">
-              <FileText className="h-8 w-8" />
-            </div>
-            <h3 className="font-display text-2xl uppercase mb-2">No books match those filters yet</h3>
-            <p className="text-muted-foreground max-w-md mx-auto mb-4">
-              Try clearing the filters or picking a different age band or theme.
-            </p>
-            <button type="button" onClick={clearAll} className="inline-block border-2 border-foreground px-5 py-2 font-display uppercase text-sm hover:bg-highlight">
-              Clear filters
-            </button>
-          </div>
-        ) : (
-          <>
-            <p className="font-mono uppercase tracking-widest text-xs mb-4">[ {results.length} book{results.length === 1 ? "" : "s"} ]</p>
-            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-              {results.map((p) => {
-                const cc = (p.storefront_meta?.conversion_copy ?? null) as
-                  | { short_hook?: string; selling_hook?: string; read_aloud_minutes?: number }
-                  | null;
-                const ap = (p.storefront_meta?.ad_promise ?? null) as { theme?: string } | null;
-                const hook = cc?.short_hook || cc?.selling_hook || null;
-                const rmin = cc?.read_aloud_minutes;
-                const theme = ap?.theme || null;
-                const priceLabel = `$${(p.price_cents / 100).toFixed(2)}`;
-                return (
-                  <Link key={p.id} to={`/product/${p.id}`} className="block border-2 border-foreground hover:shadow-brutal transition-all bg-card">
-                    <div className="relative">
-                      {p.cover_url ? (
-                        <img src={p.cover_url} alt={p.title} className="w-full aspect-square object-cover border-b-2 border-foreground" />
-                      ) : (
-                        <div className="w-full aspect-square bg-muted flex items-center justify-center border-b-2 border-foreground">
-                          <FileText className="h-10 w-10 text-muted-foreground" />
-                        </div>
-                      )}
-                      <span className="absolute top-2 right-2 px-2 py-1 text-xs font-display border-2 border-foreground bg-white">
-                        {priceLabel}
-                      </span>
-                    </div>
-                    <div className="p-3 md:p-4">
-                      {hook && (
-                        <p className="text-[10px] font-mono uppercase tracking-widest text-accent-foreground font-bold line-clamp-2 mb-1">
-                          {hook}
-                        </p>
-                      )}
-                      <h3 className="font-display uppercase text-base md:text-lg leading-tight line-clamp-2">{p.title}</h3>
-                      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-mono uppercase tracking-wide">
-                        {theme && <span className="px-2 py-0.5 border border-foreground bg-highlight">{theme}</span>}
-                        {rmin != null && <span className="px-2 py-0.5 border border-foreground">~{rmin} min read</span>}
-                        <span className="px-2 py-0.5 border border-foreground bg-accent text-accent-foreground">New</span>
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </>
-        )}
-      </section>
+      {loading ? (
+        <div className="py-16 flex justify-center"><Loader2 className="h-8 w-8 animate-spin text-accent" /></div>
+      ) : showResults ? (
+        <MatchedResults
+          books={matched}
+          themes={themes}
+          ageGroups={ageGroups}
+          selectedTheme={wizardValue.theme}
+          selectedAge={wizardValue.age}
+          onPreview={(b) => setPreviewBook(b)}
+          onReset={resetJourney}
+        />
+      ) : null}
 
-      <section className="container py-16 text-center border-t border-border">
-        <p className="font-mono uppercase tracking-widest text-xs mb-3">[ Tip ]</p>
-        <p className="max-w-xl mx-auto text-sm text-muted-foreground">
-          Gift shopping? Check out{" "}
-          <Link to="/bundles" className="underline font-medium">Bundles</Link>
-          {" "}for curated sets at a discount.
-        </p>
-      </section>
+      <SocialProofStrip bookCount={allBooks.length} sampleCovers={heroCovers} />
+
+      <PreviewLightbox
+        open={!!previewBook}
+        onClose={() => setPreviewBook(null)}
+        title={previewBook?.title ?? ""}
+        images={previewBook?.interior_preview_urls ?? []}
+      />
     </>
   );
 }
