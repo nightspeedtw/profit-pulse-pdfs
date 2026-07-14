@@ -35,6 +35,35 @@ async function downloadBytes(url: string): Promise<Uint8Array> {
   return new Uint8Array(await r.arrayBuffer());
 }
 
+async function transcribeAllText(imageBytes: Uint8Array): Promise<string> {
+  const key = Deno.env.get('LOVABLE_API_KEY');
+  if (!key) return '';
+  let s = ''; const c = 0x8000;
+  for (let i = 0; i < imageBytes.length; i += c) s += String.fromCharCode(...imageBytes.subarray(i, i + c));
+  const dataUrl = `data:image/png;base64,${btoa(s)}`;
+  try {
+    const r = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          { role: 'system', content: 'Transcribe EVERY piece of text, letter, word, label, signage, and lettering visible anywhere in the image. Include in-scene labels, basket tags, onomatopoeia, signs, everything. Return one plain string of all detected text, space-separated. No JSON, no explanation.' },
+          { role: 'user', content: [
+            { type: 'text', text: 'List every text element in this image.' },
+            { type: 'image_url', image_url: { url: dataUrl } },
+          ] },
+        ],
+        max_tokens: 300,
+      }),
+    });
+    if (!r.ok) return '';
+    const j = await r.json();
+    return String(j.choices?.[0]?.message?.content ?? '').trim();
+  } catch { return ''; }
+}
+
+
 async function gatewayImageWithRefs(opts: { prompt: string; referenceUrls: string[] }): Promise<Uint8Array> {
   const key = Deno.env.get('LOVABLE_API_KEY');
   if (!key) throw new Error('LOVABLE_API_KEY missing');
