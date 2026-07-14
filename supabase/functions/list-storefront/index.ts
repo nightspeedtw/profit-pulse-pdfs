@@ -237,6 +237,8 @@ Deno.serve(async (req) => {
           _kids_read_aloud_minutes: cc.read_aloud_minutes ?? 6,
           _kids_ad_promise: ap ?? null,
           _kids_value_cards: (meta.value_cards ?? cc.value_cards ?? null),
+          _kids_age_slugs: kidsAgeSlugs,
+          _kids_theme_slugs: kidsThemeSlugs,
         }] as any;
       }
     }
