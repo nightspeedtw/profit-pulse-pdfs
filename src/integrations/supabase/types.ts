@@ -2472,6 +2472,48 @@ export type Database = {
         }
         Relationships: []
       }
+      pipeline_skills: {
+        Row: {
+          age_band: string | null
+          content_md: string
+          created_at: string
+          id: string
+          metadata: Json
+          skill_key: string
+          sort_index: number
+          source: string
+          target_dimension: string | null
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          age_band?: string | null
+          content_md: string
+          created_at?: string
+          id?: string
+          metadata?: Json
+          skill_key: string
+          sort_index?: number
+          source?: string
+          target_dimension?: string | null
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          age_band?: string | null
+          content_md?: string
+          created_at?: string
+          id?: string
+          metadata?: Json
+          skill_key?: string
+          sort_index?: number
+          source?: string
+          target_dimension?: string | null
+          updated_at?: string
+          version?: number
+        }
+        Relationships: []
+      }
       pipeline_step_logs: {
         Row: {
           completed_at: string | null
