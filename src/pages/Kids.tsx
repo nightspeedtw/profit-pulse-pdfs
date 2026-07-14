@@ -134,7 +134,7 @@ export default function Kids() {
 
   return (
     <>
-      <KidsHero covers={heroCovers} onCTA={scrollToPicker} />
+      <KidsHero covers={heroCovers} onStart={scrollToPicker} />
 
       <div ref={pickerRef}>
         {!showResults && (
