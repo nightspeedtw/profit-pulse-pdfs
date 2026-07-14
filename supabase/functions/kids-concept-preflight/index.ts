@@ -219,6 +219,7 @@ Reply as STRICT JSON only (no markdown fences), matching EXACTLY this schema:
 }
 
 REQUIREMENTS (all mandatory):
+- parent_hook MUST be one of the PARENT_HOOK_MENU strings, copied verbatim: ${PARENT_HOOK_MENU.map(h => `"${h}"`).join(' | ')}
 - concrete hero with a SPECIFIC want/problem (hero_specificity must name one concrete quirk/skill/object)
 - core_story_engine that produces page-turn ACTIONS (not a theme statement)
 - central_problem is a concrete, physical, escalating problem
