@@ -132,27 +132,28 @@ Deno.serve(async (req) => {
       }
       const qc = await qcCoverLettering({ expectedTitle: title, imageBytes: bytes });
       const detected = String(qc.detected_title_text ?? '').trim();
-      const detectedNorm = detected.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
       const titleNorm = title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
-      // "extraneous text" heuristic: detected text has 40%+ more characters
-      // than the title (allowing subtitle), OR contains a suspicious extra
-      // word not in title/subtitle.
       const subNorm = subtitle.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
-      const allowed = new Set((titleNorm + ' ' + subNorm).split(' ').filter(Boolean));
-      const extraWords = detectedNorm.split(' ').filter((w) => w.length >= 3 && !allowed.has(w));
+      const allowed = new Set((titleNorm + ' ' + subNorm).split(' ').filter((w) => w.length >= 3));
+      // ALL-TEXT vision pass — transcribe every glyph on the cover so we catch
+      // in-scene labels (basket tags, onomatopoeia) that the title-focused QC
+      // misses. Any word not in title/subtitle => extraneous.
+      const allText = await transcribeAllText(bytes);
+      const allTokens = allText.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(/\s+/).filter((w) => w.length >= 3);
+      const extraWords = Array.from(new Set(allTokens.filter((w) => !allowed.has(w))));
       const extraneous = extraWords.length > 0;
 
       const passReport = {
         attempt,
         qc,
         detected,
+        all_text_detected: allText,
         extraneous_words: extraWords,
       };
       bestReport = passReport;
-      bestBytes = bytes; // keep latest as fallback
+      bestBytes = bytes;
 
       if (qc.passed && !extraneous) {
-        // success
         console.log('cover repaired attempt', attempt, 'title=', detected);
         break;
       }
