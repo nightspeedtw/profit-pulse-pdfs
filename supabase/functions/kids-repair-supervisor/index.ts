@@ -386,19 +386,26 @@ Deno.serve(async (req) => {
 
       const pdfJobError = String(pdfJob?.error ?? '');
       const pdfAssemblyNeverStarted = !pdfJob || (!pdfJob.next_stage && !pdfJob.prepared && !pdfJob.error);
-      if (!hasPdf && status === 'pdf_building' && interiors.length >= Math.min(expected, 12) && !pdfJobError) {
+      // Count prior resume_pdf attempts so we don't loop forever on a
+      // genuinely broken build.
+      const priorPdfResumes = allEntries.filter((e) => e.blocker_class === 'resume_pdf').length;
+      // FREE RESUME for pdf_building — always allowed until we've tried 5x.
+      // Fixes the "supervisor_declined: unrecognized_stall in pdf_building"
+      // retirement: PDF assembly is deterministic and free; resume it instead
+      // of retiring the book.
+      if (!hasPdf && status === 'pdf_building' && interiors.length >= Math.min(expected, 12) && priorPdfResumes < 5) {
         const stage = pdfAssemblyNeverStarted ? 'pdf_prepare' : 'resume';
         const r = await invoke('kids-build-picture-pdf', { ebook_id, publish: true, stage });
         const t = await r.text().catch(() => '');
         const ok = r.ok;
         await appendLog(db, ebook_id, {
           attempt: totalAttempts + 1,
-          current_blocker: pdfAssemblyNeverStarted ? 'pdf_assembly_never_started' : 'pdf_build_incomplete',
+          current_blocker: pdfAssemblyNeverStarted ? 'pdf_assembly_never_started' : (pdfJobError ? `pdf_prior_error:${pdfJobError.slice(0, 80)}` : 'pdf_build_incomplete'),
           blocker_class: 'resume_pdf',
           repair_handler: 'kids-build-picture-pdf (free resume)',
           stage_before, stage_after: status,
           result: ok ? 'no_op' : 'error',
-          detail: { free_resume: true, stage, dispatch_status: r.status, body: t.slice(0, 240) },
+          detail: { free_resume: true, stage, prior_resumes: priorPdfResumes, dispatch_status: r.status, body: t.slice(0, 240) },
           updated_at: new Date().toISOString(),
         });
         if (!ok) return json({ ok: true, result: 'error', kind: 'resume_pdf_failed', dispatch_status: r.status, body: t.slice(0, 240) });
