@@ -268,6 +268,24 @@ async function runLoop(parentRunId: string, ebookId: string, ageBand: string, pr
       last_blocker: undefined,
     });
 
+    // AUTO SKILL-LEARNING trigger. If the SAME QC dimension has failed in
+    // ≥2 recent shelved_story child attempts within this run, invoke the
+    // learner to upgrade the playbook BEFORE generating the next concept.
+    try {
+      const learned = await maybeLearnFromRepeatedFailures(db, parentRunId, ageBand);
+      if (learned) {
+        await appendAttempt(db, parentRunId, {
+          outcome: 'skill_learned',
+          lane,
+          reason: `learned: ${learned.dimension} → ${learned.skill_key} v${learned.new_version}`,
+          ts: new Date().toISOString(),
+        } as any);
+      }
+    } catch (e) {
+      console.error('skill_learner_trigger_error', e);
+    }
+
+
     // Run preflight for this batch.
     const preflight = await invoke('kids-concept-preflight', {
       age_band: ageBand,
