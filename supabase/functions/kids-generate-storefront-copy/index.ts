@@ -49,7 +49,7 @@ async function callGemini(system: string, user: string): Promise<string> {
   // Lovable Gateway markup + credit limit). Fall back to the gateway.
   if (hasGeminiDirect()) {
     try {
-      const { text } = await geminiDirectChat({ system, user, responseJson: true, model: 'google/gemini-2.0-flash' });
+      const { text } = await geminiDirectChat({ system, user, responseJson: true, model: 'google/gemini-flash-latest' });
       return String(text ?? '').replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
     } catch (e) {
       console.warn('gemini-direct failed, falling back to gateway:', (e as Error).message);
