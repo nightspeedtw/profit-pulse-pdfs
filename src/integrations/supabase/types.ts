@@ -656,6 +656,45 @@ export type Database = {
         }
         Relationships: []
       }
+      creator_submissions: {
+        Row: {
+          admin_notes: string | null
+          age_band: string
+          created_at: string
+          email: string
+          id: string
+          name: string
+          status: string
+          story_idea: string
+          theme_slug: string | null
+          updated_at: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          age_band?: string
+          created_at?: string
+          email: string
+          id?: string
+          name: string
+          status?: string
+          story_idea: string
+          theme_slug?: string | null
+          updated_at?: string
+        }
+        Update: {
+          admin_notes?: string | null
+          age_band?: string
+          created_at?: string
+          email?: string
+          id?: string
+          name?: string
+          status?: string
+          story_idea?: string
+          theme_slug?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       download_grants: {
         Row: {
           buyer_email: string
