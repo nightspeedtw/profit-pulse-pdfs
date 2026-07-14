@@ -479,11 +479,11 @@ Deno.serve(async (req) => {
       // genuinely broken build.
       const priorPdfResumes = allEntries.filter((e) => e.blocker_class === 'resume_pdf').length;
       const pdfErrorNeedsRepair = isCoverHardFailText(pdfJobError) || /dead_page_gate|text_mapping_gate/i.test(pdfJobError);
-      // FREE RESUME for pdf_building — always allowed until we've tried 5x.
-      // Fixes the "supervisor_declined: unrecognized_stall in pdf_building"
-      // retirement: PDF assembly is deterministic and free; resume it instead
-      // of retiring the book.
-      if (!pdfErrorNeedsRepair && !hasPdf && status === 'pdf_building' && interiors.length >= Math.min(expected, 12) && priorPdfResumes < 5) {
+      // FREE RESUME for pdf_building — unbounded when interiors are complete.
+      // stall≠quality-failure; paid verified assets are never discarded for
+      // infrastructure reasons. Only content-quality gates (dead_page_gate,
+      // text_mapping_gate, cover_hard_fail) may hand off to real repair.
+      if (!pdfErrorNeedsRepair && !hasPdf && status === 'pdf_building' && interiors.length >= Math.min(expected, 12)) {
         const stage = pdfAssemblyNeverStarted ? 'pdf_prepare' : 'resume';
         const r = await invoke('kids-build-picture-pdf', { ebook_id, publish: true, stage });
         const t = await r.text().catch(() => '');
