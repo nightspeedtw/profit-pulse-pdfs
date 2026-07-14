@@ -27,18 +27,26 @@ interface Run {
   updated_at: string;
 }
 
+interface CostRow { ebook_id: string; total_usd: number; image_usd: number; text_usd: number; n_images: number; n_calls: number }
+
 export default function KidsLibrary() {
   const [books, setBooks] = useState<KidsBook[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
+  const [costs, setCosts] = useState<Record<string, CostRow>>({});
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
-    const [b, r] = await Promise.all([
+    const [b, r, c] = await Promise.all([
       supabase.from("ebooks_kids").select("id,title,status,listing_status,pipeline_status,cover_url,blocker_reason,updated_at").order("updated_at", { ascending: false }).limit(60),
       supabase.from("autopilot_kids_runs").select("id,ebook_kids_id,status,current_step_label,progress_percent,blocker_reason,updated_at").order("updated_at", { ascending: false }).limit(30),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("ebook_costs" as any) as any).select("ebook_id,total_usd,image_usd,text_usd,n_images,n_calls"),
     ]);
     setBooks((b.data ?? []) as KidsBook[]);
     setRuns((r.data ?? []) as Run[]);
+    const map: Record<string, CostRow> = {};
+    for (const row of (c.data ?? []) as CostRow[]) map[row.ebook_id] = row;
+    setCosts(map);
   };
 
   useEffect(() => {
@@ -92,6 +100,15 @@ export default function KidsLibrary() {
                   <div className="flex gap-1 mt-1 flex-wrap">
                     <Badge variant="outline" className="text-[10px]">{b.status}</Badge>
                     {live && <Badge className="text-[10px] bg-green-600">live</Badge>}
+                    {costs[b.id] && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px]"
+                        title={`images $${Number(costs[b.id].image_usd).toFixed(3)} · text $${Number(costs[b.id].text_usd).toFixed(3)} · ${costs[b.id].n_images} imgs · ${costs[b.id].n_calls} calls`}
+                      >
+                        ต้นทุน ~${Number(costs[b.id].total_usd).toFixed(2)}
+                      </Badge>
+                    )}
                   </div>
                   {run && (
                     <p className="text-[11px] text-muted-foreground mt-1">
