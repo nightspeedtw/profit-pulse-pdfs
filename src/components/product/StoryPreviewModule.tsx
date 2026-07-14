@@ -183,3 +183,29 @@ function Badge({ icon: Icon, children }: { icon?: React.ComponentType<{ classNam
     </span>
   );
 }
+
+function ValueCard({
+  icon: Icon, title, items, accent,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  items: string[];
+  accent?: string;
+}) {
+  return (
+    <div className={`rounded-xl border-2 border-foreground p-4 ${accent ?? "bg-card"}`}>
+      <div className="flex items-center gap-2 mb-3">
+        <Icon className="h-4 w-4" />
+        <h3 className="font-display text-sm uppercase tracking-wide">{title}</h3>
+      </div>
+      <ul className="space-y-1.5">
+        {items.map((it, i) => (
+          <li key={i} className="flex items-start gap-2 text-[13px] leading-snug">
+            <Check className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 opacity-70" />
+            <span>{it}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
