@@ -52,11 +52,22 @@ type ParentStatus =
 
 interface ChildAttempt {
   ebook_id?: string;
-  outcome: 'rejected_concept' | 'shelved_story' | 'shelved_art' | 'shelved_qc' | 'published' | 'system_error';
+  outcome: 'rejected_concept' | 'shelved_story' | 'shelved_art' | 'shelved_qc' | 'published' | 'system_error' | 'skill_learned';
   lane?: string;
   scorecard?: unknown;
   reason?: string;
+  title?: string;
+  failed_dimensions?: FailedDimension[];
   ts: string;
+}
+
+interface FailedDimension {
+  dim: string;
+  dimension: string;
+  score: number;
+  threshold: number;
+  comparator: '<' | '>';
+  critique: string;
 }
 
 interface ParentJob {
@@ -149,7 +160,7 @@ async function pollUntilResolved(
   runId: string,
   parentRunId: string,
   deadline: number,
-): Promise<{ outcome: 'published' | 'shelved_story' | 'shelved_art' | 'shelved_qc' | 'system_error' | 'timeout'; ebook?: Record<string, unknown>; reason?: string }> {
+): Promise<{ outcome: 'published' | 'shelved_story' | 'shelved_art' | 'shelved_qc' | 'system_error' | 'timeout'; ebook?: Record<string, unknown>; reason?: string; failed_dimensions?: FailedDimension[] }> {
   const pollInterval = 15_000;
   let supervisorDispatchedAt = 0;
   const SUPERVISOR_COOLDOWN_MS = 90_000;
@@ -162,7 +173,7 @@ async function pollUntilResolved(
 
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, pollInterval));
-    const { data: e } = await db.from('ebooks_kids').select('id, listing_status, sellable, pipeline_status, blocker_reason, qc_scorecard, storefront_meta').eq('id', ebookId).single();
+    const { data: e } = await db.from('ebooks_kids').select('id, title, listing_status, sellable, pipeline_status, blocker_reason, qc_scorecard, storefront_meta, manuscript_md, story_bible, updated_at').eq('id', ebookId).single();
     if (!e) continue;
 
     if (e.listing_status === 'live' && e.sellable) {
@@ -174,13 +185,13 @@ async function pollUntilResolved(
     if (sm.shelved) {
       const shelved = sm.shelved as { reason?: string };
       const reason = String(shelved.reason ?? e.blocker_reason ?? 'shelved');
-      return { outcome: classifyShelve(reason), ebook: e, reason };
+      return { outcome: classifyShelve(reason), ebook: e, reason, failed_dimensions: failedDimensionsFromEbook(e, reason) };
     }
 
     // Retired = story/art/qc exhausted its own budget. Move to next concept.
     if (e.pipeline_status === 'retired') {
       const reason = String(e.blocker_reason ?? 'retired');
-      return { outcome: classifyShelve(reason), ebook: e, reason };
+      return { outcome: classifyShelve(reason), ebook: e, reason, failed_dimensions: failedDimensionsFromEbook(e, reason) };
     }
 
     if (e.pipeline_status === 'human_review_required') {
@@ -196,7 +207,7 @@ async function pollUntilResolved(
           sellable: false,
           blocker_reason: `auto_retired_for_fresh_concept: ${blocker.slice(0, 180)}`,
         }).eq('id', ebookId);
-        return { outcome: 'shelved_story', ebook: e, reason: `story_retired: ${blocker.slice(0, 180)}` };
+        return { outcome: 'shelved_story', ebook: e, reason: `story_retired: ${blocker.slice(0, 180)}`, failed_dimensions: failedDimensionsFromEbook(e, blocker) };
       }
 
       const now = Date.now();
@@ -414,7 +425,9 @@ async function runLoop(parentRunId: string, ebookId: string, ageBand: string, pr
       outcome: result.outcome,
       lane,
       ebook_id: childEbookId,
+      title: String(result.ebook?.title ?? ''),
       reason: result.reason,
+      failed_dimensions: result.failed_dimensions ?? failedDimensionsFromEbook(result.ebook ?? {}, String(result.reason ?? '')),
       ts: new Date().toISOString(),
     });
   }
@@ -545,6 +558,108 @@ const DIM_TOKEN_MAP: Record<string, string> = {
   generic_risk: 'generic_risk',
 };
 
+const DIM_SHORT_MAP: Record<string, string> = Object.fromEntries(
+  Object.entries(DIM_TOKEN_MAP).map(([short, dimension]) => [dimension, short]),
+);
+
+const DIM_THRESHOLDS: Record<string, { threshold: number; comparator: '<' | '>' }> = {
+  parent_buyer_value: { threshold: 85, comparator: '<' },
+  emotional_payoff: { threshold: 85, comparator: '<' },
+  reread_value: { threshold: 85, comparator: '<' },
+  language_level: { threshold: 90, comparator: '<' },
+  age_appropriateness: { threshold: 90, comparator: '<' },
+  story_coherence: { threshold: 90, comparator: '<' },
+  generic_risk: { threshold: 25, comparator: '>' },
+};
+
+function critiqueForDimension(storyGate: Record<string, unknown>, dimension: string): string {
+  const evidence = Array.isArray(storyGate.evidence) ? storyGate.evidence as Array<Record<string, unknown>> : [];
+  const needles: Record<string, string[]> = {
+    parent_buyer_value: ['parent', 'buyer'],
+    emotional_payoff: ['emotion', 'payoff'],
+    reread_value: ['reread', 're-read', 're_read'],
+    language_level: ['language', 'vocab'],
+    age_appropriateness: ['age'],
+    story_coherence: ['coherence', 'continuity', 'structure'],
+    generic_risk: ['generic', 'distinctive', 'risk'],
+  };
+  const keys = needles[dimension] ?? [dimension];
+  const rows = evidence.filter((e) => keys.some(k => String(e.dimension ?? '').toLowerCase().includes(k)));
+  const selected = rows.length ? rows : evidence.slice(0, 3);
+  return selected.slice(0, 4).map((e) => {
+    const reason = String(e.reason ?? '').trim();
+    const quote = String(e.quote ?? '').trim();
+    const repair = String(e.repair_action ?? '').trim();
+    return [reason, quote ? `"${quote}"` : '', repair ? `repair: ${repair}` : ''].filter(Boolean).join(' — ');
+  }).join('\n').slice(0, 1200);
+}
+
+function failedDimensionsFromStoryGate(storyGate: Record<string, unknown> | null | undefined, fallbackReason = ''): FailedDimension[] {
+  const scores = (storyGate?.scores ?? {}) as Record<string, unknown>;
+  const out: FailedDimension[] = [];
+  const scoreByDimension: Record<string, unknown> = {
+    age_appropriateness: scores.age,
+    story_coherence: scores.coh,
+    emotional_payoff: scores.emo,
+    reread_value: scores.rer,
+    language_level: scores.lang,
+    parent_buyer_value: scores.buyer,
+    generic_risk: scores.generic_risk,
+  };
+  for (const [dimension, raw] of Object.entries(scoreByDimension)) {
+    const score = Number(raw);
+    const gate = DIM_THRESHOLDS[dimension];
+    if (!Number.isFinite(score) || !gate) continue;
+    const failed = gate.comparator === '<' ? score < gate.threshold : score > gate.threshold;
+    if (!failed) continue;
+    out.push({
+      dim: DIM_SHORT_MAP[dimension] ?? dimension,
+      dimension,
+      score,
+      threshold: gate.threshold,
+      comparator: gate.comparator,
+      critique: critiqueForDimension(storyGate ?? {}, dimension) || fallbackReason.slice(0, 800),
+    });
+  }
+  if (out.length > 0) return out;
+  return extractFailingDimensions(fallbackReason).map(d => {
+    const gate = DIM_THRESHOLDS[d.dimension] ?? { threshold: 85, comparator: '<' as const };
+    return {
+      dim: DIM_SHORT_MAP[d.dimension] ?? d.dimension,
+      dimension: d.dimension,
+      score: d.score,
+      threshold: gate.threshold,
+      comparator: gate.comparator,
+      critique: fallbackReason.slice(0, 800),
+    };
+  });
+}
+
+function failedDimensionsFromEbook(ebook: Record<string, unknown>, fallbackReason = ''): FailedDimension[] {
+  const sc = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
+  const storyGate = sc.story_gate as Record<string, unknown> | undefined;
+  return failedDimensionsFromStoryGate(storyGate, fallbackReason);
+}
+
+function structureEvidenceFromEbook(ebook: Record<string, unknown>): string {
+  const sc = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
+  const storyGate = (sc.story_gate ?? {}) as Record<string, unknown>;
+  const manuscript = String(ebook.manuscript_md ?? '');
+  const refrainLines = manuscript.split('\n')
+    .map(s => s.trim())
+    .filter(s => s.length >= 4 && s.length <= 80 && (/!|\*|\b(again|try|go|stop|push|tap|click|flap|rumble|squeak|chant)\b/i.test(s)))
+    .slice(0, 10);
+  const attempts = Array.isArray(storyGate.repair_attempts) ? storyGate.repair_attempts : [];
+  const generic = storyGate.generic_risk_analysis ? JSON.stringify(storyGate.generic_risk_analysis).slice(0, 500) : '';
+  const excerpt = manuscript.replace(/\s+/g, ' ').slice(0, 1200);
+  return [
+    refrainLines.length ? `Candidate refrain/action lines:\n${refrainLines.map(s => `- ${s}`).join('\n')}` : '',
+    attempts.length ? `Repair score path: ${JSON.stringify(attempts).slice(0, 700)}` : '',
+    generic ? `Generic/story-engine analysis: ${generic}` : '',
+    excerpt ? `Manuscript opening/structure excerpt: ${excerpt}` : '',
+  ].filter(Boolean).join('\n\n').slice(0, 2500);
+}
+
 function extractFailingDimensions(reason: string): Array<{ dimension: string; score: number }> {
   const out: Array<{ dimension: string; score: number }> = [];
   const re = /(buyer|emo|rer|lang|age|coh|generic_risk)=(\d+)(?:<\d+|>\d+)/g;
@@ -569,15 +684,50 @@ async function maybeLearnFromRepeatedFailures(
     .map(a => String(a.reason).split(':')[1]?.trim().split(' ')[0] ?? '')
     .filter(Boolean));
 
-  const dimCounts = new Map<string, Array<{ title: string; score: number; critique: string }>>();
+  const dimCounts = new Map<string, Array<{ title: string; score: number; critique: string; manuscript_structure?: string }>>();
   for (const a of attempts) {
     if (a.outcome !== 'shelved_story') continue;
     const reason = String(a.reason ?? '');
-    const dims = extractFailingDimensions(reason);
+    const explicit = Array.isArray(a.failed_dimensions) ? a.failed_dimensions as Array<Record<string, unknown>> : [];
+    const dims = explicit.length
+      ? explicit.map(d => ({
+          dimension: String(d.dimension ?? DIM_TOKEN_MAP[String(d.dim ?? '')] ?? ''),
+          score: Number(d.score ?? 0),
+          critique: String(d.critique ?? reason),
+        })).filter(d => d.dimension && Number.isFinite(d.score))
+      : extractFailingDimensions(reason).map(d => ({ ...d, critique: reason }));
     for (const d of dims) {
       if (alreadyLearned.has(d.dimension)) continue;
       const list = dimCounts.get(d.dimension) ?? [];
-      list.push({ title: String(a.ebook_id ?? ''), score: d.score, critique: reason.slice(0, 400) });
+      list.push({ title: String(a.title ?? a.ebook_id ?? ''), score: d.score, critique: d.critique.slice(0, 1200) });
+      dimCounts.set(d.dimension, list);
+    }
+  }
+
+  // Cross-run memory: if a gate wall persists across runs, learn from recent
+  // retired/shelved kids books too. This is deliberately read-only and bounded.
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: recentShelved } = await db.from('ebooks_kids')
+    .select('id, title, pipeline_status, blocker_reason, qc_scorecard, manuscript_md, story_bible, updated_at')
+    .in('pipeline_status', ['retired', 'human_review_required'])
+    .gte('updated_at', since)
+    .order('updated_at', { ascending: false })
+    .limit(30);
+  for (const e of (recentShelved ?? []) as Array<Record<string, unknown>>) {
+    const reason = String(e.blocker_reason ?? '');
+    if (!/story_gate|rer=|coh=|emo=|buyer=|generic_risk|age=|lang=/i.test(reason + JSON.stringify((e.qc_scorecard as Record<string, unknown> | null)?.story_gate ?? {}))) continue;
+    const dims = failedDimensionsFromEbook(e, reason);
+    for (const d of dims) {
+      if (alreadyLearned.has(d.dimension)) continue;
+      const list = dimCounts.get(d.dimension) ?? [];
+      const title = String(e.title ?? e.id ?? 'untitled');
+      if (list.some(item => item.title === title)) continue;
+      list.push({
+        title,
+        score: d.score,
+        critique: d.critique || reason.slice(0, 1200),
+        manuscript_structure: structureEvidenceFromEbook(e),
+      });
       dimCounts.set(d.dimension, list);
     }
   }
@@ -597,7 +747,7 @@ async function maybeLearnFromRepeatedFailures(
     body: JSON.stringify({
       dimension: bestDim,
       age_band: ageBand,
-      recent_failures: bestList.map(f => ({ title: f.title, score: f.score, judge_critique: f.critique })),
+      recent_failures: bestList.map(f => ({ title: f.title, score: f.score, judge_critique: f.critique, manuscript_structure: f.manuscript_structure })),
     }),
   });
   const j = await res.json().catch(() => ({}));
