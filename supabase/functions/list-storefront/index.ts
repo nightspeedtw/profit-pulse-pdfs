@@ -110,14 +110,58 @@ Deno.serve(async (req) => {
         const meta = (kid.storefront_meta ?? {}) as any;
         const cc = (meta.conversion_copy ?? {}) as any;
         const ap = (meta.ad_promise ?? {}) as any;
-        const previews = Array.isArray(kid.interior_illustrations)
-          ? (kid.interior_illustrations as any[]).slice(0, 4).map((r, i) => ({
-              page: r?.page_number ?? i + 3,
-              image_url: r?.url ?? '',
-              text: r?.scene ?? null,
-              caption: null,
-            })).filter((s) => s.image_url)
-          : [];
+        // Build previews (up to 6 spreads) with actual per-page manuscript text.
+        // Priority: storefront_meta.preview_pairs (canonical, set by build/repair)
+        // → derive from interior_illustrations + manuscript_md split.
+        function splitMd(md: string, n: number): string[] {
+          const paras = (md ?? '').split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+          if (paras.length === 0 || n <= 0) return Array(n).fill('');
+          const expanded = [...paras];
+          while (expanded.length < n) {
+            let bestIdx = -1, bestScore = 0;
+            for (let i = 0; i < expanded.length; i++) {
+              const words = expanded[i].split(/\s+/).filter(Boolean).length;
+              const sentences = expanded[i].split(/(?<=[.!?])\s+/).filter(Boolean).length;
+              const score = words + sentences * 12;
+              if (words >= 12 && score > bestScore) { bestScore = score; bestIdx = i; }
+            }
+            if (bestIdx < 0) break;
+            const text = expanded[bestIdx];
+            const sents = text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+            if (sents.length >= 2) {
+              const mid = Math.ceil(sents.length / 2);
+              expanded.splice(bestIdx, 1, sents.slice(0, mid).join(' '), sents.slice(mid).join(' '));
+            } else {
+              const w = text.split(/\s+/).filter(Boolean);
+              const mid = Math.ceil(w.length / 2);
+              expanded.splice(bestIdx, 1, w.slice(0, mid).join(' '), w.slice(mid).join(' '));
+            }
+          }
+          const source = expanded.length >= n ? expanded : paras;
+          const chunkSize = Math.max(1, Math.ceil(source.length / n));
+          const out: string[] = [];
+          for (let i = 0; i < n; i++) out.push(source.slice(i * chunkSize, (i + 1) * chunkSize).join(' '));
+          return out;
+        }
+        const storedPairs = Array.isArray((meta as any).preview_pairs) ? (meta as any).preview_pairs : null;
+        const illArr = Array.isArray(kid.interior_illustrations) ? (kid.interior_illustrations as any[]) : [];
+        let previews: Array<{ page: number; image_url: string; text: string | null; caption: string | null }> = [];
+        if (storedPairs && storedPairs.length > 0) {
+          previews = storedPairs.slice(0, 6).map((p: any, i: number) => ({
+            page: p.page ?? i + 3,
+            image_url: p.image_url ?? '',
+            text: (typeof p.text === 'string' && p.text.trim().length > 0) ? p.text : null,
+            caption: null,
+          })).filter((s) => s.image_url);
+        } else if (illArr.length > 0) {
+          const captions = splitMd(kid.manuscript_md ?? '', illArr.length);
+          previews = illArr.slice(0, 6).map((r: any, i: number) => ({
+            page: r?.page_number ?? i + 3,
+            image_url: r?.url ?? '',
+            text: (captions[i] && captions[i].trim().length > 0) ? captions[i] : (r?.scene ?? null),
+            caption: null,
+          })).filter((s) => s.image_url);
+        }
 
         // Preview excerpt: prefer stored, else best 160-220 word contiguous window from manuscript_md.
         let previewExcerpt: string | null = typeof meta.preview_excerpt === 'string' && meta.preview_excerpt.trim().length > 0
