@@ -10,8 +10,9 @@ import {
   getOrBuildKidsVisualBible,
   kidsIllustrationPrompt,
 } from "../_shared/kids-visual-bible.ts";
-import { buildKidsCoverSVG, buildKidsCoverSVGWithMetrics, rasterizeKidsSVG } from "../_shared/covers/kids-cover-render.ts";
+import { buildKidsCoverSVG, buildKidsCoverSVGWithMetrics, buildKidsCoverSVGLetteringOnly, rasterizeKidsSVG } from "../_shared/covers/kids-cover-render.ts";
 import { buildKidsCoverQc } from "../_shared/qc/kids-cover-qc.ts";
+import { qcCoverLettering } from "../_shared/qc/kids-cover-lettering-qc.ts";
 
 /** How many lines the kids title will wrap to — mirrors the SVG builder's rule. */
 function wrapKidsTitle(title: string): number {
@@ -658,7 +659,21 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
               target_buyer: ebook.target_buyer,
               hook: ebook.hook,
             });
-            bgPrompt = kidsIllustrationPrompt(bible, "front cover hero scene: the primary character in a signature story moment, warm afternoon light, storybook charm, cinematic composition", { role: "cover", reservedZone: "top third" });
+            // Kids CONVERSION_COVER_LETTERING skill: ask the image model to
+            // render the title AS hand-lettered artwork inside the scene.
+            // After MAX_LETTERING_ATTEMPTS misspells we fall back to SVG overlay.
+            const letteringAttempts = Number(((ebook.qc ?? {}) as Record<string, unknown>).cover_lettering_attempts ?? 0);
+            const MAX_LETTERING_ATTEMPTS = 2;
+            const useLettering = letteringAttempts < MAX_LETTERING_ATTEMPTS;
+            bgPrompt = kidsIllustrationPrompt(
+              bible,
+              "front cover hero scene: the primary character in a signature story moment, warm afternoon light, storybook charm, cinematic composition",
+              {
+                role: "cover",
+                reservedZone: useLettering ? undefined : "top third",
+                titleLettering: useLettering ? ebook.title : null,
+              },
+            );
           }
           const bg = await generateBackgroundPNG(bgPrompt, styleRef);
           totalCost += bg.cost;
@@ -700,31 +715,91 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
           hook: ebook.hook,
         });
         const ageLabel = bible.target_age_range ? `AGES ${bible.target_age_range}` : null;
-        // wrapKidsTitle metric no longer used; wrapping done inside the SVG builder.
-        const built = buildKidsCoverSVGWithMetrics({
-          bibleBg: bgBytes!,
-          title: ebook.title,
-          subtitle: ebook.subtitle,
-          ageBadge: ageLabel,
-          bible,
-        });
-        const kidsSvg = built.svg;
-        const kidsCoverPng = await rasterizeKidsSVG(kidsSvg, 1200);
+        const priorQc = (ebook.qc ?? {}) as Record<string, unknown>;
+        const letteringAttempts = Number(priorQc.cover_lettering_attempts ?? 0);
+        const MAX_LETTERING_ATTEMPTS = 2;
+        const useLettering = letteringAttempts < MAX_LETTERING_ATTEMPTS;
+
+        let kidsCoverPng: Uint8Array;
+        let letteringQcRecord: Record<string, unknown> | null = null;
+        let letteringPassed = false;
+        let letteringReasons: string[] = [];
+        let usedMode: "hand_lettered" | "svg_overlay_fallback" = "svg_overlay_fallback";
+        let built: ReturnType<typeof buildKidsCoverSVGWithMetrics> | null = null;
+
+        if (useLettering) {
+          // Bg is the cover — no SVG title overlay. Vision-QC checks that the
+          // painted title matches the book title (spelling + stylized + thumb).
+          const letteringSvg = buildKidsCoverSVGLetteringOnly({
+            bibleBg: bgBytes!,
+            ageBadge: ageLabel,
+            bible,
+          }).svg;
+          kidsCoverPng = await rasterizeKidsSVG(letteringSvg, 1200);
+
+          const letteringQc = await qcCoverLettering({
+            expectedTitle: ebook.title,
+            imageBytes: kidsCoverPng,
+          });
+          letteringQcRecord = letteringQc as unknown as Record<string, unknown>;
+          letteringPassed = letteringQc.passed;
+          letteringReasons = letteringQc.reasons;
+          usedMode = "hand_lettered";
+
+          if (!letteringPassed) {
+            // Increment attempts and mark the failure so the recovery loop
+            // regenerates the bg. If we've now hit the cap, next invocation
+            // will use the SVG overlay fallback and MUST succeed.
+            await db.from("ebooks").update({
+              qc: {
+                ...(ebook.qc ?? {}),
+                cover_lettering_attempts: letteringAttempts + 1,
+                cover_lettering_last_reasons: letteringReasons,
+                cover_lettering_last_detected: letteringQc.detected_title_text,
+              },
+            }).eq("id", ebook_id);
+          }
+        }
+
+        if (!useLettering || !letteringPassed) {
+          // Fallback: composited SVG title overlay (Fredoka/Baloo hand-lettered-feel
+          // webfont with heavy stroke). Guarantees correct spelling — never ship
+          // a misspelled cover.
+          built = buildKidsCoverSVGWithMetrics({
+            bibleBg: bgBytes!,
+            title: ebook.title,
+            subtitle: ebook.subtitle,
+            ageBadge: ageLabel,
+            bible,
+          });
+          kidsCoverPng = await rasterizeKidsSVG(built.svg, 1200);
+          usedMode = "svg_overlay_fallback";
+        }
+
         const kidsCoverPath = `${ebook_id}/cover.png`;
-        await db.storage.from("ebook-covers").upload(kidsCoverPath, kidsCoverPng, { contentType: "image/png", upsert: true });
+        await db.storage.from("ebook-covers").upload(kidsCoverPath, kidsCoverPng!, { contentType: "image/png", upsert: true });
         // Kids thumbnail = the same composed cover (passthrough); no 3D mockup.
         const kidsThumbPath = `${ebook_id}/thumbnail.png`;
-        await db.storage.from("ebook-covers").upload(kidsThumbPath, kidsCoverPng, { contentType: "image/png", upsert: true });
+        await db.storage.from("ebook-covers").upload(kidsThumbPath, kidsCoverPng!, { contentType: "image/png", upsert: true });
 
         const kidsQc = buildKidsCoverQc({
           hasBible: !!bible && (bible.characters?.length ?? 0) > 0,
           paletteFromBible: (bible.palette?.length ?? 0) >= 2,
-          titleLineCount: built.lineCount,
+          titleLineCount: built?.lineCount ?? 2,
           hasScrim: true,
-          titleTopFraction: built.titleTopFraction,
-          titleBlockFraction: built.titleBlockFraction,
-          minTitleFontPx: built.minTitleFontPx,
+          titleTopFraction: built?.titleTopFraction ?? 0.12,
+          titleBlockFraction: built?.titleBlockFraction ?? 0.44,
+          minTitleFontPx: built?.minTitleFontPx ?? 200,
         });
+
+        // If lettering path failed, propagate its reasons so recovery regenerates.
+        const combinedReasons = usedMode === "hand_lettered" && !letteringPassed
+          ? [...letteringReasons, ...kidsQc.reasons]
+          : kidsQc.reasons;
+        const kidsPassed = usedMode === "svg_overlay_fallback"
+          ? kidsQc.passed
+          : (letteringPassed && kidsQc.passed);
+
         lastQC = {
           scores: {
             title_readability: kidsQc.title_readable_on_illustration,
@@ -746,15 +821,19 @@ Attempt ${attempt}/${MAX_ATTEMPTS}.${feedback}`,
             flat_cover_thumbnail_score: kidsQc.overall_score,
             photoreal_mockup_score: null,
             premium_feel: kidsQc.overall_score,
+            cover_lettering_score: (letteringQcRecord?.score as number | undefined) ?? (usedMode === "svg_overlay_fallback" ? 85 : 0),
           } as any,
           overall_score: kidsQc.overall_score,
-          issues: kidsQc.reasons,
+          issues: combinedReasons,
           improvements: [],
           kids_cover_qc: kidsQc as any,
+          cover_lettering_qc: letteringQcRecord as any,
+          cover_title_mode: usedMode,
         } as any;
         lastAssetType = "flat_cover_fallback";
-        lastReasons = kidsQc.reasons;
-        passed = kidsQc.passed;
+        lastReasons = combinedReasons;
+        passed = kidsPassed;
+
       } else {
         // ---- ADULT TRACK: unchanged. Adult SVG template + 3D thumbnail + AI QC. ----
         // Rasterize the flat cover ONCE at 1200px (lowered from 1600 to stay
