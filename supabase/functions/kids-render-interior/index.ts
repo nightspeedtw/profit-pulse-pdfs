@@ -27,7 +27,6 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   buildScenePlan,
   renderAndUploadOne,
-  sha256Hex,
   type ScenePlan,
   type SceneRecord,
 } from "../_shared/kids-interior.ts";
