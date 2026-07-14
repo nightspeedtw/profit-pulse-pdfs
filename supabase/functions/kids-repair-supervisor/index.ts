@@ -571,7 +571,13 @@ Deno.serve(async (req) => {
     const klass = blocker.klass;
     const perClass = countAttempts(meta, klass);
     const max = MAX_PER_CLASS[klass] ?? 1;
-    if (perClass >= max) {
+    if (perClass >= max && !(hasPaidStall && klass !== 'cover')) {
+      // Cover repair is still allowed to consume budget when paid stall — a
+      // stubborn cover is a real content-quality failure. But every OTHER
+      // class must free-resume when interiors are done.
+      if (hasPaidStall && klass !== 'cover') {
+        return await forceResumePaidStall(`class_budget_exhausted:${klass}`);
+      }
       // Exhausted for this class — shelve.
       await db.from('ebooks_kids').update({
         listing_status: 'draft',
