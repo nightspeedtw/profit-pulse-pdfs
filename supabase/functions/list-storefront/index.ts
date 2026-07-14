@@ -283,7 +283,7 @@ Deno.serve(async (req) => {
         preview_images = row._kids_preview_spreads.map((s: any) => s.image_url).filter(Boolean);
         total_spreads = row._kids_total_spreads ?? preview_spreads.length;
       }
-      const { inside_illustrations_json, _kids_preview_spreads, _kids_total_spreads, _kids_read_aloud_minutes, _kids_ad_promise, ...rest } = row;
+      const { inside_illustrations_json, _kids_preview_spreads, _kids_total_spreads, _kids_read_aloud_minutes, _kids_ad_promise, _kids_value_cards, ...rest } = row;
       return {
         ...rest,
         preview_images,
@@ -293,6 +293,7 @@ Deno.serve(async (req) => {
         theme_slugs: themeBy[row.id] ?? [],
         read_aloud_minutes: _kids_read_aloud_minutes ?? null,
         ad_promise: _kids_ad_promise ?? null,
+        value_cards: _kids_value_cards ?? null,
       };
     });
     return new Response(JSON.stringify({ items }), {
