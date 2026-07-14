@@ -8,6 +8,7 @@
 // No image cost, no ebook rows. Story-only cheap step.
 
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+import { storyCraftBlock, PARENT_HOOK_MENU } from '../_shared/story-craft-skill.ts';
 
 const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
 
@@ -49,6 +50,7 @@ interface Concept {
   hero: string;
   hero_specificity: string;
   setting: string;
+  parent_hook: string;                 // MUST be one of PARENT_HOOK_MENU
   core_story_engine: string;
   central_problem: string;
   story_rule: string;
@@ -169,12 +171,15 @@ async function generateConcept(ageBand: string, avoidList: string[], attemptLabe
 
   const system = `You are a bestselling picture-book concept designer for ages ${ageBand}. Invent ONE original, distinctive, giftable picture-book concept.
 
+${storyCraftBlock()}
+
 CRITICAL ORDER OF INVENTION (do not skip):
-1. Invent the STORY ENGINE first (the escalating mechanism/rule).
-2. Invent the CALLBACKS second (two concrete planted objects that pay off).
-3. Invent the FINAL PAGE PAYOFF third (specific reveal tying both callbacks).
-4. Only THEN write the TITLE. The title must describe the mechanism, not just a funny name.
-Reject concepts that are funny-name-first with no mechanism.${laneDirective}
+1. Pick the PARENT_HOOK first from the menu above (rule: parent_hook_anchor). Every downstream choice must serve it.
+2. Invent the STORY ENGINE (the escalating mechanism/rule).
+3. Invent the CALLBACKS — two concrete planted objects that pay off.
+4. Invent the FINAL PAGE PAYOFF that lands the parent hook in ONE warm specific image.
+5. Only THEN write the TITLE. The title must describe the mechanism, not just a funny name.
+Reject concepts that are funny-name-first with no mechanism, or concepts with no parent hook.${laneDirective}
 
 Reply as STRICT JSON only (no markdown fences), matching EXACTLY this schema:
 {
@@ -183,6 +188,7 @@ Reply as STRICT JSON only (no markdown fences), matching EXACTLY this schema:
   "hero": "",
   "hero_specificity": "",
   "setting": "",
+  "parent_hook": "",
   "core_story_engine": "",
   "central_problem": "",
   "story_rule": "",
@@ -213,6 +219,7 @@ Reply as STRICT JSON only (no markdown fences), matching EXACTLY this schema:
 }
 
 REQUIREMENTS (all mandatory):
+- parent_hook MUST be one of the PARENT_HOOK_MENU strings, copied verbatim: ${PARENT_HOOK_MENU.map(h => `"${h}"`).join(' | ')}
 - concrete hero with a SPECIFIC want/problem (hero_specificity must name one concrete quirk/skill/object)
 - core_story_engine that produces page-turn ACTIONS (not a theme statement)
 - central_problem is a concrete, physical, escalating problem
@@ -311,6 +318,9 @@ function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): {
   }
   if (!c.refrain || c.refrain.split(/\s+/).length < 3) {
     blockers.push('refrain_too_short');
+  }
+  if (!c.parent_hook || !(PARENT_HOOK_MENU as readonly string[]).includes(c.parent_hook)) {
+    blockers.push(`parent_hook_missing_or_off_menu (got "${(c.parent_hook ?? '').slice(0, 60)}")`);
   }
   if (scores.final_concept_score < CONCEPT_SCORE_FLOOR) {
     blockers.push(`final_concept_score=${scores.final_concept_score}<${CONCEPT_SCORE_FLOOR}`);

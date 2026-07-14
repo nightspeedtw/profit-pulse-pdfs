@@ -18,6 +18,7 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { runKidsStoryJudge, type StoryReport } from '../_shared/kids-story-judge.ts';
 import { computeManuscriptHash } from '../_shared/manuscript-hash.ts';
+import { storyCraftBlock, repairGuidanceForDimension } from '../_shared/story-craft-skill.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -68,30 +69,30 @@ function buildRewritePrompt(
   const dimensionalGuidance: string[] = [];
   if (report.generic_story_risk_score > 25) {
     dimensionalGuidance.push(
-      `**Distinctiveness (generic_risk=${report.generic_story_risk_score}, must be <=25)**: Replace the generic tropes (${genericDetails.join('; ') || 'missing-object mystery, generic dance party, teamwork-solves-problem'}) with a specific, weird, memorable STORY ENGINE unique to this book. Keep the distinctive bits (${distinctiveDetails.join('; ') || 'the plink clue, the donkey wearing the fiddle as a hat'}) but make them the SPINE, not a garnish. The title should be un-swappable with any other animal book.`,
+      `**Distinctiveness (generic_risk=${report.generic_story_risk_score}, must be <=25)**: Replace the generic tropes (${genericDetails.join('; ') || 'missing-object mystery, generic dance party, teamwork-solves-problem'}) with a specific, weird, memorable STORY ENGINE unique to this book. Keep the distinctive bits (${distinctiveDetails.join('; ') || 'the plink clue, the donkey wearing the fiddle as a hat'}) but make them the SPINE, not a garnish. The title should be un-swappable with any other animal book.\n  Craft moves that lift this dimension:\n${repairGuidanceForDimension('generic_risk')}`,
     );
   }
   if (report.reread_value_score < 85) {
     const c = critiqueFor('reread');
     dimensionalGuidance.push(
-      `**Reread value (rer=${report.reread_value_score}, must be >=85)**: Add ONE chantable refrain (4-8 words) repeated at least 4 times with escalation. Plant 2 callback moments early that pay off on the final page. Add a final-page joke that only lands on the second read.\n  Judge said:\n${c || '    · (no specific evidence — assume prior attempt lacked a chant + callback structure)'}`,
+      `**Reread value (rer=${report.reread_value_score}, must be >=85)**: Add ONE chantable refrain (4-8 words) repeated at least 4 times with escalation. Plant 2 callback moments early that pay off on the final page. Add a final-page joke or reveal that only lands on the second read.\n  Judge said:\n${c || '    · (no specific evidence — assume prior attempt lacked a chant + callback structure)'}\n  Craft moves that lift this dimension:\n${repairGuidanceForDimension('reread_value')}`,
     );
   }
   if (report.emotional_payoff_score < 85) {
     const c = critiqueFor('emotion') || critiqueFor('payoff');
     dimensionalGuidance.push(
-      `**Emotional payoff (emo=${report.emotional_payoff_score}, must be >=85)**: Give the hero a tiny, felt want on page 1 that gets a warmer, specific answer at the end. Show it with a small physical gesture, not a speech.\n  Judge said:\n${c || '    · (no specific evidence — the ending felt generic/detached; make the final image emotionally specific)'}`,
+      `**Emotional payoff (emo=${report.emotional_payoff_score}, must be >=85)**: Give the hero a tiny, felt want on page 1 that gets a warmer, specific answer at the end. Show it with a small physical gesture, not a speech.\n  Judge said:\n${c || '    · (no specific evidence — the ending felt generic/detached; make the final image emotionally specific)'}\n  Craft moves that lift this dimension:\n${repairGuidanceForDimension('emotional_payoff')}`,
     );
   }
   if (report.language_level_score < 90) {
     dimensionalGuidance.push(
-      `**Language level (lang=${report.language_level_score}, must be >=90)**: Cap sentences at ~12 words. Punchy verbs. Read-aloud rhythm. Kindergarten cadence.`,
+      `**Language level (lang=${report.language_level_score}, must be >=90)**: Cap sentences at ~12 words. Punchy verbs. Read-aloud rhythm. Kindergarten cadence.\n  Craft moves that lift this dimension:\n${repairGuidanceForDimension('language_level')}`,
     );
   }
   if (report.parent_buyer_value_score < 85) {
     const c = critiqueFor('parent') || critiqueFor('buyer');
     dimensionalGuidance.push(
-      `**Parent value (buyer=${report.parent_buyer_value_score}, must be >=85)**: The ending must give a parent a clear, warm reason to gift or re-buy — a takeaway they'd recognize (kindness, noticing, courage). Warm implicit takeaway on the final spread; never a moral speech.\n  Judge said:\n${c || '    · (no specific evidence — prior attempts felt formulaic; make the parent-facing payoff distinctive)'}`,
+      `**Parent value (buyer=${report.parent_buyer_value_score}, must be >=85)**: Anchor the whole book to ONE developmental theme a parent instantly recognizes (first-day fears, sharing, big feelings, kindness, helping others, a milestone). The final spread must land that theme as a warm specific payoff — a completed ritual, a small reveal, or a quiet gesture — never a moral speech.\n  Judge said:\n${c || '    · (no specific evidence — prior attempts felt formulaic; make the parent-facing payoff distinctive)'}\n  Craft moves that lift this dimension:\n${repairGuidanceForDimension('parent_buyer_value')}`,
     );
   }
   // Attempts 2+ tend to oscillate on the same 80s. Force a structural break.
@@ -105,7 +106,11 @@ function buildRewritePrompt(
 Reply with the FULL rewritten manuscript in English, markdown, 600-900 words, ${ageBand} read-aloud level.
 No preamble, no explanation, no JSON — just the story text.
 Never mention the judge, scores, or repair. Never break the fourth wall.
-Keep the same title ("${title}") and the same broad category (funny daytime animal-buddy comedy). Do NOT switch to bedtime, moon/star, or tooth/bathroom lanes.`;
+Keep the same title ("${title}") and the same broad category (funny daytime animal-buddy comedy). Do NOT switch to bedtime, moon/star, or tooth/bathroom lanes.
+
+${storyCraftBlock()}
+
+Use the STORY CRAFT SKILL above as your working playbook. Every craft rule maps to a QC dimension — apply the rules called out in TARGETED REPAIR INSTRUCTIONS below.`;
 
   const user = `ATTEMPT ${attempt} of ${MAX_ATTEMPTS}. The previous manuscript failed the story judge on: ${blockers.join(', ')}.
 
