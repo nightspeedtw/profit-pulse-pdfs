@@ -2073,6 +2073,45 @@ export type Database = {
         }
         Relationships: []
       }
+      kids_batch_orders: {
+        Row: {
+          counted_ebook_ids: string[]
+          created_at: string
+          id: string
+          last_used_lane: string | null
+          last_used_theme_id: string | null
+          notes: string | null
+          produced_live: number
+          status: string
+          target_live_books: number
+          updated_at: string
+        }
+        Insert: {
+          counted_ebook_ids?: string[]
+          created_at?: string
+          id?: string
+          last_used_lane?: string | null
+          last_used_theme_id?: string | null
+          notes?: string | null
+          produced_live?: number
+          status?: string
+          target_live_books: number
+          updated_at?: string
+        }
+        Update: {
+          counted_ebook_ids?: string[]
+          created_at?: string
+          id?: string
+          last_used_lane?: string | null
+          last_used_theme_id?: string | null
+          notes?: string | null
+          produced_live?: number
+          status?: string
+          target_live_books?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       kids_book_bibles: {
         Row: {
           character_bible_json: Json
