@@ -1,99 +1,135 @@
-import { Sparkles, BookOpen, Download } from "lucide-react";
+import { useEffect, useState } from "react";
+
+const STARS = Array.from({ length: 26 }, (_, i) => ({
+  left: (i * 37) % 100,
+  top: (i * 53) % 55,
+  size: 2 + ((i * 7) % 3),
+  delay: (i % 9) * 0.6,
+  dur: 2.4 + (i % 5) * 0.7,
+}));
 
 interface Props {
-  covers: string[];
-  onCTA: () => void;
+  covers?: string[];
+  onStart: () => void;
 }
 
-const ORBITS = [
-  { cls: "top-[6%]  left-[6%]  w-24 h-24 md:w-32 md:h-32 animate-float-slow", delay: "0s",   rot: "-8deg" },
-  { cls: "top-[10%] right-[8%] w-28 h-28 md:w-36 md:h-36 animate-float-med",  delay: "0.6s", rot: "6deg" },
-  { cls: "bottom-[18%] left-[10%] w-20 h-20 md:w-28 md:h-28 animate-float-fast", delay: "1.2s", rot: "10deg" },
-  { cls: "bottom-[8%]  right-[14%] w-24 h-24 md:w-32 md:h-32 animate-float-slow", delay: "1.6s", rot: "-6deg" },
-  { cls: "top-[42%] right-[3%] w-16 h-16 md:w-24 md:h-24 animate-float-med",   delay: "0.3s", rot: "4deg" },
-];
+export default function KidsHero({ covers = [], onStart }: Props) {
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setLoaded(true), 60);
+    return () => clearTimeout(t);
+  }, []);
+  const floats = covers.slice(0, 4);
 
-const SPARKS = Array.from({ length: 18 });
-
-export const KidsHero = ({ covers, onCTA }: Props) => {
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-[hsl(212,55%,12%)] via-[hsl(220,55%,20%)] to-[hsl(188,63%,44%)] text-white">
-      {/* twinkles */}
-      <div className="absolute inset-0 pointer-events-none motion-reduce:hidden">
-        {SPARKS.map((_, i) => {
-          const top = (i * 53) % 100;
-          const left = (i * 37) % 100;
-          const delay = (i % 7) * 0.4;
-          const size = 6 + (i % 4) * 2;
-          return (
-            <span
-              key={i}
-              className="absolute rounded-full bg-white/80 animate-twinkle"
-              style={{
-                top: `${top}%`,
-                left: `${left}%`,
-                width: size,
-                height: size,
-                animationDelay: `${delay}s`,
-                boxShadow: "0 0 12px rgba(255,255,255,0.9)",
-              }}
-            />
-          );
-        })}
+    <section className="relative w-full overflow-hidden" style={{ minHeight: "92svh" }}>
+      <style>{`
+        @keyframes kh-twinkle { 0%,100%{opacity:.15;transform:scale(.8)} 50%{opacity:.9;transform:scale(1.15)} }
+        @keyframes kh-bob { 0%,100%{transform:translateY(0) rotate(var(--tilt))} 50%{transform:translateY(-14px) rotate(calc(var(--tilt) + 2deg))} }
+        @keyframes kh-glow { 0%,100%{box-shadow:0 8px 28px rgba(255,166,97,.45)} 50%{box-shadow:0 8px 44px rgba(255,166,97,.75)} }
+        @keyframes kh-rise { from{opacity:0;transform:translateY(22px)} to{opacity:1;transform:translateY(0)} }
+        @media (prefers-reduced-motion: reduce) { .kh-anim { animation: none !important; } }
+      `}</style>
+
+      {/* AI illustration background */}
+      <picture>
+        <source media="(min-width: 768px)" srcSet="/site-assets/kids-hero-desktop.jpg" />
+        <img
+          src="/site-assets/kids-hero-mobile.jpg"
+          alt=""
+          fetchPriority="high"
+          className="absolute inset-0 h-full w-full object-cover object-center"
+        />
+      </picture>
+      {/* readability gradient */}
+      <div className="absolute inset-0 bg-gradient-to-b from-[#0b1035]/55 via-transparent to-[#0b1035]/92" />
+
+      {/* twinkling stars */}
+      {STARS.map((s, i) => (
+        <span
+          key={i}
+          aria-hidden
+          className="kh-anim absolute rounded-full bg-white"
+          style={{
+            left: `${s.left}%`,
+            top: `${s.top}%`,
+            width: s.size,
+            height: s.size,
+            animation: `kh-twinkle ${s.dur}s ease-in-out ${s.delay}s infinite`,
+          }}
+        />
+      ))}
+
+      {/* floating real book covers (desktop) */}
+      <div className="pointer-events-none absolute inset-0 hidden md:block">
+        {floats.map((src, i) => (
+          <img
+            key={i}
+            src={src}
+            alt=""
+            loading="lazy"
+            className="kh-anim absolute w-28 lg:w-36 rounded-xl shadow-2xl ring-2 ring-white/30"
+            style={{
+              ["--tilt" as string]: `${i % 2 ? -7 : 6}deg`,
+              left: ["6%", "84%", "10%", "80%"][i],
+              top: ["16%", "12%", "58%", "55%"][i],
+              animation: `kh-bob ${6 + i}s ease-in-out ${i * 0.9}s infinite`,
+            } as React.CSSProperties}
+          />
+        ))}
       </div>
 
-      {/* floating covers */}
-      <div className="absolute inset-0 pointer-events-none motion-reduce:hidden hidden sm:block">
-        {ORBITS.map((o, i) => {
-          const cover = covers[i % Math.max(covers.length, 1)];
-          if (!cover) return null;
-          return (
-            <div
-              key={i}
-              className={`absolute ${o.cls} rounded-lg overflow-hidden shadow-2xl ring-2 ring-white/40`}
-              style={{ animationDelay: o.delay, transform: `rotate(${o.rot})` }}
-            >
-              <img src={cover} alt="" className="w-full h-full object-cover" loading="eager" />
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="container relative py-20 md:py-28 lg:py-32 text-center max-w-3xl">
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/15 backdrop-blur border border-white/30 text-xs font-mono uppercase tracking-widest mb-6 animate-pop-in">
-          <Sparkles className="h-3.5 w-3.5" /> Premium picture books · 8.5 × 8.5"
-        </div>
-        <h1 className="font-display text-4xl sm:text-5xl md:text-6xl lg:text-7xl leading-[1.05] mb-4 animate-fade-in-up">
-          นิทานที่ลูกจะขอ<br className="hidden sm:block" />
-          <span className="italic text-[hsl(48,100%,75%)]">ให้อ่านซ้ำ</span>ทุกคืน
-        </h1>
-        <p className="text-base sm:text-lg text-white/85 mb-2 animate-fade-in-up" style={{ animationDelay: "0.15s" }}>
-          Picture books your child will beg to re-read.
-        </p>
-        <p className="text-sm text-white/75 mb-8 animate-fade-in-up" style={{ animationDelay: "0.25s" }}>
-          พรีเมียมสี่สีทั้งเล่ม · ดาวน์โหลดทันที · เขียนเพื่อวัยของลูกโดยเฉพาะ
-        </p>
-
-        <button
-          onClick={onCTA}
-          className="group inline-flex items-center gap-2 px-7 h-14 rounded-full bg-white text-[hsl(212,55%,12%)] font-display text-lg shadow-brand hover:shadow-elegant transition-all hover:-translate-y-0.5 animate-pop-in"
-          style={{ animationDelay: "0.4s" }}
+      {/* content */}
+      <div
+        className="relative z-10 mx-auto flex max-w-3xl flex-col items-center px-5 pt-[16svh] pb-24 text-center"
+        style={{ animation: loaded ? "kh-rise .7s ease-out both" : undefined }}
+      >
+        <span className="mb-4 rounded-full border border-white/25 bg-white/10 px-4 py-1.5 text-xs font-semibold tracking-wide text-white/90 backdrop-blur">
+          ✦ PREMIUM PICTURE BOOKS · 8.5 × 8.5"
+        </span>
+        <h1
+          className="text-4xl leading-tight text-white md:text-6xl"
+          style={{ fontFamily: "'Mali', cursive", fontWeight: 700 }}
         >
-          หาหนังสือที่ใช่สำหรับลูกคุณ
-          <span className="inline-block group-hover:translate-x-1 transition-transform">→</span>
+          นิทานที่ลูกจะขอ<br />
+          <span className="bg-gradient-to-r from-amber-300 via-orange-300 to-pink-300 bg-clip-text text-transparent">
+            ให้อ่านซ้ำ
+          </span>
+          ทุกคืน
+        </h1>
+        <p
+          className="mt-4 max-w-md text-base text-white/85 md:text-lg"
+          style={{ fontFamily: "'Baloo 2', sans-serif" }}
+        >
+          Picture books your child will beg to re-read. พรีเมียมสีทั้งเล่ม · ดาวน์โหลดทันที · เขียนเพื่อวัยของลูกโดยเฉพาะ
+        </p>
+        <button
+          onClick={onStart}
+          className="kh-anim mt-8 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 px-9 py-4 text-lg font-bold text-[#3a1d00] transition-transform hover:scale-105 active:scale-95"
+          style={{ animation: "kh-glow 2.6s ease-in-out infinite", fontFamily: "'Mali', cursive" }}
+        >
+          หาหนังสือที่ใช่สำหรับลูกคุณ →
         </button>
-
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs sm:text-sm text-white/85">
-          <span className="inline-flex items-center gap-1.5"><BookOpen className="h-4 w-4" /> อ่านตัวอย่างฟรี</span>
-          <span className="inline-flex items-center gap-1.5"><Download className="h-4 w-4" /> ดาวน์โหลดทันที</span>
-          <span className="inline-flex items-center gap-1.5"><Sparkles className="h-4 w-4" /> ภาพสีทั้งเล่ม</span>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-white/80">
+          <span>📖 อ่านตัวอย่างฟรี</span>
+          <span>⚡ ดาวน์โหลดทันที</span>
+          <span>🎨 ภาพสีทั้งเล่ม</span>
         </div>
       </div>
 
-      {/* soft bottom curve */}
-      <svg className="block w-full text-background" viewBox="0 0 1440 80" preserveAspectRatio="none" aria-hidden>
-        <path fill="currentColor" d="M0,32 C360,96 1080,0 1440,48 L1440,80 L0,80 Z" />
+      {/* soft wave into next section */}
+      <svg
+        className="absolute bottom-0 left-0 w-full"
+        viewBox="0 0 1440 90"
+        fill="none"
+        preserveAspectRatio="none"
+        aria-hidden
+      >
+        <path
+          d="M0,48 C240,88 480,8 720,40 C960,72 1200,20 1440,52 L1440,90 L0,90 Z"
+          fill="hsl(var(--background))"
+        />
       </svg>
     </section>
   );
-};
+}

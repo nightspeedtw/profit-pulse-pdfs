@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { listAgeGroups, listThemes, type KidsAgeGroup, type KidsTheme } from "@/lib/kidsTaxonomy";
-import { KidsHero } from "@/components/kids/KidsHero";
+import KidsHero from "@/components/kids/KidsHero";
 import { JourneyWizard, type WizardValue } from "@/components/kids/JourneyWizard";
 import { MatchedResults, type MatchedBook } from "@/components/kids/MatchedResults";
 import { SocialProofStrip } from "@/components/kids/SocialProofStrip";
@@ -134,7 +134,7 @@ export default function Kids() {
 
   return (
     <>
-      <KidsHero covers={heroCovers} onCTA={scrollToPicker} />
+      <KidsHero covers={heroCovers} onStart={scrollToPicker} />
 
       <div ref={pickerRef}>
         {!showResults && (
