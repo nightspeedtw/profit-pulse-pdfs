@@ -248,7 +248,10 @@ Deno.serve(async (req) => {
       await db.from('ebooks_kids').update({
         listing_status: 'draft',
         sellable: false,
-        pipeline_status: 'human_review_required',
+        // Autopilot must never end in human_review_required. Mark 'retired' so
+        // the parent one-click loop rotates to a fresh concept and admins see
+        // a plain-language reason instead of a manual-review flag.
+        pipeline_status: 'retired',
         blocker_reason: `budget_exhausted:${klass}:${blocker.detail}`,
         storefront_meta: {
           ...meta,
