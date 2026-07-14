@@ -33,6 +33,29 @@ interface CopyOut {
     hook_line: string;
     primary_benefit: string;
   };
+  value_cards: {
+    whats_inside: string[];       // 3-4 concrete inclusions
+    why_kids_love_it: string[];   // 2-3 kid-appeal bullets from the book
+    perfect_for: string[];        // 3-4 gifting/occasion bullets
+  };
+}
+
+async function syncKidsTaxonomy(db: any, ebook_id: string) {
+  try {
+    const { data: ek } = await db.from('ebooks_kids')
+      .select('age_group_id, theme_ids').eq('id', ebook_id).maybeSingle();
+    if (!ek) return;
+    if (ek.age_group_id) {
+      await db.from('ebook_kids_ages').upsert(
+        { ebook_id, age_group_id: ek.age_group_id }, { onConflict: 'ebook_id,age_group_id' },
+      );
+    }
+    const themes = Array.isArray(ek.theme_ids) ? ek.theme_ids.filter(Boolean) : [];
+    if (themes.length > 0) {
+      const rows = themes.map((tid: string) => ({ ebook_id, theme_id: tid }));
+      await db.from('ebook_kids_themes').upsert(rows, { onConflict: 'ebook_id,theme_id' });
+    }
+  } catch (e) { console.warn('syncKidsTaxonomy failed', (e as Error).message); }
 }
 
 async function callGemini(system: string, user: string): Promise<string> {
