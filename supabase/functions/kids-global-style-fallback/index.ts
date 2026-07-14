@@ -115,6 +115,16 @@ Deno.serve(async (req) => {
 
     // Build the new locked style bible (structural fields — QC reads these).
     const cb = (bible.character_bible_json ?? {}) as Record<string, string>;
+      const heroIdentity = [
+        cb.name && `name: ${cb.name}`,
+        cb.species && `species: ${cb.species}`,
+        cb.hair && `hair/fur: ${cb.hair}`,
+        cb.eyes && `eyes: ${cb.eyes}`,
+        cb.skin && `skin/details: ${cb.skin}`,
+        cb.outfit && `outfit: ${cb.outfit}`,
+        cb.accessory && `accessory: ${cb.accessory}`,
+      ].filter(Boolean).join('; ') || 'the exact recurring hero described by the manuscript and character bible';
+
     const newStyleBible = {
       style_slug: newSlug,
       style_label: preset.label as string,
@@ -125,21 +135,20 @@ Deno.serve(async (req) => {
       texture: 'Cold-press watercolor paper texture with light pigment granulation on flats, occasional soft wash bleeds around edges; uniform texture strength across all pages.',
       medium: preset.label ?? 'Soft watercolor + light ink',
       mood: 'Warm, hopeful, playful problem-solving.',
-      character_proportions: 'Consistent kid proportions across every page: same head-to-body ratio, same face shape, same glasses shape, same pigtail placement.',
+      character_proportions: `Consistent proportions across every page for this specific hero: ${heroIdentity}. Keep the same silhouette, face shape, body scale, outfit, colors, and accessories on cover and interiors.`,
       character_consistency_rules: [
-        `Hero is ${cb.name ?? 'Tali'}, a human kid-inventor girl aged 7–9`,
-        'Brown pigtails with visible hair ties, never loose long hair',
-        'Round oversized glasses on every page, never sunglasses, never removed',
-        'Red-and-white horizontally striped t-shirt under denim overalls',
-        'Fair skin tone, warm brown eyes, no color drift across pages',
-        'Same sock-sorter machine language (twisty tubes, tin-can trumpets, funnel mouth) reused visually',
+        `Hero identity must remain: ${heroIdentity}`,
+        'Never swap species, age, costume, fur/hair color, skin tone, eye shape, or signature accessory between pages',
+        'Cover hero and every interior hero must read as the same character at a glance',
+        'Reuse the same visual motif, prop language, and setting details introduced by this book title/description',
+        'Do not introduce a different protagonist from any prior book or fallback template',
       ],
       forbidden_variations: [
         'no 3D render, no Pixar look, no plastic/CGI polish',
         'no photorealism',
         'no dramatic night/dusk lighting',
         'no character redesign (hair, glasses, outfit, skin tone must never change)',
-        'no Barnaby, no bear cub, no moon/star/bedtime, no tooth/tooth-fairy, no wormhole',
+        'no characters, props, or scenes from unrelated prior books',
         'no baked text/letters/words on any illustration',
       ],
       locked_at: new Date().toISOString(),
@@ -165,7 +174,7 @@ Deno.serve(async (req) => {
       cb.hair && `${cb.hair} hair`, cb.eyes && `${cb.eyes} eyes`,
       cb.skin && `${cb.skin} skin`, cb.outfit && `wearing ${cb.outfit}`,
       cb.accessory && `with ${cb.accessory}`,
-    ].filter(Boolean).join(', ') || 'a kid-inventor girl with brown pigtails, round glasses, striped shirt, denim overalls';
+    ].filter(Boolean).join(', ') || 'the exact recurring hero described in the manuscript and character bible';
 
     const styleParts = [
       promptSuffix,
@@ -182,11 +191,16 @@ Deno.serve(async (req) => {
       `palette ${newStyleBible.palette.slice(0, 4).join(', ')}`,
       'soft watercolor + fine ink, hand-drawn, warm daylight, storybook',
     ].filter(Boolean).join('; ').slice(0, 260);
+    const storyScene = [
+      String(ebook.description ?? '').trim(),
+      String(ebook.subtitle ?? '').trim(),
+      String(ebook.manuscript_md ?? '').replace(/\s+/g, ' ').slice(0, 260),
+    ].filter(Boolean).join(' ').slice(0, 420) || 'a playful scene from this exact story premise';
 
     const coverPrompt = [
       `Children's picture book cover art (textless) for "${String(ebook.title ?? '').slice(0, 60)}".`,
       `Hero: ${shortChar}.`,
-      `Scene: cozy invention/laundry room with a sneeze-powered sock-sorting machine and mismatched sock characters.`,
+      `Scene: ${storyScene}.`,
       `Portrait, reserve top 25% calm for later title. Style: ${shortStyle}. Definitely NOT 3D/Pixar/CGI.`,
       `Textless artwork only: no letters, no words, no title, no signage.`,
     ].join(' ').slice(0, 980);

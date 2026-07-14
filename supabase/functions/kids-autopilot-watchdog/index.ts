@@ -21,8 +21,26 @@ function json(body: unknown, status = 200) {
   });
 }
 
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+async function dispatchSupervisor(row: { id: string; title?: string | null; pipeline_status?: string | null }) {
+  const ctl = new AbortController();
+  const timeout = setTimeout(() => ctl.abort(), 10_000);
+  try {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ ebook_id: row.id, source: 'kids-autopilot-watchdog' }),
+      signal: ctl.signal,
+    });
+    const t = await r.text().catch(() => '');
+    console.log('watchdog dispatched supervisor', JSON.stringify({ ebook_id: row.id, status: r.status, body: t.slice(0, 240) }));
+  } catch (e) {
+    console.error('watchdog supervisor dispatch failed', JSON.stringify({ ebook_id: row.id, error: String((e as Error).message ?? e) }));
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function scanAndDispatch() {
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
   try {
     const twentyMinAgo = new Date(Date.now() - 20 * 60_000).toISOString();
@@ -36,26 +54,18 @@ Deno.serve(async (req) => {
       .limit(20);
     if (error) throw error;
 
-    const dispatched: Array<{ ebook_id: string; title: string; pipeline_status: string; result: unknown }> = [];
-    for (const row of stuck ?? []) {
-      try {
-        const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-          body: JSON.stringify({ ebook_id: row.id }),
-        });
-        const t = await r.text();
-        let parsed: unknown = t.slice(0, 400);
-        try { parsed = JSON.parse(t); } catch { /* keep text */ }
-        dispatched.push({ ebook_id: row.id, title: String(row.title ?? ''), pipeline_status: String(row.pipeline_status ?? ''), result: parsed });
-      } catch (e) {
-        dispatched.push({ ebook_id: row.id, title: String(row.title ?? ''), pipeline_status: String(row.pipeline_status ?? ''), result: { error: String((e as Error).message ?? e) } });
-      }
-    }
-
-    return json({ ok: true, checked_at: new Date().toISOString(), stuck_count: stuck?.length ?? 0, dispatched });
+    console.log('watchdog scan complete', JSON.stringify({ checked_at: new Date().toISOString(), stuck_count: stuck?.length ?? 0 }));
+    await Promise.allSettled((stuck ?? []).map(dispatchSupervisor));
   } catch (e) {
     console.error('kids-autopilot-watchdog error', e);
-    return json({ ok: false, error: String((e as Error)?.message ?? e) }, 500);
   }
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const task = scanAndDispatch();
+  // deno-lint-ignore no-explicit-any
+  const rt = (globalThis as any).EdgeRuntime;
+  if (rt?.waitUntil) rt.waitUntil(task); else task.catch((e) => console.error('watchdog background error', e));
+  return json({ ok: true, accepted: true, checked_at: new Date().toISOString() }, 202);
 });
