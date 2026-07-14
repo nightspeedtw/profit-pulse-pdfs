@@ -273,16 +273,46 @@ async function generateIdea(ctx: Ctx): Promise<StepResult> {
 }
 
 async function generateManuscript(ctx: Ctx): Promise<StepResult> {
-  if (ctx.ebook.manuscript_md) return { output: { skipped: true } };
-  const md = await callAI(
-    `Write a warm, age-appropriate children's story titled "${ctx.ebook.title}". Description: ${ctx.ebook.description}. 600-900 words in English. Return the story only, no preamble.`,
-    'You are an award-winning children\'s author. English only. Return markdown.'
-  );
-  const word_count = md.split(/\s+/).filter(Boolean).length;
+  const existingSeg = loadSegments(ctx.ebook);
+  if (existingSeg && existingSeg.pages.length === TARGET_INTERIOR && ctx.ebook.manuscript_md) {
+    return { output: { skipped: true, reason: 'segments already present' } };
+  }
+
+  const ageBand = (ctx.ebook.storefront_meta as { admin_params?: { age_band?: string } } | null)?.admin_params?.age_band ?? '4-6';
+  const craft = await loadStoryCraftBlock(ctx.supabase, ageBand);
+  const meta = (ctx.ebook.storefront_meta ?? {}) as Record<string, unknown>;
+  const heroName = (meta.main_character as string | undefined)
+    ?? ((meta.locked_concept as { hero?: string } | undefined)?.hero)
+    ?? null;
+
+  const result = await writeSegmentedManuscript({
+    title: String(ctx.ebook.title ?? ''),
+    subtitle: (ctx.ebook.subtitle as string | null) ?? null,
+    description: (ctx.ebook.description as string | null) ?? null,
+    ageBand,
+    target: TARGET_INTERIOR,
+    heroName,
+    extraCraftBlock: craft,
+  });
+
+  if (!result.ok) {
+    throw new Error(`segmented_writer_gate_failed: ${result.validation.violations.slice(0, 6).join(' | ')}`);
+  }
+
+  const md = renderSegmentsToMd(result.manuscript);
+  const wordCount = result.manuscript.pages.reduce((n, p) => n + p.text.split(/\s+/).filter(Boolean).length, 0);
+
+  const nextMeta = { ...meta, kids_manuscript_segments: result.manuscript };
   await ctx.supabase.from('ebooks_kids').update({
-    manuscript_md: md, word_count, status: 'illustrating', pipeline_status: 'illustrating',
+    manuscript_md: md,
+    word_count: wordCount,
+    storefront_meta: nextMeta,
+    status: 'illustrating',
+    pipeline_status: 'illustrating',
   }).eq('id', ctx.ebookId);
-  return { output: { word_count } };
+  ctx.ebook.manuscript_md = md;
+  ctx.ebook.storefront_meta = nextMeta;
+  return { output: { word_count: wordCount, segments: result.manuscript.pages.length, attempts: result.attempts, refrain: result.manuscript.refrain } };
 }
 
 // Story gate — runs BEFORE any art/PDF step so baseline never spends image cost on a rejected story.
