@@ -53,7 +53,7 @@ export default function Kids() {
     (async () => {
       let query = supabase
         .from("ebooks_kids")
-        .select("id,title,subtitle,description,cover_url,price_cents,age_group_id,theme_ids")
+        .select("id,title,subtitle,description,cover_url,price_cents,age_group_id,theme_ids,storefront_meta")
         .eq("listing_status", "live")
         .eq("sellable", true)
         .order("created_at", { ascending: false })
