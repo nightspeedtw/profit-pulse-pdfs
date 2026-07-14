@@ -22,11 +22,12 @@ const MAX_PER_CLASS: Record<string, number> = {
   metadata_gate: 2,
   bible_check: 1,
   title_treatment: 1,
-  character_identity: 2,
-  pdf_glyph: 1,
+  character_identity: 3,
+  pdf_glyph: 2,
   worker_resource_limit: 2,
-  qc_missing: 3, // one per subsystem worst-case
+  qc_missing: 3,
   cover: 2,
+  image_missing: 2,
 };
 
 function json(body: unknown, status = 200) {
