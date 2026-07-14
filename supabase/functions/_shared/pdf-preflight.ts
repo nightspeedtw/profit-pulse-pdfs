@@ -64,13 +64,20 @@ export async function preflightPdf(pdfUrl: string | null | undefined): Promise<R
     ));
   }
 
-  // 3. Page count — pdf-lib uses compressed object streams so raw regex
-  // scans miss both /Type /Page and /Count. Parse with pdf-lib for a real
-  // page count, then fall back to regex for uncompressed producer output.
+  // 3. Page count + geometry — pdf-lib uses compressed object streams so raw
+  // regex scans miss both /Type /Page and /Count. Parse with pdf-lib for a
+  // real page count, then fall back to regex for uncompressed output.
   let pageCount = 0;
+  let firstPageW = 0;
+  let firstPageH = 0;
   try {
     const doc = await PDFDocument.load(bytes, { updateMetadata: false });
     pageCount = doc.getPageCount();
+    if (pageCount > 0) {
+      const first = doc.getPage(0);
+      firstPageW = Math.round(first.getWidth());
+      firstPageH = Math.round(first.getHeight());
+    }
   } catch {
     const countMatch = asText.match(/\/Type\s*\/Pages[\s\S]{0,400}?\/Count\s+(\d+)/);
     if (countMatch) pageCount = parseInt(countMatch[1], 10);
@@ -83,6 +90,30 @@ export async function preflightPdf(pdfUrl: string | null | undefined): Promise<R
       { min_pages: 1 },
       "regenerate_pdf",
     ));
+  }
+  // Kids picture-book format gate: 32–40 pages, SQUARE 612x612 geometry.
+  // Only enforced when the PDF looks like a kids book — signaled by the
+  // square geometry itself. Wrong geometry is always a hard fail.
+  if (firstPageW && firstPageH) {
+    const isSquare = Math.abs(firstPageW - firstPageH) <= 2;
+    const is612 = Math.abs(firstPageW - 612) <= 2 && Math.abs(firstPageH - 612) <= 2;
+    // Non-kids adult books may use letter (612x792) — don't fail those.
+    if (isSquare && !is612) {
+      findings.push(critical(
+        "PDF_WRONG_TRIM", "pdf_preflight",
+        { width_pt: firstPageW, height_pt: firstPageH },
+        { must: "612x612 pt (8.5x8.5 in square)" },
+        "regenerate_pdf",
+      ));
+    }
+    if (is612 && pageCount > 0 && (pageCount < 32 || pageCount > 40)) {
+      findings.push(critical(
+        "PDF_PAGE_COUNT_OUT_OF_RANGE", "pdf_preflight",
+        { detected_pages: pageCount },
+        { min_pages: 32, max_pages: 40 },
+        "regenerate_pdf",
+      ));
+    }
   }
 
   // 4. Font embedding — required only when the PDF uses non-standard fonts.

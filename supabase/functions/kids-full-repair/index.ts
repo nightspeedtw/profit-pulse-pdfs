@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
   const phase = (body.phase as string) ?? "all";
   const force = (body.force ?? {}) as Record<string, boolean>;
   const publish = body.publish !== false;
-  const targetIllos = Math.max(12, Math.min(16, (body.target_illustrations as number) ?? 12));
+  const targetIllos = Math.max(28, Math.min(36, (body.target_illustrations as number) ?? 28));
   const runInBackground = body.background !== false;
   const skipStoryGate = body.skip_story_gate === true;
   const storyMaxAttempts = Math.max(1, Math.min(3, (body.story_max_attempts as number) ?? 2));
@@ -210,8 +210,8 @@ Theme / premise anchor: ${themeDesc}
 Tone: warm, whimsical, emotionally reassuring${laneBlock}
 
 REQUIREMENTS (all mandatory):
-- ${targetIllos} distinct illustrated spreads, one paragraph per spread
-- 40-70 words per spread, 500-800 words total
+- ${targetIllos} distinct illustrated spreads (one page/scene per spread — SQUARE 8.5x8.5 in trim)
+- 15-30 words per spread (1-3 short sentences), 500-800 words total for the whole book
 - Distinctive premise (specific, surprising, tender, and VISUAL — as described above; do NOT drift into moon/bedtime-magic archetypes unless the premise itself names them)
 - ${heroNameGuess} has a clear emotional need at page 1
 - Rising wonder in middle pages, quiet climax where ${heroNameGuess} discovers or names the secret at the heart of the premise

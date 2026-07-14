@@ -69,8 +69,9 @@ NOT as a moral sentence. THE HERO must solve the problem themselves (rule: hero_
 never let an adult resolve it. Bake in at least one chantable refrain OR ritual sentence and echo it 3-4
 times across the book with slight evolution.`;
 
-    const user = `Write a 14-spread picture-book manuscript for the industry-standard 32-page format
-(1 cover page + 1 copyright + 1 half-title + 14 story spreads (28 pages) + 1 back page = 32 pages).
+    const user = `Write a 28-spread picture-book manuscript for the industry-standard SQUARE 8.5x8.5 inch format
+(1 cover + 1 title + 1 copyright + 28 story pages + 1 closing page = 32 pages total).
+Every story page carries a full-color illustration with 1-3 short read-aloud sentences.
 
 Book title: "${title}"
 Subtitle: "${subtitle}"
@@ -81,18 +82,19 @@ Implicit moral: ${moral}
 Target reader: ages 4-7
 
 Rules:
-- 14 spreads total. Each spread has ONE short paragraph of read-aloud story text.
-- 35-65 words per spread. 550-900 words total for the whole book.
-- Grade-1/2 vocabulary. Short sentences. Warm, gentle, curious tone.
-- Clear arc: opening (spreads 1-3), rising problem (4-8), turning point/climax (9-11), resolution (12-14).
+- 28 spreads total (one page/scene each — SQUARE format, one illustration per page).
+- 15-30 words per spread (1-3 SHORT read-aloud sentences). 500-800 words total for the whole book.
+- Grade-1/2 vocabulary. Warm, gentle, curious tone.
+- Clear arc across 28 beats: opening (1-4), rising problem (5-14), turning point/climax (15-22), warm resolution (23-28).
 - Never mention adult topics, tech, brands, or scary imagery.
 - Never write the moral as a lecture — show it through the character's actions.
 - Use ${heroName} by name; refer to them consistently.
 - Each spread also includes a short scene_title (max 4 words) used only internally,
   a scene_summary for the illustrator, characters_present (names), emotion, location,
   and continuity_notes (what must match previous spreads: outfit, palette, world).
+- Bake in at least one chantable refrain and repeat it 4-6 times across the 28 pages.
 
-Return: {"spreads":[{"spread_number":1,"scene_title":"","story_text":"","scene_summary":"","characters_present":[],"emotion":"","location":"","continuity_notes":""}, ... 14 items ...]}`;
+Return: {"spreads":[{"spread_number":1,"scene_title":"","story_text":"","scene_summary":"","characters_present":[],"emotion":"","location":"","continuity_notes":""}, ... 28 items ...]}`;
 
     const ai = await aiJSON<{ spreads: Spread[] }>({
       model: "google/gemini-3.1-pro-preview",
@@ -104,12 +106,12 @@ Return: {"spreads":[{"spread_number":1,"scene_title":"","story_text":"","scene_s
 
     await logCost(db, { ebook_id, step: "kids_manuscript_rewrite", model: ai.model, ...ai.usage });
 
-    const spreads = (ai.data.spreads ?? []).slice(0, 14);
-    if (spreads.length < 14) {
-      return json({ error: `AI returned only ${spreads.length} spreads (need 14)`, raw: ai.data }, 502);
+    const spreads = (ai.data.spreads ?? []).slice(0, 36);
+    if (spreads.length < 24) {
+      return json({ error: `AI returned only ${spreads.length} spreads (need at least 24, target 28)`, raw: ai.data }, 502);
     }
 
-    // Reset ebook_chapters with 14 rows, one per spread.
+    // Reset ebook_chapters with one row per spread.
     const { error: delErr } = await db.from("ebook_chapters").delete().eq("ebook_id", ebook_id);
     if (delErr) throw delErr;
 
@@ -132,9 +134,10 @@ Return: {"spreads":[{"spread_number":1,"scene_title":"","story_text":"","scene_s
 
     // Persist structured page plan for the illustrator and future QC.
     const pagePlan: Record<string, unknown> = {
-      version: 2,
-      total_spreads: 14,
-      total_pages: 32,
+      version: 3,
+      total_spreads: spreads.length,
+      total_pages: spreads.length + 4, // cover + title + copyright + N + end
+      format: 'square_8.5x8.5',
       spreads,
     };
     await db.from("ebooks").update({

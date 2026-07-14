@@ -161,9 +161,9 @@ export const AGE_BAND_SPECS: AgeBandSpec[] = [
   },
   {
     id: '4-6',
-    label: 'Picture book (ages 4–6) — our current product',
-    wordCount: '600–800 words MAX across 12–14 story spreads',
-    spec: `32-page format = 12–14 story spreads. Hard cap 800 words (below 600 feels thin). THREE-ACT SHAPE — brief setup (spreads 1–2) → problem + THREE escalating tries (middle) → warm resolution (final 1–2 spreads). THE HERO SOLVES IT THEMSELVES (rule hero_solves_it_themselves). One chantable refrain repeated ≥3× and ideally evolving slightly each time. Plan every big surprise as a POST-PAGE-TURN reveal — end odd spreads on a set-up, deliver the payoff on the next spread. Humor that works at 4–6: slapstick, absurd escalation, wordplay, the adult being wrong while the child is right. ONE theme only. Every sentence must be fun in a parent's mouth (read it aloud mentally as you write). No stated moral.`,
+    label: 'Picture book (ages 4–6) — our current product · SQUARE 8.5x8.5 in, 32–40 pages',
+    wordCount: '500–800 words MAX across 28–36 story pages (1 illustration + 1–3 sentences per page)',
+    spec: `Square 8.5x8.5 in trim, 32–40 pages total (title + copyright + 28–36 story pages + closing). ONE full-color illustration on EVERY page, ONE scene per page. Hard cap 800 words, 15–30 words per page (1–3 short sentences). THREE-ACT SHAPE spread across 28+ beats — brief setup (pages 1–4) → problem + THREE escalating tries (middle) → warm resolution (final 3–6 pages). THE HERO SOLVES IT THEMSELVES (rule hero_solves_it_themselves). One chantable refrain repeated 4–6× across the book, ideally evolving slightly each time. Plan every big surprise as a POST-PAGE-TURN reveal — end odd pages on a set-up, deliver the payoff on the next page. Humor that works at 4–6: slapstick, absurd escalation, wordplay, the adult being wrong while the child is right. ONE theme only. Every sentence must be fun in a parent's mouth (read it aloud mentally as you write). No stated moral.`,
   },
   {
     id: '5-7',
