@@ -260,6 +260,7 @@ Deno.serve(async (req) => {
 
     const meta = (ebook.storefront_meta as Record<string, unknown> | null) ?? {};
     const totalAttempts = ((meta.repair_supervisor as { entries?: RepairEntry[] } | undefined)?.entries?.length) ?? 0;
+    const stage_before = latestFailedStep?.step_name ?? String(ebook.pipeline_status ?? 'unknown');
     if (totalAttempts >= 12) {
       await db.from('ebooks_kids').update({
         listing_status: 'draft',
@@ -299,7 +300,6 @@ Deno.serve(async (req) => {
     }
 
     const blocker = detectBlocker(ebook, latestFailedStep);
-    const stage_before = latestFailedStep?.step_name ?? String(ebook.pipeline_status ?? 'unknown');
 
     if (!blocker) {
       // If we can't recognize a blocker, try resuming the pipeline once (in case
