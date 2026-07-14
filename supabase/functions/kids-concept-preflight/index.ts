@@ -163,7 +163,7 @@ const LANE_DIRECTIVES: Record<string, string> = {
   shop_library_museum_logic: 'ALL candidates must sit in the shop/library/museum mishap lane with a visual logic game (mislabeled shelves, out-of-order exhibits, price-tag swap).',
 };
 
-async function generateConcept(ageBand: string, avoidList: string[], attemptLabel: string, batchLane?: string): Promise<Concept> {
+async function generateConcept(ageBand: string, avoidList: string[], attemptLabel: string, skillBlock: string, batchLane?: string): Promise<Concept> {
   const avoidBlock = avoidList.length
     ? `\n\nDo NOT repeat/rehash these previously-tried concepts:\n${avoidList.map(a => `- ${a}`).join('\n')}`
     : '';
@@ -174,7 +174,7 @@ async function generateConcept(ageBand: string, avoidList: string[], attemptLabe
 
   const system = `You are a bestselling picture-book concept designer for ages ${ageBand}. Invent ONE original, distinctive, giftable picture-book concept.
 
-${storyCraftBlock()}
+${skillBlock}
 
 CRITICAL ORDER OF INVENTION (do not skip):
 1. Pick the PARENT_HOOK first from the menu above (rule: parent_hook_anchor). Every downstream choice must serve it.
