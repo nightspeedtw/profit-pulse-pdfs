@@ -50,6 +50,7 @@ interface Concept {
   hero: string;
   hero_specificity: string;
   setting: string;
+  parent_hook: string;                 // MUST be one of PARENT_HOOK_MENU
   core_story_engine: string;
   central_problem: string;
   story_rule: string;
