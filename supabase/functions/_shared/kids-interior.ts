@@ -274,3 +274,67 @@ export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Pro
 
   return records;
 }
+
+/**
+ * Staged per-page helper — used by the resumable `kids-render-interior`
+ * function. Generates ONE page (reference-conditioned if possible, Fal
+ * fallback otherwise), uploads to storage, returns the SceneRecord.
+ * Threads ebook_id into the cost logger so every page's spend is captured.
+ */
+export interface RenderOneOpts {
+  ebookId: string;
+  db: RenderInteriorOpts["db"];
+  scene: ScenePlan["scenes"][number];
+  sceneIndex: number;           // 0-based position in the plan
+  startPageNumber: number;      // page number offset (usually 3)
+  characterDescription: string;
+  styleSuffix: string;
+  negativePrompt: string;
+  coverReferenceUrl?: string | null;
+  extraReferenceUrls?: string[];
+  attempt?: number;
+  step?: string;
+}
+
+export async function renderAndUploadOne(o: RenderOneOpts): Promise<SceneRecord> {
+  const refs = o.coverReferenceUrl
+    ? [o.coverReferenceUrl, ...(o.extraReferenceUrls ?? [])]
+    : [];
+  const useReference = refs.length > 0;
+  const attempt = o.attempt ?? 0;
+  const step = o.step ?? "kids_interior_page";
+
+  let out: { bytes: Uint8Array; model: string; prompt: string };
+  if (useReference) {
+    try {
+      out = await renderOneReference(o.scene, o.characterDescription, o.styleSuffix, refs, attempt, o.ebookId, step);
+    } catch (e) {
+      console.warn(`ref-gen page ${o.sceneIndex + 1} failed, fal fallback:`, (e as Error).message);
+      out = await renderOneFal(o.scene, o.characterDescription, o.styleSuffix, o.negativePrompt, attempt);
+    }
+  } else {
+    out = await renderOneFal(o.scene, o.characterDescription, o.styleSuffix, o.negativePrompt, attempt);
+  }
+
+  const hash = await sha256Hex(out.bytes);
+  const path = `kids/${o.ebookId}/interior/page-${String(o.sceneIndex + 1).padStart(2, "0")}.png`;
+  const up = await o.db.storage.from("ebook-covers").upload(path, out.bytes, {
+    contentType: "image/png", upsert: true,
+  });
+  if (up.error) throw up.error;
+  const { data: signed } = await o.db.storage.from("ebook-covers").createSignedUrl(path, 60 * 60 * 24 * 365);
+  if (!signed?.signedUrl) throw new Error(`no signed url for ${path}`);
+
+  return {
+    index: o.sceneIndex + 1,
+    page_number: o.startPageNumber + o.sceneIndex,
+    scene: o.scene.scene,
+    prompt: out.prompt,
+    url: signed.signedUrl,
+    path,
+    model: out.model,
+    bytes: out.bytes.length,
+    hash,
+  };
+}
+
