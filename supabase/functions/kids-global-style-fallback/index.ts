@@ -41,6 +41,15 @@ function json(body: unknown, status = 200) {
   });
 }
 
+async function selfChain(ebook_id: string, body: Record<string, unknown>) {
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-global-style-fallback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify({ ebook_id, ...body }),
+  });
+  await r.text().catch(() => '');
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -51,12 +60,15 @@ Deno.serve(async (req) => {
     const ebook_id: string = body.ebook_id;
     const requestedSlug: string | null = body.new_style_slug ?? null;
     const publish_if_sellable: boolean = body.publish_if_sellable !== false;
-    const stage: 'all' | 'style_and_cover' | 'interiors' | 'pdf' | 'qc_and_publish' | 'pdf_and_qc' = body.stage ?? 'all';
+    const autochain: boolean = body.autochain !== false;
+    const requestedStage = String(body.stage ?? 'style_and_cover');
+    const stage: 'style_and_cover' | 'interiors' | 'pdf' | 'qc_and_publish' | 'pdf_and_qc' =
+      requestedStage === 'all' ? 'style_and_cover' : requestedStage as 'style_and_cover' | 'interiors' | 'pdf' | 'qc_and_publish' | 'pdf_and_qc';
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
-    const runStyle = stage === 'all' || stage === 'style_and_cover';
-    const runInteriors = stage === 'all' || stage === 'interiors';
-    const runPdf = stage === 'all' || stage === 'pdf' || stage === 'pdf_and_qc';
-    const runQc = stage === 'all' || stage === 'qc_and_publish' || stage === 'pdf_and_qc';
+    const runStyle = stage === 'style_and_cover';
+    const runInteriors = stage === 'interiors';
+    const runPdf = stage === 'pdf' || stage === 'pdf_and_qc';
+    const runQc = stage === 'qc_and_publish' || stage === 'pdf_and_qc';
 
     const { data: ebook, error } = await db.from('ebooks_kids').select('*').eq('id', ebook_id).single();
     if (error || !ebook) return json({ ok: false, error: 'ebook not found' }, 404);
@@ -350,6 +362,24 @@ Deno.serve(async (req) => {
       'cover_url, pdf_url, thumbnail_url, preview_page_urls, interior_illustrations, page_count, sellable, overall_qc_score, listing_status, pipeline_status, qc_scorecard, storefront_meta',
     ).eq('id', ebook_id).single();
 
+    let chained_next: Record<string, unknown> | null = null;
+    if (autochain) {
+      const nextBatchStart = batchStart + batchSize;
+      if (stage === 'style_and_cover') {
+        chained_next = { stage: 'interiors', batch_start: 0, batch_size: 4, publish_if_sellable, autochain: true };
+      } else if (stage === 'interiors' && nextBatchStart < MIN_INTERIOR) {
+        chained_next = { stage: 'interiors', batch_start: nextBatchStart, batch_size: 4, publish_if_sellable, autochain: true };
+      } else if (stage === 'interiors') {
+        chained_next = { stage: 'pdf_and_qc', publish_if_sellable, autochain: false };
+      }
+
+      if (chained_next) {
+        // @ts-expect-error EdgeRuntime is a Deno Deploy global
+        EdgeRuntime.waitUntil(selfChain(ebook_id, chained_next));
+        log.push({ step: 'autochain', status: 'dispatched', detail: chained_next });
+      }
+    }
+
     return json({
       ok: true, ebook_id,
       old_style_slug: oldStyleSlug, new_style_slug: newSlug,
@@ -357,6 +387,7 @@ Deno.serve(async (req) => {
       log, verdict: qcBody?.verdict ?? null,
       story_qc_status: qcBody?.story_qc_status ?? null,
       manuscript_hash: manuscriptHash,
+      chained_next,
       final,
     });
   } catch (e) {
