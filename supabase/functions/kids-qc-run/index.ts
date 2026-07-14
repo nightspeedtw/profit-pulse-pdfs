@@ -162,6 +162,7 @@ Deno.serve(async (req) => {
             ageBand: null,
             manuscript_md: manuscriptStr,
             page_texts: illos.map((r) => (r.scene as string | undefined) ?? "").filter(Boolean),
+            ebook_id: ebook.id as string,
           });
           storyReport = s;
           raw.push(...storyReportToFindings(s));
