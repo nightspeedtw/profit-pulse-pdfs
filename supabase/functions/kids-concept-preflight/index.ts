@@ -278,21 +278,30 @@ BE STRICT. If the refrain is not truly chantable → reread_mechanism_score <80.
   return safeJson<ConceptScores>(raw);
 }
 
-function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): { passed: boolean; blockers: string[]; decision: 'pass' | 'rewrite' | 'reject' } {
+function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): {
+  passed: boolean;
+  blockers: string[];
+  weak_dimensions: Array<{ dimension: string; score: number; note: string }>;
+  decision: 'pass' | 'rewrite' | 'reject';
+} {
+  // HARD blockers only — banned lanes, structural incompleteness, and the
+  // composite floors. Per-dimension SOFT_MIN misses become weak_dimensions.
   const blockers: string[] = [];
-  const push = (k: keyof typeof T, v: number, cmp: '>=' | '<=') => {
-    if (cmp === '>=' && v < T[k]) blockers.push(`${k}=${v}<${T[k]}`);
-    if (cmp === '<=' && v > T[k]) blockers.push(`${k}=${v}>${T[k]}`);
-  };
-  push('distinctiveness_score', scores.distinctiveness_score, '>=');
-  push('story_engine_score', scores.story_engine_score, '>=');
-  push('reread_mechanism_score', scores.reread_mechanism_score, '>=');
-  push('parent_buyer_value_score', scores.parent_buyer_value_score, '>=');
-  push('emotional_payoff_seed_score', scores.emotional_payoff_seed_score, '>=');
-  push('visual_spread_potential_score', scores.visual_spread_potential_score, '>=');
-  push('age_fit_score', scores.age_fit_score, '>=');
-  push('generic_risk_score', scores.generic_risk_score, '<=');
-  push('final_concept_score', scores.final_concept_score, '>=');
+  const weak: Array<{ dimension: string; score: number; note: string }> = [];
+
+  const softChecks: Array<[keyof typeof T, number, string]> = [
+    ['distinctiveness_score', scores.distinctiveness_score, 'sharpen unique premise / unswappable title'],
+    ['story_engine_score', scores.story_engine_score, 'make the page-turn mechanism explicit and escalating'],
+    ['reread_mechanism_score', scores.reread_mechanism_score, 'strengthen refrain + callbacks payoff'],
+    ['parent_buyer_value_score', scores.parent_buyer_value_score, 'name the specific giftable buyer moment'],
+    ['emotional_payoff_seed_score', scores.emotional_payoff_seed_score, 'build a warm specific emotional arc with a payoff on the final spread'],
+    ['visual_spread_potential_score', scores.visual_spread_potential_score, 'make each spread visually distinct with comic payoff'],
+    ['age_fit_score', scores.age_fit_score, 'tighten vocabulary/pacing to age band'],
+  ];
+  for (const [k, v, note] of softChecks) {
+    if (v < T[k]) weak.push({ dimension: String(k), score: v, note });
+  }
+
   if (bannedHits.length) blockers.push(`banned_lane_hits=[${bannedHits.join(',')}]`);
   if (!c.twelve_spread_visual_plan_seed || c.twelve_spread_visual_plan_seed.length < 12) {
     blockers.push(`visual_plan_seed<12 (got ${c.twelve_spread_visual_plan_seed?.length ?? 0})`);
@@ -303,11 +312,18 @@ function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): { pa
   if (!c.refrain || c.refrain.split(/\s+/).length < 3) {
     blockers.push('refrain_too_short');
   }
+  if (scores.final_concept_score < CONCEPT_SCORE_FLOOR) {
+    blockers.push(`final_concept_score=${scores.final_concept_score}<${CONCEPT_SCORE_FLOOR}`);
+  }
+  if (scores.generic_risk_score > CONCEPT_GENERIC_MAX) {
+    blockers.push(`generic_risk_score=${scores.generic_risk_score}>${CONCEPT_GENERIC_MAX}`);
+  }
+
   const passed = blockers.length === 0;
   const decision: 'pass' | 'rewrite' | 'reject' = passed
     ? 'pass'
-    : (scores.final_concept_score >= 75 && scores.generic_risk_score <= 40 ? 'rewrite' : 'reject');
-  return { passed, blockers, decision };
+    : (scores.final_concept_score >= 70 && scores.generic_risk_score <= 50 && bannedHits.length === 0 ? 'rewrite' : 'reject');
+  return { passed, blockers, weak_dimensions: weak, decision };
 }
 
 function compositeScore(s: ConceptScores): number {
