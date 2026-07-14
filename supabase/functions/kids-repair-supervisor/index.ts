@@ -203,7 +203,7 @@ Deno.serve(async (req) => {
       await db.from('ebooks_kids').update({
         listing_status: 'draft',
         sellable: false,
-        pipeline_status: 'human_review_required',
+        pipeline_status: 'retired',
         blocker_reason: 'supervisor_budget_exhausted',
         storefront_meta: {
           ...meta,
