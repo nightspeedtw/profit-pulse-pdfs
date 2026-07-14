@@ -50,6 +50,7 @@ function buildRewritePrompt(
   ageBand: string,
   currentManuscript: string,
   report: StoryReport,
+  skillBlock: string,
 ): { system: string; user: string } {
   const blockers = blockersFromReport(report);
   const genericDetails = report.generic_risk_analysis?.generic_details ?? [];
