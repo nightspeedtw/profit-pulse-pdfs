@@ -417,6 +417,34 @@ async function runLoop(parentRunId: string, ebookId: string, ageBand: string, pr
   });
 }
 
+async function resumeParentRun(parentRunId: string, ageBand: string, preferredLanes: string[]) {
+  const db = createClient(SUPABASE_URL, SERVICE_KEY);
+  const { data: run, error } = await db.from('autopilot_kids_runs')
+    .select('id, ebook_kids_id, metadata')
+    .eq('id', parentRunId)
+    .single();
+  if (error || !run?.ebook_kids_id) throw new Error(`parent run not found or missing ebook: ${error?.message ?? 'no ebook'}`);
+
+  const meta = (run.metadata as Record<string, unknown> | null) ?? {};
+  const parent = (meta.parent_job as ParentJob | undefined) ?? null;
+  await saveParent(db, parentRunId, {
+    target: 'one_live_kids_book',
+    status: 'searching_for_concept',
+    attempt_count: parent?.attempt_count ?? 1,
+    concept_batch_count: parent?.concept_batch_count ?? 0,
+    story_repair_count: parent?.story_repair_count ?? 0,
+    art_repair_count: parent?.art_repair_count ?? 0,
+    pdf_repair_count: parent?.pdf_repair_count ?? 0,
+    max_concept_batches: parent?.max_concept_batches ?? 5,
+    max_total_ebooks: parent?.max_total_ebooks ?? 5,
+    max_total_runtime_minutes: parent?.max_total_runtime_minutes ?? 45,
+    child_attempts: parent?.child_attempts ?? [],
+    started_at: parent?.started_at ?? new Date().toISOString(),
+  }, { status: 'running', completed_at: null, blocker_reason: null, current_step: 'parent_job', current_step_label: friendlyLabel('searching_for_concept') });
+
+  await runLoop(parentRunId, run.ebook_kids_id as string, ageBand, preferredLanes);
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -428,6 +456,15 @@ Deno.serve(async (req) => {
       ? body.theme_ids
       : [await defaultThemeId(db)];
     const preferredLanes: string[] = Array.isArray(body.preferred_lanes) ? body.preferred_lanes : [];
+
+    if (body.resume_parent_run_id) {
+      const parentRunId = String(body.resume_parent_run_id);
+      const task = resumeParentRun(parentRunId, ageBand, preferredLanes);
+      // deno-lint-ignore no-explicit-any
+      const rt = (globalThis as any).EdgeRuntime;
+      if (rt?.waitUntil) rt.waitUntil(task); else task.catch(e => console.error('resume parent loop bg', e));
+      return json({ ok: true, resumed_parent_run_id: parentRunId, age_band: ageBand }, 202);
+    }
 
     // Create placeholder ebook + parent run atomically.
     const { data: ebook, error: eErr } = await db.from('ebooks_kids').insert({

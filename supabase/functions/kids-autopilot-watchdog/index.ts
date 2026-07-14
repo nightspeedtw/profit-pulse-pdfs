@@ -40,6 +40,20 @@ async function dispatchSupervisor(row: { id: string; title?: string | null; pipe
   }
 }
 
+async function resumeParentRun(row: { id: string }) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-one-click-build`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+      body: JSON.stringify({ resume_parent_run_id: row.id, age_band: '4-6' }),
+    });
+    const t = await r.text().catch(() => '');
+    console.log('watchdog resumed parent run', JSON.stringify({ run_id: row.id, status: r.status, body: t.slice(0, 240) }));
+  } catch (e) {
+    console.error('watchdog parent resume failed', JSON.stringify({ run_id: row.id, error: String((e as Error).message ?? e) }));
+  }
+}
+
 async function scanAndDispatch() {
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
   try {
@@ -56,6 +70,17 @@ async function scanAndDispatch() {
 
     console.log('watchdog scan complete', JSON.stringify({ checked_at: new Date().toISOString(), stuck_count: stuck?.length ?? 0 }));
     await Promise.allSettled((stuck ?? []).map(dispatchSupervisor));
+
+    const { data: parentRuns, error: parentErr } = await db
+      .from('autopilot_kids_runs')
+      .select('id, updated_at, status, current_step')
+      .eq('status', 'running')
+      .eq('current_step', 'parent_job')
+      .lt('updated_at', twentyMinAgo)
+      .limit(5);
+    if (parentErr) throw parentErr;
+    console.log('watchdog parent scan complete', JSON.stringify({ stuck_parent_count: parentRuns?.length ?? 0 }));
+    await Promise.allSettled((parentRuns ?? []).map(resumeParentRun));
   } catch (e) {
     console.error('kids-autopilot-watchdog error', e);
   }
