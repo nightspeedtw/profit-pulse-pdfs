@@ -214,32 +214,16 @@ async function pollUntilResolved(
 
     if (e.pipeline_status === 'human_review_required') {
       const blocker = String(e.blocker_reason ?? '');
-      // Story-gate blockers = the reviser exhausted its budget with oscillating
-      // scores. Do NOT re-poke the supervisor (it would just shelve). Auto-retire
-      // this child and rotate to a fresh concept.
-      const isStoryTerminal = /story_gate|needs_concept|oscillat|budget_exhausted:story_gate/i.test(blocker);
-      if (isStoryTerminal) {
-        await db.from('ebooks_kids').update({
-          pipeline_status: 'retired',
-          listing_status: 'draft',
-          sellable: false,
-          blocker_reason: `auto_retired_for_fresh_concept: ${blocker.slice(0, 180)}`,
-        }).eq('id', ebookId);
-        return { outcome: 'shelved_story', ebook: e, reason: `story_retired: ${blocker.slice(0, 180)}`, failed_dimensions: failedDimensionsFromEbook(e, blocker) };
-      }
-
-      const now = Date.now();
-      if (now - supervisorDispatchedAt > SUPERVISOR_COOLDOWN_MS) {
-        supervisorDispatchedAt = now;
-        // Fire-and-forget so we don't block the poll loop on the supervisor.
-        invoke('kids-repair-supervisor', { ebook_id: ebookId, run_id: runId }, 145_000)
-          .catch(err => console.error('supervisor dispatch error', err));
-        await saveParent(db, parentRunId, {
-          status: 'building_assets',
-          last_blocker: blocker.slice(0, 200),
-        });
-      }
-      continue;
+      // Autopilot rule: never rest in human_review_required. Any book that
+      // reaches this state has exhausted its automatic repair path — retire
+      // it and rotate the parent loop to a fresh concept.
+      await db.from('ebooks_kids').update({
+        pipeline_status: 'retired',
+        listing_status: 'draft',
+        sellable: false,
+        blocker_reason: `auto_retired_for_fresh_concept: ${blocker.slice(0, 180) || 'human_review_required'}`,
+      }).eq('id', ebookId);
+      return { outcome: 'shelved_story', ebook: e, reason: `auto_retired: ${blocker.slice(0, 180)}`, failed_dimensions: failedDimensionsFromEbook(e, blocker) };
     }
 
     // Update parent job status label based on current pipeline stage.
