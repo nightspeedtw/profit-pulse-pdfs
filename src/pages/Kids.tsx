@@ -136,6 +136,17 @@ export default function Kids() {
     <>
       <KidsHero covers={heroCovers} onStart={scrollToPicker} />
 
+      {/* Creator banner */}
+      <a
+        href="/create"
+        className="block bg-gradient-to-r from-amber-50 via-white to-amber-50 border-y border-amber-100 py-3 text-center hover:from-amber-100 hover:to-amber-100 transition-colors"
+      >
+        <span className="text-sm md:text-base font-medium text-primary">
+          ✨ Have a story idea? <span className="text-amber-700 font-semibold">Create your own children's ebook for $19</span> and earn 50% royalties →
+        </span>
+      </a>
+
+
       <div ref={pickerRef}>
         {!showResults && (
           <JourneyWizard
