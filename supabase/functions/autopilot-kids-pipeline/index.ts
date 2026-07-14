@@ -8,6 +8,8 @@ import { buildScenePlan } from '../_shared/kids-interior.ts';
 
 import { runKidsStoryJudge } from '../_shared/kids-story-judge.ts';
 import { detectBibleStoryMismatch, detectMetadataStoryMismatch, METADATA_STORY_MISMATCH } from '../_shared/bible-story-mismatch.ts';
+import { writeSegmentedManuscript, renderSegmentsToMd, loadSegments, segmentsToPageTexts } from '../_shared/kids-segments.ts';
+import { loadStoryCraftBlock } from '../_shared/story-craft-skill.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
 import { uploadAndSignImage, versionedKidsAssetPath } from '../_shared/versioned-assets.ts';
 
