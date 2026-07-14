@@ -29,15 +29,27 @@ async function fetchImageAsB64(url: string): Promise<{ data: string; mime: strin
   return { data: btoa(s), mime };
 }
 
+export interface GeminiImageMeta {
+  finishReason: string | null;
+  safetyRatings: unknown;
+  partCount: number;
+  bytesLen: number;
+  provider: 'google_direct';
+  model: string;
+  blockReason?: string | null;
+}
+
 /**
  * Reference-conditioned image generation via native Gemini generateContent.
- * Returns raw PNG bytes.
+ * Returns raw PNG bytes plus response metadata (finish reason, safety
+ * ratings, part count) so callers can log WHY a black frame came back.
  */
-export async function geminiDirectImage(opts: {
+export async function geminiDirectImageWithMeta(opts: {
   prompt: string;
   referenceUrls: string[];
   model?: string;
-}): Promise<Uint8Array> {
+  seed?: number;
+}): Promise<{ bytes: Uint8Array; meta: GeminiImageMeta }> {
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set");
   const model = normalize(opts.model ?? "google/gemini-3.1-flash-image");
   const parts: Array<Record<string, unknown>> = [{ text: opts.prompt }];
@@ -45,26 +57,50 @@ export async function geminiDirectImage(opts: {
     const { data, mime } = await fetchImageAsB64(u);
     parts.push({ inlineData: { mimeType: mime, data } });
   }
-  const body = {
-    contents: [{ role: "user", parts }],
-    generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
-  };
+  const generationConfig: Record<string, unknown> = { responseModalities: ["IMAGE", "TEXT"] };
+  if (typeof opts.seed === "number") generationConfig.seed = opts.seed;
+  const body = { contents: [{ role: "user", parts }], generationConfig };
   const r = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
   );
   if (!r.ok) throw new Error(`gemini-direct ${model} ${r.status}: ${(await r.text()).slice(0, 400)}`);
   const j = await r.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string } }> } }>;
+    candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string } }> }; finishReason?: string; safetyRatings?: unknown }>;
+    promptFeedback?: { blockReason?: string; safetyRatings?: unknown };
   };
-  const b64 = j.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData?.data;
-  if (!b64) throw new Error(`gemini-direct ${model}: no image in response`);
-  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const cand = j.candidates?.[0];
+  const partList = cand?.content?.parts ?? [];
+  const b64 = partList.find((p) => p.inlineData?.data)?.inlineData?.data;
+  const meta: GeminiImageMeta = {
+    finishReason: cand?.finishReason ?? null,
+    safetyRatings: cand?.safetyRatings ?? j.promptFeedback?.safetyRatings ?? null,
+    partCount: partList.length,
+    bytesLen: 0,
+    provider: 'google_direct',
+    model: `google/${model}`,
+    blockReason: j.promptFeedback?.blockReason ?? null,
+  };
+  if (!b64) {
+    // Return an empty bytes buffer with meta so the luminance gate can classify
+    // it as dead — callers don't need a special path for "no image in response".
+    return { bytes: new Uint8Array(0), meta };
+  }
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  meta.bytesLen = bytes.length;
+  return { bytes, meta };
 }
+
+export async function geminiDirectImage(opts: {
+  prompt: string;
+  referenceUrls: string[];
+  model?: string;
+}): Promise<Uint8Array> {
+  const { bytes } = await geminiDirectImageWithMeta(opts);
+  if (bytes.length === 0) throw new Error(`gemini-direct ${opts.model ?? 'gemini-3.1-flash-image'}: no image in response`);
+  return bytes;
+}
+
 
 /** Simple chat via native Gemini generateContent. Returns text + usage. */
 export async function geminiDirectChat(opts: {

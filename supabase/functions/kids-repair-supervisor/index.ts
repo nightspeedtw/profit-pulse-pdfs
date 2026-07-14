@@ -321,12 +321,46 @@ Deno.serve(async (req) => {
     const totalAttempts = allEntries.filter(e => !FREE_CLASSES.has(e.blocker_class)).length;
     const stage_before = latestFailedStep?.step_name ?? String(ebook.pipeline_status ?? 'unknown');
 
+    // ---- PAID-STALL RESCUE (absolute rule) ----
+    // A book in pdf_building / illustrating with COMPLETED PAID INTERIORS
+    // (≥12) may NEVER be retired for a stall. Stalls are infrastructure, not
+    // content-quality failures — 28 verified illustrations must never be
+    // thrown away because a chain dropped its heartbeat. Free-resume instead,
+    // regardless of budget / attempt counters.
+    const paidStallStatus = String(ebook.pipeline_status ?? '');
+    const paidStallInteriors = Array.isArray(ebook.interior_illustrations)
+      ? (ebook.interior_illustrations as unknown[]).length
+      : 0;
+    const hasPaidStall = (paidStallStatus === 'pdf_building' || paidStallStatus === 'illustrating')
+      && !ebook.pdf_url
+      && paidStallInteriors >= 12;
+    async function forceResumePaidStall(currentBlocker: string): Promise<Response> {
+      const target = paidStallStatus === 'illustrating' ? 'kids-render-interior' : 'kids-build-picture-pdf';
+      const payload = target === 'kids-build-picture-pdf'
+        ? { ebook_id, publish: true, stage: 'resume' }
+        : { ebook_id };
+      const r = await invoke(target, payload);
+      const t = await r.text().catch(() => '');
+      await appendLog(db, ebook_id, {
+        attempt: totalAttempts + 1,
+        current_blocker: `paid_stall_rescue:${currentBlocker}`,
+        blocker_class: target === 'kids-build-picture-pdf' ? 'resume_pdf' : 'resume_interior',
+        repair_handler: `${target} (paid_stall_rescue)`,
+        stage_before, stage_after: paidStallStatus,
+        result: 'no_op',
+        detail: { paid_stall: true, interiors: paidStallInteriors, dispatch_status: r.status, body: t.slice(0, 240) },
+        updated_at: new Date().toISOString(),
+      });
+      return json({ ok: true, result: 'resumed', kind: 'paid_stall_rescue', target, interiors: paidStallInteriors });
+    }
+
+
     // ---- CONVERGENCE GUARD ----
     // If two most-recent QC reports (final_quality_score) for this ebook are
     // within ±2 AND at least 2 non-free repair rounds have already run, the
     // book is thrashing. Retire honestly so the batch can rotate to a fresh
     // concept instead of burning image credits on flat scores.
-    if (totalAttempts >= 2) {
+    if (totalAttempts >= 2 && !hasPaidStall) {
       const { data: recentQc } = await db.from('qc_reports')
         .select('final_quality_score, created_at, stage')
         .eq('ebook_id', ebook_id)
@@ -362,7 +396,7 @@ Deno.serve(async (req) => {
         return json({ ok: true, result: 'shelved', reason: 'repair_not_converging', recent_scores: scores });
       }
     }
-    if (totalAttempts >= 12) {
+    if (totalAttempts >= 12 && !hasPaidStall) {
       await db.from('ebooks_kids').update({
         listing_status: 'draft',
         sellable: false,
@@ -379,6 +413,13 @@ Deno.serve(async (req) => {
       }).eq('id', ebook_id);
       return json({ ok: true, result: 'shelved', reason: 'supervisor_budget_exhausted', total_attempts: totalAttempts });
     }
+    // If we ARE in a paid stall and either retire branch would have fired,
+    // OR if we're just entering with no obvious blocker, force a free resume
+    // right here — never let paid assets languish waiting for the next tick.
+    if (hasPaidStall && totalAttempts >= 12) {
+      return await forceResumePaidStall(`budget_would_exhaust_at_${totalAttempts}`);
+    }
+
 
     const scorecard = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
     const pdfJob = ((scorecard.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job ?? null) as { next_stage?: string | null; updated_at?: string; error?: string | null; prepared?: boolean } | null;
@@ -438,11 +479,11 @@ Deno.serve(async (req) => {
       // genuinely broken build.
       const priorPdfResumes = allEntries.filter((e) => e.blocker_class === 'resume_pdf').length;
       const pdfErrorNeedsRepair = isCoverHardFailText(pdfJobError) || /dead_page_gate|text_mapping_gate/i.test(pdfJobError);
-      // FREE RESUME for pdf_building — always allowed until we've tried 5x.
-      // Fixes the "supervisor_declined: unrecognized_stall in pdf_building"
-      // retirement: PDF assembly is deterministic and free; resume it instead
-      // of retiring the book.
-      if (!pdfErrorNeedsRepair && !hasPdf && status === 'pdf_building' && interiors.length >= Math.min(expected, 12) && priorPdfResumes < 5) {
+      // FREE RESUME for pdf_building — unbounded when interiors are complete.
+      // stall≠quality-failure; paid verified assets are never discarded for
+      // infrastructure reasons. Only content-quality gates (dead_page_gate,
+      // text_mapping_gate, cover_hard_fail) may hand off to real repair.
+      if (!pdfErrorNeedsRepair && !hasPdf && status === 'pdf_building' && interiors.length >= Math.min(expected, 12)) {
         const stage = pdfAssemblyNeverStarted ? 'pdf_prepare' : 'resume';
         const r = await invoke('kids-build-picture-pdf', { ebook_id, publish: true, stage });
         const t = await r.text().catch(() => '');
@@ -475,6 +516,12 @@ Deno.serve(async (req) => {
       }
       const currentStatus = String(ebook.pipeline_status ?? 'unknown');
       const isTerminal = ['live', 'published', 'retired', 'exhausted', 'shelved'].includes(currentStatus);
+      // PAID-STALL RULE: never retire an in-flight build that has completed
+      // paid interiors. Force-resume forever; content-quality gates are the
+      // only allowed retire trigger.
+      if (hasPaidStall) {
+        return await forceResumePaidStall(`unrecognized_stall_in_${currentStatus}`);
+      }
       if (consecUnknown >= 2 || isTerminal) {
         // NO SILENT DEAD-ENDS: retire with a clear reason so the parent
         // one-click loop rotates to a fresh concept.
@@ -525,6 +572,12 @@ Deno.serve(async (req) => {
     const perClass = countAttempts(meta, klass);
     const max = MAX_PER_CLASS[klass] ?? 1;
     if (perClass >= max) {
+      // PAID-STALL RULE: content-quality gates (klass === 'cover') MAY retire
+      // even with completed interiors. Every other class must free-resume the
+      // build — stall ≠ quality failure.
+      if (hasPaidStall && klass !== 'cover') {
+        return await forceResumePaidStall(`class_budget_exhausted:${klass}`);
+      }
       // Exhausted for this class — shelve.
       await db.from('ebooks_kids').update({
         listing_status: 'draft',

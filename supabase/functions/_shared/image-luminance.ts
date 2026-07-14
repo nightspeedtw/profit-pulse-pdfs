@@ -60,3 +60,70 @@ export async function computeLuminanceFromUrl(url: string): Promise<LuminanceSta
     return { error: String((e as Error).message ?? e).slice(0, 200) };
   }
 }
+
+// ---------------------------------------------------------------------------
+// generateLiveImage — "dead frames are rejected at birth, not budgeted"
+//
+// Wraps a generator call with an in-call luminance retry loop. Callers pass a
+// gen(attempt) fn that MAY jitter its own prompt or swap reference order based
+// on `attempt`. Dead frames are NEVER persisted and NEVER count toward the
+// caller's outer repair/cover budget — they trigger an immediate retry (up to
+// `attempts`, default 3). Only when every in-call attempt returns dead do we
+// throw and let the caller record a real, budget-worthy failure.
+//
+// Optional `meta` (finish reason, safety filters, part count, bytes length)
+// from the generator is logged on every dead frame so we can root-cause why
+// Gemini keeps returning near-black canvases.
+// ---------------------------------------------------------------------------
+
+export interface GenMeta {
+  finishReason?: string | null;
+  safetyRatings?: unknown;
+  partCount?: number;
+  bytesLen?: number;
+  provider?: string;
+  extra?: Record<string, unknown>;
+}
+
+export interface LiveImageResult {
+  bytes: Uint8Array;
+  lum: LuminanceStats;
+  meta?: GenMeta;
+  attempts_used: number;
+}
+
+export async function generateLiveImage(opts: {
+  label: string;
+  attempts?: number;
+  gen: (attempt: number) => Promise<{ bytes: Uint8Array; meta?: GenMeta }>;
+}): Promise<LiveImageResult> {
+  const maxA = Math.max(1, opts.attempts ?? 3);
+  let lastReason = 'no_attempt';
+  let lastMeta: GenMeta | undefined;
+  for (let a = 1; a <= maxA; a++) {
+    let g: { bytes: Uint8Array; meta?: GenMeta };
+    try {
+      g = await opts.gen(a);
+    } catch (e) {
+      lastReason = `gen_error:${String((e as Error).message ?? e).slice(0, 220)}`;
+      console.warn(`[generateLiveImage:${opts.label}] attempt ${a}/${maxA} threw`, lastReason);
+      continue;
+    }
+    const lum = await computeLuminance(g.bytes);
+    if (!lum.dead) {
+      if (a > 1) console.log(`[generateLiveImage:${opts.label}] recovered on attempt ${a}/${maxA}`);
+      return { bytes: g.bytes, lum, meta: g.meta, attempts_used: a };
+    }
+    lastReason = `${lum.reason}:mean=${lum.mean.toFixed(1)},var=${lum.variance.toFixed(0)}`;
+    lastMeta = g.meta;
+    console.warn(`[generateLiveImage:${opts.label}] attempt ${a}/${maxA} DEAD ${lastReason}`, JSON.stringify({
+      meta: g.meta ?? null,
+      bytes_len: g.bytes.length,
+    }));
+  }
+  const err = new Error(`${opts.label}_dead_image_after_${maxA}_attempts:${lastReason}`);
+  (err as unknown as { meta?: GenMeta }).meta = lastMeta;
+  throw err;
+}
+
+

@@ -12,7 +12,7 @@ import { writeSegmentedManuscript, renderSegmentsToMd, loadSegments, segmentsToP
 import { loadStoryCraftBlock } from '../_shared/story-craft-skill.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
 import { uploadAndSignImage, versionedKidsAssetPath } from '../_shared/versioned-assets.ts';
-import { computeLuminance } from '../_shared/image-luminance.ts';
+import { computeLuminance, generateLiveImage } from '../_shared/image-luminance.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -625,29 +625,36 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     `Avoid AI clichés: no purple/indigo gradients on white, no glossy 3D blobs, no stock face, no generic hero-on-gradient, no melted shapes, no six-finger hands.`,
   ].join(' ');
 
+  // Dead frames are rejected at birth: generateLiveImage does up to 3 in-call
+  // retries with jitter, and only throws when EVERY attempt is dead — so a
+  // repeated-black-cover budget-exhaustion class can only happen for a
+  // genuinely broken generation path.
   let coverBytes: Uint8Array | null = null;
-  let coverLum: Awaited<ReturnType<typeof computeLuminance>> | null = null;
-  let lastCoverErr = '';
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const candidate = await falRecraftV3({
-        prompt: `${coverPrompt}${attempt > 1 ? ` Retry ${attempt}: previous cover was unusable (${lastCoverErr}). Render a bright, fully illustrated, non-black cover with visible character and rich background.` : ''}`,
-        image_url: refUrl ?? undefined,
-        strength: 0.6,
-        image_size: 'portrait_4_3',
-        negative_prompt: `${negativePrompt}, black canvas, near-black image, empty image, blank image, text, letters, numbers, words, title, typography, watermark, logo, book mockup, ui, caption, subtitle, spine, gradient on white, glossy 3d blob, stock photo, six fingers, deformed hands, generic ai look`,
-        ebook_id: ctx.ebookId,
-        step: 'kids_cover_master',
-      });
-      coverLum = await assertLiveCoverImage(candidate, 'cover_master');
-      coverBytes = candidate;
-      break;
-    } catch (e) {
-      lastCoverErr = String((e as Error).message ?? e).slice(0, 220);
-      console.warn(`cover master attempt ${attempt} rejected: ${lastCoverErr}`);
-    }
+  try {
+    const live = await generateLiveImage({
+      label: 'cover_master',
+      attempts: 3,
+      gen: async (inner) => {
+        const jitter = inner === 1 ? '' : inner === 2
+          ? ' Bright, fully lit; avoid any dark or empty canvas.'
+          : ' Retry with fresh composition: warmer palette, higher pose energy.';
+        const bytes = await falRecraftV3({
+          prompt: `${coverPrompt}${jitter}`,
+          image_url: refUrl ?? undefined,
+          strength: 0.6,
+          image_size: 'portrait_4_3',
+          negative_prompt: `${negativePrompt}, black canvas, near-black image, empty image, blank image, text, letters, numbers, words, title, typography, watermark, logo, book mockup, ui, caption, subtitle, spine, gradient on white, glossy 3d blob, stock photo, six fingers, deformed hands, generic ai look`,
+          ebook_id: ctx.ebookId,
+          step: 'kids_cover_master',
+        });
+        return { bytes, meta: { provider: 'google_direct', model: 'fal/recraft-v3', partCount: 1, bytesLen: bytes.length, finishReason: null, safetyRatings: null } };
+      },
+    });
+    coverBytes = live.bytes;
+  } catch (e) {
+    throw new Error(`cover_generation_failed_after_dead_image_gate: ${String((e as Error).message ?? e).slice(0, 240)}`);
   }
-  if (!coverBytes) throw new Error(`cover_generation_failed_after_dead_image_gate: ${lastCoverErr}`);
+
 
   // Upload the TEXTLESS AI master (used as the visual anchor for interior gen
   // and as the input to the illustrated title-treatment compositor).
@@ -690,7 +697,7 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     cover_url: coverUrl,
     thumbnail_url: coverUrl,
     status: 'rendering', pipeline_status: 'rendering',
-    storefront_meta: { ...existingMeta, title_treatment: treatment.metadata, cover_luminance: { master: coverLum, final: finalLum } },
+    storefront_meta: { ...existingMeta, title_treatment: treatment.metadata, cover_luminance: { master: { note: 'live_verified_at_birth' }, final: finalLum } },
   }).eq('id', ctx.ebookId);
   return {
     output: {
