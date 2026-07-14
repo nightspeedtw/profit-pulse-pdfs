@@ -65,21 +65,40 @@ async function runBackground(ebookId: string, runId: string, ageBand: string, op
     // 2. Seed ebook with concept so pipeline's generate_idea step is skipped.
     const conceptDescription = `${c.core_story_engine ?? c.story_engine ?? ''} Hero: ${c.hero}. Setting: ${c.setting}. Central problem: ${c.central_problem ?? ''}. Story rule: ${c.story_rule ?? ''}. Refrain: "${c.refrain}". Callbacks: ${c.callback_1}; ${c.callback_2}. Final payoff: ${c.final_page_payoff}. Why reread: ${c.why_child_will_reread ?? c.reread_hook ?? ''}. Buyer hook: ${c.parent_buyer_hook}. Why parent buys: ${c.why_parent_will_buy ?? ''}.`;
 
+    // Forward the concept-judge critique to the manuscript writer so it
+    // explicitly strengthens the dimensions the judge flagged as weak.
+    // Concept stage is best-of-floor, not a product-grade gate — but the writer
+    // must lift those weak dims to >=85 for the story_gate to pass.
+    const weakDims: Array<{ dimension: string; score: number; note: string }> =
+      Array.isArray((w as any).weak_dimensions) ? (w as any).weak_dimensions : [];
+    const critiqueLine = weakDims.length
+      ? ` WRITER FOCUS (concept judge flagged these — strengthen them explicitly in the manuscript): ${weakDims.map(d => `${d.dimension}=${d.score} → ${d.note}`).join('; ')}.`
+      : '';
+    const descriptionWithCritique = conceptDescription + critiqueLine;
+
     const storefrontMeta: Record<string, unknown> = {
       main_character: c.hero,
       concept_brief: c,
       locked_concept: c,
+      concept_critique: {
+        weak_dimensions: weakDims,
+        winner_scores: w.concept_scores ?? w.scores,
+        winner_blockers: w.blockers,
+      },
       concept_preflight: {
         winner_concept: c,
         winner_scores: w.concept_scores ?? w.scores,
         winner_decision: w.decision,
         winner_passed: w.passed,
         winner_blockers: w.blockers,
+        winner_weak_dimensions: weakDims,
         winner_banned_lane_hits: w.banned_lane_hits,
         candidates: preflight.candidates,
         candidates_scored: preflight.candidates?.length ?? 0,
         overall_passed: preflight.overall_passed,
         thresholds: preflight.thresholds,
+        floor: preflight.floor,
+        selection_mode: preflight.selection_mode,
       },
     };
     if (options.parentRunId) storefrontMeta.parent_run_id = options.parentRunId;
@@ -87,7 +106,7 @@ async function runBackground(ebookId: string, runId: string, ageBand: string, op
     await db.from('ebooks_kids').update({
       title: c.title,
       subtitle: c.subtitle,
-      description: conceptDescription,
+      description: descriptionWithCritique,
       storefront_title: c.title,
       storefront_subtitle: c.subtitle,
       storefront_meta: storefrontMeta,

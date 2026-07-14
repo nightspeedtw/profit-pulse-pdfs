@@ -84,19 +84,28 @@ interface JudgedConcept {
   passed: boolean;
   blockers: string[];
   banned_lane_hits: string[];
+  weak_dimensions: Array<{ dimension: string; score: number; note: string }>;
 }
 
+// SOFT thresholds — informational only, surfaced as weak_dimensions so the
+// writer can strengthen them. Hard gate uses FLOOR/GENERIC_MAX below.
+const SOFT_MIN = 90;
 const T = {
-  distinctiveness_score: 90,
-  story_engine_score: 90,
-  reread_mechanism_score: 90,
-  parent_buyer_value_score: 90,
-  emotional_payoff_seed_score: 90,
-  visual_spread_potential_score: 90,
-  age_fit_score: 90,
-  generic_risk_score: 25, // <=
-  final_concept_score: 90,
+  distinctiveness_score: SOFT_MIN,
+  story_engine_score: SOFT_MIN,
+  reread_mechanism_score: SOFT_MIN,
+  parent_buyer_value_score: SOFT_MIN,
+  emotional_payoff_seed_score: SOFT_MIN,
+  visual_spread_potential_score: SOFT_MIN,
+  age_fit_score: SOFT_MIN,
+  generic_risk_score: 25,
+  final_concept_score: SOFT_MIN,
 };
+
+// HARD gate: concept stage is a best-of selector, not a product-grade gate.
+// Real quality bars live at story_gate (>=85 per dim) and final QC (>=90).
+const CONCEPT_SCORE_FLOOR = 85;   // final_concept_score must be >= this
+const CONCEPT_GENERIC_MAX = 40;   // generic_risk_score must be <= this
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -269,21 +278,30 @@ BE STRICT. If the refrain is not truly chantable → reread_mechanism_score <80.
   return safeJson<ConceptScores>(raw);
 }
 
-function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): { passed: boolean; blockers: string[]; decision: 'pass' | 'rewrite' | 'reject' } {
+function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): {
+  passed: boolean;
+  blockers: string[];
+  weak_dimensions: Array<{ dimension: string; score: number; note: string }>;
+  decision: 'pass' | 'rewrite' | 'reject';
+} {
+  // HARD blockers only — banned lanes, structural incompleteness, and the
+  // composite floors. Per-dimension SOFT_MIN misses become weak_dimensions.
   const blockers: string[] = [];
-  const push = (k: keyof typeof T, v: number, cmp: '>=' | '<=') => {
-    if (cmp === '>=' && v < T[k]) blockers.push(`${k}=${v}<${T[k]}`);
-    if (cmp === '<=' && v > T[k]) blockers.push(`${k}=${v}>${T[k]}`);
-  };
-  push('distinctiveness_score', scores.distinctiveness_score, '>=');
-  push('story_engine_score', scores.story_engine_score, '>=');
-  push('reread_mechanism_score', scores.reread_mechanism_score, '>=');
-  push('parent_buyer_value_score', scores.parent_buyer_value_score, '>=');
-  push('emotional_payoff_seed_score', scores.emotional_payoff_seed_score, '>=');
-  push('visual_spread_potential_score', scores.visual_spread_potential_score, '>=');
-  push('age_fit_score', scores.age_fit_score, '>=');
-  push('generic_risk_score', scores.generic_risk_score, '<=');
-  push('final_concept_score', scores.final_concept_score, '>=');
+  const weak: Array<{ dimension: string; score: number; note: string }> = [];
+
+  const softChecks: Array<[keyof typeof T, number, string]> = [
+    ['distinctiveness_score', scores.distinctiveness_score, 'sharpen unique premise / unswappable title'],
+    ['story_engine_score', scores.story_engine_score, 'make the page-turn mechanism explicit and escalating'],
+    ['reread_mechanism_score', scores.reread_mechanism_score, 'strengthen refrain + callbacks payoff'],
+    ['parent_buyer_value_score', scores.parent_buyer_value_score, 'name the specific giftable buyer moment'],
+    ['emotional_payoff_seed_score', scores.emotional_payoff_seed_score, 'build a warm specific emotional arc with a payoff on the final spread'],
+    ['visual_spread_potential_score', scores.visual_spread_potential_score, 'make each spread visually distinct with comic payoff'],
+    ['age_fit_score', scores.age_fit_score, 'tighten vocabulary/pacing to age band'],
+  ];
+  for (const [k, v, note] of softChecks) {
+    if (v < T[k]) weak.push({ dimension: String(k), score: v, note });
+  }
+
   if (bannedHits.length) blockers.push(`banned_lane_hits=[${bannedHits.join(',')}]`);
   if (!c.twelve_spread_visual_plan_seed || c.twelve_spread_visual_plan_seed.length < 12) {
     blockers.push(`visual_plan_seed<12 (got ${c.twelve_spread_visual_plan_seed?.length ?? 0})`);
@@ -294,11 +312,18 @@ function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): { pa
   if (!c.refrain || c.refrain.split(/\s+/).length < 3) {
     blockers.push('refrain_too_short');
   }
+  if (scores.final_concept_score < CONCEPT_SCORE_FLOOR) {
+    blockers.push(`final_concept_score=${scores.final_concept_score}<${CONCEPT_SCORE_FLOOR}`);
+  }
+  if (scores.generic_risk_score > CONCEPT_GENERIC_MAX) {
+    blockers.push(`generic_risk_score=${scores.generic_risk_score}>${CONCEPT_GENERIC_MAX}`);
+  }
+
   const passed = blockers.length === 0;
   const decision: 'pass' | 'rewrite' | 'reject' = passed
     ? 'pass'
-    : (scores.final_concept_score >= 75 && scores.generic_risk_score <= 40 ? 'rewrite' : 'reject');
-  return { passed, blockers, decision };
+    : (scores.final_concept_score >= 70 && scores.generic_risk_score <= 50 && bannedHits.length === 0 ? 'rewrite' : 'reject');
+  return { passed, blockers, weak_dimensions: weak, decision };
 }
 
 function compositeScore(s: ConceptScores): number {
@@ -334,7 +359,7 @@ Deno.serve(async (req) => {
     const s1 = await scoreConcept(c1, ageBand);
     const b1 = detectBannedLaneHits(c1);
     const e1 = evaluate(s1, b1, c1);
-    judged.push({ concept: c1, concept_scores: s1, decision: e1.decision, passed: e1.passed, blockers: e1.blockers, banned_lane_hits: b1 });
+    judged.push({ concept: c1, concept_scores: s1, decision: e1.decision, passed: e1.passed, blockers: e1.blockers, banned_lane_hits: b1, weak_dimensions: e1.weak_dimensions });
 
     // Exactly TWO alternatives if first fails
     if (!e1.passed) {
@@ -345,7 +370,7 @@ Deno.serve(async (req) => {
           const sN = await scoreConcept(cN, ageBand);
           const bN = detectBannedLaneHits(cN);
           const eN = evaluate(sN, bN, cN);
-          judged.push({ concept: cN, concept_scores: sN, decision: eN.decision, passed: eN.passed, blockers: eN.blockers, banned_lane_hits: bN });
+          judged.push({ concept: cN, concept_scores: sN, decision: eN.decision, passed: eN.passed, blockers: eN.blockers, banned_lane_hits: bN, weak_dimensions: eN.weak_dimensions });
           if (eN.passed) break;
         } catch (e) {
           judged.push({
@@ -359,6 +384,7 @@ Deno.serve(async (req) => {
             passed: false,
             blockers: [`alt${i + 1}_gen_failed: ${(e as Error).message.slice(0, 160)}`],
             banned_lane_hits: [],
+            weak_dimensions: [],
           });
         }
       }
@@ -376,6 +402,8 @@ Deno.serve(async (req) => {
       winner,
       overall_passed: winner.passed,
       thresholds: T,
+      floor: { final_concept_score: CONCEPT_SCORE_FLOOR, generic_risk_score: CONCEPT_GENERIC_MAX },
+      selection_mode: 'best_of_floor',
     });
   } catch (e) {
     console.error('kids-concept-preflight error', e);
