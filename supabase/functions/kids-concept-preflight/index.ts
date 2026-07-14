@@ -291,6 +291,12 @@ DO NOT PRODUCE:
 - funny-name-first concepts without a real mechanism (e.g., "The Wobbly-Wumpus" with no engine)
 
 Aim WEIRD, SPECIFIC, MEMORABLE. Title must be unswappable with any other picture book.
+
+VISUALLY UNAMBIGUOUS HERO (HARD RULE — image models must be able to render the hero the same way every page):
+- The hero MUST be a concrete, nameable subject an image model renders reliably: a specific animal, child, robot, vehicle, or monster with concrete visible features.
+- Avoid abstract or ambiguous heroes (dust bunny, shadow, whisper, echo, feeling, sound, smell, dream, wish, giggle, breeze, mist, glow, sparkle) — image models will silently substitute a lookalike (a "dust bunny" gets drawn as a rabbit).
+- If you MUST use such a hero, hero_specificity MUST contain BOTH: (a) a concrete visual definition naming size, body parts, colour, texture; AND (b) an explicit anti-confusion clause using the phrase "NOT a <thing it will be confused with>" (e.g. "a round fluffy ball of gray dust with tiny sock feet and two black button eyes — NOT a rabbit, NOT any animal with long ears").
+
 Attempt label: ${attemptLabel}.`;
 
   const user = `Generate ONE fresh concept for ages ${ageBand}. English only. Strict JSON only.${avoidBlock}`;
