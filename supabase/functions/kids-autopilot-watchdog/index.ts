@@ -73,22 +73,45 @@ async function resumeParentRun(row: { id: string }) {
   }
 }
 
+// In-progress build stages: interior render or PDF assembly. If these are
+// stalled >8 min the chain is almost certainly dead (each batch takes ~2 min
+// and self-chains immediately). Other stages keep the looser 20-min timeout.
+const IN_PROGRESS_BUILD = ['illustrating', 'rendering_interior', 'pdf_building'];
+
 async function scanAndDispatch() {
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
   try {
     const twentyMinAgo = new Date(Date.now() - 20 * 60_000).toISOString();
+    const eightMinAgo = new Date(Date.now() - 8 * 60_000).toISOString();
 
-    const { data: stuck, error } = await db
+    const { data: stuckSlow, error } = await db
       .from('ebooks_kids')
       .select('id, title, pipeline_status, listing_status, updated_at')
       .not('pipeline_status', 'in', `(${TERMINAL.map(t => `"${t}"`).join(',')})`)
+      .not('pipeline_status', 'in', `(${IN_PROGRESS_BUILD.map(t => `"${t}"`).join(',')})`)
       .neq('listing_status', 'live')
       .lt('updated_at', twentyMinAgo)
       .limit(20);
     if (error) throw error;
 
-    console.log('watchdog scan complete', JSON.stringify({ checked_at: new Date().toISOString(), stuck_count: stuck?.length ?? 0 }));
-    const decisions = await Promise.all((stuck ?? []).map(dispatchSupervisor));
+    const { data: stuckFast, error: fastErr } = await db
+      .from('ebooks_kids')
+      .select('id, title, pipeline_status, listing_status, updated_at')
+      .in('pipeline_status', IN_PROGRESS_BUILD)
+      .neq('listing_status', 'live')
+      .lt('updated_at', eightMinAgo)
+      .limit(20);
+    if (fastErr) throw fastErr;
+
+    const seen = new Set<string>();
+    const stuck = [...(stuckSlow ?? []), ...(stuckFast ?? [])].filter((r) => {
+      if (seen.has(r.id)) return false;
+      seen.add(r.id);
+      return true;
+    });
+
+    console.log('watchdog scan complete', JSON.stringify({ checked_at: new Date().toISOString(), stuck_slow: stuckSlow?.length ?? 0, stuck_fast: stuckFast?.length ?? 0, stuck_count: stuck.length }));
+    const decisions = await Promise.all(stuck.map(dispatchSupervisor));
     console.log('watchdog decisions summary', JSON.stringify({ n: decisions.length, decisions }));
 
     const { data: parentRuns, error: parentErr } = await db
