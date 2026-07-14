@@ -32,6 +32,7 @@ import {
 } from "../_shared/kids-interior.ts";
 import { hardenCharacterDescription } from "../_shared/character-anti-confusion.ts";
 import { runKidsVisionQcBatched } from "../_shared/kids-vision-qc.ts";
+import { loadSegments, segmentsToScenePlan } from "../_shared/kids-segments.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
