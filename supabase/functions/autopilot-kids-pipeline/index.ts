@@ -121,6 +121,23 @@ Deno.serve(async (req) => {
         };
       } catch (e) {
         const msg = String((e as Error)?.message ?? e);
+        // Not a failure — interior render is running asynchronously and will
+        // resume this run via force_finish when all pages exist.
+        if (msg.includes(INTERIOR_STAGED)) {
+          console.log(`step ${step.name} → interior render dispatched, pausing run`);
+          outcome = { status: 'in_progress', output: { staged: true, reason: 'interior render dispatched' } };
+          await supabase.from('autopilot_kids_steps').update({
+            status: 'in_progress',
+            completed_at: new Date().toISOString(),
+            duration_ms: Date.now() - stepStart,
+            output: outcome.output,
+          }).eq('id', stepRow!.id);
+          await supabase.from('autopilot_kids_runs').update({
+            status: 'waiting_for_interior',
+            blocker_reason: null,
+          }).eq('id', run_id);
+          return json({ ok: true, ebook_id: ctx.ebookId, status: 'waiting_for_interior', staged: true });
+        }
         console.error(`step ${step.name} unrecoverable`, msg);
         outcome = { status: 'failed', output: {}, error: msg };
         if (step.critical) criticalFailures.push(`${step.name}: ${msg}`);
@@ -163,6 +180,7 @@ Deno.serve(async (req) => {
 
       // Never break the loop for other steps — keep pushing forward. Later steps decide what to do given prior state.
     }
+
 
     const finalStatus = criticalFailures.length > 0 ? 'failed' : 'completed';
     const blocker = criticalFailures.length > 0
