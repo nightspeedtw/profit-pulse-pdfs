@@ -26,30 +26,44 @@ export async function preflightPdf(pdfUrl: string | null | undefined): Promise<R
     return findings;
   }
 
-  let bytes: Uint8Array;
+  // Fetch bytes with retries. Supabase signed URLs occasionally return a
+  // transient HTML error page (rate-limit / CDN miss) or content-type
+  // application/octet-stream — validate on the actual downloaded BYTES, never
+  // on the response content-type header.
+  let bytes = new Uint8Array();
   let contentType = "";
-  try {
-    const res = await fetch(pdfUrl);
-    contentType = res.headers.get("content-type") ?? "";
-    bytes = new Uint8Array(await res.arrayBuffer());
-  } catch (e) {
-    findings.push(critical("INVALID_PDF", "pdf_preflight", { fetch_error: String(e) }, { must: "downloadable" }, "regenerate_pdf"));
-    return findings;
+  let lastFetchErr = "";
+  let attempts = 0;
+  for (attempts = 1; attempts <= 4; attempts++) {
+    try {
+      const res = await fetch(pdfUrl, { headers: { Accept: "application/pdf,*/*" } });
+      contentType = res.headers.get("content-type") ?? "";
+      const buf = new Uint8Array(await res.arrayBuffer());
+      const magic = new TextDecoder().decode(buf.slice(0, 8));
+      if (magic.startsWith("%PDF-") && buf.length >= 2048) {
+        bytes = buf;
+        break;
+      }
+      lastFetchErr = `status=${res.status} content_type=${contentType} bytes=${buf.length} head=${magic.slice(0, 8)}`;
+      bytes = buf; // keep last for diagnostics
+    } catch (e) {
+      lastFetchErr = String((e as Error).message ?? e);
+    }
+    if (attempts < 4) await new Promise((r) => setTimeout(r, 500 * attempts));
   }
 
-  // 1. Magic header — the real, cheap test that catches HTML-uploaded-as-PDF.
-  const head = new TextDecoder().decode(bytes.slice(0, 8));
+  // 1. Magic header — bytes-based (never trust content-type).
+  const head = bytes.length > 0 ? new TextDecoder().decode(bytes.slice(0, 8)) : "";
   const isRealPdf = head.startsWith("%PDF-");
   if (!isRealPdf) {
     findings.push(critical(
       "FAKE_PDF_MIME_TYPE", "pdf_preflight",
-      { first_bytes: head, content_type: contentType, byte_size: bytes.length },
+      { first_bytes: head, content_type: contentType, byte_size: bytes.length, fetch_attempts: attempts, last_fetch_error: lastFetchErr },
       { must_start_with: "%PDF-" },
       "regenerate_pdf",
     ));
-    // Also flag as INVALID_PDF so downstream repair strategies can pick it up.
-    findings.push(critical("INVALID_PDF", "pdf_preflight", { first_bytes: head }, { must_start_with: "%PDF-" }, "rebuild_pdf_from_source"));
-    return findings; // no point parsing further
+    findings.push(critical("INVALID_PDF", "pdf_preflight", { first_bytes: head, fetch_attempts: attempts, last_fetch_error: lastFetchErr }, { must_start_with: "%PDF-" }, "rebuild_pdf_from_source"));
+    return findings;
   }
 
   // 2. Placeholder / "pending render" body detection.
