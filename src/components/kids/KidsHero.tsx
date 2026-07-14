@@ -124,16 +124,16 @@ export default function KidsHero({ covers = [], onStart }: Props) {
             className="mb-2 text-sm font-semibold text-amber-200/90"
             style={{ fontFamily: "'Mali', cursive" }}
           >
-            ✦ นิทานพรีเมียม 8.5 × 8.5 นิ้ว ✦
+            ✦ PREMIUM PICTURE BOOKS · 8.5 × 8.5" ✦
           </p>
           <h1
             className="text-[2.35rem] leading-[1.15] text-white md:text-6xl"
             style={{ fontFamily: "'Mali', cursive", fontWeight: 700 }}
           >
-            นิทานที่ลูกจะขอ<br />
+            Bedtime stories they'll<br />
             <span className="relative inline-block">
               <span className="bg-gradient-to-r from-amber-300 via-orange-300 to-pink-300 bg-clip-text text-transparent">
-                ให้อ่านซ้ำ
+                beg to re-read
               </span>
               <svg
                 className="absolute -bottom-2 left-0 w-full"
@@ -148,13 +148,13 @@ export default function KidsHero({ covers = [], onStart }: Props) {
                   </linearGradient>
                 </defs>
               </svg>
-            </span>{" "}ทุกคืน
+            </span>
           </h1>
           <p
             className="mx-auto mt-3 max-w-md text-[15px] text-white/85 md:text-lg"
             style={{ fontFamily: "'Baloo 2', sans-serif" }}
           >
-            เขียนเพื่อวัยของลูกโดยเฉพาะ · ภาพสีทั้งเล่ม · ดาวน์โหลดอ่านได้ทันที
+            Written for your child's exact age · Full-color throughout · Instant download
           </p>
         </div>
 
@@ -167,12 +167,12 @@ export default function KidsHero({ covers = [], onStart }: Props) {
             className="kh-anim w-full rounded-2xl bg-gradient-to-r from-amber-400 via-orange-400 to-rose-400 py-4 text-lg font-bold text-[#3a1d00] transition-transform hover:scale-[1.03] active:scale-95"
             style={{ animation: "kh-glow 2.6s ease-in-out infinite", fontFamily: "'Mali', cursive" }}
           >
-            หาหนังสือที่ใช่สำหรับลูกคุณ →
+            Find the perfect book for your child →
           </button>
           <div className="mt-3 flex items-center justify-center gap-x-4 text-[13px] text-white/85">
-            <span>✅ อ่านตัวอย่างฟรี</span>
-            <span>✅ ดาวน์โหลดทันที</span>
-            <span>✅ ภาพสีทั้งเล่ม</span>
+            <span>✅ Free preview</span>
+            <span>✅ Instant download</span>
+            <span>✅ Full color</span>
           </div>
         </div>
       </div>

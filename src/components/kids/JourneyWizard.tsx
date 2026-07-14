@@ -17,18 +17,18 @@ interface Props {
   onComplete: () => void;
 }
 
-const AUDIENCES: { key: "boy" | "girl" | "any"; label_th: string; label_en: string; emoji: string; grad: string }[] = [
-  { key: "boy",  label_th: "เด็กผู้ชาย",   label_en: "For a boy",  emoji: "👦", grad: "from-sky-400 to-indigo-500" },
-  { key: "girl", label_th: "เด็กผู้หญิง", label_en: "For a girl", emoji: "👧", grad: "from-pink-400 to-fuchsia-500" },
-  { key: "any",  label_th: "ทุกคน",         label_en: "For anyone", emoji: "🧒", grad: "from-amber-400 to-orange-500" },
+const AUDIENCES: { key: "boy" | "girl" | "any"; label: string; sub: string; emoji: string; grad: string }[] = [
+  { key: "boy",  label: "For a boy",   sub: "Boy-forward stories",   emoji: "👦", grad: "from-sky-400 to-indigo-500" },
+  { key: "girl", label: "For a girl",  sub: "Girl-forward stories",  emoji: "👧", grad: "from-pink-400 to-fuchsia-500" },
+  { key: "any",  label: "For anyone",  sub: "Works for any kid",     emoji: "🧒", grad: "from-amber-400 to-orange-500" },
 ];
 
 const AGE_BLURB: Record<string, string> = {
-  "0-3":  "หนังสือกระดาษหนา คำสั้น จังหวะร้องซ้ำ",
-  "4-6":  "นิทานภาพเต็มเล่ม เรื่องดีๆ ที่สอนแบบไม่บ่น",
-  "7-9":  "เรื่องยาวขึ้น คำใหม่ พัฒนาการอ่าน",
-  "9-12": "วรรณกรรมเยาวชน โลกที่ลึกขึ้น",
-  "13+":  "เรื่องราวสำหรับวัยรุ่น",
+  "0-3":  "Board-book feel · short words · sing-song rhythm",
+  "4-6":  "Full picture books · warm lessons, never preachy",
+  "7-9":  "Longer stories · new words · early chapter feel",
+  "9-12": "Middle-grade adventures · deeper worlds",
+  "13+":  "Stories for older readers",
 };
 
 export const JourneyWizard = ({ themes, ageGroups, value, onChange, onComplete }: Props) => {
@@ -59,7 +59,7 @@ export const JourneyWizard = ({ themes, ageGroups, value, onChange, onComplete }
             onClick={back}
             className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
           >
-            <ChevronLeft className="h-4 w-4" /> ย้อนกลับ
+            <ChevronLeft className="h-4 w-4" /> Back
           </button>
         )}
 
@@ -110,7 +110,7 @@ const StepTheme = ({
   onSelect: (slug: string) => void;
 }) => (
   <div className="animate-slide-in-right">
-    <StepHeading th="เลือกสิ่งที่อยากให้ลูกได้รับ" en="Pick the gift you want this book to give" step="1 / 3" />
+    <StepHeading title="Pick the gift you want this book to give" sub="Choose the developmental theme that matters most right now." step="1 / 3" />
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
       {themes.map((t) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -128,8 +128,7 @@ const StepTheme = ({
             <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-highlight text-accent group-hover:animate-wiggle">
               <Icon className="h-6 w-6" />
             </div>
-            <p className="font-display text-base md:text-lg leading-tight">{t.label_th}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{t.label_en}</p>
+            <p className="font-display text-base md:text-lg leading-tight">{t.label_en || t.label_th}</p>
             {active && <Check className="absolute top-3 right-3 h-4 w-4 text-accent" />}
           </button>
         );
@@ -144,8 +143,8 @@ const StepTheme = ({
         <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
           <Icons.Shuffle className="h-6 w-6" />
         </div>
-        <p className="font-display text-base md:text-lg leading-tight">เลือกให้หน่อย</p>
-        <p className="text-xs text-muted-foreground mt-0.5">Surprise me</p>
+        <p className="font-display text-base md:text-lg leading-tight">Surprise me</p>
+        <p className="text-xs text-muted-foreground mt-0.5">Show me everything</p>
       </button>
     </div>
   </div>
@@ -160,7 +159,7 @@ const StepAudience = ({
   onSelect: (a: "boy" | "girl" | "any") => void;
 }) => (
   <div className="animate-slide-in-right">
-    <StepHeading th="หนังสือเล่มนี้สำหรับใคร" en="Who is this book for?" step="2 / 3" />
+    <StepHeading title="Who is this book for?" sub="We'll match the hero of the story to the reader." step="2 / 3" />
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
       {AUDIENCES.map((a) => {
         const active = selected === a.key;
@@ -174,8 +173,8 @@ const StepAudience = ({
             }`}
           >
             <div className="text-5xl mb-3 group-hover:animate-wiggle">{a.emoji}</div>
-            <p className="font-display text-xl leading-tight">{a.label_th}</p>
-            <p className="text-xs opacity-90 mt-1">{a.label_en}</p>
+            <p className="font-display text-xl leading-tight">{a.label}</p>
+            <p className="text-xs opacity-90 mt-1">{a.sub}</p>
             {active && <Check className="absolute top-3 right-3 h-5 w-5 text-white" />}
           </button>
         );
@@ -195,10 +194,11 @@ const StepAge = ({
   onSelect: (slug: string) => void;
 }) => (
   <div className="animate-slide-in-right">
-    <StepHeading th="อายุเท่าไหร่" en="How old is your child?" step="3 / 3" />
+    <StepHeading title="How old is your child?" sub="Every book is written for the exact age band." step="3 / 3" />
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
       {groups.map((g) => {
         const active = selected === g.slug;
+        const ageLabel = g.label_en?.split("·")[1]?.trim() ?? `Ages ${g.slug}`;
         return (
           <button
             key={g.slug}
@@ -209,9 +209,9 @@ const StepAge = ({
             }`}
           >
             <p className="font-display text-2xl leading-none">{g.slug}</p>
-            <p className="text-xs uppercase tracking-widest text-accent mt-1">{g.label_en.split("·")[1]?.trim() ?? ""}</p>
+            <p className="text-xs uppercase tracking-widest text-accent mt-1">{ageLabel}</p>
             <p className="text-sm text-muted-foreground mt-2 leading-snug">
-              {AGE_BLURB[g.slug] ?? g.label_th}
+              {AGE_BLURB[g.slug] ?? g.label_en ?? ""}
             </p>
           </button>
         );
@@ -220,10 +220,10 @@ const StepAge = ({
   </div>
 );
 
-const StepHeading = ({ th, en, step }: { th: string; en: string; step: string }) => (
+const StepHeading = ({ title, sub, step }: { title: string; sub: string; step: string }) => (
   <div className="text-center mb-6">
     <p className="font-mono uppercase tracking-widest text-xs text-accent mb-2">[ Step {step} ]</p>
-    <h2 className="font-display text-3xl md:text-4xl leading-tight">{th}</h2>
-    <p className="text-sm text-muted-foreground mt-1">{en}</p>
+    <h2 className="font-display text-3xl md:text-4xl leading-tight">{title}</h2>
+    <p className="text-sm text-muted-foreground mt-1">{sub}</p>
   </div>
 );
