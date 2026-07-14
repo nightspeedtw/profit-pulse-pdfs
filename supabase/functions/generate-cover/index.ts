@@ -10,8 +10,9 @@ import {
   getOrBuildKidsVisualBible,
   kidsIllustrationPrompt,
 } from "../_shared/kids-visual-bible.ts";
-import { buildKidsCoverSVG, buildKidsCoverSVGWithMetrics, rasterizeKidsSVG } from "../_shared/covers/kids-cover-render.ts";
+import { buildKidsCoverSVG, buildKidsCoverSVGWithMetrics, buildKidsCoverSVGLetteringOnly, rasterizeKidsSVG } from "../_shared/covers/kids-cover-render.ts";
 import { buildKidsCoverQc } from "../_shared/qc/kids-cover-qc.ts";
+import { qcCoverLettering } from "../_shared/qc/kids-cover-lettering-qc.ts";
 
 /** How many lines the kids title will wrap to — mirrors the SVG builder's rule. */
 function wrapKidsTitle(title: string): number {
