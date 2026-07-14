@@ -84,12 +84,41 @@ async function persistJob(db: any, ebook_id: string, scorecardIn: Record<string,
   return next;
 }
 
-async function selfChain(ebook_id: string, publish: boolean) {
-  await fetch(`${SUPABASE_URL}/functions/v1/kids-build-picture-pdf`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-    body: JSON.stringify({ ebook_id, stage: 'resume', publish }),
-  });
+// Double-tap self-chain: fire → wait 5s → if child didn't ack, fire again.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function selfChainDoubleTap(db: any, ebook_id: string, publish: boolean, scorecardIn: Record<string, unknown>) {
+  const dispatchedAt = new Date().toISOString();
+  const dispatchOnce = async () => {
+    try {
+      await fetch(`${SUPABASE_URL}/functions/v1/kids-build-picture-pdf`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+        body: JSON.stringify({ ebook_id, stage: 'resume', publish, dispatched_at: dispatchedAt }),
+      });
+    } catch (e) {
+      console.error('selfChain dispatch failed', (e as Error).message);
+    }
+  };
+  const task = (async () => {
+    await persistJob(db, ebook_id, scorecardIn, { next_dispatched_at: dispatchedAt });
+    await dispatchOnce();
+    await new Promise((r) => setTimeout(r, 5000));
+    try {
+      const { data } = await db.from('ebooks_kids').select('qc_scorecard').eq('id', ebook_id).single();
+      const qc = (data?.qc_scorecard ?? {}) as Record<string, unknown>;
+      const job = (((qc.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job as Record<string, unknown> | undefined) ?? {});
+      const acked = (job.acked_at as string | undefined) ?? '';
+      if (!acked || acked < dispatchedAt) {
+        console.warn(`[build-picture-pdf] chain ack missing after 5s (acked=${acked}); double-tapping ebook=${ebook_id}`);
+        await dispatchOnce();
+      }
+    } catch (e) {
+      console.warn('selfChain ack check failed', (e as Error).message);
+    }
+  })();
+  // deno-lint-ignore no-explicit-any
+  const rt = (globalThis as any).EdgeRuntime;
+  if (rt?.waitUntil) rt.waitUntil(task); else void task;
 }
 
 async function chainQcAndPublish(ebook_id: string, publish: boolean) {
