@@ -53,10 +53,6 @@ async function callGemini(prompt: string, system: string): Promise<string> {
   return (j.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
 }
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 export interface BuildScenePlanOpts {
   title: string;
