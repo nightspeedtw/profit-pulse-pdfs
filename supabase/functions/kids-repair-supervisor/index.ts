@@ -572,10 +572,12 @@ Deno.serve(async (req) => {
     const perClass = countAttempts(meta, klass);
     const max = MAX_PER_CLASS[klass] ?? 1;
     if (perClass >= max) {
-      // PAID-STALL RULE: content-quality gates (klass === 'cover') MAY retire
-      // even with completed interiors. Every other class must free-resume the
-      // build — stall ≠ quality failure.
-      if (hasPaidStall && klass !== 'cover') {
+      // PAID-STALL RULE: content-quality gates (klass === 'cover' or
+      // 'dead_interior_page') MAY retire even with completed interiors, because
+      // a persistently dead page IS a quality failure, not an infra stall.
+      // Every other class must free-resume the build — stall ≠ quality failure.
+      const contentQualityClass = klass === 'cover' || klass === 'dead_interior_page';
+      if (hasPaidStall && !contentQualityClass) {
         return await forceResumePaidStall(`class_budget_exhausted:${klass}`);
       }
       // Exhausted for this class — shelve.
