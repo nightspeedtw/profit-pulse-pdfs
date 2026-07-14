@@ -286,6 +286,9 @@ ${SCHEMA_HINT}`;
   }
 
 
+  const rereadEvidence = (parsed.reread_evidence ?? undefined) as StoryReport["reread_evidence"];
+  const parentEvidence = (parsed.parent_buyer_evidence ?? undefined) as StoryReport["parent_buyer_evidence"];
+
   const report: StoryReport = {
     age_appropriateness_score: num(parsed.age_appropriateness_score),
     story_coherence_score: num(parsed.story_coherence_score),
@@ -303,9 +306,19 @@ ${SCHEMA_HINT}`;
     story_qc_passed: false,
     evidence: Array.isArray(parsed.evidence) ? (parsed.evidence as StoryReport["evidence"]) : [],
     generic_risk_analysis: (parsed.generic_risk_analysis ?? undefined) as StoryReport["generic_risk_analysis"],
+    reread_evidence: rereadEvidence,
+    parent_buyer_evidence: parentEvidence,
+    score_adjustments: [],
     judge_version: JUDGE_VERSION,
     computed_at: new Date().toISOString(),
   };
+
+  // Deterministic post-judge verifier — cancels the LLM's "vibes 80" default in
+  // both directions. If the judge claims a high score but the evidence isn't
+  // actually in the manuscript, cap it. If the evidence IS there but the judge
+  // was stingy, floor it. This gives the skill-learner a real signal.
+  applyDeterministicScoreCalibration(report, opts.manuscript_md);
+
   report.story_qc_passed =
     report.age_appropriateness_score >= 90 &&
     report.story_coherence_score >= 90 &&
@@ -315,6 +328,87 @@ ${SCHEMA_HINT}`;
     report.parent_buyer_value_score >= 85 &&
     report.generic_story_risk_score <= 25;
   return report;
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic score calibration
+// ---------------------------------------------------------------------------
+// LLM judges cluster around 80 on subjective dimensions (reread_value,
+// parent_buyer_value). To break that anchor bias we verify the evidence the
+// judge itself provided against the actual manuscript text, then cap or floor
+// the score. All adjustments are recorded in report.score_adjustments.
+
+function countOccurrences(haystack: string, needle: string): number {
+  if (!needle) return 0;
+  const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  const h = norm(haystack);
+  const n = norm(needle);
+  if (n.length < 3) return 0;
+  let count = 0;
+  let idx = 0;
+  while ((idx = h.indexOf(n, idx)) !== -1) { count++; idx += n.length; }
+  return count;
+}
+
+function applyDeterministicScoreCalibration(report: StoryReport, manuscript: string): void {
+  const adj: NonNullable<StoryReport["score_adjustments"]> = report.score_adjustments ?? [];
+
+  // ---- reread_value ----
+  const re = report.reread_evidence;
+  let refrainCount = 0;
+  let participationHits = 0;
+  let hasHiddenThread = false;
+  let hasCallback = false;
+  if (re) {
+    refrainCount = re.refrain_text ? countOccurrences(manuscript, re.refrain_text) : 0;
+    participationHits = (re.participation_beats ?? []).filter(p => countOccurrences(manuscript, p) > 0).length;
+    hasHiddenThread = !!(re.hidden_thread && re.hidden_thread.trim().length > 3);
+    hasCallback = !!re.callback_ending;
+  }
+  // Criteria for a genuine 90+.
+  const meets90 = refrainCount >= 3 && participationHits >= 2 && hasHiddenThread && hasCallback;
+  // Criteria for a genuine 85+.
+  const meets85 = refrainCount >= 2 && participationHits >= 1;
+
+  const rerBefore = report.reread_value_score;
+  if (rerBefore >= 90 && !meets90) {
+    const capped = meets85 ? 85 : 78;
+    report.reread_value_score = capped;
+    adj.push({ dimension: 'reread_value', from: rerBefore, to: capped, reason: `judge_cap: refrain_count=${refrainCount} participation=${participationHits} hidden=${hasHiddenThread} callback=${hasCallback}` });
+  } else if (rerBefore >= 85 && rerBefore < 90 && !meets85) {
+    report.reread_value_score = 78;
+    adj.push({ dimension: 'reread_value', from: rerBefore, to: 78, reason: `judge_cap: refrain_count=${refrainCount} participation=${participationHits}` });
+  } else if (rerBefore < 85 && meets85) {
+    // Judge was stingy but the evidence is real. Floor at 85 (or 90 if all criteria met).
+    const floored = meets90 ? 90 : 85;
+    report.reread_value_score = floored;
+    adj.push({ dimension: 'reread_value', from: rerBefore, to: floored, reason: `evidence_floor: refrain_count=${refrainCount} participation=${participationHits} hidden=${hasHiddenThread} callback=${hasCallback}` });
+  }
+
+  // ---- parent_buyer_value ----
+  const pe = report.parent_buyer_evidence;
+  const themeLen = pe?.developmental_theme_one_liner?.trim().length ?? 0;
+  const shown = !!pe?.lesson_is_shown_not_told;
+  const agency = !!pe?.child_has_agency;
+  const moralizes = (pe?.moralizing_lines ?? []).some(l => l && l.trim().length > 0);
+  const parentMeets90 = themeLen >= 20 && shown && agency && !moralizes;
+  const parentMeets85 = themeLen >= 10 && (shown || agency) && !moralizes;
+
+  const pbBefore = report.parent_buyer_value_score;
+  if (pbBefore >= 90 && !parentMeets90) {
+    const capped = parentMeets85 ? 85 : 78;
+    report.parent_buyer_value_score = capped;
+    adj.push({ dimension: 'parent_buyer_value', from: pbBefore, to: capped, reason: `judge_cap: theme_len=${themeLen} shown=${shown} agency=${agency} moralizes=${moralizes}` });
+  } else if (pbBefore >= 85 && pbBefore < 90 && !parentMeets85) {
+    report.parent_buyer_value_score = 78;
+    adj.push({ dimension: 'parent_buyer_value', from: pbBefore, to: 78, reason: `judge_cap: theme_len=${themeLen} shown=${shown} agency=${agency} moralizes=${moralizes}` });
+  } else if (pbBefore < 85 && parentMeets85) {
+    const floored = parentMeets90 ? 90 : 85;
+    report.parent_buyer_value_score = floored;
+    adj.push({ dimension: 'parent_buyer_value', from: pbBefore, to: floored, reason: `evidence_floor: theme_len=${themeLen} shown=${shown} agency=${agency}` });
+  }
+
+  report.score_adjustments = adj;
 }
 
 export function storyReportToFindings(s: StoryReport): RawFinding[] {
