@@ -43,14 +43,14 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
       <Link
         to={`/product/${book.id}`}
         aria-label={`ดูรายละเอียด ${book.title}`}
-        className="relative aspect-square bg-muted overflow-hidden block cursor-pointer"
+        className="relative aspect-[4/5] bg-muted overflow-hidden block cursor-pointer"
       >
         {book.cover_url ? (
           <img
             src={book.cover_url}
             alt={book.title}
             loading="lazy"
-            className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500"
+            className="w-full h-full object-contain group-hover:scale-[1.03] transition-transform duration-500"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
