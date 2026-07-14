@@ -209,7 +209,14 @@ Deno.serve(async (req) => {
             caption: typeof v.caption === "string" ? v.caption : null,
           }));
       }
-      const { inside_illustrations_json, ...rest } = row;
+      // Kids fallback rows carry `_kids_preview_spreads` etc — prefer those
+      // over the adult inside_illustrations_json path.
+      if (Array.isArray(row._kids_preview_spreads)) {
+        preview_spreads = row._kids_preview_spreads;
+        preview_images = row._kids_preview_spreads.map((s: any) => s.image_url).filter(Boolean);
+        total_spreads = row._kids_total_spreads ?? preview_spreads.length;
+      }
+      const { inside_illustrations_json, _kids_preview_spreads, _kids_total_spreads, _kids_read_aloud_minutes, _kids_ad_promise, ...rest } = row;
       return {
         ...rest,
         preview_images,
@@ -217,6 +224,8 @@ Deno.serve(async (req) => {
         total_spreads,
         age_group_slugs: ageBy[row.id] ?? [],
         theme_slugs: themeBy[row.id] ?? [],
+        read_aloud_minutes: _kids_read_aloud_minutes ?? null,
+        ad_promise: _kids_ad_promise ?? null,
       };
     });
     return new Response(JSON.stringify({ items }), {
