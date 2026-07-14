@@ -576,6 +576,7 @@ export type Database = {
           input_tokens: number
           model: string
           output_tokens: number
+          provider: string | null
           step: string
         }
         Insert: {
@@ -587,6 +588,7 @@ export type Database = {
           input_tokens?: number
           model: string
           output_tokens?: number
+          provider?: string | null
           step: string
         }
         Update: {
@@ -598,6 +600,7 @@ export type Database = {
           input_tokens?: number
           model?: string
           output_tokens?: number
+          provider?: string | null
           step?: string
         }
         Relationships: [
