@@ -106,12 +106,12 @@ Return: {"spreads":[{"spread_number":1,"scene_title":"","story_text":"","scene_s
 
     await logCost(db, { ebook_id, step: "kids_manuscript_rewrite", model: ai.model, ...ai.usage });
 
-    const spreads = (ai.data.spreads ?? []).slice(0, 14);
-    if (spreads.length < 14) {
-      return json({ error: `AI returned only ${spreads.length} spreads (need 14)`, raw: ai.data }, 502);
+    const spreads = (ai.data.spreads ?? []).slice(0, 36);
+    if (spreads.length < 24) {
+      return json({ error: `AI returned only ${spreads.length} spreads (need at least 24, target 28)`, raw: ai.data }, 502);
     }
 
-    // Reset ebook_chapters with 14 rows, one per spread.
+    // Reset ebook_chapters with one row per spread.
     const { error: delErr } = await db.from("ebook_chapters").delete().eq("ebook_id", ebook_id);
     if (delErr) throw delErr;
 
@@ -134,9 +134,10 @@ Return: {"spreads":[{"spread_number":1,"scene_title":"","story_text":"","scene_s
 
     // Persist structured page plan for the illustrator and future QC.
     const pagePlan: Record<string, unknown> = {
-      version: 2,
-      total_spreads: 14,
-      total_pages: 32,
+      version: 3,
+      total_spreads: spreads.length,
+      total_pages: spreads.length + 4, // cover + title + copyright + N + end
+      format: 'square_8.5x8.5',
       spreads,
     };
     await db.from("ebooks").update({
