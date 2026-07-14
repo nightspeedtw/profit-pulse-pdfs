@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
 
     const skillBlock = await loadStoryCraftBlock(db, age_band ?? '4-6');
 
-    const manuscript = String(e.manuscript_md ?? '').slice(0, 8000);
+    const manuscript = String(e.manuscript_md ?? '').slice(0, 3500);
     const pages = Number(e.page_count ?? 32);
     const readAloudMin = Math.max(4, Math.min(12, Math.round(pages * 0.4)));
     const priceUsd = (Number(e.price_cents ?? 799) / 100).toFixed(2);
