@@ -516,6 +516,12 @@ Deno.serve(async (req) => {
       }
       const currentStatus = String(ebook.pipeline_status ?? 'unknown');
       const isTerminal = ['live', 'published', 'retired', 'exhausted', 'shelved'].includes(currentStatus);
+      // PAID-STALL RULE: never retire an in-flight build that has completed
+      // paid interiors. Force-resume forever; content-quality gates are the
+      // only allowed retire trigger.
+      if (hasPaidStall) {
+        return await forceResumePaidStall(`unrecognized_stall_in_${currentStatus}`);
+      }
       if (consecUnknown >= 2 || isTerminal) {
         // NO SILENT DEAD-ENDS: retire with a clear reason so the parent
         // one-click loop rotates to a fresh concept.
