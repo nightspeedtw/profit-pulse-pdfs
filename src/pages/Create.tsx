@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 import { listThemes, type KidsTheme } from "@/lib/kidsTaxonomy";
 import { fetchStorefront, type StorefrontEbook } from "@/lib/storefront";
-import heroImg from "/site-assets/create-hero.jpg";
+const heroImg = "/site-assets/create-hero.jpg";
 
 const AGE_BANDS = [
   { value: "0-3", label: "0–3 years" },
