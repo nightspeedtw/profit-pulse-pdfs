@@ -118,6 +118,7 @@ export interface RunKidsVisionOpts {
   styleBible: Record<string, unknown> | null;
   characterBible: Record<string, unknown> | null;
   concurrency?: number;
+  ebook_id?: string;
 }
 
 export async function runKidsVisionQc(opts: RunKidsVisionOpts): Promise<VisionReport> {
@@ -140,6 +141,7 @@ export async function runKidsVisionQc(opts: RunKidsVisionOpts): Promise<VisionRe
           PAGE_SYSTEM,
           `${styleSummary}\n${charSummary}\nRequested scene for this page: ${p.scene ?? "(unspecified)"}\n\n${PAGE_SCHEMA_HINT}`,
           [opts.coverUrl, p.url],
+          { ebook_id: opts.ebook_id, step: "kids_vision_qc_page" },
         );
         pages.push({
           page_number: p.page_number,
