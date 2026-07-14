@@ -321,6 +321,40 @@ Deno.serve(async (req) => {
     const totalAttempts = allEntries.filter(e => !FREE_CLASSES.has(e.blocker_class)).length;
     const stage_before = latestFailedStep?.step_name ?? String(ebook.pipeline_status ?? 'unknown');
 
+    // ---- PAID-STALL RESCUE (absolute rule) ----
+    // A book in pdf_building / illustrating with COMPLETED PAID INTERIORS
+    // (≥12) may NEVER be retired for a stall. Stalls are infrastructure, not
+    // content-quality failures — 28 verified illustrations must never be
+    // thrown away because a chain dropped its heartbeat. Free-resume instead,
+    // regardless of budget / attempt counters.
+    const paidStallStatus = String(ebook.pipeline_status ?? '');
+    const paidStallInteriors = Array.isArray(ebook.interior_illustrations)
+      ? (ebook.interior_illustrations as unknown[]).length
+      : 0;
+    const hasPaidStall = (paidStallStatus === 'pdf_building' || paidStallStatus === 'illustrating')
+      && !ebook.pdf_url
+      && paidStallInteriors >= 12;
+    async function forceResumePaidStall(currentBlocker: string): Promise<Response> {
+      const target = paidStallStatus === 'illustrating' ? 'kids-render-interior' : 'kids-build-picture-pdf';
+      const payload = target === 'kids-build-picture-pdf'
+        ? { ebook_id, publish: true, stage: 'resume' }
+        : { ebook_id };
+      const r = await invoke(target, payload);
+      const t = await r.text().catch(() => '');
+      await appendLog(db, ebook_id, {
+        attempt: totalAttempts + 1,
+        current_blocker: `paid_stall_rescue:${currentBlocker}`,
+        blocker_class: target === 'kids-build-picture-pdf' ? 'resume_pdf' : 'resume_interior',
+        repair_handler: `${target} (paid_stall_rescue)`,
+        stage_before, stage_after: paidStallStatus,
+        result: 'no_op',
+        detail: { paid_stall: true, interiors: paidStallInteriors, dispatch_status: r.status, body: t.slice(0, 240) },
+        updated_at: new Date().toISOString(),
+      });
+      return json({ ok: true, result: 'resumed', kind: 'paid_stall_rescue', target, interiors: paidStallInteriors });
+    }
+
+
     // ---- CONVERGENCE GUARD ----
     // If two most-recent QC reports (final_quality_score) for this ebook are
     // within ±2 AND at least 2 non-free repair rounds have already run, the
