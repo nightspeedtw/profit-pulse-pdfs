@@ -191,10 +191,13 @@ function makeWriter(db: ReturnType<typeof createClient>, ebookId: string, total:
         arr.sort((a, b) => a.index - b.index);
         const qc = (cur?.qc_scorecard ?? {}) as Record<string, unknown>;
         const interior_build = { done: arr.length, total, updated_at: new Date().toISOString() };
+        // Gate 3: set the book's style anchor from the first written page. All
+        // future pages must match this fingerprint or they get regenerated.
+        const anchor = (qc.style_anchor_fingerprint as string | undefined) ?? rec.style_fingerprint ?? null;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (db.from("ebooks_kids") as any).update({
           interior_illustrations: arr,
-          qc_scorecard: { ...qc, interior_build },
+          qc_scorecard: { ...qc, interior_build, style_anchor_fingerprint: anchor },
         }).eq("id", ebookId);
       } catch (e) {
         console.error("writeRecord failed page", rec.index, (e as Error).message);

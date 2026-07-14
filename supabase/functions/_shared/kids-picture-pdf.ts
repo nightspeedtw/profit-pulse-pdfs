@@ -220,6 +220,9 @@ export async function finalizePicturePdf(existing: Uint8Array): Promise<Uint8Arr
 }
 
 // Split a manuscript into N caption blocks (paragraph-based grouping).
+// IMPORTANT: returns "" for pages with no manuscript text — callers must
+// treat empty captions as a hard failure (Gate 4). Never emit a "Page N"
+// placeholder here; that produced the "Page 28" bug in Detective Pip.
 export function splitManuscriptForSpreads(md: string, n: number): string[] {
   const paras = md.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
   if (paras.length === 0) return Array(n).fill("");
@@ -227,7 +230,7 @@ export function splitManuscriptForSpreads(md: string, n: number): string[] {
   const out: string[] = [];
   for (let i = 0; i < n; i++) {
     const chunk = paras.slice(i * chunkSize, (i + 1) * chunkSize).join(" ");
-    out.push(chunk || `Page ${i + 1}`);
+    out.push(chunk);
   }
   return out;
 }

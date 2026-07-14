@@ -28,11 +28,21 @@ export interface SceneRecord {
   model: string;
   bytes: number;
   hash: string;
+  style_fingerprint: string; // Gate 3: one-style-per-book enforcement
 }
 
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function sha1HexStr(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function styleFingerprintFor(model: string, characterDescription: string, styleSuffix: string): Promise<string> {
+  return (await sha1HexStr(`${model}|${characterDescription}|${styleSuffix}`)).slice(0, 16);
 }
 
 
@@ -223,9 +233,10 @@ export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Pro
     const s = opts.scenes[i];
     const path = versionedKidsInteriorPath(opts.ebookId, i);
     const signed = await uploadAndSignImage(opts.db, "ebook-covers", path, bytes);
+    const style_fingerprint = await styleFingerprintFor(model, opts.characterDescription, opts.styleSuffix);
     records[i] = {
       index: i + 1, page_number: opts.startPageNumber + i, scene: s.scene,
-      prompt, url: signed.signedUrl, path, model, bytes: bytes.length, hash,
+      prompt, url: signed.signedUrl, path, model, bytes: bytes.length, hash, style_fingerprint,
     };
   }
 
@@ -316,6 +327,7 @@ export async function renderAndUploadOne(o: RenderOneOpts): Promise<SceneRecord>
   const hash = await sha256Hex(out.bytes);
   const path = versionedKidsInteriorPath(o.ebookId, o.sceneIndex);
   const signed = await uploadAndSignImage(o.db, "ebook-covers", path, out.bytes);
+  const style_fingerprint = await styleFingerprintFor(out.model, o.characterDescription, o.styleSuffix);
 
   return {
     index: o.sceneIndex + 1,
@@ -327,6 +339,7 @@ export async function renderAndUploadOne(o: RenderOneOpts): Promise<SceneRecord>
     model: out.model,
     bytes: out.bytes.length,
     hash,
+    style_fingerprint,
   };
 }
 

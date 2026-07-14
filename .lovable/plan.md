@@ -1,71 +1,94 @@
 
-## เป้าหมาย
-ให้การ์ดหนังสือใน /kids ดูเหมือนภาพอ้างอิง (Barnaby's Wobbly Problem) — พรีเมียม โปร่ง อ่านง่าย ราคาชัด ปุ่มซื้อชัด
+# Kids Pipeline Hardening — 6 Gates + Repair + Acceptance Run
 
-## จุดที่แก้
-1. **`src/components/kids/MatchedResults.tsx`** — การ์ดในกริด "เล่มที่แนะนำ"
-2. **`src/components/kids/SocialProofStrip.tsx`** — แถบ "ตัวอย่างจากเล่มจริง" (เปลี่ยนจากรูปปกเปล่าเป็นการ์ดย่อทรงเดียวกัน)
+The 5 defects the owner found in Detective Pip (old cover in PDF, solid-black page, 3 mixed art styles, "Page 28" caption, cover/story mismatch) are all symptoms of missing enforcement in the assembly and QC stages. This plan installs each gate as code, then uses those gates to either honestly republish or retire dc037de5, then runs one clean end-to-end build as the acceptance test.
 
-## ดีไซน์การ์ดใหม่ (ทั้งสองที่ใช้คอมโพเนนต์เดียวกัน)
-สร้างคอมโพเนนต์ใหม่ `src/components/kids/KidsBookCard.tsx` เพื่อไม่ให้ซ้ำ:
+---
 
-```text
-┌────────────────────────────────────┐
-│ [THEME-CHIP]           ┌ $10.99 ┐  │
-│                        └────────┘  │
-│                                    │
-│         [  ปกเต็ม object-cover  ]  │
-│           (aspect-square)          │
-│                                    │
-├────────────────────────────────────┤
-│ TITLE IN DISPLAY CAPS              │
-│ tagline หนึ่งบรรทัด (muted)         │
-│                                    │
-│ 32 illustrated pages               │
-│ Original character                 │
-│                                    │
-│ ┌──────────────────────────────┐   │
-│ │        BUY · $10.99          │   │
-│ └──────────────────────────────┘   │
-└────────────────────────────────────┘
-```
+## Part A — Install the 6 gates
 
-รายละเอียด:
-- กรอบการ์ด `rounded-2xl border-2 border-border bg-card`, hover `-translate-y-1 shadow-brand`
-- **Theme chip** (มุมบนซ้าย): pill สี `bg-accent/15 text-accent` ตัวหนังสือ `font-mono uppercase tracking-widest text-[10px]`; label มาจาก theme หลักของเล่ม (theme_ids[0] → lookup ใน themes prop → `label_th` หรือ slug uppercase)
-- **Price badge** (มุมบนขวา): กรอบสี่เหลี่ยม `border-2 border-foreground bg-background px-2 py-1 rounded-md font-display`, แสดง `$X.XX` (`price_cents/100`)
-- **Cover**: `aspect-square object-cover` เต็มขอบ (ไม่ crop สูงเกิน), fallback เดิม
-- **Body**: 
-  - Title: `font-display uppercase text-base md:text-lg tracking-tight`
-  - Tagline: `text-sm text-muted-foreground line-clamp-2` — จาก `storefront_meta.conversion_copy.short_hook` (fallback `selling_hook`)
-  - Meta 2 บรรทัด: `text-xs text-muted-foreground` — บรรทัด 1 `32 illustrated pages` (คงที่, ทุกเล่ม 32 หน้า), บรรทัด 2 `Original character`
-  - ปุ่ม BUY: `w-full py-3 rounded-md bg-foreground text-background font-display tracking-wide` → link ไป `/kids/checkout/:id` แสดง `BUY · $X.XX`
-- ทั้งการ์ด (ยกเว้นปุ่ม BUY) คลิกไป `/product/:id` เหมือนเดิม; hover overlay "ดูตัวอย่างข้างใน" ยังใช้ได้ในกริด (ซ่อนใน strip)
+### Gate 1: COVER SPLICE (in `kids-build-picture-pdf`)
+- Right before PDF assembly, re-fetch `ebooks_kids.cover_url` (the versioned URL) and download bytes.
+- Assert bytes exist, `content-type` starts with `image/`, `content-length > 30 KB`, and image is non-monochrome (reuse Gate 2 luminance check).
+- Always render this cover as page 1. Never trust a cached page 1.
+- After every `kids-repair-cover` success, enqueue `kids-build-picture-pdf` automatically so an existing PDF is rebuilt with the new cover (the current bug: cover was updated, PDF was not).
 
-## การเปลี่ยนแปลงต่อไฟล์
+### Gate 2: BLACK/BLANK PAGE GATE (deterministic)
+- New shared helper `_shared/image-luminance.ts`: decode PNG/JPEG (use `npm:sharp` or the existing decoder in the project), compute mean luminance and variance on a downsampled 64×64 grid.
+- Reject when `variance < 200` OR (`mean < 12` (near-black)) OR (`mean > 243` (near-white)) OR (`variance < 400 AND |mean-128| < 8` (flat gray)).
+- Applied in two places:
+  1. `kids-render-interior` — after each page render; failure → immediate re-render (max 2 retries), then mark the page for supervisor repair.
+  2. `kids-build-picture-pdf` — rasterize each page of the final PDF (via pdfium/pdf.js already used in the project, or re-check the source PNGs which are the same bytes) and hard-fail assembly on any dead page.
 
-### `src/components/kids/KidsBookCard.tsx` (ใหม่)
-- Props: `{ book, themes, variant: "grid" | "strip", onPreview? }`
-- คืน markup ตามดีไซน์บน; `variant="strip"` ตัด hover-preview overlay ออกและใช้ความกว้างคงที่ `w-56 md:w-64` (สำหรับสไลด์แนวนอน)
+### Gate 3: ONE-STYLE-PER-BOOK
+- Migration: add `style_fingerprint TEXT` to whatever table stores per-page interiors (likely `ebook_assets` for kids, or `ebooks_kids.interior_manifest jsonb`). Also add `style_anchor_fingerprint TEXT` to `ebooks_kids`.
+- Fingerprint = `sha1(style_bible_id || ':' || model_id || ':' || style_preset_id)`.
+- On page write, store fingerprint. On `kids-repair-supervisor` / RESUME: any page whose fingerprint ≠ book's `style_anchor_fingerprint` is regenerated, not reused.
+- The anchor is set once at first successful render and is what the cover matches.
 
-### `MatchedResults.tsx`
-- ลบ inline `BookCard`, ใช้ `<KidsBookCard book=… themes=… variant="grid" onPreview=…/>`
-- ยังส่ง `themes` prop ที่มีอยู่แล้ว
+### Gate 4: TEXT-TO-PAGE MAPPING GATE (in `kids-build-picture-pdf`)
+- Load the current `manuscript_md` and split to `pages[]` using the same splitter the writer uses.
+- For every page in the interior manifest, assert `page.caption_text.trim() === manuscript.pages[page.index].text.trim()`.
+- Regex-detect placeholders: `/^Page\s+\d+\s*$/i`, empty strings, lorem-ipsum → hard fail.
+- On fail: repair the single page's text and rebuild that page only.
 
-### `SocialProofStrip.tsx`
-- เพิ่ม prop `themes: KidsTheme[]` (Kids.tsx ส่งเข้าไป — มีอยู่แล้วในหน้า)
-- `SampleBook` เพิ่มฟิลด์ที่ต้องใช้: `price_cents`, `theme_ids`, `storefront_meta` (ต้อง select เพิ่มใน Kids.tsx)
-- แทนแถวรูปสี่เหลี่ยมด้วย `<KidsBookCard variant="strip" …>` ในสไลด์แนวนอน
+### Gate 5: QC ON RENDERED PDF (in `kids-qc-run`)
+- Change source of truth from per-page interior PNGs to rasterized pages of `pdf_url`.
+- Rasterize with pdfium (already a dep) at 150 dpi and feed those images to the vision judge.
+- Add hard scorecard deductions that cap score:
+  - Any dead page (Gate 2) → cap 30.
+  - Any style mismatch (Gate 3) → cap 40.
+  - Any text mismatch (Gate 4) → cap 40.
+  - Cover art missing character or lettering illegible → cap 50.
+- Investigate: run `kids-qc-run` history for dc037de5 and log which checks returned pass; write the diagnosis into `pipeline_skills` as `qc_lessons/detective-pip-100` so the skill-learner remembers.
 
-### `src/pages/Kids.tsx`
-- ใน query ที่ดึง sampleBooks ให้เพิ่ม `price_cents, theme_ids, storefront_meta` (แค่ปรับ `.select(...)`), ส่ง `themes` เข้า `<SocialProofStrip/>`
+### Gate 6: COVER-INTERIOR STORY MATCH
+- In the cover generation path (`generate-cover` / kids branch inside `kids-repair-cover`), require inputs to come from `ebooks_kids.manuscript_md` (final), not `concept_draft`. Read the manuscript, extract protagonist, setting, one hero moment; feed those into the cover prompt and the subtitle line.
+- Persist `cover_prompt_source='manuscript@<hash>'` alongside the cover asset.
+- Reject cover if subtitle contains any concept-only entity absent from the manuscript.
 
-## รายละเอียดที่ยืนยันจากคำตอบ
-- ใช้ทั้งสองส่วน (grid + strip)
-- Chip = ธีมหลักของเล่ม
-- ราคาเป็นดอลลาร์ `$` (ใช้ `price_cents/100`, ไม่แปลงเป็นบาท)
+---
 
-## นอกขอบเขต
-- ไม่แตะ backend/QC/pipeline
-- ไม่เปลี่ยน typography ระดับโปรเจกต์ (ใช้ font-display เดิมของหน้า /kids)
-- ไม่เพิ่ม theme chip กับ MarketingRail หรือหน้าอื่น
+## Part B — Repair or retire Detective Pip (dc037de5)
+
+1. Run the hardened `kids-repair-supervisor` on dc037de5:
+   - Splice current cover (Gate 1)
+   - Regenerate solid-black p12 (Gate 2)
+   - Regenerate p6/p21 (off-style vs. anchor) in the anchor style (Gate 3)
+   - Fix p31 caption "Page 28" (Gate 4)
+   - Regenerate cover subtitle + scene from manuscript (Gate 6)
+2. Re-run hardened `kids-qc-run` on the freshly assembled PDF.
+3. Decision:
+   - If honest score ≥ 90 → set `sellable=true`, `listing_status='live'`.
+   - If < 90 after 2 repair passes → mark `retired` and rotate.
+
+## Part C — Clean acceptance run
+
+- Fire `kids-one-click-build` with defaults, empty inputs, hands-off.
+- Monitor the run steps in `autopilot_kids_steps` and report per-stage: concept → story → interiors (one style) → cover (from manuscript) → PDF (with spliced cover, no dead pages, correct captions) → QC (rendered pages) → live.
+- Do not touch the run mid-flight. Report final `pdf_url`, `cover_url`, `listing_status`, honest QC score.
+
+---
+
+## Technical notes
+
+- Migration for style fingerprint fields runs first (schema change is a prereq of Gate 3).
+- pdfium rasterization: reuse whatever's already imported by `kids-build-picture-pdf`; if not present, add `npm:@cantoo/pdf-lib` for assembly and `npm:pdfjs-dist` for rasterization.
+- All gate failures must chain into `kids-repair-supervisor` (fire-and-forget), never leave a book in `human_review_required` — per project rule #2.
+- Never lower a threshold to make a book pass — per project rule #1.
+
+## Files to touch
+
+- `supabase/functions/kids-build-picture-pdf/index.ts` (Gates 1, 2, 4)
+- `supabase/functions/kids-render-interior/index.ts` + `_shared/kids-interior.ts` (Gates 2, 3)
+- `supabase/functions/kids-qc-run/index.ts` (Gate 5)
+- `supabase/functions/kids-repair-cover/index.ts` and/or `generate-cover/index.ts` (Gates 1, 6)
+- `supabase/functions/kids-repair-supervisor/index.ts` (Gate 3 resume logic, chaining)
+- New: `supabase/functions/_shared/image-luminance.ts`, `_shared/style-fingerprint.ts`, `_shared/pdf-rasterize.ts`
+- Migration: `style_fingerprint`, `style_anchor_fingerprint`, `cover_prompt_source`
+
+## Estimated size
+
+~1.5–2k lines changed across 8 edge functions + 1 migration. Multi-turn. After Part A deploys, Part B and Part C are shell + monitoring turns.
+
+**Approve this plan and I'll start with the migration and Gate 2 (cheapest, unblocks everything else), then Gates 1/4 in the PDF builder, then 3/5/6, then repair dc037de5, then fire the acceptance run.**

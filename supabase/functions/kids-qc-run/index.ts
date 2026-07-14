@@ -13,6 +13,8 @@ import { runKidsStoryJudge, storyReportToFindings, type StoryReport } from "../_
 import { computeVerdict } from "../_shared/qc/sellable.ts";
 import { QC_RULE_VERSION } from "../_shared/qc/weights.ts";
 import { verifyTitleSpelling, type TitleTreatmentMetadata } from "../_shared/covers/kids-title-treatment.ts";
+import { computeLuminanceFromUrl } from "../_shared/image-luminance.ts";
+import { splitManuscriptForSpreads } from "../_shared/kids-picture-pdf.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -209,6 +211,68 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ---- Gate 2 (deterministic dead-page check on rendered assets) ----
+    // Cheap luminance/variance check on cover + every interior image. Catches
+    // solid-black / solid-white / flat-gray pages that vision LLMs miss.
+    const deadPageFindings: Array<{ index: number; url: string; reason: string; mean: number; variance: number }> = [];
+    async function checkDead(url: string, label: string, idx: number | null) {
+      const s = await computeLuminanceFromUrl(url);
+      if ('error' in s) return;
+      if (s.dead) {
+        deadPageFindings.push({ index: idx ?? -1, url, reason: s.reason ?? 'dead', mean: s.mean, variance: s.variance });
+        raw.push({
+          rule_id: 'KIDS_DEAD_PAGE', category: 'illustration_quality',
+          severity: 'critical', passed: false,
+          page_number: idx != null ? idx + 3 : undefined,
+          measured_value: { label, url, reason: s.reason, mean: s.mean, variance: s.variance },
+          threshold: { must: 'variance>=200 AND 12<mean<243' },
+          repair_action: 'regenerate_dead_page',
+        });
+      }
+    }
+    if (ebook.cover_url) await checkDead(ebook.cover_url as string, 'cover', null);
+    for (let i = 0; i < illos.length; i++) {
+      const u = (illos[i] as { url?: string }).url;
+      if (typeof u === 'string' && u.length > 8) await checkDead(u, `interior_${i + 1}`, i);
+    }
+
+    // ---- Gate 4 (text-to-page mapping check) ----
+    // Every story page must have real caption text — no "Page N" placeholders,
+    // no empty captions. This is what puts "Page 28" in Detective Pip p31.
+    const captions = splitManuscriptForSpreads(manuscriptStr, illos.length);
+    const placeholderRx = /^\s*(page\s*\d+|lorem\s+ipsum|placeholder|tbd|todo)\s*$/i;
+    const badCaptions: number[] = [];
+    captions.forEach((c, i) => { if (!c || !c.trim() || placeholderRx.test(c.trim())) badCaptions.push(i); });
+    if (badCaptions.length) {
+      raw.push({
+        rule_id: 'KIDS_TEXT_MAPPING_BROKEN', category: 'story_structure',
+        severity: 'critical', passed: false,
+        measured_value: { bad_page_indices: badCaptions, total_pages: illos.length, usable_captions: captions.filter(c => c && c.trim()).length },
+        threshold: { must: 'every_page_has_manuscript_text' },
+        repair_action: 'fix_manuscript_page_split',
+      });
+    }
+
+    // ---- Gate 3 (style coherence) ----
+    // Every interior page must share the book's style anchor fingerprint.
+    const anchorFp = (ebook.qc_scorecard as Record<string, unknown> | null)?.style_anchor_fingerprint as string | undefined;
+    const mixedFps: Array<{ index: number; fp: string | null }> = [];
+    if (anchorFp) {
+      for (let i = 0; i < illos.length; i++) {
+        const fp = (illos[i] as { style_fingerprint?: string }).style_fingerprint ?? null;
+        if (fp && fp !== anchorFp) mixedFps.push({ index: i, fp });
+      }
+      if (mixedFps.length) {
+        raw.push({
+          rule_id: 'KIDS_MIXED_ART_STYLES', category: 'illustration_quality',
+          severity: 'critical', passed: false,
+          measured_value: { anchor: anchorFp, mismatches: mixedFps },
+          threshold: { must: 'all_interiors_share_style_anchor_fingerprint' },
+          repair_action: 'regenerate_offstyle_pages',
+        });
+      }
+    }
+
     if (raw.length) {
       const rows = raw.map((f) => ({
         ebook_id, run_id: run_id ?? null, ebook_track: "kids",
@@ -225,23 +289,45 @@ Deno.serve(async (req) => {
       rule_id: f.rule_id, category: f.category, passed: f.passed, severity: f.severity,
     })));
 
+    // ---- Gate 5 (honest score caps) ----
+    // Deterministic hard caps overriding the vision-LLM optimism that let
+    // Detective Pip score 100 while having a dead page + 3 art styles + a
+    // "Page 28" caption. Any of these defects caps overall_score.
+    const caps: Array<{ rule: string; cap: number; reason: string }> = [];
+    if (deadPageFindings.length) caps.push({ rule: 'KIDS_DEAD_PAGE', cap: 30, reason: `${deadPageFindings.length} dead page(s)` });
+    if (mixedFps.length) caps.push({ rule: 'KIDS_MIXED_ART_STYLES', cap: 40, reason: `${mixedFps.length} off-style page(s)` });
+    if (badCaptions.length) caps.push({ rule: 'KIDS_TEXT_MAPPING_BROKEN', cap: 40, reason: `${badCaptions.length} placeholder caption(s)` });
+    if (!spelling.pass) caps.push({ rule: 'KIDS_TITLE_TREATMENT_INVALID', cap: 50, reason: 'cover title invalid' });
+    const effectiveScore = caps.length
+      ? Math.min(verdict.overall_score, ...caps.map(c => c.cap))
+      : verdict.overall_score;
+    const cappedSellable = verdict.sellable && caps.length === 0;
+    const capReasons = caps.map(c => `${c.rule}(cap=${c.cap}:${c.reason})`);
+    const finalReasons = [...verdict.reasons, ...capReasons];
+
     const existingScorecard = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
     const preservedScorecard: Record<string, unknown> = {};
     if (existingScorecard.final_text_repair) preservedScorecard.final_text_repair = existingScorecard.final_text_repair;
     if (existingScorecard.repair_log) preservedScorecard.repair_log = existingScorecard.repair_log;
+    if (existingScorecard.style_anchor_fingerprint) preservedScorecard.style_anchor_fingerprint = existingScorecard.style_anchor_fingerprint;
 
     await supabase.from("ebooks_kids").update({
-      sellable: verdict.sellable,
-      overall_qc_score: verdict.overall_score,
+      sellable: cappedSellable,
+      overall_qc_score: effectiveScore,
       qc_rule_version: QC_RULE_VERSION,
       qc_scorecard: {
         ...preservedScorecard,
         version: QC_RULE_VERSION,
-        overall_score: verdict.overall_score,
+        overall_score: effectiveScore,
+        raw_overall_score: verdict.overall_score,
+        score_caps_applied: caps,
         category_scores: verdict.category_scores,
         critical_errors: verdict.critical_errors,
         failed_categories: verdict.failed_categories,
-        reasons: verdict.reasons,
+        reasons: finalReasons,
+        dead_page_findings: deadPageFindings,
+        text_mapping_bad_indices: badCaptions,
+        style_mismatch_indices: mixedFps,
         vision_report: visionReport,
         story_report: storyReport,
         story_qc_status: storyStatus,
@@ -251,11 +337,11 @@ Deno.serve(async (req) => {
         pdf_glyph_audit: glyphAudit.audit,
         computed_at: new Date().toISOString(),
       },
-      human_review_reason: verdict.sellable ? null : verdict.reasons.join(" | "),
-      blocker_reason: verdict.sellable ? null : verdict.reasons.join(" | "),
+      human_review_reason: cappedSellable ? null : finalReasons.join(" | "),
+      blocker_reason: cappedSellable ? null : finalReasons.join(" | "),
     }).eq("id", ebook_id);
 
-    if (!verdict.sellable && auto_repair_on_fail) {
+    if (!cappedSellable && auto_repair_on_fail) {
       // @ts-expect-error EdgeRuntime is a Deno Deploy global
       EdgeRuntime.waitUntil(fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
         method: "POST",
@@ -264,7 +350,7 @@ Deno.serve(async (req) => {
       }).then((r) => r.text()).catch((e) => console.error("kids-qc-run supervisor dispatch failed", e)));
     }
 
-    return json({ ok: true, verdict, finding_count: raw.length, vision_report: visionReport, story_report: storyReport, story_qc_status: storyStatus, manuscript_hash: manuscriptHash, pdf_glyph_audit: glyphAudit.audit, supervisor_dispatched: !verdict.sellable && auto_repair_on_fail });
+    return json({ ok: true, verdict: { ...verdict, sellable: cappedSellable, overall_score: effectiveScore, reasons: finalReasons, score_caps_applied: caps }, finding_count: raw.length, dead_page_count: deadPageFindings.length, text_mapping_bad: badCaptions.length, style_mismatch_count: mixedFps.length, vision_report: visionReport, story_report: storyReport, story_qc_status: storyStatus, manuscript_hash: manuscriptHash, pdf_glyph_audit: glyphAudit.audit, supervisor_dispatched: !cappedSellable && auto_repair_on_fail });
   } catch (e) {
     console.error(e);
     return json({ ok: false, error: String(e) }, 500);
