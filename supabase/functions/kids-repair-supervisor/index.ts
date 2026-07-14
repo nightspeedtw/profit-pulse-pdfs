@@ -113,6 +113,13 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
   const reasons = Array.isArray(sc.reasons) ? (sc.reasons as unknown[]).map(String) : [];
   const qcText = [...criticalErrors, ...reasons, String(ebook.human_review_reason ?? ''), String(ebook.blocker_reason ?? ''), errMsg].join(' | ');
 
+  // If an async PDF rebuild is already mid-chain, never start a new art/style
+  // repair from stale QC errors. Just resume the PDF chain.
+  const pdfJob = ((sc.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job ?? null) as { next_stage?: string | null; stage?: string; updated_at?: string } | null;
+  if (pdfJob?.next_stage) {
+    return { klass: 'worker_resource_limit', detail: `pdf_repair_in_progress:${pdfJob.next_stage}` };
+  }
+
   // 1. Story gate — direct step failure OR persisted scorecard flag.
   const sg = sc.story_gate as { passed?: boolean; scores?: Record<string, number> } | undefined;
   if (stepName === 'story_gate' || (sg && sg.passed === false)) {
