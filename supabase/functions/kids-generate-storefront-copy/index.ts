@@ -105,7 +105,7 @@ ${skillBlock}
 
 Return STRICT JSON matching:
 {
-  "selling_hook": "eyebrow line, <=14 words, the parent-recognition hook (question or scenario)",
+  "selling_hook": "eyebrow line, <=14 words, PARENT-RECOGNITION QUESTION or SCENARIO",
   "short_hook": "same hook but <=12 words, for grid cards",
   "product_description": "Full block: HOOK line \\n\\n STORY PROMISE (2-3 short lines with concrete imagery from the book — refrain / funniest moment / callback object) \\n\\n OUTCOME line (what the parent gets) \\n\\n SPECS line: Perfect for ages [X-Y] · [theme] · read-aloud ~${readAloudMin} min · ${pages} pages",
   "shopping_card_description": "HOOK + STORY PROMISE lines only, <=60 words",
@@ -115,14 +115,31 @@ Return STRICT JSON matching:
     "theme": "the single developmental theme (must match parent_hook)",
     "hook_line": "the same selling_hook — reused verbatim in future ads for message-match",
     "primary_benefit": "what the parent gets in one short sentence"
+  },
+  "value_cards": {
+    "whats_inside": [
+      "${pages} full-color illustrated pages",
+      "Chantable refrain kids will repeat: \\"<exact refrain from the book>\\"",
+      "Read-aloud ~${readAloudMin} min · perfect bedtime length",
+      "Instant PDF download, print-at-home ready"
+    ],
+    "why_kids_love_it": [
+      "3 concrete kid-appeal bullets pulled from the ACTUAL book (funny moment, silly sound, favourite object). <=14 words each."
+    ],
+    "perfect_for": [
+      "3-4 gifting/occasion bullets (bedtime giggles · STEM-curious kids · ages X-Y · gift for a new-reader birthday). <=10 words each."
+    ]
   }
 }
 
 RULES:
-- HOOK is a QUESTION or SCENARIO a parent instantly recognizes ("Does your little one melt down when plans change?"). Never plot summary.
+- HOOK MUST be a QUESTION or SCENARIO a parent instantly recognizes ("Does your little one melt down when plans change?"). NEVER a plot summary. NEVER start with the hero's name.
 - Emotional recognition beats cleverness.
 - STORY PROMISE names the hero + the concrete refrain or callback object from the actual book.
 - OUTCOME names the felt at-home benefit (giggles, easier bedtime, easier conversation about X).
+- value_cards.whats_inside: keep the first three items EXACTLY in the shape above (page count, refrain in quotes, read-aloud). Add one more if useful.
+- value_cards.why_kids_love_it: MUST reference concrete book details (character name, refrain, funniest moment). No generic "engaging story".
+- value_cards.perfect_for: include age band + theme + one gifting occasion.
 - NEVER include fake reviews, fake scarcity, or made-up awards.
 - Language: English only.`;
 
