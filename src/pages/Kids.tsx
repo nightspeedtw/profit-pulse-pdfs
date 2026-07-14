@@ -49,7 +49,7 @@ export default function Kids() {
   const [showResults, setShowResults] = useState<boolean>(!!deepLinked);
 
   useEffect(() => {
-    document.title = "Kids Books — หนังสือที่ลูกจะขอให้อ่านซ้ำ | SecretPDF";
+    document.title = "Kids Books — Bedtime stories they'll beg to re-read | SecretPDF";
     const meta = document.querySelector('meta[name="description"]');
     if (meta) meta.setAttribute("content", "Premium 8.5×8.5 picture books, matched to your child's age and interests. Instant download.");
   }, []);
