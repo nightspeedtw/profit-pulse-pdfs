@@ -402,6 +402,8 @@ Deno.serve(async (req) => {
       winner,
       overall_passed: winner.passed,
       thresholds: T,
+      floor: { final_concept_score: CONCEPT_SCORE_FLOOR, generic_risk_score: CONCEPT_GENERIC_MAX },
+      selection_mode: 'best_of_floor',
     });
   } catch (e) {
     console.error('kids-concept-preflight error', e);
