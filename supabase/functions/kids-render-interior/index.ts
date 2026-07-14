@@ -50,18 +50,72 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function selfInvoke(ebookId: string, delayMs = 200) {
-  // Fire-and-forget continuation. Small delay lets the current response flush.
-  const task = (async () => {
-    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function patchInteriorBuild(db: ReturnType<typeof createClient>, ebookId: string, patch: Record<string, unknown>) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await (db.from("ebooks_kids") as any).select("qc_scorecard").eq("id", ebookId).single();
+    const qc = (data?.qc_scorecard ?? {}) as Record<string, unknown>;
+    const ib = (qc.interior_build as Record<string, unknown> | undefined) ?? {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (db.from("ebooks_kids") as any).update({
+      qc_scorecard: { ...qc, interior_build: { ...ib, ...patch } },
+    }).eq("id", ebookId);
+  } catch (e) {
+    console.warn("patchInteriorBuild failed", (e as Error).message);
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function patchPdfHandoff(db: ReturnType<typeof createClient>, ebookId: string, patch: Record<string, unknown>) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await (db.from("ebooks_kids") as any).select("qc_scorecard").eq("id", ebookId).single();
+    const qc = (data?.qc_scorecard ?? {}) as Record<string, unknown>;
+    const h = (qc.pdf_handoff as Record<string, unknown> | undefined) ?? {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (db.from("ebooks_kids") as any).update({
+      pipeline_status: 'pdf_building',
+      qc_scorecard: { ...qc, pdf_handoff: { ...h, ...patch } },
+    }).eq("id", ebookId);
+  } catch (e) {
+    console.warn("patchPdfHandoff failed", (e as Error).message);
+  }
+}
+
+// Double-tap self-invoke: fire → wait 5s → if child didn't ack, fire again.
+function selfInvoke(db: ReturnType<typeof createClient>, ebookId: string, delayMs = 200) {
+  const dispatchedAt = new Date().toISOString();
+  const dispatchOnce = async () => {
     try {
       await fetch(`${SUPABASE_URL}/functions/v1/kids-render-interior`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
-        body: JSON.stringify({ ebook_id: ebookId, chained: true }),
+        body: JSON.stringify({ ebook_id: ebookId, chained: true, dispatched_at: dispatchedAt }),
       });
     } catch (e) {
       console.error("self-invoke failed", (e as Error).message);
+    }
+  };
+
+  const task = (async () => {
+    await patchInteriorBuild(db, ebookId, { next_dispatched_at: dispatchedAt });
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+    await dispatchOnce();
+    // Ack check
+    await new Promise((r) => setTimeout(r, 5000));
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await (db.from("ebooks_kids") as any).select("qc_scorecard").eq("id", ebookId).single();
+      const qc = (data?.qc_scorecard ?? {}) as Record<string, unknown>;
+      const ib = (qc.interior_build as Record<string, unknown> | undefined) ?? {};
+      const acked = (ib.acked_at as string | undefined) ?? '';
+      if (!acked || acked < dispatchedAt) {
+        console.warn(`[render-interior] chain ack missing after 5s (acked=${acked}, dispatched=${dispatchedAt}); double-tapping ebook=${ebookId}`);
+        await dispatchOnce();
+      }
+    } catch (e) {
+      console.warn("double-tap ack check failed", (e as Error).message);
     }
   })();
   // deno-lint-ignore no-explicit-any
@@ -89,41 +143,43 @@ async function resumeParentRun(runId: string | null | undefined) {
 }
 
 async function handoffToPdfPrepare(db: ReturnType<typeof createClient>, ebookId: string) {
-  const marker = {
-    fired_at: new Date().toISOString(),
+  const dispatchedAt = new Date().toISOString();
+  await patchPdfHandoff(db, ebookId, {
+    fired_at: dispatchedAt,
+    next_dispatched_at: dispatchedAt,
     target_stage: 'pdf_prepare',
     source: 'kids-render-interior.complete',
-  };
+  });
 
-  try {
-    // Re-read/merge so silence at this joint is visible from the row even if
-    // the async invoke is interrupted later.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: fresh } = await (db.from("ebooks_kids") as any)
-      .select("qc_scorecard")
-      .eq("id", ebookId)
-      .single();
-    const qc = ((fresh?.qc_scorecard ?? {}) as Record<string, unknown>);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (db.from("ebooks_kids") as any).update({
-      pipeline_status: 'pdf_building',
-      qc_scorecard: { ...qc, pdf_handoff: marker },
-    }).eq("id", ebookId);
-  } catch (e) {
-    console.error("pdf handoff marker write failed", (e as Error).message);
-  }
-
-  const task = (async () => {
+  const dispatchOnce = async () => {
     try {
       const r = await fetch(`${SUPABASE_URL}/functions/v1/kids-build-picture-pdf`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
-        body: JSON.stringify({ ebook_id: ebookId, stage: 'pdf_prepare', publish: true, run_qc_after: false }),
+        body: JSON.stringify({ ebook_id: ebookId, stage: 'pdf_prepare', publish: true, run_qc_after: false, dispatched_at: dispatchedAt }),
       });
       const text = await r.text().catch(() => '');
       console.log("pdf prepare handoff", JSON.stringify({ ebook_id: ebookId, status: r.status, body: text.slice(0, 240) }));
     } catch (e) {
       console.error("pdf prepare handoff failed", (e as Error).message);
+    }
+  };
+
+  const task = (async () => {
+    await dispatchOnce();
+    await new Promise((r) => setTimeout(r, 5000));
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await (db.from("ebooks_kids") as any).select("qc_scorecard").eq("id", ebookId).single();
+      const qc = (data?.qc_scorecard ?? {}) as Record<string, unknown>;
+      const h = (qc.pdf_handoff as Record<string, unknown> | undefined) ?? {};
+      const acked = (h.acked_at as string | undefined) ?? '';
+      if (!acked || acked < dispatchedAt) {
+        console.warn(`[render-interior] pdf handoff not acked in 5s; double-tapping ebook=${ebookId}`);
+        await dispatchOnce();
+      }
+    } catch (e) {
+      console.warn("pdf handoff ack check failed", (e as Error).message);
     }
   })();
   // deno-lint-ignore no-explicit-any
