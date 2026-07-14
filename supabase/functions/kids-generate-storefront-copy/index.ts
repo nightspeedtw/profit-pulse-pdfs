@@ -135,14 +135,26 @@ Return STRICT JSON only.`;
       read_aloud_minutes: readAloudMin,
     };
 
+    // ebooks_kids has only {title, subtitle, description, storefront_meta} for
+    // copy today, so stash the extended conversion copy inside storefront_meta.
+    // Product/Kids UI reads it from storefront_meta.conversion_copy.
+    const nextMeta2: Record<string, unknown> = {
+      ...nextMeta,
+      conversion_copy: {
+        selling_hook: (copy.selling_hook ?? '').slice(0, 180),
+        short_hook: (copy.short_hook ?? copy.selling_hook ?? '').slice(0, 140),
+        product_description: (copy.product_description ?? '').slice(0, 2000),
+        shopping_card_description: (copy.shopping_card_description ?? '').slice(0, 320),
+        preview_blurb: (copy.preview_blurb ?? '').slice(0, 200),
+        benefit_bullets: bullets,
+        read_aloud_minutes: readAloudMin,
+        pages,
+      },
+    };
+
     await db.from('ebooks_kids').update({
-      selling_hook: (copy.selling_hook ?? '').slice(0, 180),
-      short_hook: (copy.short_hook ?? copy.selling_hook ?? '').slice(0, 140),
-      product_description: (copy.product_description ?? '').slice(0, 2000),
-      shopping_card_description: (copy.shopping_card_description ?? '').slice(0, 320),
-      preview_blurb: (copy.preview_blurb ?? '').slice(0, 200),
-      benefit_bullets: bullets,
-      storefront_meta: nextMeta,
+      description: (copy.product_description ?? '').slice(0, 2000),
+      storefront_meta: nextMeta2,
     }).eq('id', ebook_id);
 
     return json({ ok: true, ebook_id, copy });
