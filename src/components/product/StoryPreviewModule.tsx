@@ -94,8 +94,28 @@ export default function StoryPreviewModule({
           )}
         </div>
 
-        {/* 5. CTA + secondary */}
-        <div className="pt-2 space-y-3">
+        {/* 4b. Marketplace-style value cards */}
+        {hasCards && (
+          <div className="grid md:grid-cols-3 gap-4 pt-2">
+            {(valueCards?.whats_inside?.length ?? 0) > 0 && (
+              <ValueCard icon={PackageOpen} title="What's inside" items={valueCards!.whats_inside!} accent="bg-highlight/60" />
+            )}
+            {(valueCards?.why_kids_love_it?.length ?? 0) > 0 && (
+              <ValueCard icon={Heart} title="Why kids love it" items={valueCards!.why_kids_love_it!} accent="bg-accent/20" />
+            )}
+            {(valueCards?.perfect_for?.length ?? 0) > 0 && (
+              <ValueCard icon={Gift} title="Perfect for" items={valueCards!.perfect_for!} accent="bg-muted/60" />
+            )}
+          </div>
+        )}
+
+        {/* 5. Offer stack: specs → CTA → reassurance → trust */}
+        <div className="pt-2 space-y-3 border-t-2 border-foreground/10 mt-2">
+          {specsLine && (
+            <p className="text-sm font-mono uppercase tracking-wider text-foreground/80 pt-3">
+              {specsLine}
+            </p>
+          )}
           <Button
             onClick={onBuy}
             className="w-full md:w-auto h-14 px-8 gap-2 text-base font-display tracking-wide"
@@ -103,6 +123,7 @@ export default function StoryPreviewModule({
             <Download className="h-5 w-5" />
             Buy · {priceLabel} <span className="opacity-70 text-sm font-sans font-normal ml-1">(Instant PDF download)</span>
           </Button>
+
 
           {spreads.length > 1 && (
             <div>
