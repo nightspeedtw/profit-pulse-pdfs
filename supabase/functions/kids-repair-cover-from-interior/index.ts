@@ -86,12 +86,14 @@ Deno.serve(async (req) => {
 
     for (let attempt = 1; attempt <= max_attempts; attempt++) {
       let bytes: Uint8Array;
+      const prompt = basePrompt + (attempt > 1 ? ` (Previous attempt failed: ${lastReason} — fix that specifically.)` : '');
       try {
-        bytes = await geminiDirectImage({
-          prompt: basePrompt + (attempt > 1 ? ` (Previous attempt failed: ${lastReason} — fix that specifically.)` : ''),
-          referenceUrls: refUrls,
-          model: 'google/gemini-3.1-flash-image',
-        });
+        try {
+          bytes = await geminiDirectImage({ prompt, referenceUrls: refUrls, model: 'google/gemini-3.1-flash-image' });
+        } catch (direct) {
+          console.warn(`gemini-direct failed (${(direct as Error).message.slice(0, 120)}) — falling back to gateway`);
+          bytes = await gatewayImageWithRefs({ prompt, referenceUrls: refUrls });
+        }
       } catch (e) {
         lastReason = `gen_error:${(e as Error).message.slice(0, 400)}`;
         console.error(`attempt ${attempt} gen error`, lastReason);
