@@ -35,6 +35,34 @@ async function downloadBytes(url: string): Promise<Uint8Array> {
   return new Uint8Array(await r.arrayBuffer());
 }
 
+async function gatewayImageWithRefs(opts: { prompt: string; referenceUrls: string[] }): Promise<Uint8Array> {
+  const key = Deno.env.get('LOVABLE_API_KEY');
+  if (!key) throw new Error('LOVABLE_API_KEY missing');
+  const content: Array<Record<string, unknown>> = [{ type: 'text', text: opts.prompt }];
+  for (const u of opts.referenceUrls) content.push({ type: 'image_url', image_url: { url: u } });
+  const r = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'google/gemini-3.1-flash-image',
+      messages: [{ role: 'user', content }],
+      modalities: ['image', 'text'],
+    }),
+  });
+  if (!r.ok) throw new Error(`gateway ${r.status}: ${(await r.text()).slice(0, 400)}`);
+  const j = await r.json() as {
+    choices?: Array<{ message?: { images?: Array<{ image_url?: { url?: string } }> } }>;
+  };
+  const url = j.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+  if (!url) throw new Error(`gateway: no image in response: ${JSON.stringify(j).slice(0, 300)}`);
+  if (url.startsWith('data:')) {
+    const b64 = url.split(',')[1] ?? '';
+    return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  }
+  const dl = await fetch(url);
+  return new Uint8Array(await dl.arrayBuffer());
+}
+
 interface RepairOpts {
   ebook_id: string;
   max_attempts?: number;
