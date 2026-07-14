@@ -475,7 +475,7 @@ Deno.serve(async (req) => {
       const remaining = missing.length - batch.length;
       if (remaining > 0) {
         console.log(`[render-interior] ${remaining} pages remain — self-chaining`);
-        selfInvoke(ebookId);
+        selfInvoke(db, ebookId);
         return json({
           ok: true,
           stage: "batch",
@@ -530,7 +530,7 @@ Deno.serve(async (req) => {
           }
         }
         if (dupIdx.length > batch.length) {
-          selfInvoke(ebookId);
+          selfInvoke(db, ebookId);
           return json({
             ok: true, stage: "dedupe", total, dup_remaining: dupIdx.length - batch.length,
             duration_ms: Date.now() - startedAt,
