@@ -219,17 +219,47 @@ export async function finalizePicturePdf(existing: Uint8Array): Promise<Uint8Arr
   return await doc.save();
 }
 
-// Split a manuscript into N caption blocks (paragraph-based grouping).
-// IMPORTANT: returns "" for pages with no manuscript text — callers must
-// treat empty captions as a hard failure (Gate 4). Never emit a "Page N"
-// placeholder here; that produced the "Page 28" bug in Detective Pip.
+// Split a manuscript into N caption blocks.
+// IMPORTANT: never emit a "Page N" placeholder. If the manuscript is slightly
+// under-segmented, split real long paragraphs/sentences so every illustrated
+// page receives genuine story text. Only return "" when there is not enough
+// real manuscript content at all.
 export function splitManuscriptForSpreads(md: string, n: number): string[] {
   const paras = md.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
   if (paras.length === 0) return Array(n).fill("");
-  const chunkSize = Math.max(1, Math.ceil(paras.length / n));
+
+  const expanded = [...paras];
+  while (expanded.length < n) {
+    let bestIdx = -1;
+    let bestScore = 0;
+    for (let i = 0; i < expanded.length; i++) {
+      const words = expanded[i].split(/\s+/).filter(Boolean).length;
+      const sentences = expanded[i].split(/(?<=[.!?])\s+/).filter(Boolean).length;
+      const score = words + sentences * 12;
+      if (words >= 12 && score > bestScore) {
+        bestScore = score;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx < 0) break;
+
+    const text = expanded[bestIdx];
+    const sentences = text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+    if (sentences.length >= 2) {
+      const mid = Math.ceil(sentences.length / 2);
+      expanded.splice(bestIdx, 1, sentences.slice(0, mid).join(" "), sentences.slice(mid).join(" "));
+    } else {
+      const words = text.split(/\s+/).filter(Boolean);
+      const mid = Math.ceil(words.length / 2);
+      expanded.splice(bestIdx, 1, words.slice(0, mid).join(" "), words.slice(mid).join(" "));
+    }
+  }
+
+  const source = expanded.length >= n ? expanded : paras;
+  const chunkSize = Math.max(1, Math.ceil(source.length / n));
   const out: string[] = [];
   for (let i = 0; i < n; i++) {
-    const chunk = paras.slice(i * chunkSize, (i + 1) * chunkSize).join(" ");
+    const chunk = source.slice(i * chunkSize, (i + 1) * chunkSize).join(" ");
     out.push(chunk);
   }
   return out;

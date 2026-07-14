@@ -56,17 +56,14 @@ function promoteCache(meta: Record<string, unknown>, hash: string, report: Story
   };
 }
 
-function validateRewrite(text: string, paragraphCount: number) {
+function validateRewrite(text: string, paragraphCount: number, original: string) {
   const paras = text.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
-  const blob = text.toLowerCase();
   const errors: string[] = [];
   if (paras.length !== paragraphCount) errors.push(`paragraph_count ${paras.length} != ${paragraphCount}`);
-  if (!/\btali\b/i.test(text)) errors.push('missing Tali');
-  if (!/whizz, pop, plop!/i.test(text)) errors.push('missing refrain');
-  if (!/(sort|sorting) by story/i.test(text)) errors.push('missing sort by story callback');
-  if (!/(sock|socks)/i.test(text)) errors.push('missing socks');
-  if (!/(gizmo|sorter|machine)/i.test(text)) errors.push('missing machine/gizmo');
-  if (blob.includes('luna') || blob.includes('bear cub')) errors.push('stale wrong-book terms');
+  if (text.length < Math.min(original.length * 0.85, original.length - 40)) errors.push('rewrite_shrank_too_much');
+  const originalTerms = new Set((original.match(/\b[A-Z][a-z]{2,}\b/g) ?? []).slice(0, 40));
+  const missingTerms = [...originalTerms].filter((w) => !new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(text));
+  if (missingTerms.length > Math.max(4, originalTerms.size * 0.35)) errors.push(`lost_too_many_story_terms:${missingTerms.slice(0, 8).join(',')}`);
   return { ok: errors.length === 0, errors, paragraphs: paras };
 }
 
@@ -122,8 +119,8 @@ Deno.serve(async (req) => {
         storefront_meta,
         sellable: false,
         listing_status: 'draft',
-        status: 'needs_revision',
-        pipeline_status: 'human_review_required',
+        status: 'qc',
+        pipeline_status: 'pdf_building',
         qc_scorecard: {
           ...scorecard,
           story_qc_status: 'hash_matched_cached_pass',
@@ -137,28 +134,26 @@ Deno.serve(async (req) => {
     }
 
     const paragraphs = manuscript.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
-    const user = `Improve ONLY reread value for this existing ages 4-6 picture-book manuscript.
+    const interiorScenes = Array.isArray(ebook.interior_illustrations)
+      ? (ebook.interior_illustrations as Array<Record<string, unknown>>).map((x, i) => `${i + 1}. ${String(x.scene ?? '').slice(0, 240)}`).join('\n')
+      : '';
+    const targetParagraphCount = Math.max(paragraphs.length, Array.isArray(ebook.interior_illustrations) ? (ebook.interior_illustrations as unknown[]).length : paragraphs.length);
+    const user = `Repair ONLY the page-caption mapping for this existing ages 4-6 picture-book manuscript.
 
 Title must remain exactly: ${ebook.title}
 Subtitle must remain exactly: ${ebook.subtitle ?? '(none)'}
 
 Do not change metadata, title, subtitle, price, premise, hero, or page count.
-Keep the same ${paragraphs.length} paragraph/page-caption structure and same scene beats so existing art still matches.
-
-Must preserve:
-- Hero: Tali, a human kid-inventor
-- Sneeze-powered sock-sorting machine / Wobbly Gizmo
-- Mismatched sock characters
-- Theme: sort by story, not sameness
-- Exact refrain: Whizz, pop, plop!
-
-Targeted reread improvements only:
-- strengthen the recurring callback in several paragraphs
-- add a tiny final-page visual joke in the last paragraph (text only) that still matches the sock-room ending
-- keep age 4-6 language, short read-aloud sentences, no padding
-- keep all story beats aligned with current illustrations
+Return exactly ${targetParagraphCount} paragraph blocks separated by blank lines so every existing illustration receives real caption text.
+Preserve the current story order, character names, refrain/callback language, and scene beats.
+If the current manuscript has fewer than ${targetParagraphCount} paragraphs, split an overlong paragraph or add a short final caption that matches the corresponding final illustration.
+If it has more, merge only adjacent beats.
+Keep age 4-6 language: 1-3 short read-aloud sentences per paragraph, no placeholders, no labels like "Page 28".
 
 Return JSON: {"manuscript_md":"..."}
+
+EXISTING ILLUSTRATION SCENES (${targetParagraphCount} total):
+${interiorScenes}
 
 CURRENT MANUSCRIPT:
 """
@@ -174,11 +169,11 @@ ${manuscript}
     });
     await logCost(db, { ebook_id, step: 'kids_final_reread_value_rewrite', model: ai.model, ...ai.usage });
     const candidate = String(ai.data.manuscript_md ?? '').trim();
-    const validation = validateRewrite(candidate, paragraphs.length);
+    const validation = validateRewrite(candidate, targetParagraphCount, manuscript);
     if (!validation.ok) {
       const repairLog = { cache_status: 'none', rewrite_status: 'validation_failed', validation_errors: validation.errors, manuscript_changed: false, art_untouched: true, art_snapshot: artSnapshot, updated_at: new Date().toISOString() };
       await db.from('ebooks_kids').update({
-        sellable: false, listing_status: 'draft', status: 'needs_revision', pipeline_status: 'human_review_required',
+        sellable: false, listing_status: 'draft', status: 'needs_revision', pipeline_status: 'retired',
         qc_scorecard: { ...scorecard, final_text_repair: repairLog },
       }).eq('id', ebook_id);
       return json({ ok: false, action: 'rewrite_validation_failed', errors: validation.errors, manuscript_changed: false, art_untouched: true }, 422);
@@ -197,7 +192,7 @@ ${manuscript}
     if (!storyReport.story_qc_passed) {
       const repairLog = { cache_status: 'none', rewrite_status: 'story_judge_failed', story_report: storyReport, manuscript_changed: false, art_untouched: true, art_snapshot: artSnapshot, updated_at: new Date().toISOString() };
       await db.from('ebooks_kids').update({
-        sellable: false, listing_status: 'draft', status: 'needs_revision', pipeline_status: 'human_review_required',
+        sellable: false, listing_status: 'draft', status: 'needs_revision', pipeline_status: 'retired',
         qc_scorecard: { ...scorecard, final_text_repair: repairLog },
       }).eq('id', ebook_id);
       return json({ ok: false, action: 'rewrite_story_judge_failed_original_preserved', story_report: storyReport, manuscript_changed: false, art_untouched: true });
@@ -215,8 +210,8 @@ ${manuscript}
       storefront_meta,
       sellable: false,
       listing_status: 'draft',
-      status: 'needs_revision',
-      pipeline_status: 'human_review_required',
+      status: 'qc',
+      pipeline_status: 'pdf_building',
       qc_scorecard: {
         ...scorecard,
         story_qc_status: 'hash_matched_cached_pass',

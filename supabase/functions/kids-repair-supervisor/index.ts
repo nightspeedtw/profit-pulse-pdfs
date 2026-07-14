@@ -28,6 +28,7 @@ const MAX_PER_CLASS: Record<string, number> = {
   qc_missing: 3,
   cover: 2,
   image_missing: 2,
+  text_mapping: 2,
 };
 
 function json(body: unknown, status = 200) {
@@ -108,16 +109,21 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
   if (listing === 'live' && sellable) return null;
 
   const stepName = latestFailedStep?.step_name;
-  const errMsg = String(latestFailedStep?.error_message ?? '');
   const criticalErrors = Array.isArray(sc.critical_errors) ? (sc.critical_errors as unknown[]).map(String) : [];
   const reasons = Array.isArray(sc.reasons) ? (sc.reasons as unknown[]).map(String) : [];
-  const qcText = [...criticalErrors, ...reasons, String(ebook.human_review_reason ?? ''), String(ebook.blocker_reason ?? ''), errMsg].join(' | ');
 
   // If an async PDF rebuild is already mid-chain, never start a new art/style
   // repair from stale QC errors. Just resume the PDF chain.
-  const pdfJob = ((sc.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job ?? null) as { next_stage?: string | null; stage?: string; updated_at?: string } | null;
+  const pdfJob = ((sc.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job ?? null) as { next_stage?: string | null; stage?: string; updated_at?: string; error?: string | null } | null;
+  const errMsg = String(latestFailedStep?.error_message ?? '');
+  const pdfJobError = String(pdfJob?.error ?? '');
+  const qcText = [...criticalErrors, ...reasons, String(ebook.human_review_reason ?? ''), String(ebook.blocker_reason ?? ''), errMsg, pdfJobError].join(' | ');
   if (pdfJob?.next_stage) {
     return { klass: 'worker_resource_limit', detail: `pdf_repair_in_progress:${pdfJob.next_stage}` };
+  }
+
+  if (/text_mapping_gate|KIDS_TEXT_MAPPING_BROKEN|placeholder captions|fix_manuscript_page_split/i.test(qcText)) {
+    return { klass: 'text_mapping', detail: `text_mapping: ${qcText.slice(0, 240)}` };
   }
 
   // 1. Story gate — direct step failure OR persisted scorecard flag.
@@ -150,7 +156,8 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
     'VISION_STYLE_BIBLE_MISMATCH',
     'CHARACTER_IDENTITY_BREAK',
     'DUPLICATE_ILLUSTRATION_DETECTED',
-  ].includes(id)) || /VISION_CHARACTER_CONSISTENCY_FAIL|VISION_COVER_INTERIOR_MISMATCH|VISION_STYLE_BIBLE_MISMATCH|CHARACTER_IDENTITY_BREAK/i.test(qcText)) {
+    'KIDS_MIXED_ART_STYLES',
+  ].includes(id)) || /VISION_CHARACTER_CONSISTENCY_FAIL|VISION_COVER_INTERIOR_MISMATCH|VISION_STYLE_BIBLE_MISMATCH|CHARACTER_IDENTITY_BREAK|KIDS_MIXED_ART_STYLES|mixed art styles|off-style/i.test(qcText)) {
     return { klass: 'character_identity', detail: `vision_qc: ${criticalErrors.join(',') || qcText.slice(0, 220)}` };
   }
   if (measured) {
@@ -284,7 +291,7 @@ Deno.serve(async (req) => {
     }
 
     const scorecard = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
-    const pdfJob = ((scorecard.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job ?? null) as { next_stage?: string | null; updated_at?: string } | null;
+    const pdfJob = ((scorecard.repair_log as Record<string, unknown> | undefined)?.pdf_repair_job ?? null) as { next_stage?: string | null; updated_at?: string; error?: string | null; prepared?: boolean } | null;
     if (pdfJob?.next_stage && pdfJob.updated_at) {
       const ageMs = Date.now() - Date.parse(pdfJob.updated_at);
       if (Number.isFinite(ageMs) && ageMs < 8 * 60_000) {
@@ -335,20 +342,25 @@ Deno.serve(async (req) => {
         return json({ ok: true, result: 'resumed', kind: 'resume_interior', have: interiors.length, expected, dispatch_status: r.status });
       }
 
-      if (!hasPdf && status === 'pdf_building' && interiors.length >= Math.min(expected, 12)) {
-        const r = await invoke('kids-build-picture-pdf', { ebook_id, publish: true, stage: 'resume' });
+      const pdfJobError = String(pdfJob?.error ?? '');
+      const pdfAssemblyNeverStarted = !pdfJob || (!pdfJob.next_stage && !pdfJob.prepared && !pdfJob.error);
+      if (!hasPdf && status === 'pdf_building' && interiors.length >= Math.min(expected, 12) && !pdfJobError) {
+        const stage = pdfAssemblyNeverStarted ? 'pdf_prepare' : 'resume';
+        const r = await invoke('kids-build-picture-pdf', { ebook_id, publish: true, stage });
         const t = await r.text().catch(() => '');
+        const ok = r.ok;
         await appendLog(db, ebook_id, {
           attempt: totalAttempts + 1,
-          current_blocker: 'pdf_build_incomplete',
+          current_blocker: pdfAssemblyNeverStarted ? 'pdf_assembly_never_started' : 'pdf_build_incomplete',
           blocker_class: 'resume_pdf',
           repair_handler: 'kids-build-picture-pdf (free resume)',
           stage_before, stage_after: status,
-          result: 'no_op',
-          detail: { free_resume: true, dispatch_status: r.status, body: t.slice(0, 240) },
+          result: ok ? 'no_op' : 'error',
+          detail: { free_resume: true, stage, dispatch_status: r.status, body: t.slice(0, 240) },
           updated_at: new Date().toISOString(),
         });
-        return json({ ok: true, result: 'resumed', kind: 'resume_pdf', dispatch_status: r.status });
+        if (!ok) return json({ ok: true, result: 'error', kind: 'resume_pdf_failed', dispatch_status: r.status, body: t.slice(0, 240) });
+        return json({ ok: true, result: 'resumed', kind: 'resume_pdf', stage, dispatch_status: r.status });
       }
     }
 
@@ -507,6 +519,10 @@ Deno.serve(async (req) => {
       case 'pdf_glyph':
         handler = 'kids-final-text-repair';
         repairBody = { ebook_id, publish: true };
+        break;
+      case 'text_mapping':
+        handler = 'kids-final-text-repair';
+        repairBody = { ebook_id, publish: true, reason: 'text_mapping_gate' };
         break;
       case 'worker_resource_limit':
         handler = 'kids-build-picture-pdf';
