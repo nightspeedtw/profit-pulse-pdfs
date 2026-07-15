@@ -347,14 +347,18 @@ Deno.serve(async (req) => {
       thumbnail_url: coverUrl,
       storefront_meta: {
         ...existingMeta,
-        cover_source: 'interior_reference_v1',
+        cover_source: usedRenderer === 'kids-title-treatment@1'
+          ? 'composite_fallback_v1'
+          : 'interior_reference_v1',
         cover_repaired_at: new Date().toISOString(),
         cover_qc_report: bestReport,
+        title_treatment: titleTreatmentMeta,
         legacy_format: (page_count_is_legacy(eb.page_count as number | null) ? true : (existingMeta.legacy_format ?? false)),
       },
     };
     if (pdfUrlOut) patch.pdf_url = pdfUrlOut;
     await db.from('ebooks_kids').update(patch).eq('id', ebook_id);
+
 
     return json({
       ok: true,
