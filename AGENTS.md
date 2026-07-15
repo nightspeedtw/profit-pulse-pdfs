@@ -21,26 +21,37 @@ explicitly enables that phase.
   reaching `final_pdf_ready` with 0 manual DB edits, 0 threshold
   reductions, 0 gate bypasses.
 
-**For every book generation, PDF, QC, illustrated continuity, regression,
-or storefront issue, invoke: `$secretpdf-release-guardian` (policy) and
-the matching execution skill from `.agents/skills/`.**
+**Canonical skill: `secretpdf-production-suite`** — consolidated policy +
+deterministic scripts (`validate_release_manifest.py`,
+`validate_page_manifest.py`, `audit_repo.py`) + references covering
+architecture-orchestrator, qc-contracts, pdf-integrity, regression-evals,
+observability-p0, illustrated-continuity, cover-thumbnail, sales-page-copy,
+release-gates, known-regressions. For every book-generation, PDF, QC,
+illustrated-continuity, regression, observability, or storefront-copy task,
+load this suite first and follow the reference for the matching sub-workflow.
 
-## Skill routing (all under `.agents/skills/` and mirrored to `.claude/skills/`)
+## Skill routing → `secretpdf-production-suite`
 
-| Symptom / task | Skill |
+| Symptom / task | Load |
 |---|---|
-| Architecture audit, duplicate orchestrators, canonical tables | `secretpdf-repo-architect` |
-| State machine, retries, leases, resume, error classification | `secretpdf-pipeline-orchestrator` |
-| Any QC gate: contract, n/a, threshold, repair loop | `secretpdf-qc-contract-auditor` |
-| PDF bytes, duplicates, page order, metadata, cover blank | `secretpdf-pdf-integrity-engineer` |
-| Regression fixtures, release manifest, fresh-book proof | `secretpdf-regression-eval-harness` |
-| Illustrated / kids continuity, character lock, scene contract | `secretpdf-illustrated-continuity-director` |
-| Watermark / random text / signature inside AI images | `secretpdf-image-artifact-guard` |
-| Structured logs, recurring regression, P0 pause-prove-resume | `secretpdf-observability-p0-responder` |
-| Release policy + language ("fixed" gating) | `secretpdf-release-guardian` |
+| Architecture, duplicate orchestrators, canonical tables, state machine, retries | `references/architecture-orchestrator.md` |
+| QC gate contracts, n/a fields, threshold audits, repair loops | `references/qc-contracts.md` |
+| PDF bytes, duplicates, page order, metadata drift, blank cover | `references/pdf-integrity.md` + `scripts/validate_page_manifest.py` |
+| Regression fixtures, release manifest, fresh-book proof | `references/regression-evals.md` + `scripts/validate_release_manifest.py` |
+| Illustrated continuity, character lock, scene contract, cover/interior match | `references/illustrated-continuity.md` |
+| Covers, A4 cover pages, thumbnails, mockup realism | `references/cover-thumbnail.md` |
+| Sales page, storefront copy, leak of internal notes | `references/sales-page-copy.md` |
+| Stuck jobs, concurrency, P0 incident triage | `references/observability-p0.md` |
+| Release language ("fixed" gating), acceptance | `references/release-gates.md` |
+| Recurring failure look-up | `references/known-regressions.md` |
 
-Scoped AGENTS.md files live under `supabase/functions/` and `src/`;
-workflows live in the skill files, not here.
+The earlier per-skill packages (`secretpdf-repo-architect`,
+`-pipeline-orchestrator`, `-qc-contract-auditor`, `-pdf-integrity-engineer`,
+`-regression-eval-harness`, `-illustrated-continuity-director`,
+`-image-artifact-guard`, `-observability-p0-responder`,
+`-release-guardian`) remain installed for back-compat but the suite is now
+canonical — do not author duplicates. Scoped AGENTS.md files live under
+`supabase/functions/` and `src/`.
 
 ## Deferred (do NOT author until 3-consecutive-fresh-books proof passes)
 - `sales-page-conversion-guardian`
