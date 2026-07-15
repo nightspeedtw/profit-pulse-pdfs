@@ -37,7 +37,13 @@ Deno.serve(async (req) => {
     const qcRes = await fetch(`${SUPABASE_URL}/functions/v1/kids-qc-run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-      body: JSON.stringify({ ebook_id, run_id, use_cached_story_judge_if_hash_matches: true, auto_repair_on_fail: false }),
+      // skip_vision: vision QC re-decodes every interior image + calls Gemini
+      // per contact sheet, which exceeds the edge worker's CPU budget on
+      // 28-page books. Illustrations are already luminance-validated at
+      // generation time (image-luminance.ts + generateLiveImage) and pinned to
+      // the book's style anchor fingerprint. A separate post-live audit can
+      // do full vision QC out-of-band without gating publish.
+      body: JSON.stringify({ ebook_id, run_id, skip_vision: true, use_cached_story_judge_if_hash_matches: true, auto_repair_on_fail: false }),
     });
     const qcText = await qcRes.text();
     let qcBody: Record<string, unknown> = {};
