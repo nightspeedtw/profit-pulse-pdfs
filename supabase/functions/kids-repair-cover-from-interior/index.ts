@@ -15,6 +15,8 @@ import { qcCoverLettering } from '../_shared/qc/kids-cover-lettering-qc.ts';
 import { uploadAndSignImage, versionedKidsAssetPath, storagePathFromUrl, IMAGE_SIGNED_TTL_SECONDS } from '../_shared/versioned-assets.ts';
 import { generateLiveImage } from '../_shared/image-luminance.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
+import { falIdeogramV3 } from '../_shared/fal.ts';
+import { buildTitlePromptFragment, planTitleLines } from '../_shared/covers/title-mastery.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
