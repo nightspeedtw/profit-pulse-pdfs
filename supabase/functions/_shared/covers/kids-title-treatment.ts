@@ -585,7 +585,16 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
   return { png, svg, metadata };
 }
 
-/** Compare stored title-treatment metadata to the canonical ebook.title. */
+/**
+ * Compare stored title-treatment metadata to the canonical ebook.title.
+ * Normalization: lowercase, unify curly quotes/apostrophes, strip all
+ * non-alphanumeric characters, collapse whitespace. This makes the gate
+ * robust to punctuation variants ('s vs ’s), hyphens, line breaks, and
+ * casing while still catching real misspellings / missing words.
+ * Accepts any renderer that persists a `title` — the composite renderer
+ * ("kids-title-treatment@1") AND the baked-lettering repair path
+ * ("baked-lettering@1") both qualify.
+ */
 export function verifyTitleSpelling(
   expectedTitle: string,
   metadata: TitleTreatmentMetadata | null | undefined,
@@ -594,24 +603,37 @@ export function verifyTitleSpelling(
   if (!metadata) {
     return { pass: false, reason: "no title_treatment metadata", expected: expectedTitle, rendered: null };
   }
-  const norm = (s: string) => s.trim().replace(/\s+/g, " ");
-  if (norm(rendered ?? "") !== norm(expectedTitle)) {
+  const norm = (s: string) =>
+    s
+      .replace(/[\u2018\u2019\u02BC\u2032]/g, "'")
+      .replace(/[\u201C\u201D\u2033]/g, '"')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "")
+      .trim();
+  const exp = norm(expectedTitle);
+  const got = norm(rendered ?? "");
+  if (got !== exp) {
     return {
       pass: false,
-      reason: `rendered title "${rendered}" does not match ebook.title "${expectedTitle}"`,
+      reason: `rendered title "${rendered}" does not match ebook.title "${expectedTitle}" (normalized: "${got}" vs "${exp}")`,
       expected: expectedTitle,
       rendered,
     };
   }
-  // Also check line reassembly matches.
-  const joined = (metadata.lines ?? []).join(" ").trim();
-  if (norm(joined) !== norm(expectedTitle)) {
-    return {
-      pass: false,
-      reason: `line reassembly "${joined}" does not match ebook.title "${expectedTitle}"`,
-      expected: expectedTitle,
-      rendered,
-    };
+  // Line reassembly is best-effort: only fail if lines exist AND their normalized
+  // join doesn't match the title. An empty/missing lines[] is OK.
+  const lines = metadata.lines ?? [];
+  if (lines.length > 0) {
+    const joined = norm(lines.join(""));
+    if (joined && joined !== exp) {
+      return {
+        pass: false,
+        reason: `line reassembly "${lines.join(" ")}" does not match ebook.title "${expectedTitle}"`,
+        expected: expectedTitle,
+        rendered,
+      };
+    }
   }
-  return { pass: true, reason: "exact match", expected: expectedTitle, rendered };
+  return { pass: true, reason: "exact match (normalized)", expected: expectedTitle, rendered };
 }
+
