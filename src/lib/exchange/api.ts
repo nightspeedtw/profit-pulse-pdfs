@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { BUY_GATEWAY_FEE_PCT, BUY_TAX_PCT_DEFAULT, MIN_PURCHASE_USD } from "./model";
 
 export interface Offering {
   book_id: string;
@@ -14,6 +15,12 @@ export interface Offering {
   trailing_90d_net_rev: number;
   listed_at: string;
   updated_at: string;
+}
+
+export interface BuyFeeSettings {
+  min_usd: number;
+  gateway_fee_pct: number;
+  tax_pct: number;
 }
 
 export async function listOfferings(): Promise<Offering[]> {
@@ -35,16 +42,27 @@ export async function getOffering(bookId: string): Promise<Offering | null> {
   return (data as Offering) ?? null;
 }
 
-export async function getAsks(bookId: string) {
-  const { data, error } = await supabase
-    .from("rights_orders")
-    .select("id, price_per_share, qty_remaining, is_treasury, seller_id, created_at")
-    .eq("book_id", bookId)
-    .eq("status", "open")
-    .order("price_per_share", { ascending: true })
-    .limit(50);
-  if (error) throw error;
-  return data ?? [];
+export async function getBookSalesCount(bookId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("royalty_distributions")
+    .select("sale_ref", { count: "exact", head: true })
+    .eq("book_id", bookId);
+  if (error) return 0;
+  return count ?? 0;
+}
+
+export async function getBuyFeeSettings(): Promise<BuyFeeSettings> {
+  const { data } = await supabase
+    .from("platform_settings")
+    .select("key,value_json")
+    .in("key", ["buy_min_usd", "buy_gateway_fee_pct", "buy_tax_pct"]);
+  const map: Record<string, number> = {};
+  for (const r of data ?? []) map[(r as any).key] = Number((r as any).value_json);
+  return {
+    min_usd: map.buy_min_usd ?? MIN_PURCHASE_USD,
+    gateway_fee_pct: map.buy_gateway_fee_pct ?? BUY_GATEWAY_FEE_PCT,
+    tax_pct: map.buy_tax_pct ?? BUY_TAX_PCT_DEFAULT,
+  };
 }
 
 export async function getRecentTrades(bookId: string, limit = 20) {
@@ -90,17 +108,6 @@ export async function getMyHoldings() {
     .from("rights_holdings")
     .select("*, rights_offerings!inner(title, cover_url, ref_price_per_share, last_trade_price, book_type)")
     .gt("shares", 0);
-  if (error) throw error;
-  return data ?? [];
-}
-
-export async function getMyOpenOrders() {
-  const { data, error } = await supabase
-    .from("rights_orders")
-    .select("*, rights_offerings!inner(title)")
-    .eq("status", "open")
-    .not("seller_id", "is", null)
-    .order("created_at", { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
