@@ -1,58 +1,70 @@
 
-## Evidence gathered
+# Owner Editorial Review → 6 Permanent Skills + Book Repair
 
-**Hypothesis (a) — skill IS reaching the writer.** All three writer paths call `loadStoryCraftBlock(db, ageBand)` before prompting:
-- `supabase/functions/rewrite-kids-manuscript/index.ts:57`
-- `supabase/functions/kids-repair-story-gate/index.ts:220`
-- `supabase/functions/kids-concept-preflight/index.ts:420`
+Owner graded live book 27a1fe60 68/100 while final QC gave 100 — every issue is a missing gate. Plan: encode six skills as pipeline_skills rows, wire each as a deterministic gate + repair reaction, then apply to 27a1fe60.
 
-The skill-learner has written 21 versions of `playbook_reread_value` (latest `2026-07-14 09:31Z`, 4504 chars, source=`learned`). Loader in `_shared/story-craft-skill.ts:495` overlays the learned rows on top of the bundled seed. The writer is receiving the latest playbook. **This is not the wall.**
+## Part 1 — Encode 6 skills (pipeline_skills, source='learned')
 
-**Hypothesis (b) — the JUDGE is the wall.** In `_shared/kids-story-judge.ts` the prompt has 60+ lines of criterion-based rubric anchors for `generic_story_risk_score` (0-25 / 40-60 / 75-100 with example books) but **zero rubric anchors for `reread_value_score`** — the judge is asked for a number with no definition of what earns 85/90/95. LLM judges default to the safe "80" every time. No amount of playbook v22, v23 changes writer output enough to break the anchor bias, because the judge doesn't know what a 90 looks like.
+| Skill | Rule | Gate (where) | Reaction |
+|---|---|---|---|
+| A. Text-safe frame | ≥36pt margin from trim for body/title text; ≥18pt for folios; shrink-to-fit (step down to 14pt min, then wrap, never clip); line-height 1.3–1.5; text block ≤65% page width; panel padding ≥16pt | `text_safe_frame_gate` — bbox check at every PDF stamp (title page, captions, bonus pages) | Re-layout: shrink font → wrap → repaginate. Never publish with clipped text. |
+| B. Integrated caption treatment | Story text sits in reserved lower-third with translucent tinted panel (palette-derived, 85–92% opacity, feathered), warm dark-brown text (#3a2a1e), 16–20pt, rounded friendly font. Onomatopoeia stays as in-art lettering. | `caption_integration_gate` — captions never rendered as stark #FFFFFF rects | Re-render PDF with new `drawCaptionOverlay` (palette-tinted) |
+| C. Character sheet lock (mandatory) | Before interiors: generate multi-pose character sheet (front/side/action + swatches + proportions); QC once; pin sheet URL into EVERY page prompt. Per-batch verify uses SHEET as reference with strict species/face/proportions rubric matching final QC. | `character_sheet_required_gate` before interior_build; `character_match_gate` per batch page | Missing sheet → run `kids-build-character-sheet`; page fail → regenerate that page with sheet |
+| D. No title echo in interior | Vision transcription per batch page; any interior containing title words or lettering fails that page | `interior_title_echo_gate` in batch verify | Regenerate offending page via `kids-regenerate-offmodel-pages` |
+| E. Text completeness pre-render | Every page segment ends with `. ! ?`; not ending in conjunction/article ("and","but","a","the","for","to","of"); complete sentence; runs at segmentation time (free, pre-illustration) | `page_text_completeness_gate` in segmenter | Extend segment from next paragraph or trim to prior sentence boundary; if unfixable, rewrite via `rewrite-kids-manuscript` |
+| F. Sellability + bonus pages | Every book gets +2 bonus pages before back cover: (1) "Can You Spot the Clues?" — auto-extracted key objects from manuscript + 1 prompt Q; (2) "Talk About the Story" — 4 discussion Qs from theme. Positioning copy must name developmental value. Page-count gate +2. | `bonus_pages_present_gate` at pdf_prepare; `positioning_copy_developmental_value_gate` at storefront copy | Auto-generate bonus pages via new helper `buildBonusPages`; storefront copy re-gen with developmental-value directive |
 
-**Rotation regression.** Recent runs died in ~30s at `start_run` / `manuscript_qc` with `status=needs_admin`. The ebook's `pipeline_status` gets set to `human_review_required` at `autopilot-kids-pipeline/index.ts:162 & 175` and `kids-repair-story-gate/index.ts:356`. `kids-one-click-build`'s rotation check at line 210 only branches on `pipeline_status === 'retired'`, so `human_review_required` never rotates → run dead-ends. Also the last 3 runs never even entered the `kids-one-click-build` polling loop — they were direct `autopilot-kids-pipeline` invocations that ended at story_gate without an orchestrator.
+## Part 2 — Code changes
 
-## Changes
+### New/updated files
+- `supabase/functions/_shared/kids-picture-pdf.ts`
+  - Rewrite `drawCaptionOverlay`: palette-tinted panel (accept `paletteHint`), warm-ink text, rounded feathered look via multiple stacked rects w/ decreasing opacity.
+  - Rewrite `addTitlePage`: shrink-to-fit (measure width, step 34→28→22→18→14; then wrap).
+  - New `addBonusSpotCluesPage(doc, clues[])` and `addBonusDiscussionPage(doc, questions[])`.
+  - New `assertTextSafeBox(text, font, size, x, y, maxW)` helper used everywhere text is stamped.
+- `supabase/functions/_shared/kids-segments.ts` (or wherever page text is finalized)
+  - Add `validatePageTextCompleteness(segments)` — fails on non-terminal punct / trailing stopwords; auto-repair by pulling from next segment.
+- `supabase/functions/_shared/kids-vision-qc.ts`
+  - Per-batch page prompt: compare against `character_sheet_url` (new arg); rubric fields: species_match, face_match, proportions_match, palette_match, accessories_match, human_like_body (must be false), title_text_present (must be false).
+- `supabase/functions/kids-build-character-sheet/index.ts` (NEW)
+  - Generate a 4-pose sheet from the cover-style prompt + character bible; store on `ebooks_kids.character_sheet_url` (add column via migration).
+- `supabase/functions/kids-render-interior/index.ts`
+  - Gate: refuse to start if `character_sheet_url` missing → invoke build-sheet, then continue.
+  - Pin sheet URL into every page prompt as a locked reference alongside cover.
+  - After batch verify, apply new gates (title-echo + character-sheet-match); reaction routes to `kids-regenerate-offmodel-pages`.
+- `supabase/functions/kids-build-picture-pdf/index.ts`
+  - Insert bonus pages before "The End".
+  - Assert text-safe frame on every stamped page; if fail → shrink-to-fit path.
+- `supabase/functions/_shared/story-craft-skill.ts` + `supabase/functions/kids-generate-storefront-copy/index.ts`
+  - Add "developmental-value line required" directive to description/preview generation.
+- New helper `supabase/functions/_shared/bonus-pages.ts`
+  - Extract clues (concrete nouns repeated ≥2× in manuscript) + generate 4 discussion Qs via Lovable AI.
 
-### 1. Give the judge a criterion-based reread rubric (fixes hypothesis b)
-Edit `supabase/functions/_shared/kids-story-judge.ts`:
-- Add a `REREAD_VALUE RUBRIC ANCHORS` block modeled on the `generic_story_risk` section. Explicit measurable criteria:
-  - **90-100:** chantable refrain appears ≥3× with variation; call-and-response OR body-movement beats kids can perform aloud; cumulative/predictable structure; ≥1 hidden-detail thread across spreads for re-read hunts; last line invites another read.
-  - **80-89:** refrain present but non-chantable OR appears <3×; some participation beats but not on every spread.
-  - **60-79:** decorative repetition only; no participation trigger; nothing to hunt across spreads.
-  - **<60:** no repetition, no participation, purely narrated.
-- Add matching `reread_evidence` fields the judge must fill (refrain_text, refrain_count, participation_beats[], hidden_thread) so we can hard-verify with regex — if the judge claims 90 but refrain_count<3, we cap the score deterministically.
-- Apply the same deterministic-cap treatment for `parent_buyer_value` (also chronically stuck at 80) using the existing PARENT_BUYER_VALUE playbook criteria.
+### Migrations
+1. `pipeline_skills` inserts for skills A–F (id, key, rule, source='learned', version).
+2. `ebooks_kids` add column `character_sheet_url text`.
+3. Update page-count expectation: assembly gate uses `illustrations + 4 + 2` (bonus).
 
-### 2. Deterministic post-judge score verifier
-In the same file, after `runKidsStoryJudge` parses the report, run a `verifyRereadClaim(report, manuscript_md)` that:
-- Counts refrain occurrences in `manuscript_md` (case-insensitive).
-- Confirms `participation_beats` phrases actually appear.
-- If judge said ≥85 but evidence fails, cap the score at 80 with a `judge_cap_applied` note.
-- If evidence passes AND judge said 80, floor at 85 with `evidence_floor_applied`.
-This kills the "vibes 80" default in both directions and gives the skill-learner a real signal.
+## Part 3 — Apply to 27a1fe60 (Detective Pip)
 
-### 3. Bump `playbook_reread_value` to v22 (source=learned) via `kids-skill-learner`
-Update its prompt guidance so the manuscript writer explicitly targets the new judge criteria (refrain ≥3×, one participation beat per spread, hidden thread). This is a data-only insert into `pipeline_skills` — no schema change.
+1. Build character sheet from best on-model pages (owner-implicit: not 5,8,11,17,23,29). Pick highest-agreement fingerprint pages.
+2. Regenerate off-model pages: 5, 8, 11, 17, 23, 29.
+3. Regenerate title-echo pages: 7, 9, 10, 14, 21.
+4. Fix truncated segments on pages 24, 27, 30 — extend from next paragraph or complete via rewrite; re-layout shrink-to-fit.
+5. Fix clipping on title page (shrink-to-fit).
+6. Cover: regenerate via `kids-repair-cover-from-interior` with directive "Pip centered/prominent, holding magnifying glass and detective bag".
+7. Append 2 bonus pages (Spot the Clues: pebble, thimble, blue ribbon; Talk About: empathy/problem-solving).
+8. Re-render full PDF with SKILL B caption treatment; re-run QC with upgraded rubric; keep live only on pass.
+9. Update storefront copy to include developmental-value line.
 
-### 4. Restore concept rotation for `human_review_required`
-Edit `supabase/functions/kids-one-click-build/index.ts` around line 210:
-- Treat `pipeline_status in ('retired','human_review_required')` with a story-gate blocker as the same terminal-rotate path.
-- Auto-flip such ebooks to `retired` with `blocker_reason='auto_retired_for_fresh_concept: <reason>'` and continue the outer loop (same as line 220-228 already does for story-terminal blockers).
+## Part 4 — Audit table (post in reply)
 
-Edit `supabase/functions/autopilot-kids-pipeline/index.ts` (lines 162, 175) and `kids-repair-story-gate/index.ts:356`:
-- When a story-gate exhausts repair budget, set `pipeline_status='retired'` directly (not `human_review_required`) with a clear blocker_reason. Autopilot must never rest in a human-review state per the owner's standing rule.
+Extend the gate/reaction table with rows for text_safe_frame, caption_integration, character_sheet_required, character_match, interior_title_echo, page_text_completeness, bonus_pages_present, positioning_copy_developmental_value — all marked WIRED.
 
-### 5. Fire one fresh one-click build
-Invoke `kids-one-click-build` with defaults after the code deploys. Report each stage's outcome from `autopilot_pipeline_steps` + `ebooks_kids.pipeline_status`.
+## Assumptions (flag for correction)
+- Character sheet is stored as a single composite PNG at `ebooks_kids.character_sheet_url` (add column). If you prefer a JSONB with multiple pose URLs, say so.
+- Bonus-page clue extraction uses a lightweight LLM call (Gemini flash via gateway) — cost is one extra call per book.
+- Batch stays running throughout; changes apply to books not yet at interior_build. In-flight books at later stages will be repaired opportunistically by the supervisor when they hit the new gates.
+- I will NOT rewrite the entire manuscript for 27a1fe60 — only complete the 3 truncated segments and shrink-to-fit layout.
 
-## Out of scope
-- Do NOT un-retire Detective Pip.
-- Do NOT lower any gate threshold.
-- Do NOT touch cover/PDF/QC gate code — those are hardened and working.
-
-## Verification
-1. Deploy edge functions, then replay the judge on the last 3 story_gate failures (`kids-story-judge-replay`) and confirm the new rubric + verifier now produce differentiated scores (some ≥85, some capped correctly).
-2. Insert playbook_reread_value v22 and confirm loader returns it.
-3. Fire one-click build; watch it flow concept → story_gate PASS (or rotate to fresh concept, never dead-end) → interiors → cover → PDF → QC → live. Report each stage's score.
-4. When a book goes live, provide `pdf_url` + `cover_url` for the owner to render pages and independently verify.
+Ready to implement on approval.
