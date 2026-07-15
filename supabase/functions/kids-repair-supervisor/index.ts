@@ -132,11 +132,23 @@ function parseDeadInteriorPageNumbers(detail: string): number[] {
 }
 
 
-function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_name?: string; error_message?: string } | null): { klass: string; detail: string } | null {
+export function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_name?: string; error_message?: string } | null): { klass: string; detail: string } | null {
   const sc = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
   const listing = String(ebook.listing_status ?? 'draft');
   const sellable = Boolean(ebook.sellable);
   if (listing === 'live' && sellable) return null;
+
+  // ---- TERMINAL-QUALITY IMMUNITY (highest priority) ----
+  // A book with a valid PDF and overall_qc_score >= 90 has already satisfied
+  // Phase-1 acceptance. Any story_gate / repair / retire action against it is
+  // rejected here — publishing is a separate concern and never a quality
+  // verdict against the content. This kills the class where a stale
+  // step_name='story_gate' entry or empty verdict reclassifies a passed book.
+  const _hasPdf0 = Boolean(ebook.pdf_url);
+  const _overall0 = ebook.overall_qc_score as number | null | undefined;
+  if (_hasPdf0 && typeof _overall0 === 'number' && _overall0 >= 90) {
+    return null;
+  }
 
   const stepName = latestFailedStep?.step_name;
   const criticalErrors = Array.isArray(sc.critical_errors) ? (sc.critical_errors as unknown[]).map(String) : [];
@@ -160,6 +172,7 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
       : (pipelineStatus === 'qc_pending' ? 'qc_pending: verdict missing' : 'qc_missing: no scorecard after pdf assembly');
     return { klass: 'qc_missing', detail };
   }
+
 
   // If an async PDF rebuild is already mid-chain, never start a new art/style
   // repair from stale QC errors. Just resume the PDF chain.
@@ -198,8 +211,15 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
   const sg = sc.story_gate as { passed?: boolean; scores?: Record<string, number> } | undefined;
   if (stepName === 'story_gate' || (sg && sg.passed === false)) {
     const scores = sg?.scores ?? {};
+    // Empty/absent scores = INFRASTRUCTURE result (gate crashed, produced no
+    // verdict), never a quality verdict. Do NOT consume story_gate budget or
+    // retire the book; route to qc_missing so the gate is re-invoked.
+    if (!scores || Object.keys(scores).length === 0) {
+      return { klass: 'qc_missing', detail: `gate_crash:story_gate: empty verdict (no scores)` };
+    }
     return { klass: 'story_gate', detail: `story_gate: ${JSON.stringify(scores)}` };
   }
+
 
   // 2. Metadata gate mismatch.
   if (stepName === 'metadata_gate' || errMsg.includes('METADATA_STORY_MISMATCH')) {
