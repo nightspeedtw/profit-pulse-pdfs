@@ -101,8 +101,9 @@ Each question must be 8-18 words. No preachy language. No 'the moral is'.`,
     });
     if (!r.ok) throw new Error(`discussion ${r.status}`);
     const j = await r.json();
-    const raw = (j.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
-    const parsed = JSON.parse(raw);
+    const raw = j.choices?.[0]?.message?.content ?? "";
+    const parseRes = parseModelJson<{ questions?: unknown; developmental_hook?: unknown }>(raw);
+    const parsed = parseRes.ok ? parseRes.value : { questions: [], developmental_hook: "" };
     const questions = Array.isArray(parsed.questions) ? parsed.questions.map((q: unknown) => String(q).trim()).filter(Boolean).slice(0, 4) : [];
     const hook = String(parsed.developmental_hook ?? "").trim().slice(0, 140);
     return { questions, developmental_hook: hook };
