@@ -18,7 +18,25 @@ const LOVABLE_API_KEY = (globalThis as unknown as { Deno?: { env?: { get?: (key:
 export interface KidsSegment {
   page: number;
   text: string;
+  contains_refrain?: boolean;
 }
+
+// Structural refrain placement: pages that MUST carry the refrain verbatim.
+// Choosing 2 (setup echo), middle beat, and final (payoff) guarantees the
+// ≥3-verbatim gate BY CONSTRUCTION rather than hoping the model repeats it.
+export function refrainPagesFor(target: number): number[] {
+  const setup = 2;
+  const mid = Math.max(setup + 1, Math.floor(target / 2));
+  const finalPage = target;
+  return Array.from(new Set([setup, mid, finalPage])).sort((a, b) => a - b);
+}
+
+// Historical failures the writer has produced against this gate. Fed into
+// every prompt so the model does not repeat them. Append-only.
+export const KNOWN_REFRAIN_FAILURES: string[] = [
+  `run 0d592fc9 (2026-07-15): refrain "Sticky-gooey, wobbly-gluey, it's Pip's sweet mess!" appeared on only 2 pages — model paraphrased it as "sticky-gooey mess" on the third page instead of copying it verbatim.`,
+  `run 770bfe17 (2026-07-15): refrain-count gate failed a second time despite the rewrite receiving the exact violation text — auto-rewrite prompt did not re-embed the refrain STRING itself, so the model invented a new one on retry.`,
+];
 
 export interface SegmentedManuscript {
   title: string;
@@ -82,25 +100,45 @@ export function validateSegments(
 
   const refrain = String(m?.refrain ?? "").trim();
   if (!refrain) {
-    v.push(`refrain: missing — writer must define one short chantable line`);
+    v.push(`refrain: missing — writer must define one short chantable line and repeat it verbatim on the marked refrain pages`);
   } else {
+    const required = refrainPagesFor(target);
+    const nRefrain = normalizeForRefrainMatch(refrain);
+    // Structural check — pages MARKED contains_refrain: true MUST contain the refrain verbatim.
+    for (const pn of required) {
+      const p = pages.find((x) => Number(x?.page) === pn);
+      const text = String(p?.text ?? "");
+      const marked = Boolean(p?.contains_refrain);
+      const hasVerbatim = nRefrain.length >= 3 && normalizeForRefrainMatch(text).includes(nRefrain);
+      if (!marked) {
+        v.push(`page ${pn}: contains_refrain must be true — this is a designated refrain page (setup/mid/final). Set "contains_refrain": true AND include the refrain verbatim: "${refrain}".`);
+      }
+      if (!hasVerbatim) {
+        v.push(`page ${pn}: refrain missing from text — the refrain "${refrain}" MUST appear VERBATIM (identical wording and punctuation) inside page ${pn}.text. Copy the exact string. Do not paraphrase, translate, or shorten.`);
+      }
+    }
     const count = countRefrainOccurrences(pages, refrain);
     if (count < minRefrain) {
-      v.push(`refrain "${refrain}" appears in ${count} pages, need ≥${minRefrain} — add it VERBATIM (identical wording and punctuation) to at least ${minRefrain - count} more page(s). Recommended placement: page 1 (setup), a mid page (~14), and the final page (${m?.target ?? 28}). Do not paraphrase, do not translate, do not shorten — copy the exact string "${refrain}" into the additional page(s).`);
+      v.push(`refrain "${refrain}" appears in ${count} pages, need ≥${minRefrain} — refrain pages are ${required.join(", ")}; put the refrain verbatim on ALL of them.`);
     }
   }
 
   return { ok: v.length === 0, violations: v };
 }
 
+function normalizeForRefrainMatch(s: string): string {
+  return s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+}
+
 function countRefrainOccurrences(pages: KidsSegment[], refrain: string): number {
-  const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-  const n = norm(refrain);
+  const n = normalizeForRefrainMatch(refrain);
   if (n.length < 3) return 0;
   let c = 0;
-  for (const p of pages) if (norm(String(p.text ?? "")).includes(n)) c++;
+  for (const p of pages) if (normalizeForRefrainMatch(String(p.text ?? "")).includes(n)) c++;
   return c;
 }
+
+
 
 // ---------------------------------------------------------------------------
 // Human-readable render — kept for legacy consumers of manuscript_md.
@@ -176,7 +214,12 @@ gentle rhythm, satisfying resolution, implicit moral (never a lecture). English 
 
 You MUST return valid JSON only — no markdown, no prose framing, no code fences.`;
 
-function buildWriterUser(opts: WriteSegmentsOpts, extraViolations?: string[], lockedPages?: KidsSegment[]): string {
+function buildWriterUser(
+  opts: WriteSegmentsOpts,
+  extraViolations?: string[],
+  lockedPages?: KidsSegment[],
+  priorRefrain?: string,
+): string {
   const violationsBlock = extraViolations?.length
     ? `\n\nPREVIOUS ATTEMPT FAILED THE DETERMINISTIC GATE. Fix EVERY violation below on this rewrite:\n- ${extraViolations.join("\n- ")}\n`
     : "";
@@ -186,6 +229,11 @@ function buildWriterUser(opts: WriteSegmentsOpts, extraViolations?: string[], lo
   const partialRecoveryBlock = locked.length > 0
     ? `\n\nPARTIAL JSON RECOVERY MODE:\nThe parser recovered complete page objects for pages ${locked.map((p) => p.page).join(", ")}. Those pages are LOCKED and must not be rewritten.\nReturn JSON with the same title/refrain shape, but the pages array must contain ONLY the missing/broken page numbers: ${missingNumbers.join(", ")}.\nRecovered pages for context:\n${JSON.stringify(locked)}\n`
     : "";
+  const required = refrainPagesFor(opts.target);
+  const priorRefrainBlock = priorRefrain
+    ? `\n\nREFRAIN LOCK (do NOT invent a new refrain on this retry):\nThe refrain from the previous attempt is:\n>>> ${priorRefrain} <<<\nKeep this EXACT string as the "refrain" field AND paste it VERBATIM into the "text" of pages ${required.join(", ")}. Do not translate, paraphrase, shorten, restyle punctuation, or change capitalisation.\n`
+    : "";
+  const knownFailuresBlock = `\n\nKNOWN PAST FAILURES OF THIS GATE (do not repeat):\n- ${KNOWN_REFRAIN_FAILURES.join("\n- ")}\n`;
   return `Book title: "${opts.title}"
 Subtitle: "${opts.subtitle ?? ""}"
 Story promise / description: ${opts.description ?? ""}
@@ -199,25 +247,32 @@ TASK: write a SQUARE 8.5x8.5 in picture-book manuscript as STRUCTURED JSON.
 STRICT SHAPE — return exactly:
 {
   "title": "the book title",
-  "refrain": "one short chantable line that will appear verbatim on ≥3 pages",
+  "refrain": "one short chantable line — this EXACT string must be pasted verbatim into the text of the refrain pages below",
   "pages": [
-    { "page": 1, "text": "15-30 words of read-aloud text for page 1" },
-    { "page": 2, "text": "..." },
+    { "page": 1, "text": "15-30 words of read-aloud text for page 1", "contains_refrain": false },
+    { "page": 2, "text": "... — this page is a refrain page, MUST include the refrain verbatim", "contains_refrain": true },
     ...
-    { "page": ${opts.target}, "text": "..." }
+    { "page": ${opts.target}, "text": "... — final refrain payoff, MUST include the refrain verbatim", "contains_refrain": true }
   ]
 }
+
+REFRAIN PLACEMENT (structural — enforced by the gate BY CONSTRUCTION):
+- Pages ${required.join(", ")} are the refrain pages.
+- On EACH of those pages you MUST:
+    1. Set "contains_refrain": true
+    2. Paste the refrain STRING verbatim (identical wording, punctuation, capitalisation) inside "text".
+- All other pages: set "contains_refrain": false and do not include the refrain string.
 
 HARD RULES (a deterministic gate checks these — failing any wastes the call):
 1. pages array MUST have EXACTLY ${opts.target} items, numbered 1..${opts.target}.
 2. Each page.text MUST be 15-30 words. Not 14, not 31. Count them.
-3. The refrain string MUST appear verbatim (case/punctuation-insensitive) on AT LEAST 3 pages.
+3. The refrain STRING must appear verbatim (case/punctuation-insensitive) inside pages ${required.join(", ")}.
 4. No empty pages, no "Page N" placeholders, no TBD/TODO/lorem.
 5. Clear 4-act arc across ${opts.target} beats: setup (1-4), rising problem (5-14),
    climax/turning point (15-22), warm resolution (23-${opts.target}).
 6. Hero solves the problem themselves — no adult swoops in.
 7. Grade 1-2 vocabulary. Never mention brands, tech, violence, or scary imagery.
-${violationsBlock}${partialRecoveryBlock}`;
+${priorRefrainBlock}${knownFailuresBlock}${violationsBlock}${partialRecoveryBlock}`;
 }
 
 export interface WriterParseDiagnostics {
@@ -475,6 +530,7 @@ function coerceSegmented(raw: Record<string, unknown>, opts: WriteSegmentsOpts):
     pages: pages.map((p, i) => ({
       page: Number(p?.page ?? i + 1),
       text: String(p?.text ?? "").trim(),
+      contains_refrain: Boolean(p?.contains_refrain),
     })),
   };
 }
@@ -535,7 +591,10 @@ export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise
   console.warn(`[kids-segments] attempt 1 (${primary}) failed gate:\n- ${validation.violations.join("\n- ")}`);
 
   // Attempt 2 — same model, violations quoted back with fix demand.
-  const raw2 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, [...parseFailureViolations(parseFailures), ...validation.violations], recovered?.pages), primary, timeoutMs);
+  // CRITICAL: pass manuscript.refrain so the rewrite prompt re-embeds the
+  // exact refrain string (previous runs failed because the rewrite prompt
+  // only quoted the VIOLATION and the model invented a fresh refrain).
+  const raw2 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, [...parseFailureViolations(parseFailures), ...validation.violations], recovered?.pages, manuscript.refrain), primary, timeoutMs);
   if (!raw2.ok || raw2.partial || raw2.diagnostics.errors.length > 0) parseFailures.push(raw2.diagnostics);
   manuscript = raw2.ok ? mergeRecoveredPages(recovered, coerceSegmented(raw2.value, opts), opts) : (recovered ?? coerceSegmented({}, opts));
   if (raw2.partial && manuscript.pages.length > 0) recovered = manuscript;
@@ -545,7 +604,7 @@ export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise
 
   // Attempt 3 — stronger model with all accumulated violations. Last chance
   // before the pipeline retires the concept and rotates.
-  const raw3 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, [...parseFailureViolations(parseFailures), ...validation.violations], recovered?.pages), fallback, timeoutMs);
+  const raw3 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, [...parseFailureViolations(parseFailures), ...validation.violations], recovered?.pages, manuscript.refrain), fallback, timeoutMs);
   if (!raw3.ok || raw3.partial || raw3.diagnostics.errors.length > 0) parseFailures.push(raw3.diagnostics);
   manuscript = raw3.ok ? mergeRecoveredPages(recovered, coerceSegmented(raw3.value, opts), opts) : (recovered ?? coerceSegmented({}, opts));
   validation = validateSegments(manuscript, { target: opts.target });
