@@ -12,6 +12,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { loadStoryCraftBlock } from '../_shared/story-craft-skill.ts';
 import { hasGeminiDirect, geminiDirectChat } from '../_shared/gemini-direct.ts';
 import { sanitizeSalesCopy, SalesCopyLeakError } from '../_shared/sales-copy-sanitizer.ts';
+import { resolveStageOrThrow, logStageEvidence } from '../_shared/skill-evidence.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -77,8 +78,9 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
   try {
-    const { ebook_id, age_band } = await req.json();
+    const { ebook_id, age_band, run_id } = await req.json();
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
+    const salesContracts = await resolveStageOrThrow('generate_sales_page');
 
     const { data: e, error } = await db.from('ebooks_kids')
       .select('id, title, subtitle, description, manuscript_md, storefront_meta, page_count, price_cents')
@@ -229,6 +231,14 @@ Return STRICT JSON only.`;
       customer_product_description_html,
       sales_copy_sanitized_at,
     }).eq('id', ebook_id);
+
+    await logStageEvidence(salesContracts, {
+      run_id: run_id ?? null,
+      book_id: ebook_id,
+      input_reference_ids: [],
+      output_asset_ids: customer_product_description_html ? ['customer_product_description_html'] : [],
+      pass_fail_result: customer_product_description_html ? 'pass' : 'fail',
+    });
 
     return json({ ok: true, ebook_id, copy });
   } catch (e) {

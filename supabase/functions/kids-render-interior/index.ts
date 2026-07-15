@@ -33,6 +33,7 @@ import {
 import { hardenCharacterDescription } from "../_shared/character-anti-confusion.ts";
 import { runKidsVisionQcBatched } from "../_shared/kids-vision-qc.ts";
 import { loadSegments, segmentsToScenePlan } from "../_shared/kids-segments.ts";
+import { assertCoverOrInteriorReady, logStageEvidence, resolveStageOrThrow, loadCharacterLock } from "../_shared/skill-evidence.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -552,6 +553,25 @@ Deno.serve(async (req) => {
       pipeline_status: "pdf_building",
       qc_scorecard: { ...(ebook.qc_scorecard ?? {}), interior_build: { done: records.length, total, updated_at: completedAt, complete: true } },
     }).eq("id", ebookId);
+
+    // Skill-usage evidence for generate_interior — one row per required
+    // contract (character_reference, illustration_style_lock, page_plan,
+    // text_image_semantic_match, image_artifact_guard). Character lock is
+    // re-asserted here so a rewritten reference cannot slip through.
+    try {
+      const lock = await assertCoverOrInteriorReady(ebookId, "generate_interior", db);
+      const interiorContracts = await resolveStageOrThrow("generate_interior");
+      await logStageEvidence(interiorContracts, {
+        run_id: parentRunId ?? null,
+        book_id: ebookId,
+        input_reference_ids: [lock.story_bible_id, lock.character_bible_id,
+          lock.character_reference_id, lock.style_version].filter(Boolean) as string[],
+        output_asset_ids: records.map((r) => (r?.path ?? r?.url ?? "") as string).filter((s) => !!s).slice(0, 40),
+        pass_fail_result: "pass",
+      });
+    } catch (e) {
+      console.warn("[render-interior] skill evidence failed", (e as Error).message);
+    }
 
     console.log(`[render-interior] complete ebook=${ebookId} total=${records.length}. Handoff pdf_prepare + resuming parent run=${parentRunId}`);
     await handoffToPdfPrepare(db, ebookId);

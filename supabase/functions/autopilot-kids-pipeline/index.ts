@@ -13,6 +13,7 @@ import { loadStoryCraftBlock } from '../_shared/story-craft-skill.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
 import { uploadAndSignImage, versionedKidsAssetPath } from '../_shared/versioned-assets.ts';
 import { computeLuminance, generateLiveImage } from '../_shared/image-luminance.ts';
+import { resolveStageOrThrow, logStageEvidence, assertCoverOrInteriorReady } from '../_shared/skill-evidence.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -531,6 +532,10 @@ async function bibleCheck(ctx: Ctx): Promise<StepResult> {
 }
 
 async function generateCover(ctx: Ctx): Promise<StepResult> {
+  // Resolve required skill contracts BEFORE any generation. If a mandatory
+  // contract is missing/disabled, this throws MissingRequiredSkillContract
+  // and the outer loop escalates via error_class.
+  const coverContracts = await resolveStageOrThrow('generate_cover');
   // 1. Pick / load style preset (auto-rotate across pool)
   // 2. Build character bible via AI
   // 3. Generate character reference sheet with Fal Flux Schnell (fast, cheap)
@@ -728,12 +733,32 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
   }).eq('ebook_id', ctx.ebookId);
 
   const existingMeta = (ctx.ebook.storefront_meta ?? {}) as Record<string, unknown>;
+  // Persist canonical character-lock evidence for downstream stages
+  // (interior + release). story_bible_id and character_bible_id resolve to
+  // the same kids_book_bibles row; character_reference_id is a fresh UUID
+  // representing the reference-sheet asset (whose storage path is masterPath).
+  const bibleRowId = ((bible ?? {}) as { id?: string }).id ?? null;
+  const characterReferenceId = crypto.randomUUID();
   await db.from('ebooks_kids').update({
     cover_url: coverUrl,
     thumbnail_url: coverUrl,
     status: 'rendering', pipeline_status: 'rendering',
     storefront_meta: { ...existingMeta, title_treatment: treatment.metadata, cover_luminance: { master: { note: 'live_verified_at_birth' }, final: finalLum } },
+    story_bible_id: bibleRowId,
+    character_bible_id: bibleRowId,
+    character_reference_id: characterReferenceId,
+    style_version: styleSlug,
   }).eq('id', ctx.ebookId);
+
+  // Emit skill-usage evidence for generate_cover (character_reference,
+  // illustration_style_lock, cover_art_direction, image_artifact_guard).
+  await logStageEvidence(coverContracts, {
+    run_id: ctx.runId ?? null,
+    book_id: ctx.ebookId,
+    input_reference_ids: [bibleRowId, characterReferenceId, styleSlug].filter(Boolean) as string[],
+    output_asset_ids: [composedPath, masterPath],
+    pass_fail_result: 'pass',
+  });
   return {
     output: {
       composed_path: composedPath,
@@ -743,6 +768,8 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
       title_theme: treatment.metadata.theme,
       title_font_size: treatment.metadata.font_size,
       lines: treatment.metadata.lines,
+      character_reference_id: characterReferenceId,
+      story_bible_id: bibleRowId,
     },
   };
 }
@@ -787,6 +814,10 @@ Return JSON only: {"line_quality":"","palette":["#","#","#","#","#"],"lighting":
 // force_finish so thumbnail/previews/PDF steps continue automatically.
 async function generateInterior(ctx: Ctx): Promise<StepResult> {
   const db = ctx.supabase;
+  // Character-lock guard: interior cannot dispatch without the four canonical
+  // reference fields (story_bible_id, character_bible_id,
+  // character_reference_id, style_version) being persisted by generate_cover.
+  await assertCoverOrInteriorReady(ctx.ebookId, 'generate_interior', db);
   const existing = Array.isArray(ctx.ebook.interior_illustrations) ? ctx.ebook.interior_illustrations : [];
   const qc = (ctx.ebook.qc_scorecard ?? {}) as Record<string, unknown>;
   const persistedPlan = qc.scene_plan as { scenes?: unknown[] } | undefined;

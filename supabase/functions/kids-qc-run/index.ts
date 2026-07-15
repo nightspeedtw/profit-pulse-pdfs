@@ -16,6 +16,7 @@ import { verifyTitleSpelling, type TitleTreatmentMetadata } from "../_shared/cov
 import { computeLuminanceFromUrl } from "../_shared/image-luminance.ts";
 import { splitManuscriptForSpreads } from "../_shared/kids-picture-pdf.ts";
 import { loadSegments, segmentsToPageTexts } from "../_shared/kids-segments.ts";
+import { resolveStageOrThrow, logStageEvidence } from "../_shared/skill-evidence.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -377,6 +378,23 @@ Deno.serve(async (req) => {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
         body: JSON.stringify({ ebook_id, run_id: run_id ?? undefined, source: "kids-qc-run", async: true }),
       }).then((r) => r.text()).catch((e) => console.error("kids-qc-run supervisor dispatch failed", e)));
+    }
+
+    // Emit qc_contract_auditor evidence (final_release predecessor).
+    try {
+      const releaseContracts = await resolveStageOrThrow('final_release');
+      const auditor = releaseContracts.matched.filter((c) => c.skill_key === 'qc_contract_auditor');
+      if (auditor.length) {
+        await logStageEvidence({ ...releaseContracts, matched: auditor }, {
+          run_id: run_id ?? null,
+          book_id: ebook_id,
+          input_reference_ids: [manuscriptHash].filter(Boolean) as string[],
+          output_asset_ids: [],
+          pass_fail_result: cappedSellable ? 'pass' : 'fail',
+        });
+      }
+    } catch (e) {
+      console.warn('[kids-qc-run] qc_contract_auditor evidence failed', (e as Error).message);
     }
 
     return json({ ok: true, verdict: { ...verdict, sellable: cappedSellable, overall_score: effectiveScore, reasons: finalReasons, score_caps_applied: caps }, finding_count: raw.length, dead_page_count: deadPageFindings.length, text_mapping_bad: badCaptions.length, style_mismatch_count: mixedFps.length, vision_report: visionReport, story_report: storyReport, story_qc_status: storyStatus, manuscript_hash: manuscriptHash, pdf_glyph_audit: glyphAudit.audit, supervisor_dispatched: !cappedSellable && auto_repair_on_fail });

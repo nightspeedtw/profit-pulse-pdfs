@@ -28,6 +28,7 @@ import { computeLuminance } from '../_shared/image-luminance.ts';
 import { loadSegments, segmentsToPageTexts } from '../_shared/kids-segments.ts';
 import { buildBonusContent } from '../_shared/bonus-pages.ts';
 import { deriveFinalPdfMetadata, assertDerivedMatchesPlan, PdfMetadataError } from '../_shared/pdf-metadata.ts';
+import { resolveStageOrThrow, logStageEvidence } from '../_shared/skill-evidence.ts';
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', bytes);
@@ -199,7 +200,11 @@ Deno.serve(async (req) => {
     const publish: boolean = body.publish !== false;
     const runQcAfter: boolean = body.run_qc_after !== false;
     const requestedStage: string | undefined = body.stage;
+    const runIdFromBody: string | null = body.run_id ?? null;
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
+
+    // Skill contracts for assemble_pdf must exist before we touch bytes.
+    const pdfContracts = await resolveStageOrThrow('assemble_pdf');
 
     const { data: ebook, error } = await db.from('ebooks_kids').select(
       'id, title, subtitle, cover_url, interior_illustrations, manuscript_md, qc_scorecard, storefront_meta',
@@ -416,6 +421,13 @@ Deno.serve(async (req) => {
         planned_page_count: plannedPageCount,
       };
       finalized = true;
+      await logStageEvidence(pdfContracts, {
+        run_id: runIdFromBody,
+        book_id: ebook_id,
+        input_reference_ids: [derived.pdf_sha256].filter(Boolean) as string[],
+        output_asset_ids: [FINAL_PATH(ebook_id)],
+        pass_fail_result: 'pass',
+      });
     } else {
       // Interior batch — fetch, downscale to JPEG, embed, save.
       //
