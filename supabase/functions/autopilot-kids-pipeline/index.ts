@@ -489,8 +489,7 @@ async function metadataGate(ctx: Ctx): Promise<StepResult> {
   try {
     const sysMsg = "You are a picture-book editor. English only. JSON only, no markdown. The hero name MUST appear verbatim in the manuscript.";
     const userMsg = `Read this manuscript and produce aligned commercial metadata.\n\nMANUSCRIPT:\n"""\n${manuscript.slice(0, 4000)}\n"""\n\nReturn JSON exactly: {"title":"","subtitle":"","description":"","hero_name":""}`;
-    const raw = await callAI(userMsg, sysMsg);
-    const meta = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, '').trim()) as Record<string, string>;
+    const meta = await callAiJson<Record<string, string>>(userMsg, sysMsg, { requiredKey: 'hero_name', requiredKeys: ['title', 'description'] }, 'metadata_auto_sync');
     const hero = String(meta.hero_name ?? '').trim();
     if (!hero || !new RegExp(`\\b${hero.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\b`, 'i').test(manuscript)) {
       throw new Error(`${METADATA_STORY_MISMATCH}: auto-sync produced hero "${hero}" not in manuscript`);
