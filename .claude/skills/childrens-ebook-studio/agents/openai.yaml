@@ -1,0 +1,4 @@
+interface:
+  display_name: "Children's Ebook Studio"
+  short_description: "Create and QC original illustrated children's books"
+  default_prompt: "Create an original, commercially ready English children's ebook with a full manuscript, illustration plan, cover concepts, and QC report."
