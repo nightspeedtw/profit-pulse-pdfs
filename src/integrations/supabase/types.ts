@@ -1910,12 +1910,14 @@ export type Database = {
           character_sheet_url: string | null
           cover_url: string | null
           created_at: string
+          customer_product_description_html: string | null
           description: string | null
           ever_live: boolean
           human_review_reason: string | null
           id: string
           identity_locked_at: string | null
           interior_illustrations: Json | null
+          internal_story_brief_json: Json | null
           listing_status: string
           locked: boolean
           manuscript_md: string | null
@@ -1931,6 +1933,7 @@ export type Database = {
           qc_rule_version: string | null
           qc_scorecard: Json
           qc_scores: Json | null
+          sales_copy_sanitized_at: string | null
           sellable: boolean
           status: string
           storefront_meta: Json
@@ -1951,12 +1954,14 @@ export type Database = {
           character_sheet_url?: string | null
           cover_url?: string | null
           created_at?: string
+          customer_product_description_html?: string | null
           description?: string | null
           ever_live?: boolean
           human_review_reason?: string | null
           id?: string
           identity_locked_at?: string | null
           interior_illustrations?: Json | null
+          internal_story_brief_json?: Json | null
           listing_status?: string
           locked?: boolean
           manuscript_md?: string | null
@@ -1972,6 +1977,7 @@ export type Database = {
           qc_rule_version?: string | null
           qc_scorecard?: Json
           qc_scores?: Json | null
+          sales_copy_sanitized_at?: string | null
           sellable?: boolean
           status?: string
           storefront_meta?: Json
@@ -1992,12 +1998,14 @@ export type Database = {
           character_sheet_url?: string | null
           cover_url?: string | null
           created_at?: string
+          customer_product_description_html?: string | null
           description?: string | null
           ever_live?: boolean
           human_review_reason?: string | null
           id?: string
           identity_locked_at?: string | null
           interior_illustrations?: Json | null
+          internal_story_brief_json?: Json | null
           listing_status?: string
           locked?: boolean
           manuscript_md?: string | null
@@ -2013,6 +2021,7 @@ export type Database = {
           qc_rule_version?: string | null
           qc_scorecard?: Json
           qc_scores?: Json | null
+          sales_copy_sanitized_at?: string | null
           sellable?: boolean
           status?: string
           storefront_meta?: Json
