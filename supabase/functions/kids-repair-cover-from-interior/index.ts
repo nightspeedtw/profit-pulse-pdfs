@@ -14,6 +14,7 @@ import { geminiDirectImageWithMeta, hasGeminiDirect } from '../_shared/gemini-di
 import { qcCoverLettering } from '../_shared/qc/kids-cover-lettering-qc.ts';
 import { uploadAndSignImage, versionedKidsAssetPath, storagePathFromUrl, IMAGE_SIGNED_TTL_SECONDS } from '../_shared/versioned-assets.ts';
 import { generateLiveImage } from '../_shared/image-luminance.ts';
+import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -155,28 +156,22 @@ Deno.serve(async (req) => {
     let lastReason = '';
     let bestBytes: Uint8Array | null = null;
     let bestReport: unknown = null;
+    let usedRenderer: 'baked-lettering@1' | 'kids-title-treatment@1' = 'baked-lettering@1';
+    let titleTreatmentMeta: Record<string, unknown> | null = null;
 
     for (let attempt = 1; attempt <= max_attempts; attempt++) {
       let bytes: Uint8Array;
       const prompt = basePrompt + (attempt > 1 ? ` (Previous attempt failed: ${lastReason} — fix that specifically.)` : '');
       try {
-        // Dead frames are rejected AT BIRTH — the generator retries up to 3
-        // times in-call with jitter + reference-order swap on attempt 2, and
-        // logs Gemini response metadata (finish reason, safety filters, part
-        // count, bytes length) so we can root-cause black frames. Dead frames
-        // never consume the outer `attempt` budget.
         const live = await generateLiveImage({
           label: 'cover_from_interior',
           attempts: 3,
           gen: async (inner) => {
-            // Jitter: append a tiny variation phrase per inner attempt.
             const jitter = inner === 1
               ? ''
               : inner === 2
                 ? ' Slight variation: shift lighting warmer and pose energy higher.'
                 : ' Retry with a fresh composition: different camera angle, brighter palette.';
-            // Swap reference order on inner attempt 2 to knock the model out
-            // of any degenerate attractor tied to a specific ref ordering.
             const refs = inner === 2 && refUrls.length > 1
               ? [...refUrls].reverse()
               : refUrls;
@@ -200,9 +195,7 @@ Deno.serve(async (req) => {
       } catch (e) {
         lastReason = (e as Error).message.slice(0, 400);
         console.error(`attempt ${attempt} gen/dead-image error`, lastReason);
-        if (attempt === max_attempts) {
-          return json({ ok: false, error: `cover_repair_generation_failed_after_${max_attempts}`, last_reason: lastReason }, 422);
-        }
+        if (attempt === max_attempts) break; // fall through to composite fallback
         continue;
       }
 
@@ -211,18 +204,13 @@ Deno.serve(async (req) => {
       const titleNorm = title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
       const subNorm = subtitle.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
       const allowed = new Set((titleNorm + ' ' + subNorm).split(' ').filter((w) => w.length >= 3));
-      // ALL-TEXT vision pass — transcribe every glyph on the cover so we catch
-      // in-scene labels (basket tags, onomatopoeia) that the title-focused QC
-      // misses. Any word not in title/subtitle => extraneous.
       const allText = await transcribeAllText(bytes);
       const allTokens = allText.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(/\s+/).filter((w) => w.length >= 3);
       const extraWords = Array.from(new Set(allTokens.filter((w) => !allowed.has(w))));
       const extraneous = extraWords.length > 0;
 
       const passReport = {
-        attempt,
-        qc,
-        detected,
+        attempt, qc, detected,
         luminance: { note: 'live_verified_at_birth' },
         all_text_detected: allText,
         extraneous_words: extraWords,
@@ -232,19 +220,84 @@ Deno.serve(async (req) => {
 
       if (qc.passed && !extraneous) {
         console.log('cover repaired attempt', attempt, 'title=', detected);
+        // Persist title_treatment metadata so the downstream KIDS_TITLE_TREATMENT_INVALID
+        // gate can verify title spelling. The renderer is "baked-lettering@1"
+        // (title drawn into the AI artwork rather than SVG overlay).
+        titleTreatmentMeta = {
+          title,
+          subtitle: subtitle || null,
+          lines: [title],
+          renderer: 'baked-lettering@1',
+          rendered_at: new Date().toISOString(),
+          source: 'interior_reference_v1',
+          detected_title_text: detected,
+        };
         break;
       }
       lastReason = qc.reasons.concat(extraneous ? [`extraneous_text:${extraWords.slice(0, 3).join(',')}`] : []).join('; ') || 'unknown';
-      if (attempt === max_attempts) {
+    }
+
+    // ── GUARANTEED COMPOSITE FALLBACK ──
+    // If baked-lettering QC failed on all attempts (or generation failed),
+    // switch to the text-free character master + SVG title overlay path.
+    // This CANNOT misspell (SVG is exact glyphs) and produces valid
+    // title_treatment metadata. A book must never retire on title typography.
+    if (!titleTreatmentMeta) {
+      console.warn(`baked-lettering failed after ${max_attempts} attempts — switching to composite fallback`);
+      try {
+        const textFreePrompt = [
+          `Whimsical children's picture-book cover artwork, SQUARE 1:1 format.`,
+          `Use the two attached interior illustrations as the DEFINITIVE reference for the hero character's identity AND for the overall art style.`,
+          charDesc ? `Character notes: ${charDesc}` : ``,
+          `Composition: ${heroMoment}. Warm painterly lighting.`,
+          `CRITICAL: The cover MUST be COMPLETELY TEXT-FREE. Do NOT draw ANY letters, words, title, subtitle, labels, signs, tags, badges, onomatopoeia, or writing of any kind anywhere on the canvas. Reserve the upper third as clean sky/space for a title to be composited on top later. Square 1:1.`,
+        ].filter(Boolean).join(' ');
+        const live = await generateLiveImage({
+          label: 'cover_textfree_fallback',
+          attempts: 3,
+          gen: async (inner) => {
+            const seed = 9000 + inner * 41;
+            try {
+              const { bytes: b, meta } = await geminiDirectImageWithMeta({
+                prompt: textFreePrompt,
+                referenceUrls: refUrls,
+                model: 'google/gemini-3.1-flash-image',
+                seed,
+              });
+              return { bytes: b, meta };
+            } catch {
+              const b = await gatewayImageWithRefs({ prompt: textFreePrompt, referenceUrls: refUrls });
+              return { bytes: b, meta: { provider: 'google_direct', model: 'google/gemini-3.1-flash-image', partCount: 1, bytesLen: b.length, finishReason: 'gateway_fallback', safetyRatings: null } };
+            }
+          },
+        });
+        const treatment = await renderKidsTitleTreatment({
+          coverBg: live.bytes,
+          title,
+          subtitle: subtitle || null,
+        });
+        bestBytes = treatment.png;
+        titleTreatmentMeta = treatment.metadata as unknown as Record<string, unknown>;
+        usedRenderer = 'kids-title-treatment@1';
+        bestReport = {
+          attempt: 'composite_fallback',
+          renderer: 'kids-title-treatment@1',
+          note: 'baked-lettering QC failed — used guaranteed SVG-overlay composite',
+          last_bake_reason: lastReason,
+        };
+        console.log('composite fallback succeeded');
+      } catch (e) {
         return json({
           ok: false,
-          error: `cover_repair_qc_failed_after_${max_attempts}`,
+          error: `cover_repair_qc_failed_and_composite_fallback_failed`,
           last_reason: lastReason,
-          report: passReport,
+          composite_error: String((e as Error).message ?? e).slice(0, 400),
+          report: bestReport,
         }, 422);
       }
     }
     if (!bestBytes) return json({ ok: false, error: 'no cover bytes produced' }, 500);
+
 
     // ── Upload versioned cover ──
     const coverPath = versionedKidsAssetPath(ebook_id, 'cover');
@@ -294,14 +347,18 @@ Deno.serve(async (req) => {
       thumbnail_url: coverUrl,
       storefront_meta: {
         ...existingMeta,
-        cover_source: 'interior_reference_v1',
+        cover_source: usedRenderer === 'kids-title-treatment@1'
+          ? 'composite_fallback_v1'
+          : 'interior_reference_v1',
         cover_repaired_at: new Date().toISOString(),
         cover_qc_report: bestReport,
+        title_treatment: titleTreatmentMeta,
         legacy_format: (page_count_is_legacy(eb.page_count as number | null) ? true : (existingMeta.legacy_format ?? false)),
       },
     };
     if (pdfUrlOut) patch.pdf_url = pdfUrlOut;
     await db.from('ebooks_kids').update(patch).eq('id', ebook_id);
+
 
     return json({
       ok: true,
