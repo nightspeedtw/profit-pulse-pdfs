@@ -832,12 +832,13 @@ async function generateStyleBible(ctx: Ctx): Promise<StepResult> {
   }
 
   const cb = (bible?.character_bible_json ?? {}) as Record<string, string>;
-  const stylePrompt = await callAI(
+  const parsed = await callAiJson<Record<string, unknown>>(
     `Create a locked style bible for "${ctx.ebook.title}". Character: ${JSON.stringify(cb)}. Existing style hint: ${JSON.stringify(existing)}.
 Return JSON only: {"line_quality":"","palette":["#","#","#","#","#"],"lighting":"","medium":"","mood":"","character_proportions":"","forbidden":["no text","no photorealism"]}`,
     "You are a children's picture book art director locking a style bible for consistent interior illustrations.",
+    { requiredKey: 'line_quality', requiredKeys: ['palette', 'lighting', 'medium', 'mood'] },
+    'generate_style_bible',
   );
-  const parsed = JSON.parse(stylePrompt.replace(/^```(?:json)?\s*|\s*```$/g, '').trim());
   const merged = { ...existing, ...parsed, locked_at: new Date().toISOString() };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (db.from('kids_book_bibles') as any).update({ style_bible_json: merged }).eq('ebook_id', ctx.ebookId);
