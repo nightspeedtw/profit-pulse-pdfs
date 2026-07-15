@@ -410,10 +410,11 @@ Deno.serve(async (req) => {
           .order("created_at", { ascending: false })
           .limit(10),
         supabase.from("kids_batch_orders")
-          .select("id, status, pause_reason, updated_at")
+          .select("id, status, notes, updated_at")
           .eq("status", "paused")
           .order("updated_at", { ascending: false })
           .limit(1),
+
       ]);
       if (runsRes.error) throw runsRes.error;
       const statsRow = Array.isArray(statsRes.data) ? statsRes.data[0] : null;
