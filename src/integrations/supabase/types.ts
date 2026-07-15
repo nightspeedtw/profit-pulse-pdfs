@@ -1921,6 +1921,9 @@ export type Database = {
           manuscript_md: string | null
           overall_qc_score: number | null
           page_count: number | null
+          pdf_byte_size: number | null
+          pdf_metadata_derived_at: string | null
+          pdf_sha256: string | null
           pdf_url: string | null
           pipeline_status: string
           preview_page_urls: Json | null
@@ -1959,6 +1962,9 @@ export type Database = {
           manuscript_md?: string | null
           overall_qc_score?: number | null
           page_count?: number | null
+          pdf_byte_size?: number | null
+          pdf_metadata_derived_at?: string | null
+          pdf_sha256?: string | null
           pdf_url?: string | null
           pipeline_status?: string
           preview_page_urls?: Json | null
@@ -1997,6 +2003,9 @@ export type Database = {
           manuscript_md?: string | null
           overall_qc_score?: number | null
           page_count?: number | null
+          pdf_byte_size?: number | null
+          pdf_metadata_derived_at?: string | null
+          pdf_sha256?: string | null
           pdf_url?: string | null
           pipeline_status?: string
           preview_page_urls?: Json | null
