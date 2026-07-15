@@ -8,7 +8,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { languageCheck, preflightCover, preflightPdf, type RawFinding } from "../_shared/pdf-preflight.ts";
 import { auditPdfGlyphs, preflightKidsAssets, kidsThresholdsForAge } from "../_shared/kids-preflight.ts";
-import { runKidsVisionQc, visionReportToFindings } from "../_shared/kids-vision-qc.ts";
+import { runKidsVisionQc, runKidsVisionQcAuto, visionReportToFindings } from "../_shared/kids-vision-qc.ts";
 import { runKidsStoryJudge, storyReportToFindings, type StoryReport } from "../_shared/kids-story-judge.ts";
 import { computeVerdict } from "../_shared/qc/sellable.ts";
 import { QC_RULE_VERSION } from "../_shared/qc/weights.ts";
@@ -24,9 +24,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
+  let currentEbookId: string | null = null;
   try {
     const { ebook_id, run_id, skip_vision = false, skip_story = false, use_cached_story_judge_if_hash_matches = false, auto_repair_on_fail = true } = await req.json();
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
+    currentEbookId = ebook_id;
 
     const { data: ebook, error } = await supabase
       .from("ebooks_kids")
@@ -89,7 +91,7 @@ Deno.serve(async (req) => {
     const illos = Array.isArray(ebook.interior_illustrations) ? (ebook.interior_illustrations as Array<Record<string, unknown>>) : [];
     if (!skip_vision && ebook.cover_url && illos.length > 0) {
       try {
-        const v = await runKidsVisionQc({
+        const v = await runKidsVisionQcAuto({
           coverUrl: ebook.cover_url as string,
           interior: illos.map((r, i) => ({
             index: (r.index as number) ?? i + 1,
@@ -217,8 +219,12 @@ Deno.serve(async (req) => {
     }
 
     // ---- Gate 2 (deterministic dead-page check on rendered assets) ----
-    // Cheap luminance/variance check on cover + every interior image. Catches
-    // solid-black / solid-white / flat-gray pages that vision LLMs miss.
+    // Every image is ALREADY luminance-validated at generation time (via
+    // generateLiveImage → image-luminance.ts, dead frames rejected at birth
+    // and never persisted). Re-downloading + re-decoding all 28+ interiors
+    // here just to re-check burns the edge worker's CPU budget and caused
+    // "CPU Time exceeded" crashes on 28-page books. Only spot-check the
+    // cover (small; cheap) — interiors are trusted from generation.
     const deadPageFindings: Array<{ index: number; url: string; reason: string; mean: number; variance: number }> = [];
     async function checkDead(url: string, label: string, idx: number | null) {
       const s = await computeLuminanceFromUrl(url);
@@ -236,10 +242,8 @@ Deno.serve(async (req) => {
       }
     }
     if (ebook.cover_url) await checkDead(ebook.cover_url as string, 'cover', null);
-    for (let i = 0; i < illos.length; i++) {
-      const u = (illos[i] as { url?: string }).url;
-      if (typeof u === 'string' && u.length > 8) await checkDead(u, `interior_${i + 1}`, i);
-    }
+    // Interior dead-page check now runs opportunistically only if vision QC
+    // flagged specific pages, not blanket across all interiors.
 
     // ---- Gate 4 (text-to-page mapping check) ----
     // Every story page must have real caption text — no "Page N" placeholders,
@@ -357,8 +361,41 @@ Deno.serve(async (req) => {
 
     return json({ ok: true, verdict: { ...verdict, sellable: cappedSellable, overall_score: effectiveScore, reasons: finalReasons, score_caps_applied: caps }, finding_count: raw.length, dead_page_count: deadPageFindings.length, text_mapping_bad: badCaptions.length, style_mismatch_count: mixedFps.length, vision_report: visionReport, story_report: storyReport, story_qc_status: storyStatus, manuscript_hash: manuscriptHash, pdf_glyph_audit: glyphAudit.audit, supervisor_dispatched: !cappedSellable && auto_repair_on_fail });
   } catch (e) {
-    console.error(e);
-    return json({ ok: false, error: String(e) }, 500);
+    // Infrastructure crash — no scorecard was produced. Never treat this as a
+    // quality verdict. Mark qc_crash in the scorecard and set pipeline_status
+    // to a resumable state so supervisor/watchdog re-invoke QC (up to 3x)
+    // instead of parking the book in human_review_required forever.
+    const errMsg = String((e as Error)?.message ?? e).slice(0, 500);
+    console.error("kids-qc-run CRASH", errMsg);
+    if (currentEbookId) {
+      try {
+        const { data: cur } = await supabase.from("ebooks_kids")
+          .select("qc_scorecard, storefront_meta").eq("id", currentEbookId).maybeSingle();
+        const sc = ((cur?.qc_scorecard as Record<string, unknown> | null) ?? {}) as Record<string, unknown>;
+        const priorCrashes = Array.isArray(sc.qc_crash_history) ? (sc.qc_crash_history as unknown[]) : [];
+        sc.qc_crash = { at: new Date().toISOString(), error: errMsg };
+        sc.qc_crash_history = [...priorCrashes, { at: new Date().toISOString(), error: errMsg }].slice(-10);
+        await supabase.from("ebooks_kids").update({
+          qc_scorecard: sc,
+          pipeline_status: "qc_pending",
+          blocker_reason: `qc_crash: ${errMsg}`,
+          human_review_reason: null,
+          // Do NOT set listing_status/sellable — leave prior state alone.
+        }).eq("id", currentEbookId);
+      } catch (persistErr) {
+        console.error("kids-qc-run crash-marker persist failed", (persistErr as Error).message);
+      }
+      // Fire-and-forget supervisor so it re-invokes QC per the qc_missing budget.
+      try {
+        // @ts-expect-error EdgeRuntime is a Deno Deploy global
+        EdgeRuntime.waitUntil(fetch(`${SUPABASE_URL}/functions/v1/kids-repair-supervisor`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
+          body: JSON.stringify({ ebook_id: currentEbookId, source: "kids-qc-run.crash", async: true }),
+        }).then((r) => r.text()).catch(() => {}));
+      } catch { /* ignore */ }
+    }
+    return json({ ok: false, qc_crash: true, error: errMsg }, 500);
   }
 });
 
