@@ -65,28 +65,30 @@ export default function Kids() {
     // Narrow book projection — storefront_meta is a huge JSONB blob on some rows
     // and selecting it for the full list can hit the Postgres statement timeout.
     // We only need audience + preview_urls out of it.
-    const booksPromise = supabase.from("ebooks_kids")
-      .select("id,title,cover_url,price_cents,age_group_id,theme_ids,created_at,audience:storefront_meta->audience,preview_urls:storefront_meta->preview_urls")
-      .eq("listing_status", "live")
-      .eq("sellable", true)
-      .order("created_at", { ascending: false })
-      .limit(120)
-      .then((r) => {
-        const rows = (r.data ?? []) as Array<Record<string, unknown>>;
-        return rows.map((b): RawBook => ({
-          id: b.id as string,
-          title: b.title as string,
-          cover_url: (b.cover_url as string | null) ?? null,
-          price_cents: (b.price_cents as number) ?? 0,
-          age_group_id: (b.age_group_id as string | null) ?? null,
-          theme_ids: (b.theme_ids as string[] | null) ?? null,
-          storefront_meta: {
-            audience: b.audience ?? undefined,
-            preview_urls: b.preview_urls ?? undefined,
-          } as Record<string, unknown>,
-          created_at: b.created_at as string,
-        }));
-      });
+    const booksPromise: Promise<RawBook[]> = (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const q: any = supabase.from("ebooks_kids");
+      const r = await q
+        .select("id,title,cover_url,price_cents,age_group_id,theme_ids,created_at,audience:storefront_meta->audience,preview_urls:storefront_meta->preview_urls")
+        .eq("listing_status", "live")
+        .eq("sellable", true)
+        .order("created_at", { ascending: false })
+        .limit(120);
+      const rows = (r?.data ?? []) as Array<Record<string, unknown>>;
+      return rows.map((b): RawBook => ({
+        id: b.id as string,
+        title: b.title as string,
+        cover_url: (b.cover_url as string | null) ?? null,
+        price_cents: (b.price_cents as number) ?? 0,
+        age_group_id: (b.age_group_id as string | null) ?? null,
+        theme_ids: (b.theme_ids as string[] | null) ?? null,
+        storefront_meta: {
+          audience: b.audience ?? undefined,
+          preview_urls: b.preview_urls ?? undefined,
+        } as Record<string, unknown>,
+        created_at: b.created_at as string,
+      }));
+    })();
 
     (async () => {
       try {
