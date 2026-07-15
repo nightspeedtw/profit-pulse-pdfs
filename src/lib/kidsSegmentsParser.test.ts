@@ -100,3 +100,24 @@ describe("page_text_completeness_gate — terminal punctuation with closing wrap
     expect(v.violations.some((s) => s.includes("page_text_completeness_gate") && s.includes("no terminal punctuation"))).toBe(true);
   });
 });
+describe("classifyProviderTruncation — output-token cap heuristic", () => {
+  const truncatedRaw = `{"title":"Chef Pip","refrain":"Stir!","pages":[{"page":1,"text":"Chef Pip stirred bright berry jam with a patient spoon`;
+  const truncatedErrors = ["Unterminated string in JSON at position 120"];
+  const completeRaw = `{"title":"Chef Pip","refrain":"Stir!","pages":[{"page":1,"text":"done."}]}`;
+
+  it("flags finish_reason=length as provider_truncation regardless of tail", () => {
+    expect(classifyProviderTruncation(completeRaw, [], "length", 100, 16000)).toBe(true);
+  });
+
+  it("flags mid-JSON tail + output_tokens near cap as provider_truncation", () => {
+    expect(classifyProviderTruncation(truncatedRaw, truncatedErrors, "stop", 15800, 16000)).toBe(true);
+  });
+
+  it("does NOT flag well-formed complete JSON with finish_reason=stop", () => {
+    expect(classifyProviderTruncation(completeRaw, [], "stop", 200, 16000)).toBe(false);
+  });
+
+  it("does NOT flag mid-JSON tail when output_tokens is far below cap (honest content failure, not truncation)", () => {
+    expect(classifyProviderTruncation(truncatedRaw, truncatedErrors, "stop", 500, 16000)).toBe(false);
+  });
+});
