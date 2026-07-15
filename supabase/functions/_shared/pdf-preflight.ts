@@ -105,9 +105,14 @@ export async function preflightPdf(pdfUrl: string | null | undefined): Promise<R
       "regenerate_pdf",
     ));
   }
-  // Kids picture-book format gate: 32–40 pages, SQUARE 612x612 geometry.
-  // Only enforced when the PDF looks like a kids book — signaled by the
-  // square geometry itself. Wrong geometry is always a hard fail.
+  // Kids picture-book format gate: SQUARE 612x612 geometry.
+  // Page-count range is generous — real picture books include cover, back
+  // cover, endpapers, title, copyright, dedication, and single-page OR spread
+  // layouts, so physical PDF page counts legitimately land anywhere between
+  // ~24 (2-up spread layout of 34 story pages) and ~80 (single page per
+  // story beat with full front/back matter). The prior 32–40 window rejected
+  // valid books (e.g. 57pp single-page layout, 29pp spread layout) and was
+  // the root cause of the pdf_preflight false-zero regression.
   if (firstPageW && firstPageH) {
     const isSquare = Math.abs(firstPageW - firstPageH) <= 2;
     const is612 = Math.abs(firstPageW - 612) <= 2 && Math.abs(firstPageH - 612) <= 2;
@@ -120,11 +125,11 @@ export async function preflightPdf(pdfUrl: string | null | undefined): Promise<R
         "regenerate_pdf",
       ));
     }
-    if (is612 && pageCount > 0 && (pageCount < 32 || pageCount > 40)) {
+    if (is612 && pageCount > 0 && (pageCount < 24 || pageCount > 96)) {
       findings.push(critical(
         "PDF_PAGE_COUNT_OUT_OF_RANGE", "pdf_preflight",
         { detected_pages: pageCount },
-        { min_pages: 32, max_pages: 40 },
+        { min_pages: 24, max_pages: 96 },
         "regenerate_pdf",
       ));
     }
