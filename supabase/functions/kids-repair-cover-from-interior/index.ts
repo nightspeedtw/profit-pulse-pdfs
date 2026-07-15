@@ -393,7 +393,8 @@ Deno.serve(async (req) => {
         ...existingMeta,
         cover_source: usedRenderer === 'kids-title-treatment@1'
           ? 'composite_fallback_v1'
-          : 'interior_reference_v1',
+          : (acceptedRung ?? 'interior_reference_v1'),
+        cover_accepted_rung: usedRenderer === 'kids-title-treatment@1' ? 'composite_svg' : acceptedRung,
         cover_repaired_at: new Date().toISOString(),
         cover_qc_report: bestReport,
         title_treatment: titleTreatmentMeta,
