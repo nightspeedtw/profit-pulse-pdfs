@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { RefreshCw, ShieldCheck, ShieldAlert, ExternalLink } from "lucide-react";
+import { SkillsUsedPanel } from "@/components/admin/SkillsUsedPanel";
 
 interface Finding {
   id: string;
@@ -170,6 +171,7 @@ export default function KidsQcReport() {
           </div>
         )}
       </Card>
+      <SkillsUsedPanel bookId={book.id} />
     </div>
   );
 }

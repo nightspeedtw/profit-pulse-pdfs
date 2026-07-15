@@ -5,6 +5,7 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { validateReleaseManifest, type ReleaseManifest } from '../_shared/release-gates.ts';
+import { assertFinalReleaseSkillEvidence, MissingRequiredSkillContract } from '../_shared/skill-router.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -140,6 +141,17 @@ Deno.serve(async (req) => {
         },
       };
       const gateErrors = validateReleaseManifest(manifest);
+      // Skill-usage evidence: final_release must have logged qc_contract_auditor,
+      // regression_evaluation, release_guardian for this book. Block otherwise.
+      try {
+        await assertFinalReleaseSkillEvidence(ebook_id, run_id ?? null);
+      } catch (e) {
+        if (e instanceof MissingRequiredSkillContract) {
+          gateErrors.push(`missing_skill_evidence:${e.skill_key}`);
+        } else {
+          gateErrors.push(`skill_evidence_error:${(e as Error).message}`);
+        }
+      }
       if (gateErrors.length) {
         console.warn('[kids-publish-if-qc-passed] release_blocked', gateErrors);
         await db.from('ebooks_kids').update({

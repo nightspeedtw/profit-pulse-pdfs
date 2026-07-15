@@ -8,6 +8,7 @@ import { ArrowLeft, Loader2, Activity, RotateCcw } from "lucide-react";
 import { RunStepTimeline, type RunStepRow } from "@/components/admin/RunStepTimeline";
 import { RunFinalReport, type RunSummary } from "@/components/admin/RunFinalReport";
 import { AdminNeededPanel, type AdminNeededState } from "@/components/admin/AdminNeededPanel";
+import { SkillsUsedPanel } from "@/components/admin/SkillsUsedPanel";
 import { PricingPanel, type PricingReportShape } from "@/components/admin/PricingPanel";
 import { RUN_STATUS_LABEL } from "@/lib/autopilot-steps";
 import { toast } from "sonner";
@@ -181,6 +182,9 @@ export default function AutopilotRun() {
           <RunStepTimeline steps={steps} />
         </CardContent>
       </Card>
+
+      {/* Runtime skill usage evidence */}
+      <SkillsUsedPanel runId={run.id} bookId={run.ebook_id} />
 
       {/* Pricing engine */}
       {run.ebook_id && (
