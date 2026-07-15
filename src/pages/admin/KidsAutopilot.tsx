@@ -219,6 +219,45 @@ export default function KidsAutopilot() {
 
       <KidsBatchOrderCard />
 
+      {regressionPause && (
+        <Card className="p-4 border-2 border-red-600 bg-red-50">
+          <p className="font-mono uppercase text-xs text-red-700">P0 regression pause</p>
+          <p className="text-sm mt-1">{regressionPause.notes ?? "Same blocker class hit 2+ books after being marked fixed."}</p>
+          <p className="text-xs text-muted-foreground mt-1">Paused at {new Date(regressionPause.updated_at).toLocaleString()}. In-flight books continue. Fix regression, then resume batch order.</p>
+        </Card>
+      )}
+
+      <Card className="p-4 border-2 border-foreground">
+        <p className="font-mono uppercase text-xs mb-2">Cycle time (30d, concept → live) — target 30–50 min, SLA 90 min</p>
+        {cycleStats ? (
+          <div className="flex gap-6 flex-wrap text-sm">
+            <div><span className="text-muted-foreground">Sample:</span> <b>{cycleStats.n_live}</b> books</div>
+            <div><span className="text-muted-foreground">p50:</span> <b>{cycleStats.p50_min ?? "—"} min</b></div>
+            <div><span className="text-muted-foreground">p90:</span> <b>{cycleStats.p90_min ?? "—"} min</b></div>
+            <div className={cycleStats.n_sla_breach > 0 ? "text-red-700" : ""}>
+              <span className="text-muted-foreground">SLA breaches (&gt;90 min):</span> <b>{cycleStats.n_sla_breach}</b>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">No completed books yet.</p>
+        )}
+        {slowdowns.length > 0 && (
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-mono uppercase">Recent slowdowns ({slowdowns.length})</summary>
+            <ul className="mt-2 text-xs space-y-1">
+              {slowdowns.map(s => (
+                <li key={s.id} className="border-l-2 border-foreground pl-2">
+                  <span className="font-mono">{s.total_minutes.toFixed(1)}min</span>
+                  {s.slowest_stage && <> · slowest: <b>{s.slowest_stage}</b></>}
+                  <span className="text-muted-foreground"> · {new Date(s.created_at).toLocaleString()}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </Card>
+
+
       <Card className="p-4 border-2 border-foreground overflow-auto">
         <table className="w-full text-sm">
           <thead>
