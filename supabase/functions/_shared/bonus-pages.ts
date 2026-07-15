@@ -10,6 +10,7 @@
 // developmental hook for the footer of the "Talk About the Story" page.
 
 import type { KidsSegment } from "./kids-segments.ts";
+import { parseModelJson } from "./model-json.ts";
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
