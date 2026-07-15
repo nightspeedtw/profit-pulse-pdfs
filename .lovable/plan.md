@@ -1,99 +1,80 @@
-# Royalty Ownership (buy-only, simulated)
+# Stop ebook row recycling + recover Flicker
 
-Supersedes the earlier /exchange + /rights builds. Prior tables/functions are reused where compatible; the order-book / sell UI is removed from the surface (tables kept for later phase, unreferenced).
+Diagnosis confirmed: `kids-fresh-book-start` accepts `use_ebook_id` and unconditionally overwrites `title`, `subtitle`, `description`, `manuscript_md`, `storefront_meta` on that row. `kids-one-click-build` calls it on its first parent-loop iteration with the placeholder id — but the "placeholder" turns out to be an ebook that was previously fully built (row 784ce3aa was published as "Flicker's Wobbling Wheel" at 06:11, then a repair/rerun cycle at 06:21 relabeled it "Flicker's Wobbling Wheel" via metadata_gate auto_sync on a NEW manuscript, then at 06:52 the same row was overwritten again as "Stir-Stir-Whiff!"). Audit shows 15+ rows with >1 distinct manuscript refrain, worst: `12708bfc` (6 refrains / 17 runs) and `1b1d9e1d` (6 refrains / 11 runs). This is systemic.
 
-## Reconciliation with existing work
+## 1. Permanent stop — row identity is immutable
 
-Kept & remapped (schema exists, semantics compatible):
-- `rights_offerings` → treated as the underlying market row (1M units, treasury). We add a thin `book_royalty_markets` view/table that maps 1:1 by `book_id` and carries the new admin-editable fields (royalty_pool_percent, thai_vat_rate, gateway_fee_rate, initial/indicative values, minimum_purchase).
-- `rights_holdings` → renamed-in-UI to Royalty Holdings; add derived columns (`total_vat_usd`, `total_gateway_fee_usd`, `total_paid_usd`, `lifetime_royalty_earned`, `pending_royalty`) via a new `royalty_holdings` table that this phase writes to. `rights_holdings` continues to exist for the (dormant) sell path.
-- `rights_price_history` → reused for `book_valuation_snapshots` (add columns; keep row shape backward-compatible).
-- `wallets` / `wallet_transactions` → kept but Buy button no longer debits them (see Purchase flow).
+New migration:
 
-Removed from UI (rows preserved, code hidden):
-- `SellPanel`, `OrderBook` components — deleted from routes but files kept unreferenced.
-- `exchange-sell-list`, `exchange-cancel-order` edge functions — remain deployed but no UI links.
-- The wallet top-up flow — hidden behind admin-only route.
+- Add `ebooks_kids.ever_live boolean not null default false` and backfill `true` for any row whose `listing_status='live'` now or whose `pdf_url is not null AND pipeline_status in ('published','retired')` (retired-with-pdf means it WAS built and shipped, matches Flicker case).
+- Add `ebooks_kids.identity_locked_at timestamptz` set the first time `manuscript_md` is written (via trigger). Once set, `title`, `subtitle`, `manuscript_md`, `story_bible` become effectively immutable.
+- Add trigger `ebooks_kids_identity_guard` (BEFORE UPDATE):
+  - Reject if `pipeline_status` was already `retired` (OLD) and NEW changes any of `title, subtitle, description, manuscript_md, story_bible`.
+  - Reject if `OLD.ever_live` and NEW changes those same columns.
+  - Reject if `OLD.identity_locked_at IS NOT NULL` and NEW changes `title, manuscript_md, story_bible` unless columns are being set to the same value.
+  - Reject if any `royalty_holdings` row references this book_id and content columns change.
+  - Escape hatch: session GUC `app.allow_identity_override = 'on'` bypasses the trigger (admin-only, set per-transaction). No permanent boolean column — an override flag on the row is itself mutable and defeats the guard.
+- `book_royalty_markets` / `royalty_holdings` foreign keys already point at `ebooks_kids.id`; the trigger's holdings check protects the upcoming money surface.
 
-## New DB tables (migration, all with GRANTs + RLS)
+## 2. Code — always insert a new row per attempt
 
-- `book_royalty_markets` (id, book_id UNIQUE, total_units=1000000, units_available, initial_book_value_usd=1000, initial_unit_price_usd=0.001, current_indicative_book_value_usd, current_indicative_unit_price_usd, royalty_pool_percent=0.50, minimum_purchase_usd=20, thai_vat_rate=0.07, gateway_fee_rate=0.05, valuation_multiple=3.0, max_daily_value_change=0.10, status enum('active','paused','closed'), timestamps).
-- `royalty_purchase_quotes` (id, user_id, book_id, requested_usd, unit_price, units, ownership_percentage, subtotal_usd, vat_usd, gateway_fee_usd, total_payment_usd, estimated_royalty_per_sale, estimated_break_even_sales_subtotal, estimated_break_even_sales_total, status enum('draft','quoted','awaiting_payment','reserved','simulated_completed','cancelled','expired'), expires_at, created_at).
-- `royalty_holdings` (id, user_id, book_id UNIQUE-pair, units_owned, ownership_percentage, average_unit_cost, subtotal_invested_usd, total_vat_usd, total_gateway_fee_usd, total_paid_usd, lifetime_royalty_earned=0, pending_royalty=0, timestamps).
-- `book_sales_ledger` (id, book_id, order_id, sale_price_usd, vat_usd, gateway_fee_usd, refund_usd=0, chargeback_usd=0, net_revenue_usd, royalty_pool_usd, sale_status enum('recorded','refunded','charged_back'), sold_at, created_at) — IMMUTABLE (no UPDATE policy; admin-only DELETE).
-- `royalty_earnings_ledger` (id, user_id, book_id, holding_id, sale_ledger_id, units_owned_at_sale, ownership_percentage_at_sale, distributable_royalty_pool_usd, royalty_earned_usd, status enum('recorded','paid','reversed'), created_at) — IMMUTABLE.
-- `book_valuation_snapshots` (id, book_id, initial_value, trailing_7d/30d/90d_net_sales, valuation_multiple, quality/growth/refund adjustments, indicative_book_value, indicative_unit_value, calculation_json, snapshot_date UNIQUE per (book_id,snapshot_date), created_at).
+`supabase/functions/kids-fresh-book-start/index.ts`:
+- Remove the `use_ebook_id` branch entirely. Every call inserts a fresh `ebooks_kids` row and returns its id.
+- Callers must adapt to the new id.
 
-All numeric money columns use `numeric(18,4)`; unit prices use `numeric(18,8)`.
+`supabase/functions/kids-one-click-build/index.ts`:
+- Delete the `firstIteration` special-case that reused the placeholder. Every loop iteration calls `kids-fresh-book-start` with no `use_ebook_id`. The placeholder created at request time is immediately marked `pipeline_status='retired'`, `blocker_reason='placeholder_superseded'`, so it becomes an inert tombstone (kept for audit).
+- `resumeParentRun` no longer forwards `run.ebook_kids_id` as `currentEbookId` — the loop always creates fresh.
 
-RLS: user reads own holdings/quotes/earnings; markets/valuations/sales_ledger public-readable; only service_role writes ledgers; admin role writes market settings.
+`supabase/functions/autopilot-kids-pipeline/index.ts` (generate_manuscript step): pre-check — if the row already has `manuscript_md` AND `identity_locked_at IS NOT NULL`, skip and log `skipped: identity_locked` instead of overwriting.
 
-## Server-side calculation
+Repair supervisor / watchdog / kids-repair-supervisor: any path that today re-invokes `rewrite-kids-manuscript` on an existing row is neutered by the DB trigger (retired + ever_live rows reject the update). Log the rejection cleanly rather than crash.
 
-New file `supabase/functions/_shared/royalty-math.ts` — pure functions (server + client can import a subset; ONLY server results are trusted):
-- `computeQuote({ market, requested_usd | requested_units }) → { units, subtotal, vat, gateway_fee, total_payment, ownership_pct }`
-- `computeOneSaleEconomics({ market, ownership_pct })`
-- `computeBreakEven({ subtotal, total_payment, royalty_per_sale })`
-- `computeIndicativeValuation({ trailing_sales, multiple, adjustments })`
+## 3. Recover "Flicker's Wobbling Wheel"
 
-All arithmetic uses string-based decimals (helpers `d.add/sub/mul/div/round`) — never JS float on money.
+Assets that survive on storage under `kids/784ce3aa-.../`:
+- 28 interior page PNGs (page-01 → page-28, all timestamped 06:00:59–06:01:35 — the ORIGINAL Flicker interiors, not the later Stir-Stir-Whiff regeneration since no new page-XX files exist)
+- `cover-master-1784095232445-71ffca6c.png` (06:00:32, original Flicker cover master)
+- `book.pdf` — last updated 06:25:40, which is AFTER the 06:21 repair run's metadata_gate re-titled it back to "Flicker's Wobbling Wheel". This PDF is the Flicker book with the second (still-Flicker) manuscript, not Stir-Stir-Whiff. Recoverable.
+- Character reference sheet (06:00:30).
 
-## Edge functions
+Lost:
+- `manuscript_md` full text (not stored in logs — only refrain + segment count).
+- Original `story_bible` object.
+- Product page copy.
 
-New (buy-only path):
-- `royalty-quote` — POST { book_id, amount_usd? , units? } → validates min $20, computes fresh quote from DB (never trusts client), writes `royalty_purchase_quotes` row (status `quoted`, 15-min expiry), returns full breakdown.
-- `royalty-reserve` — POST { quote_id } → flips status to `reserved`. NO wallet debit, NO ownership row created. Returns "Payment activation coming soon."
-- `royalty-admin-simulate-complete` — admin-only. Given `quote_id`, creates/updates `royalty_holdings`, decrements `book_royalty_markets.units_available`, writes an audit row.
-- `royalty-record-book-sale` — hook called from purchase/download path; writes `book_sales_ledger` and fans out `royalty_earnings_ledger` rows for every holder pro-rata.
-- `royalty-valuation-recompute` — daily cron; writes one `book_valuation_snapshots` per active book, clamped by `max_daily_value_change`, then updates `book_royalty_markets.current_indicative_*`.
+Recovery plan:
+- Insert a new `ebooks_kids` row with a fresh UUID (`FLICKER_NEW_ID`), title `Flicker's Wobbling Wheel`, subtitle `Chef Squeak's Sniffing Surprise` (per surviving row snapshot), `pipeline_status='needs_repair'`, `listing_status='draft'`, `sellable=false`, price 799.
+- Copy each surviving storage object from `kids/784ce3aa-.../` to `kids/{FLICKER_NEW_ID}/` (Supabase Storage COPY API). Set `cover_url`, `pdf_url`, `thumbnail_url`, `preview_page_urls`, `interior_illustrations`, `character_sheet_url` from the copies.
+- Add `storefront_meta.recovered_from = '784ce3aa-…'` and `storefront_meta.recovery_notes` describing what was lost.
+- Queue the owner's ordered master-continuity repair (regenerate pages 4/6/7/10/12/13/15/16/18/20/23/24/25/27/30/31; reorder pages 28–31) on the NEW row. Hold from publish until the master QC passes — matches earlier `illustrated_book_master_continuity_lock` skill.
+- Mark old row `784ce3aa` `pipeline_status='retired'`, `blocker_reason='row_recycled_recovered_as:{FLICKER_NEW_ID}'`.
 
-Migrated (renamed for clarity in this phase, old kept as alias):
-- `auto-list-ebook` — now also inserts a `book_royalty_markets` row on publish.
+## 4. Audit findings
 
-## Frontend
+Rows that show recycling AND had a built PDF at some point (i.e., a real book existed before being overwritten):
 
-Routes:
-- `/royalty` — public catalog (`src/pages/Royalty.tsx`), summary cards + book grid.
-- `/royalty/book/:bookId` — purchase page (`src/pages/RoyaltyBook.tsx`) with LEFT (book meta) + RIGHT (calculator, one-sale earning section, break-even, Reserve button).
-- `/my-royalties` — user ownership (`src/pages/MyRoyalties.tsx`).
-- `/admin/royalty-settings` — admin controls (`src/pages/admin/RoyaltySettings.tsx`).
+| id | current title | distinct refrains | had pdf |
+|----|---------------|-------------------|---------|
+| 12708bfc | Chef Pip's Puf-Tastic Pizza! | 6 | yes — original was Pip's Perfect Pudding |
+| 1b1d9e1d | Chef Pip's Sticky Situation | 6 | yes |
+| 784ce3aa | Stir-Stir-Whiff! (was Flicker) | 2 | yes |
+| 241be79f, a532dca0, 82edbb75, 148eda2c, b12f7fcd | various retired | 1 | yes |
 
-Components (new, under `src/components/royalty/`):
-- `RoyaltyBookCard`, `PurchaseCalculator` (USD⇄units two-way sync, debounced server quote), `OneSaleEconomics`, `BreakEvenBox`, `RoyaltyDisclaimers`, `ReserveButton` (shows "Payment activation coming soon" toast on success).
+Recovery beyond Flicker: only `12708bfc` and `1b1d9e1d` show enough recycling to be worth investigating further, and both are already `retired`. I'll list their surviving storage paths in the delivery report so the owner can decide whether to recover any as separate rows — but I won't auto-recover them (unclear which manuscript version matches the surviving PDF).
 
-Removed from routes:
-- `/exchange`, `/exchange/book/:bookId`, `/exchange/portfolio`, `/exchange/wallet` — redirect to `/royalty` equivalents (301 in `App.tsx`).
-- `Header` "Exchange" link renamed to "Royalty Ownership" → `/royalty`.
+## 5. New pipeline_skill (learned, data-integrity)
 
-Copy: all UI strings use approved vocabulary (Royalty Units, Lifetime Revenue Share, etc.). Disclaimer component rendered on every calculator, book card footer, and my-royalties page. Never use "stock/securities/guaranteed/return/profit".
-
-## Skill row
-
-Update `pipeline_skills.rights_exchange_model` → rename `skill_key` to `royalty_ownership_model` v3, content_md rewritten to match this spec (all constants, formulas, disclaimers, phase limits). Old key deleted to avoid drift.
-
-## Acceptance tests
-
-Encoded as one Deno test file `supabase/functions/tests/royalty-math.test.ts`:
-1. Base valuation → $0.001 unit
-2. $20 → 20,000 units / 2% / VAT $1.40 / gateway $1.07 / total $22.47
-3. $19.99 rejected with min-purchase error
-4. one-sale royalty computed dynamically
-5. break-even both variants
-6. no sell endpoint / order-book route exists (grep-based check)
-7. reserve creates quote only, no holding, no wallet debit
+Insert into `pipeline_skills`:
+- `skill_key = 'book_identity_immutable'`, `source='learned'`, `target_dimension='data_integrity'`.
+- Body: "A book_id is never reused. Every concept attempt inserts a new `ebooks_kids` row. Rows that were ever `listing_status='live'`, ever had `pipeline_status='published'`/`retired` with assets built, or have any `royalty_holdings` / `book_royalty_markets` / `book_sales_ledger` reference are TOMBSTONES — their title/manuscript/story_bible are read-only. Concept rotation, repair loops, and watchdogs must all create new rows. The DB trigger `ebooks_kids_identity_guard` enforces this; code paths must NOT try to bypass it."
 
 ## Verification
 
-After deploy, drive Playwright from the sandbox against localhost:
-- Screenshot `/royalty` grid
-- Screenshot `/royalty/book/:bookId` with $20 example populated (assert values match test #2)
-- Screenshot Reserve click → toast + no ownership row (query DB after)
-- Screenshot `/my-royalties` empty state and post-simulated-completion state (admin action)
+After deploy: try to `UPDATE ebooks_kids SET title='X' WHERE id='784ce3aa…'` — expect trigger rejection. Trigger a fresh `kids-one-click-build` — expect a new row per attempt, placeholder marked retired. Confirm Flicker recovery row is visible in admin and holds original assets.
 
-## Out of scope (this phase)
+## Deliverables
 
-Real payment gateway, real wallet top-up, KYC, resale, user-to-user transfer, order book. All Sell UI removed.
+Migration, edge function edits (fresh-book-start, one-click-build, pipeline generate_manuscript guard), storage-copy recovery script for Flicker, skill row, audit table, and final report.
 
-## Ordering (batch remains priority)
-
-Cover-fix work is now stable. This module builds while the 10-book batch continues untouched — no shared edge functions modified except `auto-list-ebook` (single additive INSERT into `book_royalty_markets`, wrapped in try/catch so a batch book publish never fails on royalty-market row creation).
+Please approve so I can execute — especially the Flicker recovery approach (new row + storage copies + repair queue), since it changes storefront visibility.

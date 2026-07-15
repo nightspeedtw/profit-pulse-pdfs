@@ -1908,8 +1908,10 @@ export type Database = {
           cover_url: string | null
           created_at: string
           description: string | null
+          ever_live: boolean
           human_review_reason: string | null
           id: string
+          identity_locked_at: string | null
           interior_illustrations: Json | null
           listing_status: string
           locked: boolean
@@ -1944,8 +1946,10 @@ export type Database = {
           cover_url?: string | null
           created_at?: string
           description?: string | null
+          ever_live?: boolean
           human_review_reason?: string | null
           id?: string
+          identity_locked_at?: string | null
           interior_illustrations?: Json | null
           listing_status?: string
           locked?: boolean
@@ -1980,8 +1984,10 @@ export type Database = {
           cover_url?: string | null
           created_at?: string
           description?: string | null
+          ever_live?: boolean
           human_review_reason?: string | null
           id?: string
+          identity_locked_at?: string | null
           interior_illustrations?: Json | null
           listing_status?: string
           locked?: boolean
