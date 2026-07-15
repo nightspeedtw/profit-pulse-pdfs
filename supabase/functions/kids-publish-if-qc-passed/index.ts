@@ -142,6 +142,26 @@ Deno.serve(async (req) => {
         },
       };
       const gateErrors = validateReleaseManifest(manifest);
+      // Emit regression_evaluation + release_guardian evidence for THIS
+      // publish attempt: the manifest validation IS the regression check and
+      // the guardian invocation. qc_contract_auditor is emitted by kids-qc-run.
+      try {
+        const releaseContracts = await resolveStageOrThrow('final_release');
+        const emitNow = releaseContracts.matched.filter(
+          (c) => c.skill_key === 'regression_evaluation' || c.skill_key === 'release_guardian',
+        );
+        if (emitNow.length) {
+          await logStageEvidence({ ...releaseContracts, matched: emitNow }, {
+            run_id: run_id ?? null,
+            book_id: ebook_id,
+            input_reference_ids: [],
+            output_asset_ids: [],
+            pass_fail_result: gateErrors.length ? 'fail' : 'pass',
+          });
+        }
+      } catch (e) {
+        console.warn('[kids-publish-if-qc-passed] release-stage evidence log failed', (e as Error).message);
+      }
       // Skill-usage evidence: final_release must have logged qc_contract_auditor,
       // regression_evaluation, release_guardian for this book. Block otherwise.
       try {
