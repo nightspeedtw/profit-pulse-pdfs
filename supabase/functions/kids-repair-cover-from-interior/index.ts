@@ -15,6 +15,8 @@ import { qcCoverLettering } from '../_shared/qc/kids-cover-lettering-qc.ts';
 import { uploadAndSignImage, versionedKidsAssetPath, storagePathFromUrl, IMAGE_SIGNED_TTL_SECONDS } from '../_shared/versioned-assets.ts';
 import { generateLiveImage } from '../_shared/image-luminance.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
+import { falIdeogramV3 } from '../_shared/fal.ts';
+import { buildTitlePromptFragment, planTitleLines } from '../_shared/covers/title-mastery.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -144,93 +146,135 @@ Deno.serve(async (req) => {
         ?? `${heroName} centered/upper-middle in a joyful key moment from the story, story-defining prop or object in-hand`,
     ).trim();
 
-    const basePrompt = [
+    // ── Build the mastery title fragment ONCE (stacked-line plan + spelling anchors) ──
+    const titleFragment = buildTitlePromptFragment({ title, subtitle: subtitle || null });
+    const stackedLines = planTitleLines(title);
+
+    const compositionText = [
+      `Whimsical children's picture-book cover artwork, SQUARE 1:1 format.`,
+      charDesc ? `Hero character: ${charDesc}` : `Hero character: ${heroName}, warm painterly children's-book illustration style with soft outlines, expressive face, story-appropriate outfit.`,
+      `Composition: ${heroMoment}. Warm painterly lighting, generous CLEAR SKY/NEGATIVE SPACE in the upper third reserved for the title lettering.`,
+      titleFragment,
+      `ABSOLUTE RULES: Do NOT draw any in-scene labels, tag text, sign text, box labels, onomatopoeia, speech bubbles, author lines, publisher marks, badges, or signatures. If a container appears, it must be UNLABELED. Square 1:1.`,
+    ].filter(Boolean).join(' ');
+
+    const geminiPrompt = [
       `Whimsical children's picture-book cover artwork, SQUARE 1:1 format.`,
       `Use the two attached interior illustrations as the DEFINITIVE reference for the hero character's identity (face, skin, hair, glasses, freckles, outfit, proportions) AND for the overall art style (line quality, palette, lighting, texture). The cover MUST show the SAME hero drawn in the SAME style — no restyling, no different character, no species drift.`,
       charDesc ? `Character notes: ${charDesc}` : ``,
       `Composition: ${heroMoment}. Warm painterly lighting, generous space in the upper third for the title.`,
-      `TYPOGRAPHY (must be drawn INTO the artwork as hand-lettered painted title): the ONLY text visible on the cover is the exact title "${title}"${subtitle ? ` and the subtitle "${subtitle}" underneath in a smaller hand-lettered style` : ''}. The lettering must be chunky, playful, bouncy baseline, watercolor-style, sitting in the upper third with clear readability armor (soft outline or shadow) so it survives at 100×160 thumbnail size.`,
-      `ABSOLUTE RULES: (1) The ONLY text anywhere on the entire canvas is the title${subtitle ? ' + subtitle' : ''} above. Do NOT draw any in-scene labels, basket tags, sign text, box labels, onomatopoeia, speech bubbles, tag-lines, author lines, publisher marks, badges, or signatures. If a container appears in the scene, it must be UNLABELED. (2) Spell the title EXACTLY: "${title}". (3) No glossy 3D, no stock photo, no six-finger hands, no generic purple gradient. (4) Square 1:1 aspect ratio.`,
+      titleFragment,
+      `ABSOLUTE RULES: Do NOT draw any in-scene labels, basket tags, sign text, box labels, onomatopoeia, speech bubbles, tag-lines, author lines, publisher marks, badges, or signatures. If a container appears in the scene, it must be UNLABELED. Square 1:1 aspect ratio.`,
     ].filter(Boolean).join(' ');
+
+    // Ladder rungs (in order):
+    //   rung=1  Ideogram v3 QUALITY  (industry best for text-in-image, ~90%)
+    //   rung=2  Ideogram v3 QUALITY retry with jitter + different seed
+    //   rung=3  Gemini 3.1 ref-conditioned (character fidelity fallback)
+    // Then composite-SVG fallback (never fails, handled below).
+    type Rung = { id: number; label: 'ideogram_v3_a' | 'ideogram_v3_b' | 'gemini_refs'; };
+    const ladder: Rung[] = [
+      { id: 1, label: 'ideogram_v3_a' },
+      { id: 2, label: 'ideogram_v3_b' },
+      { id: 3, label: 'gemini_refs' },
+    ].slice(0, max_attempts);
 
     let lastReason = '';
     let bestBytes: Uint8Array | null = null;
     let bestReport: unknown = null;
     let usedRenderer: 'baked-lettering@1' | 'kids-title-treatment@1' = 'baked-lettering@1';
     let titleTreatmentMeta: Record<string, unknown> | null = null;
+    let acceptedRung: string | null = null;
 
-    for (let attempt = 1; attempt <= max_attempts; attempt++) {
-      let bytes: Uint8Array;
-      const prompt = basePrompt + (attempt > 1 ? ` (Previous attempt failed: ${lastReason} — fix that specifically.)` : '');
+    for (const rung of ladder) {
+      let bytes: Uint8Array | null = null;
+      const seed = 1000 + rung.id * 137;
       try {
-        const live = await generateLiveImage({
-          label: 'cover_from_interior',
-          attempts: 3,
-          gen: async (inner) => {
-            const jitter = inner === 1
-              ? ''
-              : inner === 2
-                ? ' Slight variation: shift lighting warmer and pose energy higher.'
-                : ' Retry with a fresh composition: different camera angle, brighter palette.';
-            const refs = inner === 2 && refUrls.length > 1
-              ? [...refUrls].reverse()
-              : refUrls;
-            const seed = 1000 * attempt + inner * 37;
-            try {
-              const { bytes: b, meta } = await geminiDirectImageWithMeta({
-                prompt: prompt + jitter,
-                referenceUrls: refs,
-                model: 'google/gemini-3.1-flash-image',
-                seed,
-              });
-              return { bytes: b, meta };
-            } catch (direct) {
-              console.warn(`gemini-direct failed (${(direct as Error).message.slice(0, 120)}) — falling back to gateway`);
-              const b = await gatewayImageWithRefs({ prompt: prompt + jitter, referenceUrls: refs });
-              return { bytes: b, meta: { provider: 'google_direct', model: 'google/gemini-3.1-flash-image', partCount: 1, bytesLen: b.length, finishReason: 'gateway_fallback', safetyRatings: null } };
-            }
-          },
-        });
-        bytes = live.bytes;
+        if (rung.label === 'ideogram_v3_a' || rung.label === 'ideogram_v3_b') {
+          const jitter = rung.label === 'ideogram_v3_b'
+            ? ' Slight variation: warmer lighting, higher pose energy, fresh camera angle.'
+            : '';
+          bytes = await falIdeogramV3({
+            prompt: compositionText + jitter,
+            image_size: 'square_hd',
+            style: 'DESIGN',
+            rendering_speed: 'QUALITY',
+            seed,
+            negative_prompt: 'extra text, misspelled title, garbled letters, in-scene labels, signage, watermark, author name, publisher logo, six fingers, deformed hands, plain sans-serif font',
+            ebook_id,
+            step: `kids_cover_${rung.label}`,
+          });
+        } else {
+          // gemini_refs — use existing live-image wrapper + gateway fallback
+          const live = await generateLiveImage({
+            label: `cover_${rung.label}`,
+            attempts: 2,
+            gen: async (inner) => {
+              const refs = inner === 2 && refUrls.length > 1 ? [...refUrls].reverse() : refUrls;
+              const innerSeed = seed + inner * 37;
+              try {
+                const { bytes: b, meta } = await geminiDirectImageWithMeta({
+                  prompt: geminiPrompt,
+                  referenceUrls: refs,
+                  model: 'google/gemini-3.1-flash-image',
+                  seed: innerSeed,
+                });
+                return { bytes: b, meta };
+              } catch (direct) {
+                console.warn(`gemini-direct failed (${(direct as Error).message.slice(0, 120)}) — falling back to gateway`);
+                const b = await gatewayImageWithRefs({ prompt: geminiPrompt, referenceUrls: refs });
+                return { bytes: b, meta: { provider: 'google_direct', model: 'google/gemini-3.1-flash-image', partCount: 1, bytesLen: b.length, finishReason: 'gateway_fallback', safetyRatings: null } };
+              }
+            },
+          });
+          bytes = live.bytes;
+        }
       } catch (e) {
-        lastReason = (e as Error).message.slice(0, 400);
-        console.error(`attempt ${attempt} gen/dead-image error`, lastReason);
-        if (attempt === max_attempts) break; // fall through to composite fallback
+        lastReason = `${rung.label}:${(e as Error).message.slice(0, 300)}`;
+        console.error(`rung ${rung.label} gen error`, lastReason);
         continue;
       }
+      if (!bytes) continue;
 
       const qc = await qcCoverLettering({ expectedTitle: title, imageBytes: bytes });
       const detected = String(qc.detected_title_text ?? '').trim();
+      const allText = await transcribeAllText(bytes);
       const titleNorm = title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
       const subNorm = subtitle.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
       const allowed = new Set((titleNorm + ' ' + subNorm).split(' ').filter((w) => w.length >= 3));
-      const allText = await transcribeAllText(bytes);
       const allTokens = allText.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(/\s+/).filter((w) => w.length >= 3);
       const extraWords = Array.from(new Set(allTokens.filter((w) => !allowed.has(w))));
       const extraneous = extraWords.length > 0;
 
       const passReport = {
-        attempt, qc, detected,
-        luminance: { note: 'live_verified_at_birth' },
+        rung: rung.label,
+        rung_id: rung.id,
+        qc,
+        expected_title: title,
+        transcribed_title: detected,
+        similarity: qc.similarity,
+        similarity_threshold: qc.threshold,
+        stacked_lines_plan: stackedLines,
         all_text_detected: allText,
         extraneous_words: extraWords,
       };
       bestReport = passReport;
       bestBytes = bytes;
 
+      console.log(`[cover-ladder] rung=${rung.label} similarity=${qc.similarity} passed=${qc.passed} extraneous=${extraneous}`);
+
       if (qc.passed && !extraneous) {
-        console.log('cover repaired attempt', attempt, 'title=', detected);
-        // Persist title_treatment metadata so the downstream KIDS_TITLE_TREATMENT_INVALID
-        // gate can verify title spelling. The renderer is "baked-lettering@1"
-        // (title drawn into the AI artwork rather than SVG overlay).
+        acceptedRung = rung.label;
         titleTreatmentMeta = {
           title,
           subtitle: subtitle || null,
-          lines: [title],
+          lines: stackedLines.length ? stackedLines : [title],
           renderer: 'baked-lettering@1',
           rendered_at: new Date().toISOString(),
-          source: 'interior_reference_v1',
+          source: rung.label,
+          accepted_rung: rung.label,
           detected_title_text: detected,
+          similarity: qc.similarity,
         };
         break;
       }
@@ -349,7 +393,8 @@ Deno.serve(async (req) => {
         ...existingMeta,
         cover_source: usedRenderer === 'kids-title-treatment@1'
           ? 'composite_fallback_v1'
-          : 'interior_reference_v1',
+          : (acceptedRung ?? 'interior_reference_v1'),
+        cover_accepted_rung: usedRenderer === 'kids-title-treatment@1' ? 'composite_svg' : acceptedRung,
         cover_repaired_at: new Date().toISOString(),
         cover_qc_report: bestReport,
         title_treatment: titleTreatmentMeta,

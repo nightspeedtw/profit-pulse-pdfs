@@ -11,6 +11,8 @@
 // regenerates. After N failed attempts the caller falls back to compositing
 // a styled SVG text overlay — we never ship a misspelled cover.
 
+import { verifyTitleFuzzy, TITLE_SIMILARITY_THRESHOLD } from "../covers/title-mastery.ts";
+
 export interface CoverLetteringQcResult {
   passed: boolean;
   score: number;                 // 0-100 overall
@@ -19,12 +21,10 @@ export interface CoverLetteringQcResult {
   lettering_stylized: boolean;
   thumbnail_readable: boolean;
   detected_title_text: string;
+  similarity: number;            // 0..1 Levenshtein similarity vs expected
+  threshold: number;
   reasons: string[];
   raw?: unknown;
-}
-
-function normalize(s: string): string {
-  return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
 export async function qcCoverLettering(input: {
@@ -38,6 +38,7 @@ export async function qcCoverLettering(input: {
       title_present: false, title_spelled_correctly: false,
       lettering_stylized: false, thumbnail_readable: false,
       detected_title_text: "",
+      similarity: 0, threshold: TITLE_SIMILARITY_THRESHOLD,
       reasons: ["missing_lovable_api_key"],
     };
   }
@@ -111,25 +112,26 @@ Grade the cover image below.`;
       title_present: false, title_spelled_correctly: false,
       lettering_stylized: false, thumbnail_readable: false,
       detected_title_text: "",
+      similarity: 0, threshold: TITLE_SIMILARITY_THRESHOLD,
       reasons: [`vision_qc_failed:${(e as Error).message.slice(0, 120)}`],
     };
   }
 
   const detected = String(parsed.detected_title_text ?? "").trim();
-  const expectedNorm = normalize(input.expectedTitle);
-  const detectedNorm = normalize(detected);
-  // Model may be over/under-confident; also do our own substring check.
-  const containsExpected = expectedNorm.length > 0 &&
-    (detectedNorm.includes(expectedNorm) || expectedNorm.includes(detectedNorm) && detectedNorm.length >= expectedNorm.length * 0.85);
-  const spelledOk = parsed.title_spelled_correctly === true && containsExpected;
+  // Fuzzy verification (Levenshtein similarity ≥ threshold) — tolerates 1-2
+  // glyph artifacts on long titles while catching real misspellings.
+  const fuzzy = verifyTitleFuzzy(input.expectedTitle, detected);
+  const spelledOk = fuzzy.pass;
   const stylized = parsed.lettering_stylized === true;
   const thumbOk = parsed.thumbnail_readable === true;
   const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score ?? 0))));
 
+  // ALWAYS log expected vs transcribed so we learn which route wins.
+  console.log(`[cover-title-qc] expected="${input.expectedTitle}" transcribed="${detected}" similarity=${fuzzy.similarity} pass=${spelledOk}`);
+
   const reasons: string[] = [];
   if (!detected) reasons.push("title_not_detected");
-  if (!containsExpected) reasons.push(`title_misspelled(detected="${detected.slice(0, 60)}")`);
-  if (!spelledOk) reasons.push("title_spelling_gate_failed");
+  if (!spelledOk) reasons.push(`title_misspelled(similarity=${fuzzy.similarity} < ${fuzzy.threshold}, detected="${detected.slice(0, 60)}")`);
   if (!stylized) reasons.push("lettering_not_stylized");
   if (!thumbOk) reasons.push("thumbnail_unreadable");
 
@@ -143,6 +145,8 @@ Grade the cover image below.`;
     lettering_stylized: stylized,
     thumbnail_readable: thumbOk,
     detected_title_text: detected,
+    similarity: fuzzy.similarity,
+    threshold: fuzzy.threshold,
     reasons,
     raw: parsed,
   };
