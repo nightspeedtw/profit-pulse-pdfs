@@ -88,6 +88,7 @@ const App = () => (
             <Route path="store/:id" element={<EbookReview />} />
             <Route path="products" element={<Products />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="royalty-settings" element={<RoyaltySettings />} />
             <Route path="ebook/:id" element={<EbookReview />} />
             <Route path="ebook/:id/writing" element={<EbookWriting />} />
             <Route path="ebook/:id/cover" element={<EbookCover />} />
