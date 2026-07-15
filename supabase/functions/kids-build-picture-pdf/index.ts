@@ -200,7 +200,11 @@ Deno.serve(async (req) => {
     const publish: boolean = body.publish !== false;
     const runQcAfter: boolean = body.run_qc_after !== false;
     const requestedStage: string | undefined = body.stage;
+    const runIdFromBody: string | null = body.run_id ?? null;
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
+
+    // Skill contracts for assemble_pdf must exist before we touch bytes.
+    const pdfContracts = await resolveStageOrThrow('assemble_pdf');
 
     const { data: ebook, error } = await db.from('ebooks_kids').select(
       'id, title, subtitle, cover_url, interior_illustrations, manuscript_md, qc_scorecard, storefront_meta',
