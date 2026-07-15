@@ -347,49 +347,38 @@ async function runLoop(parentRunId: string, ebookId: string, ageBand: string, pr
       attempt_count: ebookAttempts,
     });
 
-    let childEbookId = currentEbookId;
+    // Book identity is immutable — always insert a NEW ebooks_kids row per
+    // concept attempt. The placeholder created at request time is retired on
+    // the first iteration so it stays as an inert audit tombstone.
+    let childEbookId: string;
     if (firstIteration) {
-      // Reuse the placeholder ebook already created at request time.
       firstIteration = false;
-      // Seed the placeholder with the winning concept and kick the canonical pipeline.
-      const seed = await invoke('kids-fresh-book-start', {
-        age_band: ageBand,
-        use_ebook_id: currentEbookId,
-        locked_concept: p.winner.concept,
-        locked_scores: p.winner.concept_scores,
-        skip_preflight: true,
-      }, 140_000);
-      if (!seed.ok) {
-        await appendAttempt(db, parentRunId, {
-          outcome: 'system_error',
-          lane,
-          ebook_id: currentEbookId,
-          reason: `fresh_book_start_failed: ${seed.text?.slice(0, 200)}`,
-          ts: new Date().toISOString(),
-        });
-        continue;
+      try {
+        await db.from('ebooks_kids').update({
+          pipeline_status: 'retired',
+          blocker_reason: 'placeholder_superseded_by_child_row',
+        }).eq('id', currentEbookId);
+      } catch (e) {
+        console.error('placeholder retire failed', e);
       }
-      childEbookId = (seed.json?.ebook_id as string) ?? currentEbookId;
-    } else {
-      // New child ebook + run for subsequent attempts (they will be linked via metadata.parent_run_id).
-      const seed = await invoke('kids-fresh-book-start', {
-        age_band: ageBand,
-        locked_concept: p.winner.concept,
-        locked_scores: p.winner.concept_scores,
-        skip_preflight: true,
-        parent_run_id: parentRunId,
-      }, 140_000);
-      if (!seed.ok || !seed.json?.ebook_id) {
-        await appendAttempt(db, parentRunId, {
-          outcome: 'system_error',
-          lane,
-          reason: `fresh_book_start_failed: ${seed.text?.slice(0, 200)}`,
-          ts: new Date().toISOString(),
-        });
-        continue;
-      }
-      childEbookId = seed.json.ebook_id as string;
     }
+    const seed = await invoke('kids-fresh-book-start', {
+      age_band: ageBand,
+      locked_concept: p.winner.concept,
+      locked_scores: p.winner.concept_scores,
+      skip_preflight: true,
+      parent_run_id: parentRunId,
+    }, 140_000);
+    if (!seed.ok || !seed.json?.ebook_id) {
+      await appendAttempt(db, parentRunId, {
+        outcome: 'system_error',
+        lane,
+        reason: `fresh_book_start_failed: ${seed.text?.slice(0, 200)}`,
+        ts: new Date().toISOString(),
+      });
+      continue;
+    }
+    childEbookId = seed.json.ebook_id as string;
 
     // Find or create a child run to poll on.
     let childRunId: string | null = null;
