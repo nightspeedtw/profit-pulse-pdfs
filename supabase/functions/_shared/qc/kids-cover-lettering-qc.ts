@@ -12,6 +12,8 @@
 // a styled SVG text overlay — we never ship a misspelled cover.
 
 import { verifyTitleFuzzy, TITLE_SIMILARITY_THRESHOLD } from "../covers/title-mastery.ts";
+import { parseModelJson } from "../model-json.ts";
+
 
 export interface CoverLetteringQcResult {
   passed: boolean;
