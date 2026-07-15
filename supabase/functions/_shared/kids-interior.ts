@@ -18,6 +18,7 @@ import { uploadAndSignImage, versionedKidsInteriorPath } from './versioned-asset
 import { falFluxSchnell } from "./fal.ts";
 import { generateWithReference } from "./kids-image-gen.ts";
 import { generateLiveImage } from "./image-luminance.ts";
+import { TEXTLESS_DIRECTIVE } from "./textless-illustration-policy.ts";
 
 export interface SceneRecord {
   index: number;
