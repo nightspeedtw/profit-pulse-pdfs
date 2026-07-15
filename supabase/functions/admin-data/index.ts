@@ -395,7 +395,22 @@ Deno.serve(async (req) => {
       return json(await res.json(), res.status);
     }
 
+
+    if (resource === "kids_runs") {
+      const [runsRes, weightsRes] = await Promise.all([
+        supabase
+          .from("autopilot_kids_runs")
+          .select("id, status, current_step_label, progress_percent, blocker_reason, ebook_kids_id, created_at, metadata")
+          .order("created_at", { ascending: false })
+          .limit(30),
+        supabase.from("kids_category_weights").select("*"),
+      ]);
+      if (runsRes.error) throw runsRes.error;
+      return json({ runs: runsRes.data ?? [], weights: weightsRes.data ?? [] });
+    }
+
     return json({ error: "unknown resource" }, 400);
+
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }

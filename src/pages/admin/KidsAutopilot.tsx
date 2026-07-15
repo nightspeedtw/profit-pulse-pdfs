@@ -8,6 +8,7 @@ import { RefreshCw, Play, Sparkles, Zap } from "lucide-react";
 import { listAgeGroups, listThemes, type KidsAgeGroup, type KidsTheme } from "@/lib/kidsTaxonomy";
 import { BuildKidsBookButton } from "@/components/admin/BuildKidsBookButton";
 import { KidsBatchOrderCard } from "@/components/admin/KidsBatchOrderCard";
+import { fetchAdminData } from "@/lib/adminData";
 
 interface ParentJob {
   status?: string;
@@ -75,22 +76,17 @@ export default function KidsAutopilot() {
       setAuthState("admin");
 
 
-      const [a, t, w, r] = await Promise.all([
+      const [a, t, adminData] = await Promise.all([
         listAgeGroups(),
         listThemes(),
-        supabase.from("kids_category_weights").select("*"),
-        supabase
-          .from("autopilot_kids_runs")
-          .select("id, status, current_step_label, progress_percent, blocker_reason, ebook_kids_id, created_at, metadata")
-          .order("created_at", { ascending: false })
-          .limit(30),
+        fetchAdminData<{ runs: KidsRun[]; weights: Weight[] }>("kids_runs"),
       ]);
-      if (r.error) throw r.error;
       setAges(a); setThemes(t);
-      setWeights((w.data ?? []) as Weight[]);
+      setWeights((adminData.weights ?? []) as Weight[]);
       // Hide child runs spawned by a parent job — they surface inside the parent row.
-      const rows = ((r.data ?? []) as KidsRun[]).filter(row => !row.metadata?.parent_run_id);
+      const rows = ((adminData.runs ?? []) as KidsRun[]).filter(row => !row.metadata?.parent_run_id);
       setRuns(rows);
+
     } catch (e) {
       console.error("KidsAutopilot load failed", e);
       setLoadError(String((e as Error)?.message ?? e));
