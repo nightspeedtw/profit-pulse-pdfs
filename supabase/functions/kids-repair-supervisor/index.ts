@@ -508,6 +508,31 @@ Deno.serve(async (req) => {
       // genuinely broken build.
       const priorPdfResumes = allEntries.filter((e) => e.blocker_class === 'resume_pdf').length;
       const pdfErrorNeedsRepair = isCoverHardFailText(pdfJobError) || /dead_page_gate|text_mapping_gate/i.test(pdfJobError);
+
+      // PRE-CHECK: cover_url must exist. kids-build-picture-pdf refuses to
+      // start assembly without it and returns 400 "cover_url missing" — that
+      // was the "dies before first heartbeat" class. Route to cover repair
+      // instead of looping the PDF dispatcher forever.
+      if (!hasPdf && status === 'pdf_building' && !ebook.cover_url) {
+        const r = await invoke('kids-repair-cover-from-interior', { ebook_id, splice_pdf: false });
+        const t = await r.text().catch(() => '');
+        await appendLog(db, ebook_id, {
+          attempt: totalAttempts + 1,
+          current_blocker: 'cover_missing_before_pdf_assembly',
+          blocker_class: 'missing_cover',
+          repair_handler: 'kids-repair-cover-from-interior',
+          stage_before, stage_after: status,
+          result: r.ok ? 'dispatched' : 'error',
+          detail: { dispatch_status: r.status, body: t.slice(0, 240) },
+          updated_at: new Date().toISOString(),
+        });
+        // On success, kick pdf_prepare so the fresh cover is spliced in.
+        if (r.ok) {
+          void invoke('kids-build-picture-pdf', { ebook_id, publish: true, stage: 'pdf_prepare', run_qc_after: true });
+        }
+        return json({ ok: r.ok, result: r.ok ? 'cover_repair_dispatched' : 'cover_repair_failed', dispatch_status: r.status, body: t.slice(0, 240) });
+      }
+
       // FREE RESUME for pdf_building — unbounded when interiors are complete.
       // stall≠quality-failure; paid verified assets are never discarded for
       // infrastructure reasons. Only content-quality gates (dead_page_gate,
@@ -517,6 +542,30 @@ Deno.serve(async (req) => {
         const r = await invoke('kids-build-picture-pdf', { ebook_id, publish: true, stage });
         const t = await r.text().catch(() => '');
         const ok = r.ok;
+        // HARDEN: if dispatch failed, persist dispatch_failed into
+        // pdf_repair_job so the failure surfaces on the next scan and is
+        // never silent again.
+        if (!ok) {
+          try {
+            const { data: freshEb } = await db.from('ebooks_kids').select('qc_scorecard').eq('id', ebook_id).single();
+            const scNow = (freshEb?.qc_scorecard as Record<string, unknown> | null) ?? {};
+            const logNow = (scNow.repair_log as Record<string, unknown> | undefined) ?? {};
+            const jobNow = (logNow.pdf_repair_job as Record<string, unknown> | undefined) ?? {};
+            const nextJob = {
+              ...jobNow,
+              error: `dispatch_failed: HTTP ${r.status} — ${t.slice(0, 200)}`,
+              last_dispatch_status: r.status,
+              last_dispatch_body: t.slice(0, 400),
+              last_dispatch_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            };
+            await db.from('ebooks_kids').update({
+              qc_scorecard: { ...scNow, repair_log: { ...logNow, pdf_repair_job: nextJob } },
+            }).eq('id', ebook_id);
+          } catch (persistErr) {
+            console.warn('failed to persist dispatch_failed:', (persistErr as Error).message);
+          }
+        }
         await appendLog(db, ebook_id, {
           attempt: totalAttempts + 1,
           current_blocker: pdfAssemblyNeverStarted ? 'pdf_assembly_never_started' : (pdfJobError ? `pdf_prior_error:${pdfJobError.slice(0, 80)}` : 'pdf_build_incomplete'),
