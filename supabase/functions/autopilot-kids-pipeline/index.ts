@@ -601,7 +601,7 @@ async function generateCover(ctx: Ctx): Promise<StepResult> {
     // may leave stale title/description behind, which previously caused the
     // bible to lock the wrong hero (e.g. "Barnaby Bear" for a Tali story).
     const manuscriptExcerpt = String(ctx.ebook.manuscript_md ?? '').slice(0, 2000);
-    const bibleText = await callAI(
+    const cbJson = await callAiJson<Record<string, unknown>>(
       `Create a character bible JSON for the HERO of the following children's picture book MANUSCRIPT. The hero MUST be the character who is actually named and acts throughout the manuscript text below — do NOT invent a new hero from the title or description. Use the exact hero name that appears in the manuscript.
 
 MANUSCRIPT:
@@ -613,9 +613,10 @@ Title (for context only, may be stale): ${ctx.ebook.title}
 Description (for context only, may be stale): ${ctx.ebook.description}
 
 Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":"","outfit":"","accessory":"","personality":"","forbidden_changes":["never change hair color","never change outfit"]}`,
-      "You are a picture-book art director. English only. JSON only, no markdown. The hero name MUST appear verbatim in the manuscript."
+      "You are a picture-book art director. English only. JSON only, no markdown. The hero name MUST appear verbatim in the manuscript.",
+      { requiredKey: 'name' },
+      'generate_character_bible',
     );
-    const cbJson = JSON.parse(bibleText.replace(/^```(?:json)?\s*|\s*```$/g, '').trim());
     // Post-validate: hero name must appear in manuscript, else abort so the
     // caller can decide (do not spend image cost on a wrong hero).
     const heroName = String(cbJson?.name ?? '').trim();
