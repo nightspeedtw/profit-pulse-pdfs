@@ -78,4 +78,56 @@ describe("pdf-metadata (Phase 7)", () => {
     const b = await deriveFinalPdfMetadata(synthPdf(3));
     expect(a.pdf_sha256).toBe(b.pdf_sha256);
   });
+
+  // REGRESSION (2026-07-15, fixture book 2578ed8c stuck at pdf_pages_6):
+  // pdf-lib's default `save()` uses object streams, hiding every `/Type /Page`
+  // marker inside a compressed stream. countPdfPages() would then return 0
+  // and Phase-7 refused to persist the final PDF forever. The fix is (a)
+  // finalizePicturePdf saves with `useObjectStreams: false`, and (b) the
+  // parser falls back to the root `/Type /Pages … /Count N` catalog entry
+  // when no visible /Type /Page markers are present.
+  it("falls back to /Type /Pages /Count when object streams hide page objects", () => {
+    const bytes = new TextEncoder().encode(
+      `%PDF-1.7\n%\xE2\xE3\xCF\xD3\n` +
+      // A pages catalog with /Count — but no visible /Type /Page objects
+      // (as if they were compressed inside an object stream).
+      `2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 34 >>\nendobj\n` +
+      `%%EOF\n`
+    );
+    expect(countPdfPages(bytes)).toBe(34);
+  });
+
+  it("finalize derive on a 34-page in-memory PDF (via /Count fallback) returns 34", async () => {
+    const bytes = new TextEncoder().encode(
+      `%PDF-1.7\n%\xE2\xE3\xCF\xD3\n` +
+      `2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 34 >>\nendobj\n%%EOF\n`
+    );
+    const meta = await deriveFinalPdfMetadata(bytes);
+    expect(meta.page_count).toBe(34);
+  });
+
+  // ARCHITECTURAL REGRESSION: deriveFinalPdfMetadata (which enforces the
+  // "refuse to persist a zero-page PDF" gate) must ONLY be called on the
+  // finalize lane of kids-build-picture-pdf. Invoking it per-stage against
+  // the in-progress artifact would trigger a hard failure every batch.
+  it("kids-build-picture-pdf calls deriveFinalPdfMetadata only in the finalize branch", () => {
+    const src = readFileSync(
+      resolve(__dirname, "../../supabase/functions/kids-build-picture-pdf/index.ts"),
+      "utf8",
+    );
+    const lines = src.split("\n");
+    const finalizeStart = lines.findIndex((l) => l.includes("} else if (pos.lane === 'finalize')"));
+    const interiorStart = lines.findIndex((l, i) => i > finalizeStart && l.trim().startsWith("} else {"));
+    expect(finalizeStart).toBeGreaterThan(0);
+    expect(interiorStart).toBeGreaterThan(finalizeStart);
+    const callLine = lines.findIndex((l) => l.includes("deriveFinalPdfMetadata("));
+    expect(callLine).toBeGreaterThan(finalizeStart);
+    expect(callLine).toBeLessThan(interiorStart);
+    // And no other call site outside the finalize block.
+    const allCallLines = lines
+      .map((l, i) => ({ l, i }))
+      .filter(({ l }) => /deriveFinalPdfMetadata\s*\(/.test(l));
+    expect(allCallLines).toHaveLength(1);
+  });
 });
+
