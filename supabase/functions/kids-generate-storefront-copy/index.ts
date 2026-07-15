@@ -13,6 +13,7 @@ import { loadStoryCraftBlock } from '../_shared/story-craft-skill.ts';
 import { hasGeminiDirect, geminiDirectChat } from '../_shared/gemini-direct.ts';
 import { sanitizeSalesCopy, SalesCopyLeakError } from '../_shared/sales-copy-sanitizer.ts';
 import { resolveStageOrThrow, logStageEvidence } from '../_shared/skill-evidence.ts';
+import { parseModelJson } from '../_shared/model-json.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
