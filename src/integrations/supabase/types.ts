@@ -3689,6 +3689,99 @@ export type Database = {
         }
         Relationships: []
       }
+      run_skill_usage: {
+        Row: {
+          book_id: string | null
+          created_at: string
+          details: Json
+          id: string
+          input_reference_ids: Json
+          loaded_at: string
+          output_asset_ids: Json
+          pass_fail_result: string
+          run_id: string | null
+          skill_key: string
+          skill_version: string
+          stage: string
+        }
+        Insert: {
+          book_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: string
+          input_reference_ids?: Json
+          loaded_at?: string
+          output_asset_ids?: Json
+          pass_fail_result?: string
+          run_id?: string | null
+          skill_key: string
+          skill_version: string
+          stage: string
+        }
+        Update: {
+          book_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: string
+          input_reference_ids?: Json
+          loaded_at?: string
+          output_asset_ids?: Json
+          pass_fail_result?: string
+          run_id?: string | null
+          skill_key?: string
+          skill_version?: string
+          stage?: string
+        }
+        Relationships: []
+      }
+      runtime_skill_contracts: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          prompt_contract: Json
+          qc_requirements: Json
+          reference_schema: Json
+          required_predecessor_skills: string[]
+          skill_key: string
+          skill_version: string
+          supported_book_types: string[]
+          supported_pipeline_stages: string[]
+          trigger_tags: string[]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          prompt_contract?: Json
+          qc_requirements?: Json
+          reference_schema?: Json
+          required_predecessor_skills?: string[]
+          skill_key: string
+          skill_version: string
+          supported_book_types?: string[]
+          supported_pipeline_stages?: string[]
+          trigger_tags?: string[]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          prompt_contract?: Json
+          qc_requirements?: Json
+          reference_schema?: Json
+          required_predecessor_skills?: string[]
+          skill_key?: string
+          skill_version?: string
+          supported_book_types?: string[]
+          supported_pipeline_stages?: string[]
+          trigger_tags?: string[]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       system_fix_instructions: {
         Row: {
           acceptance_test: string | null
