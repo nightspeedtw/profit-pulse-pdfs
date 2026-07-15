@@ -67,12 +67,23 @@ describe("kids segmented writer parser recovery", () => {
 describe("page_text_completeness_gate — terminal punctuation with closing wrappers", () => {
   const REFRAIN = "Stir, Pip, stir!";
   const filler = (extra: string) => `Chef Pip stirred bright berry jam with a patient little spoon and it went ${extra}`;
-  const build = (endings: string[]): SegmentedManuscript => ({
-    title: "Chef Pip",
-    refrain: REFRAIN,
-    target: endings.length,
-    pages: endings.map((end, i) => ({ page: i + 1, text: i < 3 ? `${filler(end)} ${REFRAIN}` : filler(end) })),
-  });
+  const build = (endings: string[]): SegmentedManuscript => {
+    const marked = new Set(refrainPagesFor(endings.length));
+    return {
+      title: "Chef Pip",
+      refrain: REFRAIN,
+      target: endings.length,
+      pages: endings.map((end, i) => {
+        const pageNum = i + 1;
+        const isRefrain = marked.has(pageNum);
+        return {
+          page: pageNum,
+          text: isRefrain ? `${filler(end)} ${REFRAIN}` : filler(end),
+          contains_refrain: isRefrain,
+        };
+      }),
+    };
+  };
 
   it("accepts dialogue-final text ending with terminal punct + closing curly/straight quotes, parens, or ellipsis", () => {
     const ok = build([
@@ -94,7 +105,7 @@ describe("page_text_completeness_gate — terminal punctuation with closing wrap
       title: "Chef Pip",
       refrain: REFRAIN,
       target: 1,
-      pages: [{ page: 1, text: `Chef Pip stirred bright berry jam and then Pip made a big,` }],
+      pages: [{ page: 1, text: `Chef Pip stirred bright berry jam and then Pip made a big,`, contains_refrain: false }],
     };
     const v = validateSegments(bad, { target: 1, minRefrainOccurrences: 0 });
     expect(v.violations.some((s) => s.includes("page_text_completeness_gate") && s.includes("no terminal punctuation"))).toBe(true);
