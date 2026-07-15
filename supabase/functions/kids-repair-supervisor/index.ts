@@ -211,8 +211,15 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
   const sg = sc.story_gate as { passed?: boolean; scores?: Record<string, number> } | undefined;
   if (stepName === 'story_gate' || (sg && sg.passed === false)) {
     const scores = sg?.scores ?? {};
+    // Empty/absent scores = INFRASTRUCTURE result (gate crashed, produced no
+    // verdict), never a quality verdict. Do NOT consume story_gate budget or
+    // retire the book; route to qc_missing so the gate is re-invoked.
+    if (!scores || Object.keys(scores).length === 0) {
+      return { klass: 'qc_missing', detail: `gate_crash:story_gate: empty verdict (no scores)` };
+    }
     return { klass: 'story_gate', detail: `story_gate: ${JSON.stringify(scores)}` };
   }
+
 
   // 2. Metadata gate mismatch.
   if (stepName === 'metadata_gate' || errMsg.includes('METADATA_STORY_MISMATCH')) {
