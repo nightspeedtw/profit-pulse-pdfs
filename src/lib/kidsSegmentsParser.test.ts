@@ -132,3 +132,54 @@ describe("classifyProviderTruncation — output-token cap heuristic", () => {
     expect(classifyProviderTruncation(truncatedRaw, truncatedErrors, "stop", 500, 16000)).toBe(false);
   });
 });
+
+describe("structural refrain gate — refrain-marked pages by construction", () => {
+  const REFRAIN = "Sticky-gooey, wobbly-gluey, it's Pip's sweet mess!";
+  const filler = (n: number) =>
+    `Chef Pip stirred bright berry jam with a patient little spoon on page ${n} today.`;
+  const buildMarked = (target: number, opts?: { includeRefrainTextOnMarked?: boolean; markPages?: boolean }): SegmentedManuscript => {
+    const marked = new Set(refrainPagesFor(target));
+    const includeRefrainTextOnMarked = opts?.includeRefrainTextOnMarked ?? true;
+    const markPages = opts?.markPages ?? true;
+    return {
+      title: "Chef Pip",
+      refrain: REFRAIN,
+      target,
+      pages: Array.from({ length: target }, (_, i) => {
+        const pageNum = i + 1;
+        const isRefrain = marked.has(pageNum);
+        const text = isRefrain && includeRefrainTextOnMarked
+          ? `${filler(pageNum)} ${REFRAIN}`
+          : filler(pageNum);
+        return {
+          page: pageNum,
+          text,
+          contains_refrain: isRefrain && markPages,
+        };
+      }),
+    };
+  };
+
+  it("refrainPagesFor(28) chooses setup, mid, and final pages", () => {
+    expect(refrainPagesFor(28)).toEqual([2, 14, 28]);
+  });
+
+  it("passes the ≥3-verbatim refrain gate when marked pages carry the refrain verbatim", () => {
+    const ok = buildMarked(28);
+    const v = validateSegments(ok, { target: 28, minRefrainOccurrences: 3 });
+    const refrainViolations = v.violations.filter((s) => s.toLowerCase().includes("refrain"));
+    expect(refrainViolations).toEqual([]);
+  });
+
+  it("fails when a designated refrain page omits the refrain verbatim (the historical failure)", () => {
+    const bad = buildMarked(28, { includeRefrainTextOnMarked: false });
+    const v = validateSegments(bad, { target: 28, minRefrainOccurrences: 3 });
+    expect(v.violations.some((s) => s.includes("refrain missing from text"))).toBe(true);
+  });
+
+  it("fails when a designated refrain page is not flagged with contains_refrain: true", () => {
+    const bad = buildMarked(28, { markPages: false });
+    const v = validateSegments(bad, { target: 28, minRefrainOccurrences: 3 });
+    expect(v.violations.some((s) => s.includes("contains_refrain must be true"))).toBe(true);
+  });
+});
