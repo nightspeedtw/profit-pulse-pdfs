@@ -530,6 +530,7 @@ function coerceSegmented(raw: Record<string, unknown>, opts: WriteSegmentsOpts):
     pages: pages.map((p, i) => ({
       page: Number(p?.page ?? i + 1),
       text: String(p?.text ?? "").trim(),
+      contains_refrain: Boolean(p?.contains_refrain),
     })),
   };
 }
