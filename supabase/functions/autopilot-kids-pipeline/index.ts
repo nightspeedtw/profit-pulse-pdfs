@@ -329,12 +329,12 @@ async function generateIdea(ctx: Ctx): Promise<StepResult> {
   const themeStr = (themes ?? []).map(t => t.label_en).join(', ') || 'general';
   const ageStr = age ? `${age.min_age}-${age.max_age} (${age.label_en})` : 'children';
 
-  const text = await callAI(
+  const parsed = await callAiJson<{ title: string; subtitle: string; description: string; main_character: string }>(
     `Give me one original children's book concept for ages ${ageStr}, theme: ${themeStr}. Reply as JSON only: {"title":"","subtitle":"","description":"","main_character":""}. English only.`,
-    'You are a children\'s book concept designer. Reply with JSON only, no markdown fences.'
+    'You are a children\'s book concept designer. Reply with JSON only, no markdown fences.',
+    { requiredKey: 'title', requiredKeys: ['description', 'main_character'] },
+    'generate_idea',
   );
-  const cleaned = text.replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
-  const parsed = JSON.parse(cleaned);
   await ctx.supabase.from('ebooks_kids').update({
     title: parsed.title, subtitle: parsed.subtitle, description: parsed.description,
     storefront_title: parsed.title, storefront_subtitle: parsed.subtitle,
