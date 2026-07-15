@@ -225,6 +225,10 @@ export interface WriterParseDiagnostics {
   errors: string[];
   raw_excerpt?: string;
   raw_model_output?: string;
+  finish_reason?: string;
+  output_tokens?: number;
+  max_tokens?: number;
+  provider_truncation?: boolean;
 }
 
 export interface WriterParseResult {
@@ -232,6 +236,26 @@ export interface WriterParseResult {
   value: Record<string, unknown>;
   partial: boolean;
   diagnostics: WriterParseDiagnostics;
+}
+
+// Deterministic truncation classifier. Signals `provider_truncation` when the
+// model completion was cut by the output-token cap. Combines signals to avoid
+// false positives: finish_reason==='length' OR (mid-JSON tail AND near cap).
+export function classifyProviderTruncation(
+  raw: string,
+  parseErrors: string[],
+  finishReason?: string,
+  outputTokens?: number,
+  maxTokens?: number,
+): boolean {
+  if (finishReason && finishReason.toLowerCase() === "length") return true;
+  const errText = parseErrors.join(" | ");
+  const looksMidJson =
+    /Unterminated string|Unexpected end of|Expected ',' or '}'|Expected ',' or '\]'/i.test(errText)
+    || (raw.trim().length > 0 && !/[}\]]\s*$/.test(raw.trim()));
+  const nearCap = typeof outputTokens === "number" && typeof maxTokens === "number" && maxTokens > 0
+    && outputTokens >= Math.floor(maxTokens * 0.95);
+  return looksMidJson && nearCap;
 }
 
 function stripCodeFence(raw: string, repairs: string[]): string {
@@ -399,6 +423,11 @@ export function parseSegmentedWriterOutput(raw: string): WriterParseResult {
 async function callWriter(system: string, user: string, model: string, timeoutMs: number): Promise<WriterParseResult> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  // 28-page segmented JSON needs ~2.5-4k content tokens. gemini-2.5-pro is a
+  // thinking model whose reasoning tokens ALSO bill against max_tokens — at the
+  // gateway default (~4k) it burns its budget on hidden reasoning and returns
+  // ~500 output tokens (observed 2026-07-15). 16k gives both budget + slack.
+  const MAX_TOKENS = 16000;
   try {
     if (!LOVABLE_API_KEY) throw new Error("missing LOVABLE_API_KEY");
     const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -408,6 +437,7 @@ async function callWriter(system: string, user: string, model: string, timeoutMs
       body: JSON.stringify({
         model,
         response_format: { type: "json_object" },
+        max_tokens: MAX_TOKENS,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -417,7 +447,22 @@ async function callWriter(system: string, user: string, model: string, timeoutMs
     if (!r.ok) throw new Error(`writer ${r.status}: ${(await r.text()).slice(0, 300)}`);
     const j = await r.json();
     const raw = j.choices?.[0]?.message?.content ?? "";
-    return parseSegmentedWriterOutput(raw);
+    const finishReason = j.choices?.[0]?.finish_reason ?? undefined;
+    const outputTokens = j.usage?.completion_tokens ?? j.usage?.output_tokens ?? undefined;
+    const parsed = parseSegmentedWriterOutput(raw);
+    parsed.diagnostics.finish_reason = finishReason;
+    parsed.diagnostics.output_tokens = outputTokens;
+    parsed.diagnostics.max_tokens = MAX_TOKENS;
+    parsed.diagnostics.provider_truncation = classifyProviderTruncation(
+      String(raw ?? ""), parsed.diagnostics.errors, finishReason, outputTokens, MAX_TOKENS,
+    );
+    if (parsed.diagnostics.provider_truncation) {
+      parsed.diagnostics.errors.push(
+        `provider_truncation: finish_reason=${finishReason ?? "?"} output_tokens=${outputTokens ?? "?"}/${MAX_TOKENS}`,
+      );
+      console.warn(`[kids-segments] provider_truncation model=${model} finish=${finishReason} out=${outputTokens}/${MAX_TOKENS}`);
+    }
+    return parsed;
   } finally { clearTimeout(t); }
 }
 
@@ -460,10 +505,16 @@ function mergeRecoveredPages(base: SegmentedManuscript | null, next: SegmentedMa
 function parseFailureViolations(parseFailures: WriterParseDiagnostics[]): string[] {
   const last = parseFailures.at(-1);
   if (!last) return [];
-  return [
+  const out = [
     `writer_json_malformation: return one valid JSON object only; parser errors were ${last.errors.slice(-2).join("; ")}`,
     "Do not include markdown fences, commentary, truncated arrays, or adjacent properties without commas.",
   ];
+  if (last.provider_truncation) {
+    out.push(
+      `provider_truncation: previous response was cut off at the token cap (finish_reason=${last.finish_reason ?? "?"}, out=${last.output_tokens ?? "?"}/${last.max_tokens ?? "?"}). Keep each page.text tight (15-22 words), NO extra keys, NO comments — the JSON must fit within the token budget with all ${28} pages intact.`,
+    );
+  }
+  return out;
 }
 
 export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise<WriteSegmentsResult> {
