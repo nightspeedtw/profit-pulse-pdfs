@@ -37,7 +37,9 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 
 /**
  * Count PDF pages by scanning for /Type /Page objects (not /Pages).
- * Robust for pdf-lib output: pages are always `/Type /Page` objects.
+ * Falls back to the root `/Type /Pages … /Count N` catalog entry when the
+ * PDF was saved with object streams (pdf-lib default), which hides every
+ * page object inside a compressed stream and would otherwise yield 0.
  */
 export function countPdfPages(bytes: Uint8Array): number {
   // Fast ASCII scan — PDF structural keywords are always ASCII.
@@ -46,8 +48,22 @@ export function countPdfPages(bytes: Uint8Array): number {
   const rx = /\/Type\s*\/Page(?![sA-Za-z])/g;
   let n = 0;
   while (rx.exec(s) !== null) n++;
-  return n;
+  if (n > 0) return n;
+  // Fallback: parse the pages catalog `/Type /Pages` object and read its
+  // /Count entry. Even with object streams, the trailer often keeps the
+  // root pages tree visible; on modern pdf-lib output that isn't guaranteed,
+  // so callers who need a hard guarantee should save with
+  // `{ useObjectStreams: false }`.
+  const pagesRx = /\/Type\s*\/Pages\b[^>]*?\/Count\s+(\d+)/g;
+  let best = 0;
+  let m: RegExpExecArray | null;
+  while ((m = pagesRx.exec(s)) !== null) {
+    const c = Number(m[1]);
+    if (Number.isFinite(c) && c > best) best = c;
+  }
+  return best;
 }
+
 
 export function pdfVersion(bytes: Uint8Array): string {
   if (bytes.length < 8) throw new PdfMetadataError("PDF_TOO_SHORT", "buffer too short");
