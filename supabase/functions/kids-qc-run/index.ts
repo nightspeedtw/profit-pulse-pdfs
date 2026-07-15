@@ -262,25 +262,44 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ---- Gate 3 (style coherence) ----
-    // Every interior page must share the book's style anchor fingerprint.
-    const anchorFp = (ebook.qc_scorecard as Record<string, unknown> | null)?.style_anchor_fingerprint as string | undefined;
+    // ---- Gate 3 (style coherence — cross-page mode, rubric-aligned) ----
+    // Goal: one visual style per book. The prompt-string fingerprint drifts
+    // whenever the styleSuffix is assembled in a slightly different order
+    // across invocations (resumes, batches), producing false 28/28 mismatches
+    // even when every page is visually identical (vision QC = 100).
+    // ALIGN WITH BATCH VERIFY: use the majority (mode) fingerprint of the
+    // pages themselves as the effective anchor — that IS the cross-page
+    // consistency signal batch verify checks. Only pages disagreeing with
+    // the majority are truly off-style. Auto-heal the stored anchor when
+    // pages are internally consistent.
+    const storedAnchor = (ebook.qc_scorecard as Record<string, unknown> | null)?.style_anchor_fingerprint as string | undefined;
+    const pageFps: Array<string | null> = illos.map((il) => (il as { style_fingerprint?: string }).style_fingerprint ?? null);
+    const fpCounts = new Map<string, number>();
+    for (const fp of pageFps) if (fp) fpCounts.set(fp, (fpCounts.get(fp) ?? 0) + 1);
+    let majorityFp: string | null = null;
+    let majorityCount = 0;
+    for (const [fp, n] of fpCounts) if (n > majorityCount) { majorityFp = fp; majorityCount = n; }
+    const effectiveAnchor = majorityFp ?? storedAnchor ?? null;
     const mixedFps: Array<{ index: number; fp: string | null }> = [];
-    if (anchorFp) {
-      for (let i = 0; i < illos.length; i++) {
-        const fp = (illos[i] as { style_fingerprint?: string }).style_fingerprint ?? null;
-        if (fp && fp !== anchorFp) mixedFps.push({ index: i, fp });
+    if (effectiveAnchor && pageFps.length) {
+      for (let i = 0; i < pageFps.length; i++) {
+        const fp = pageFps[i];
+        if (fp && fp !== effectiveAnchor) mixedFps.push({ index: i, fp });
       }
       if (mixedFps.length) {
         raw.push({
           rule_id: 'KIDS_MIXED_ART_STYLES', category: 'illustration_quality',
           severity: 'critical', passed: false,
-          measured_value: { anchor: anchorFp, mismatches: mixedFps },
-          threshold: { must: 'all_interiors_share_style_anchor_fingerprint' },
+          measured_value: { effective_anchor: effectiveAnchor, stored_anchor: storedAnchor ?? null, majority_count: majorityCount, total_pages: pageFps.length, mismatches: mixedFps },
+          threshold: { must: 'all_interiors_share_majority_style_fingerprint' },
           repair_action: 'regenerate_offstyle_pages',
         });
+      } else if (storedAnchor && storedAnchor !== effectiveAnchor) {
+        // Self-heal: pages are internally consistent but stored anchor drifted.
+        console.log(`[qc-run] style_anchor auto-healed: ${storedAnchor} -> ${effectiveAnchor} (${majorityCount}/${pageFps.length} pages agree)`);
       }
     }
+    const healedAnchor = (majorityFp && majorityCount === pageFps.length) ? majorityFp : storedAnchor ?? majorityFp ?? null;
 
     if (raw.length) {
       const rows = raw.map((f) => ({
@@ -318,7 +337,8 @@ Deno.serve(async (req) => {
     const preservedScorecard: Record<string, unknown> = {};
     if (existingScorecard.final_text_repair) preservedScorecard.final_text_repair = existingScorecard.final_text_repair;
     if (existingScorecard.repair_log) preservedScorecard.repair_log = existingScorecard.repair_log;
-    if (existingScorecard.style_anchor_fingerprint) preservedScorecard.style_anchor_fingerprint = existingScorecard.style_anchor_fingerprint;
+    if (healedAnchor) preservedScorecard.style_anchor_fingerprint = healedAnchor;
+    else if (existingScorecard.style_anchor_fingerprint) preservedScorecard.style_anchor_fingerprint = existingScorecard.style_anchor_fingerprint;
 
     await supabase.from("ebooks_kids").update({
       sellable: cappedSellable,
