@@ -66,28 +66,14 @@ export default function KidsAutopilot() {
     setLoadingRuns(true);
     setLoadError(null);
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      const user = userData?.user;
-      if (!user) {
+      const passcodeOk = typeof window !== "undefined" && localStorage.getItem("admin_passcode_ok") === "1";
+      if (!passcodeOk) {
         setAuthState("signed_out");
         setRuns([]);
         return;
       }
-      const { data: roleRow, error: roleErr } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .eq("role", "admin")
-        .maybeSingle();
-      if (roleErr) {
-        console.error("user_roles check failed", roleErr);
-      }
-      if (!roleRow) {
-        setAuthState("not_admin");
-        setRuns([]);
-        return;
-      }
       setAuthState("admin");
+
 
       const [a, t, w, r] = await Promise.all([
         listAgeGroups(),
