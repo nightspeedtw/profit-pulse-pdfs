@@ -14,6 +14,7 @@ import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment
 import { uploadAndSignImage, versionedKidsAssetPath } from '../_shared/versioned-assets.ts';
 import { computeLuminance, generateLiveImage } from '../_shared/image-luminance.ts';
 import { resolveStageOrThrow, logStageEvidence, assertCoverOrInteriorReady } from '../_shared/skill-evidence.ts';
+import { callAndParseModelJson, type ModelJsonSchema } from '../_shared/model-json.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -280,18 +281,40 @@ async function withRetry<T>(fn: () => Promise<T>, attempts: number): Promise<T> 
   throw lastErr;
 }
 
-async function callAI(prompt: string, system: string): Promise<string> {
+async function callAI(prompt: string, system: string, model = 'google/gemini-2.5-flash'): Promise<string> {
   const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
     body: JSON.stringify({
-      model: 'google/gemini-2.5-flash',
+      model,
       messages: [{ role: 'system', content: `${system}\n\nCRITICAL: Respond in English only. Never use Thai or any other language.` }, { role: 'user', content: prompt }],
     }),
   });
   if (!res.ok) throw new Error(`AI ${res.status}: ${await res.text()}`);
   const j = await res.json();
   return j.choices?.[0]?.message?.content ?? '';
+}
+
+// Tolerant JSON producer: routes every model call through the shared
+// parseModelJson + retry-ladder (2 primary attempts on flash + 1 fallback on
+// pro), feeding violations back to the model between attempts. Every naive
+// `JSON.parse(await callAI(...))` in this file MUST use this helper.
+async function callAiJson<T = Record<string, unknown>>(
+  userPrompt: string,
+  systemPrompt: string,
+  schema?: ModelJsonSchema,
+  label?: string,
+): Promise<T> {
+  const result = await callAndParseModelJson<T>(async (violations, model) => {
+    const violationBlock = violations.length
+      ? `\n\nPREVIOUS RESPONSE WAS REJECTED. Fix EVERY item below:\n- ${violations.join('\n- ')}`
+      : '';
+    return await callAI(userPrompt + violationBlock, systemPrompt, model);
+  }, { schema, label, primaryAttempts: 2, fallbackModel: 'google/gemini-2.5-pro' });
+  if (!result.ok) {
+    throw new Error(`model_json_gate_failed${label ? `:${label}` : ''}: ${result.diagnostics.errors.slice(-1)[0] ?? 'unknown'} — raw excerpt: ${result.diagnostics.raw_excerpt.slice(0, 400)}`);
+  }
+  return result.value;
 }
 
 async function generateIdea(ctx: Ctx): Promise<StepResult> {
@@ -306,12 +329,12 @@ async function generateIdea(ctx: Ctx): Promise<StepResult> {
   const themeStr = (themes ?? []).map(t => t.label_en).join(', ') || 'general';
   const ageStr = age ? `${age.min_age}-${age.max_age} (${age.label_en})` : 'children';
 
-  const text = await callAI(
+  const parsed = await callAiJson<{ title: string; subtitle: string; description: string; main_character: string }>(
     `Give me one original children's book concept for ages ${ageStr}, theme: ${themeStr}. Reply as JSON only: {"title":"","subtitle":"","description":"","main_character":""}. English only.`,
-    'You are a children\'s book concept designer. Reply with JSON only, no markdown fences.'
+    'You are a children\'s book concept designer. Reply with JSON only, no markdown fences.',
+    { requiredKey: 'title', requiredKeys: ['description', 'main_character'] },
+    'generate_idea',
   );
-  const cleaned = text.replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
-  const parsed = JSON.parse(cleaned);
   await ctx.supabase.from('ebooks_kids').update({
     title: parsed.title, subtitle: parsed.subtitle, description: parsed.description,
     storefront_title: parsed.title, storefront_subtitle: parsed.subtitle,
@@ -466,8 +489,7 @@ async function metadataGate(ctx: Ctx): Promise<StepResult> {
   try {
     const sysMsg = "You are a picture-book editor. English only. JSON only, no markdown. The hero name MUST appear verbatim in the manuscript.";
     const userMsg = `Read this manuscript and produce aligned commercial metadata.\n\nMANUSCRIPT:\n"""\n${manuscript.slice(0, 4000)}\n"""\n\nReturn JSON exactly: {"title":"","subtitle":"","description":"","hero_name":""}`;
-    const raw = await callAI(userMsg, sysMsg);
-    const meta = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, '').trim()) as Record<string, string>;
+    const meta = await callAiJson<Record<string, string>>(userMsg, sysMsg, { requiredKey: 'hero_name', requiredKeys: ['title', 'description'] }, 'metadata_auto_sync');
     const hero = String(meta.hero_name ?? '').trim();
     if (!hero || !new RegExp(`\\b${hero.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\b`, 'i').test(manuscript)) {
       throw new Error(`${METADATA_STORY_MISMATCH}: auto-sync produced hero "${hero}" not in manuscript`);
@@ -579,7 +601,7 @@ async function generateCover(ctx: Ctx): Promise<StepResult> {
     // may leave stale title/description behind, which previously caused the
     // bible to lock the wrong hero (e.g. "Barnaby Bear" for a Tali story).
     const manuscriptExcerpt = String(ctx.ebook.manuscript_md ?? '').slice(0, 2000);
-    const bibleText = await callAI(
+    const cbJson = await callAiJson<Record<string, unknown>>(
       `Create a character bible JSON for the HERO of the following children's picture book MANUSCRIPT. The hero MUST be the character who is actually named and acts throughout the manuscript text below — do NOT invent a new hero from the title or description. Use the exact hero name that appears in the manuscript.
 
 MANUSCRIPT:
@@ -591,9 +613,10 @@ Title (for context only, may be stale): ${ctx.ebook.title}
 Description (for context only, may be stale): ${ctx.ebook.description}
 
 Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":"","outfit":"","accessory":"","personality":"","forbidden_changes":["never change hair color","never change outfit"]}`,
-      "You are a picture-book art director. English only. JSON only, no markdown. The hero name MUST appear verbatim in the manuscript."
+      "You are a picture-book art director. English only. JSON only, no markdown. The hero name MUST appear verbatim in the manuscript.",
+      { requiredKey: 'name' },
+      'generate_character_bible',
     );
-    const cbJson = JSON.parse(bibleText.replace(/^```(?:json)?\s*|\s*```$/g, '').trim());
     // Post-validate: hero name must appear in manuscript, else abort so the
     // caller can decide (do not spend image cost on a wrong hero).
     const heroName = String(cbJson?.name ?? '').trim();
@@ -809,12 +832,13 @@ async function generateStyleBible(ctx: Ctx): Promise<StepResult> {
   }
 
   const cb = (bible?.character_bible_json ?? {}) as Record<string, string>;
-  const stylePrompt = await callAI(
+  const parsed = await callAiJson<Record<string, unknown>>(
     `Create a locked style bible for "${ctx.ebook.title}". Character: ${JSON.stringify(cb)}. Existing style hint: ${JSON.stringify(existing)}.
 Return JSON only: {"line_quality":"","palette":["#","#","#","#","#"],"lighting":"","medium":"","mood":"","character_proportions":"","forbidden":["no text","no photorealism"]}`,
     "You are a children's picture book art director locking a style bible for consistent interior illustrations.",
+    { requiredKey: 'line_quality', requiredKeys: ['palette', 'lighting', 'medium', 'mood'] },
+    'generate_style_bible',
   );
-  const parsed = JSON.parse(stylePrompt.replace(/^```(?:json)?\s*|\s*```$/g, '').trim());
   const merged = { ...existing, ...parsed, locked_at: new Date().toISOString() };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (db.from('kids_book_bibles') as any).update({ style_bible_json: merged }).eq('ebook_id', ctx.ebookId);

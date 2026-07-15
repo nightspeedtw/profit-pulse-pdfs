@@ -1,6 +1,8 @@
 // AI-critic QC for the photoreal book thumbnail.
 // Uses Gemini 2.5 Pro (vision) via Lovable AI Gateway to score 10 axes.
 
+import { parseModelJson } from "./model-json.ts";
+
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 export interface PhotorealQc {
@@ -83,7 +85,13 @@ Rules:
   const json = await resp.json();
   const raw = json?.choices?.[0]?.message?.content ?? "{}";
   let parsed: any = {};
-  try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { parsed = {}; }
+  if (typeof raw === "string") {
+    const r = parseModelJson<Record<string, unknown>>(raw);
+    parsed = r.ok ? r.value : {};
+  } else {
+    parsed = raw ?? {};
+  }
+
 
   const scores: Record<string, number> = {};
   const reasons: string[] = Array.isArray(parsed.reasons) ? parsed.reasons.slice(0, 10) : [];

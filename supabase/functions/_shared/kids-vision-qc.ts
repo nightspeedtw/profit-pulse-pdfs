@@ -10,6 +10,7 @@
 
 import type { RawFinding } from "./pdf-preflight.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
+import { parseModelJson } from "./model-json.ts";
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 const VISION_MODEL = "google/gemini-2.5-flash-lite";
@@ -80,8 +81,10 @@ async function callVision(
     output_tokens: usage.completion_tokens ?? 0,
     provider: "gateway",
   });
-  const raw = (j.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
-  try { return JSON.parse(raw); } catch { throw new Error(`vision bad JSON: ${raw.slice(0, 200)}`); }
+  const raw = j.choices?.[0]?.message?.content ?? "";
+  const parsed = parseModelJson<Record<string, unknown>>(raw);
+  if (!parsed.ok) throw new Error(`vision bad JSON: ${parsed.diagnostics.errors.slice(-1)[0] ?? "unknown"} — ${parsed.diagnostics.raw_excerpt.slice(0, 200)}`);
+  return parsed.value;
 }
 
 const PAGE_SYSTEM =

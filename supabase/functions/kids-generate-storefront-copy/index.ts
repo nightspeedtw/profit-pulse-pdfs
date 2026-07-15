@@ -13,6 +13,7 @@ import { loadStoryCraftBlock } from '../_shared/story-craft-skill.ts';
 import { hasGeminiDirect, geminiDirectChat } from '../_shared/gemini-direct.ts';
 import { sanitizeSalesCopy, SalesCopyLeakError } from '../_shared/sales-copy-sanitizer.ts';
 import { resolveStageOrThrow, logStageEvidence } from '../_shared/skill-evidence.ts';
+import { parseModelJson } from '../_shared/model-json.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -159,12 +160,9 @@ ${manuscript}
 Return STRICT JSON only.`;
 
     const raw = await callGemini(system, user);
-    let copy: CopyOut;
-    try { copy = JSON.parse(raw) as CopyOut; }
-    catch {
-      const s = raw.indexOf('{'); const t = raw.lastIndexOf('}');
-      copy = JSON.parse(raw.slice(s, t + 1)) as CopyOut;
-    }
+    const parseResult = parseModelJson<CopyOut>(raw, { requiredKey: 'benefit_bullets' });
+    if (!parseResult.ok) throw new Error(`storefront_copy_bad_json: ${parseResult.diagnostics.errors.slice(-1)[0] ?? 'unknown'} — ${parseResult.diagnostics.raw_excerpt.slice(0, 200)}`);
+    const copy: CopyOut = parseResult.value;
 
     const bullets = Array.isArray(copy.benefit_bullets) ? copy.benefit_bullets.slice(0, 4).map(String) : [];
     const vc = copy.value_cards ?? {} as CopyOut['value_cards'];

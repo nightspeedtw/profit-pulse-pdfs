@@ -10,6 +10,7 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { loadStoryCraftBlock, PARENT_HOOK_MENU } from '../_shared/story-craft-skill.ts';
+import { parseModelJson } from '../_shared/model-json.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -180,11 +181,9 @@ async function callGemini(system: string, user: string, model = 'google/gemini-2
 }
 
 function safeJson<T>(raw: string): T {
-  try { return JSON.parse(raw) as T; } catch {
-    const s = raw.indexOf('{'); const e = raw.lastIndexOf('}');
-    if (s >= 0 && e > s) return JSON.parse(raw.slice(s, e + 1)) as T;
-    throw new Error(`bad json: ${raw.slice(0, 200)}`);
-  }
+  const r = parseModelJson<T>(raw);
+  if (r.ok) return r.value;
+  throw new Error(`bad json: ${r.diagnostics.errors.slice(-1)[0] ?? "unknown"} — ${r.diagnostics.raw_excerpt.slice(0, 200)}`);
 }
 
 function detectBannedLaneHits(c: Concept): string[] {

@@ -12,6 +12,8 @@
 // a styled SVG text overlay — we never ship a misspelled cover.
 
 import { verifyTitleFuzzy, TITLE_SIMILARITY_THRESHOLD } from "../covers/title-mastery.ts";
+import { parseModelJson } from "../model-json.ts";
+
 
 export interface CoverLetteringQcResult {
   passed: boolean;
@@ -105,7 +107,9 @@ Grade the cover image below.`;
     }
     const j = await res.json();
     const text: string = j.choices?.[0]?.message?.content ?? "{}";
-    parsed = JSON.parse(text);
+    const parseResult = parseModelJson<Record<string, unknown>>(text);
+    if (!parseResult.ok) throw new Error(`cover_lettering_vision_bad_json: ${parseResult.diagnostics.errors.slice(-1)[0] ?? "unknown"}`);
+    parsed = parseResult.value;
   } catch (e) {
     return {
       passed: false, score: 0,
