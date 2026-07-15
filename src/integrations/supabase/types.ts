@@ -1935,6 +1935,7 @@ export type Database = {
           qc_rule_version: string | null
           qc_scorecard: Json
           qc_scores: Json | null
+          rehydrated_from: string | null
           sales_copy_sanitized_at: string | null
           sellable: boolean
           status: string
@@ -1983,6 +1984,7 @@ export type Database = {
           qc_rule_version?: string | null
           qc_scorecard?: Json
           qc_scores?: Json | null
+          rehydrated_from?: string | null
           sales_copy_sanitized_at?: string | null
           sellable?: boolean
           status?: string
@@ -2031,6 +2033,7 @@ export type Database = {
           qc_rule_version?: string | null
           qc_scorecard?: Json
           qc_scores?: Json | null
+          rehydrated_from?: string | null
           sales_copy_sanitized_at?: string | null
           sellable?: boolean
           status?: string
@@ -2054,6 +2057,13 @@ export type Database = {
             columns: ["age_group_id"]
             isOneToOne: false
             referencedRelation: "kids_age_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ebooks_kids_rehydrated_from_fkey"
+            columns: ["rehydrated_from"]
+            isOneToOne: false
+            referencedRelation: "ebooks_kids"
             referencedColumns: ["id"]
           },
         ]
