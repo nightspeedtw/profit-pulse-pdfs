@@ -269,15 +269,12 @@ ${SCHEMA_HINT}`;
       output_tokens: usage.completion_tokens ?? 0,
       provider: "gateway",
     });
-    const raw = (j.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
-    try { return JSON.parse(raw) as Record<string, unknown>; }
-    catch (_e) {
-      const s = raw.indexOf("{"); const e = raw.lastIndexOf("}");
-      if (s >= 0 && e > s) {
-        try { return JSON.parse(raw.slice(s, e + 1)) as Record<string, unknown>; } catch { /* fall through */ }
-      }
-      throw new Error(`story_judge_json_parse_failed`);
+    const raw = j.choices?.[0]?.message?.content ?? "";
+    const parseResult = parseModelJson<Record<string, unknown>>(raw);
+    if (!parseResult.ok) {
+      throw new Error(`story_judge_json_parse_failed: ${parseResult.diagnostics.errors.slice(-1)[0] ?? "unknown"}`);
     }
+    return parseResult.value;
   }
   let parsed: Record<string, unknown>;
   try { parsed = await callOnce(); }
