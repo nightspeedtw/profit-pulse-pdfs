@@ -2689,6 +2689,24 @@ export type Database = {
           },
         ]
       }
+      platform_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          value_json: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value_json: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value_json?: Json
+        }
+        Relationships: []
+      }
       product_reviews: {
         Row: {
           comment: string | null
@@ -3001,6 +3019,266 @@ export type Database = {
         }
         Relationships: []
       }
+      rights_holdings: {
+        Row: {
+          avg_cost_per_share: number
+          book_id: string
+          shares: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avg_cost_per_share?: number
+          book_id: string
+          shares?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avg_cost_per_share?: number
+          book_id?: string
+          shares?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rights_holdings_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "rights_offerings"
+            referencedColumns: ["book_id"]
+          },
+        ]
+      }
+      rights_offerings: {
+        Row: {
+          book_id: string
+          book_type: string
+          cover_url: string | null
+          last_trade_at: string | null
+          last_trade_price: number | null
+          listed_at: string
+          ref_price_per_share: number
+          title: string
+          total_shares: number
+          trailing_90d_net_rev: number
+          treasury_shares: number
+          updated_at: string
+          volume_24h_usd: number
+        }
+        Insert: {
+          book_id: string
+          book_type: string
+          cover_url?: string | null
+          last_trade_at?: string | null
+          last_trade_price?: number | null
+          listed_at?: string
+          ref_price_per_share?: number
+          title: string
+          total_shares?: number
+          trailing_90d_net_rev?: number
+          treasury_shares?: number
+          updated_at?: string
+          volume_24h_usd?: number
+        }
+        Update: {
+          book_id?: string
+          book_type?: string
+          cover_url?: string | null
+          last_trade_at?: string | null
+          last_trade_price?: number | null
+          listed_at?: string
+          ref_price_per_share?: number
+          title?: string
+          total_shares?: number
+          trailing_90d_net_rev?: number
+          treasury_shares?: number
+          updated_at?: string
+          volume_24h_usd?: number
+        }
+        Relationships: []
+      }
+      rights_orders: {
+        Row: {
+          book_id: string
+          created_at: string
+          id: string
+          is_treasury: boolean
+          price_per_share: number
+          qty_remaining: number
+          qty_total: number
+          seller_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          id?: string
+          is_treasury?: boolean
+          price_per_share: number
+          qty_remaining: number
+          qty_total: number
+          seller_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          id?: string
+          is_treasury?: boolean
+          price_per_share?: number
+          qty_remaining?: number
+          qty_total?: number
+          seller_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rights_orders_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "rights_offerings"
+            referencedColumns: ["book_id"]
+          },
+        ]
+      }
+      rights_price_history: {
+        Row: {
+          book_id: string
+          id: string
+          last_trade_price: number | null
+          ref_price: number
+          snapshot_at: string
+          source: string
+          volume_usd: number
+        }
+        Insert: {
+          book_id: string
+          id?: string
+          last_trade_price?: number | null
+          ref_price: number
+          snapshot_at?: string
+          source?: string
+          volume_usd?: number
+        }
+        Update: {
+          book_id?: string
+          id?: string
+          last_trade_price?: number | null
+          ref_price?: number
+          snapshot_at?: string
+          source?: string
+          volume_usd?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rights_price_history_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "rights_offerings"
+            referencedColumns: ["book_id"]
+          },
+        ]
+      }
+      rights_trades: {
+        Row: {
+          book_id: string
+          buyer_id: string
+          executed_at: string
+          gross_usd: number
+          id: string
+          order_id: string | null
+          price_per_share: number
+          qty: number
+          seller_id: string | null
+          seller_is_treasury: boolean
+        }
+        Insert: {
+          book_id: string
+          buyer_id: string
+          executed_at?: string
+          gross_usd: number
+          id?: string
+          order_id?: string | null
+          price_per_share: number
+          qty: number
+          seller_id?: string | null
+          seller_is_treasury?: boolean
+        }
+        Update: {
+          book_id?: string
+          buyer_id?: string
+          executed_at?: string
+          gross_usd?: number
+          id?: string
+          order_id?: string | null
+          price_per_share?: number
+          qty?: number
+          seller_id?: string | null
+          seller_is_treasury?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rights_trades_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "rights_offerings"
+            referencedColumns: ["book_id"]
+          },
+          {
+            foreignKeyName: "rights_trades_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "rights_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      royalty_distributions: {
+        Row: {
+          amount_usd: number
+          book_id: string
+          created_at: string
+          holder_id: string | null
+          holder_is_treasury: boolean
+          id: string
+          sale_ref: string
+          shares_at_snapshot: number
+        }
+        Insert: {
+          amount_usd: number
+          book_id: string
+          created_at?: string
+          holder_id?: string | null
+          holder_is_treasury?: boolean
+          id?: string
+          sale_ref: string
+          shares_at_snapshot: number
+        }
+        Update: {
+          amount_usd?: number
+          book_id?: string
+          created_at?: string
+          holder_id?: string | null
+          holder_is_treasury?: boolean
+          id?: string
+          sale_ref?: string
+          shares_at_snapshot?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "royalty_distributions_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "rights_offerings"
+            referencedColumns: ["book_id"]
+          },
+        ]
+      }
       system_fix_instructions: {
         Row: {
           acceptance_test: string | null
@@ -3091,6 +3369,63 @@ export type Database = {
         }
         Relationships: []
       }
+      wallet_transactions: {
+        Row: {
+          amount_usd: number
+          balance_after: number | null
+          created_at: string
+          id: string
+          meta: Json
+          ref_id: string | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          amount_usd: number
+          balance_after?: number | null
+          created_at?: string
+          id?: string
+          meta?: Json
+          ref_id?: string | null
+          type: string
+          user_id: string
+        }
+        Update: {
+          amount_usd?: number
+          balance_after?: number | null
+          created_at?: string
+          id?: string
+          meta?: Json
+          ref_id?: string | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      wallets: {
+        Row: {
+          created_at: string
+          is_demo: boolean
+          updated_at: string
+          usd_balance: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          is_demo?: boolean
+          updated_at?: string
+          usd_balance?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          is_demo?: boolean
+          updated_at?: string
+          usd_balance?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       ebook_costs: {
@@ -3123,6 +3458,15 @@ export type Database = {
       }
     }
     Functions: {
+      exchange_execute_buy: {
+        Args: {
+          p_book: string
+          p_buyer: string
+          p_max_cost: number
+          p_qty: number
+        }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
