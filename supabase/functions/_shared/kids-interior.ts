@@ -18,6 +18,7 @@ import { uploadAndSignImage, versionedKidsInteriorPath } from './versioned-asset
 import { falFluxSchnell } from "./fal.ts";
 import { generateWithReference } from "./kids-image-gen.ts";
 import { generateLiveImage } from "./image-luminance.ts";
+import { TEXTLESS_DIRECTIVE } from "./textless-illustration-policy.ts";
 
 export interface SceneRecord {
   index: number;
@@ -162,7 +163,7 @@ function buildScenePrompt(
     `Composition: character clearly visible in the upper 2/3 of the square; keep the lower 1/3 visually calmer (soft background, ground, sky, or negative-value area) so a caption panel can rest there without fighting the art.`,
     `Warm painterly lighting, cozy storybook mood.`,
     `Style lock (do not deviate): ${styleSuffix}.`,
-    `ABSOLUTELY NO TEXT of any kind — no letters, no words, no captions, no speech bubbles.`,
+    TEXTLESS_DIRECTIVE,
     `Avoid AI clichés: no six-finger hands, no melted faces, no glossy 3d blobs, no stock photography look.`,
     extraNudge,
   ].filter(Boolean).join(" ").slice(0, 1900);

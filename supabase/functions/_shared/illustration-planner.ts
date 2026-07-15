@@ -1,9 +1,12 @@
 // Inside-illustration planner. Decides — for each chapter — whether a smart
 // visual should be added, what kind, and what caption/prompt to use. Illustrations
-// are AI-generated with "no text" prompts so PDF labels are HTML/SVG overlays only.
+// are AI-generated with the canonical textless directive so PDF labels are
+// HTML/SVG overlays only.
 //
 // Deterministic first pass (heuristics) so it never blocks the pipeline. An
 // optional LLM refinement can be added later without changing the shape.
+
+import { withTextlessDirective } from "./textless-illustration-policy.ts";
 
 export type IllustrationKind =
   | "none"
@@ -122,7 +125,7 @@ function buildPrompt(
     }[kind];
   }
   const scene = chapterTitle.toLowerCase().replace(/[^a-z0-9 ]/g, "").slice(0, 80);
-  return `${base}. Scene concept: ${scene}. Absolutely no text, no words, no letters, no numbers, no typography of any kind in the image. No book mockup, no UI, no logo, no watermark.`;
+  return withTextlessDirective(`${base}. Scene concept: ${scene}. No book mockup, no UI.`);
 }
 
 export function planIllustrations(
