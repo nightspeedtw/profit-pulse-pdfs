@@ -214,7 +214,12 @@ gentle rhythm, satisfying resolution, implicit moral (never a lecture). English 
 
 You MUST return valid JSON only — no markdown, no prose framing, no code fences.`;
 
-function buildWriterUser(opts: WriteSegmentsOpts, extraViolations?: string[], lockedPages?: KidsSegment[]): string {
+function buildWriterUser(
+  opts: WriteSegmentsOpts,
+  extraViolations?: string[],
+  lockedPages?: KidsSegment[],
+  priorRefrain?: string,
+): string {
   const violationsBlock = extraViolations?.length
     ? `\n\nPREVIOUS ATTEMPT FAILED THE DETERMINISTIC GATE. Fix EVERY violation below on this rewrite:\n- ${extraViolations.join("\n- ")}\n`
     : "";
@@ -224,6 +229,11 @@ function buildWriterUser(opts: WriteSegmentsOpts, extraViolations?: string[], lo
   const partialRecoveryBlock = locked.length > 0
     ? `\n\nPARTIAL JSON RECOVERY MODE:\nThe parser recovered complete page objects for pages ${locked.map((p) => p.page).join(", ")}. Those pages are LOCKED and must not be rewritten.\nReturn JSON with the same title/refrain shape, but the pages array must contain ONLY the missing/broken page numbers: ${missingNumbers.join(", ")}.\nRecovered pages for context:\n${JSON.stringify(locked)}\n`
     : "";
+  const required = refrainPagesFor(opts.target);
+  const priorRefrainBlock = priorRefrain
+    ? `\n\nREFRAIN LOCK (do NOT invent a new refrain on this retry):\nThe refrain from the previous attempt is:\n>>> ${priorRefrain} <<<\nKeep this EXACT string as the "refrain" field AND paste it VERBATIM into the "text" of pages ${required.join(", ")}. Do not translate, paraphrase, shorten, restyle punctuation, or change capitalisation.\n`
+    : "";
+  const knownFailuresBlock = `\n\nKNOWN PAST FAILURES OF THIS GATE (do not repeat):\n- ${KNOWN_REFRAIN_FAILURES.join("\n- ")}\n`;
   return `Book title: "${opts.title}"
 Subtitle: "${opts.subtitle ?? ""}"
 Story promise / description: ${opts.description ?? ""}
@@ -237,25 +247,32 @@ TASK: write a SQUARE 8.5x8.5 in picture-book manuscript as STRUCTURED JSON.
 STRICT SHAPE — return exactly:
 {
   "title": "the book title",
-  "refrain": "one short chantable line that will appear verbatim on ≥3 pages",
+  "refrain": "one short chantable line — this EXACT string must be pasted verbatim into the text of the refrain pages below",
   "pages": [
-    { "page": 1, "text": "15-30 words of read-aloud text for page 1" },
-    { "page": 2, "text": "..." },
+    { "page": 1, "text": "15-30 words of read-aloud text for page 1", "contains_refrain": false },
+    { "page": 2, "text": "... — this page is a refrain page, MUST include the refrain verbatim", "contains_refrain": true },
     ...
-    { "page": ${opts.target}, "text": "..." }
+    { "page": ${opts.target}, "text": "... — final refrain payoff, MUST include the refrain verbatim", "contains_refrain": true }
   ]
 }
+
+REFRAIN PLACEMENT (structural — enforced by the gate BY CONSTRUCTION):
+- Pages ${required.join(", ")} are the refrain pages.
+- On EACH of those pages you MUST:
+    1. Set "contains_refrain": true
+    2. Paste the refrain STRING verbatim (identical wording, punctuation, capitalisation) inside "text".
+- All other pages: set "contains_refrain": false and do not include the refrain string.
 
 HARD RULES (a deterministic gate checks these — failing any wastes the call):
 1. pages array MUST have EXACTLY ${opts.target} items, numbered 1..${opts.target}.
 2. Each page.text MUST be 15-30 words. Not 14, not 31. Count them.
-3. The refrain string MUST appear verbatim (case/punctuation-insensitive) on AT LEAST 3 pages.
+3. The refrain STRING must appear verbatim (case/punctuation-insensitive) inside pages ${required.join(", ")}.
 4. No empty pages, no "Page N" placeholders, no TBD/TODO/lorem.
 5. Clear 4-act arc across ${opts.target} beats: setup (1-4), rising problem (5-14),
    climax/turning point (15-22), warm resolution (23-${opts.target}).
 6. Hero solves the problem themselves — no adult swoops in.
 7. Grade 1-2 vocabulary. Never mention brands, tech, violence, or scary imagery.
-${violationsBlock}${partialRecoveryBlock}`;
+${priorRefrainBlock}${knownFailuresBlock}${violationsBlock}${partialRecoveryBlock}`;
 }
 
 export interface WriterParseDiagnostics {
