@@ -131,7 +131,7 @@ async function chainQcAndPublish(ebook_id: string, publish: boolean) {
 }
 
 function isDeterministicGateFailure(msg: string): boolean {
-  return /cover_dead_image_gate|dead_page_gate|text_mapping_gate|PDF_WRONG_TRIM|PDF_PAGE_COUNT_OUT_OF_RANGE|FAKE_PDF_MIME_TYPE|INVALID_PDF|MISSING_PAGE/i.test(msg);
+  return /cover_dead_image_gate|dead_page_gate|text_mapping_gate|text_safe_frame_gate|PDF_WRONG_TRIM|PDF_PAGE_COUNT_OUT_OF_RANGE|FAKE_PDF_MIME_TYPE|INVALID_PDF|MISSING_PAGE/i.test(msg);
 }
 
 function dispatchSupervisorForGate(ebook_id: string, error: string) {
