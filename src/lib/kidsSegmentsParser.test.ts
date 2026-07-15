@@ -90,7 +90,12 @@ describe("page_text_completeness_gate — terminal punctuation with closing wrap
   });
 
   it("still rejects genuinely truncated text ending with a comma or no terminal punct", () => {
-    const bad = build([`and then Pip made a big,`]);
+    const bad: SegmentedManuscript = {
+      title: "Chef Pip",
+      refrain: REFRAIN,
+      target: 1,
+      pages: [{ page: 1, text: `Chef Pip stirred bright berry jam and then Pip made a big,` }],
+    };
     const v = validateSegments(bad, { target: 1, minRefrainOccurrences: 0 });
     expect(v.violations.some((s) => s.includes("page_text_completeness_gate") && s.includes("no terminal punctuation"))).toBe(true);
   });
