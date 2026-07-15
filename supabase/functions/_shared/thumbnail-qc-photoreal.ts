@@ -85,7 +85,13 @@ Rules:
   const json = await resp.json();
   const raw = json?.choices?.[0]?.message?.content ?? "{}";
   let parsed: any = {};
-  try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { parsed = {}; }
+  if (typeof raw === "string") {
+    const r = parseModelJson<Record<string, unknown>>(raw);
+    parsed = r.ok ? r.value : {};
+  } else {
+    parsed = raw ?? {};
+  }
+
 
   const scores: Record<string, number> = {};
   const reasons: string[] = Array.isArray(parsed.reasons) ? parsed.reasons.slice(0, 10) : [];
