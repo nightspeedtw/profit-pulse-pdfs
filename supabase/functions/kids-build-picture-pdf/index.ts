@@ -27,6 +27,7 @@ import { KIDS_BOOK_FORMAT } from '../_shared/kids-book-format.ts';
 import { computeLuminance } from '../_shared/image-luminance.ts';
 import { loadSegments, segmentsToPageTexts } from '../_shared/kids-segments.ts';
 import { buildBonusContent } from '../_shared/bonus-pages.ts';
+import { deriveFinalPdfMetadata, assertDerivedMatchesPlan, PdfMetadataError } from '../_shared/pdf-metadata.ts';
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', bytes);
@@ -370,19 +371,50 @@ Deno.serve(async (req) => {
       if (!(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
         throw new Error('PDF byte validation failed (%PDF- missing)');
       }
+      // Phase 7 — derive canonical metadata from the ACTUAL final bytes and
+      // assert it matches the plan. Any drift is a hard finalize failure:
+      // we do NOT upload, do NOT persist, do NOT mark final_pdf_ready.
+      const bonusPageCount = (bonus?.clues?.length ? 1 : 0) + (bonus?.discussion_questions?.length ? 1 : 0);
+      const plannedPageCount = 3 + numStoryPages + bonusPageCount + 1;
+      const derived = await deriveFinalPdfMetadata(bytes);
+      try {
+        assertDerivedMatchesPlan(derived, { expected_page_count: plannedPageCount });
+      } catch (e) {
+        if (e instanceof PdfMetadataError) {
+          console.error('[build-picture-pdf] pdf_metadata_drift:', e.message, e.details);
+          await persistJob(db, ebook_id, scorecard, {
+            error: e.message, error_code: e.code, error_details: e.details,
+            failed_at: new Date().toISOString(), prepared: false, pages_done: 0, page_ledger: [],
+          });
+          try { await db.storage.from('ebook-pdfs').remove([INPROGRESS_PATH(ebook_id)]); } catch { /* ignore */ }
+          return json({ ok: false, error: e.message, code: e.code, details: e.details, restart: 'prepare' }, 409);
+        }
+        throw e;
+      }
       const up = await db.storage.from('ebook-pdfs').upload(FINAL_PATH(ebook_id), bytes, {
         contentType: 'application/pdf', upsert: true,
       });
       if (up.error) throw up.error;
       const { data: signed } = await db.storage.from('ebook-pdfs').createSignedUrl(FINAL_PATH(ebook_id), 60 * 60 * 24 * 365);
-      // SKILL F: +2 bonus pages when present.
-      const bonusPageCount = (bonus?.clues?.length ? 1 : 0) + (bonus?.discussion_questions?.length ? 1 : 0);
-      const pageCount = 3 + numStoryPages + bonusPageCount + 1;
       await db.from('ebooks_kids').update({
-        pdf_url: signed?.signedUrl ?? null, page_count: pageCount,
+        pdf_url: signed?.signedUrl ?? null,
+        page_count: derived.page_count,
+        pdf_byte_size: derived.pdf_byte_size,
+        pdf_sha256: derived.pdf_sha256,
+        pdf_metadata_derived_at: derived.derived_at,
       }).eq('id', ebook_id);
       try { await db.storage.from('ebook-pdfs').remove([INPROGRESS_PATH(ebook_id)]); } catch { /* ignore */ }
-      stageResult = { pdf_size: bytes.length, page_count: pageCount, pdf_url: signed?.signedUrl ?? null, format: 'square_612', cover_bytes_hash: currentCoverHash, bonus_pages: bonusPageCount };
+      stageResult = {
+        pdf_size: derived.pdf_byte_size,
+        page_count: derived.page_count,
+        pdf_url: signed?.signedUrl ?? null,
+        format: 'square_612',
+        cover_bytes_hash: currentCoverHash,
+        bonus_pages: bonusPageCount,
+        pdf_sha256: derived.pdf_sha256,
+        pdf_version: derived.pdf_version,
+        planned_page_count: plannedPageCount,
+      };
       finalized = true;
     } else {
       // Interior batch — fetch, downscale to JPEG, embed, save.
