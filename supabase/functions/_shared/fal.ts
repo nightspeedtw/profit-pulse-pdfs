@@ -78,3 +78,35 @@ export async function falRecraftV3(opts: FalImageOpts & { style?: string }): Pro
   if (opts.negative_prompt) body.negative_prompt = opts.negative_prompt;
   return callFal("fal-ai/recraft-v3", body, { ebook_id: opts.ebook_id, step: opts.step, model: "fal-ai/recraft-v3" });
 }
+
+/**
+ * Ideogram v3 via Fal — industry-best model for text-in-image (~90% accuracy).
+ * Used as the primary rung of the cover-title ladder.
+ * Endpoint: fal-ai/ideogram/v3
+ */
+export async function falIdeogramV3(opts: {
+  prompt: string;
+  image_size?: "square_hd" | "portrait_4_3" | "portrait_16_9" | "landscape_4_3" | "landscape_16_9";
+  style?: "AUTO" | "GENERAL" | "REALISTIC" | "DESIGN";
+  negative_prompt?: string;
+  seed?: number;
+  rendering_speed?: "TURBO" | "BALANCED" | "QUALITY";
+  ebook_id?: string;
+  step?: string;
+}): Promise<Uint8Array> {
+  const body: Record<string, unknown> = {
+    prompt: opts.prompt,
+    image_size: opts.image_size ?? "square_hd",
+    style: opts.style ?? "DESIGN",
+    rendering_speed: opts.rendering_speed ?? "QUALITY",
+    num_images: 1,
+    expand_prompt: false,
+  };
+  if (opts.negative_prompt) body.negative_prompt = opts.negative_prompt;
+  if (typeof opts.seed === "number") body.seed = opts.seed;
+  return callFal("fal-ai/ideogram/v3", body, {
+    ebook_id: opts.ebook_id,
+    step: opts.step ?? "kids_cover_ideogram_v3",
+    model: "fal-ai/ideogram/v3",
+  });
+}
