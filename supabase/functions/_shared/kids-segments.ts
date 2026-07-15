@@ -100,15 +100,42 @@ export function validateSegments(
 
   const refrain = String(m?.refrain ?? "").trim();
   if (!refrain) {
-    v.push(`refrain: missing — writer must define one short chantable line`);
+    v.push(`refrain: missing — writer must define one short chantable line and repeat it verbatim on the marked refrain pages`);
   } else {
+    const required = refrainPagesFor(target);
+    const nRefrain = normalizeForRefrainMatch(refrain);
+    // Structural check — pages MARKED contains_refrain: true MUST contain the refrain verbatim.
+    for (const pn of required) {
+      const p = pages.find((x) => Number(x?.page) === pn);
+      const text = String(p?.text ?? "");
+      const marked = Boolean(p?.contains_refrain);
+      const hasVerbatim = nRefrain.length >= 3 && normalizeForRefrainMatch(text).includes(nRefrain);
+      if (!marked) {
+        v.push(`page ${pn}: contains_refrain must be true — this is a designated refrain page (setup/mid/final). Set "contains_refrain": true AND include the refrain verbatim: "${refrain}".`);
+      }
+      if (!hasVerbatim) {
+        v.push(`page ${pn}: refrain missing from text — the refrain "${refrain}" MUST appear VERBATIM (identical wording and punctuation) inside page ${pn}.text. Copy the exact string. Do not paraphrase, translate, or shorten.`);
+      }
+    }
     const count = countRefrainOccurrences(pages, refrain);
     if (count < minRefrain) {
-      v.push(`refrain "${refrain}" appears in ${count} pages, need ≥${minRefrain} — add it VERBATIM (identical wording and punctuation) to at least ${minRefrain - count} more page(s). Recommended placement: page 1 (setup), a mid page (~14), and the final page (${m?.target ?? 28}). Do not paraphrase, do not translate, do not shorten — copy the exact string "${refrain}" into the additional page(s).`);
+      v.push(`refrain "${refrain}" appears in ${count} pages, need ≥${minRefrain} — refrain pages are ${required.join(", ")}; put the refrain verbatim on ALL of them.`);
     }
   }
 
   return { ok: v.length === 0, violations: v };
+}
+
+function normalizeForRefrainMatch(s: string): string {
+  return s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+}
+
+function countRefrainOccurrences(pages: KidsSegment[], refrain: string): number {
+  const n = normalizeForRefrainMatch(refrain);
+  if (n.length < 3) return 0;
+  let c = 0;
+  for (const p of pages) if (normalizeForRefrainMatch(String(p.text ?? "")).includes(n)) c++;
+  return c;
 }
 
 function countRefrainOccurrences(pages: KidsSegment[], refrain: string): number {
