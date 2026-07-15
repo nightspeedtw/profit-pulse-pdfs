@@ -58,10 +58,13 @@ const App = () => (
             <Route path="/category/:slug" element={<Category />} />
             <Route path="/product/:handle" element={<Product />} />
             <Route path="/kids" element={<Kids />} />
-            <Route path="/exchange" element={<Exchange />} />
-            <Route path="/exchange/book/:bookId" element={<ExchangeBook />} />
-            <Route path="/exchange/portfolio" element={<ExchangePortfolio />} />
-            <Route path="/exchange/wallet" element={<ExchangeWallet />} />
+            <Route path="/royalty" element={<Royalty />} />
+            <Route path="/royalty/book/:bookId" element={<RoyaltyBook />} />
+            <Route path="/my-royalties" element={<MyRoyalties />} />
+            <Route path="/exchange" element={<Navigate to="/royalty" replace />} />
+            <Route path="/exchange/book/:bookId" element={<Navigate to="/royalty" replace />} />
+            <Route path="/exchange/portfolio" element={<Navigate to="/my-royalties" replace />} />
+            <Route path="/exchange/wallet" element={<Navigate to="/my-royalties" replace />} />
             <Route path="/kids/checkout/:id" element={<KidsCheckout />} />
             <Route path="/create" element={<Create />} />
             <Route path="/bundles" element={<Bundles />} />
