@@ -266,22 +266,29 @@ export interface WriteSegmentsResult {
 }
 
 export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise<WriteSegmentsResult> {
-  const model = opts.model ?? DEFAULT_MODEL;
+  const primary = opts.model ?? DEFAULT_MODEL;
+  const fallback = "google/gemini-2.5-pro";  // stronger model for the last-chance rewrite
   const timeoutMs = opts.timeoutMs ?? 180_000;
 
-  // Attempt 1
-  const raw1 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts), model, timeoutMs);
+  // Attempt 1 — primary model, fresh prompt.
+  const raw1 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts), primary, timeoutMs);
   let manuscript = coerceSegmented(raw1, opts);
   let validation = validateSegments(manuscript, { target: opts.target });
-  if (validation.ok) {
-    return { ok: true, manuscript, validation, attempts: 1, model };
-  }
+  if (validation.ok) return { ok: true, manuscript, validation, attempts: 1, model: primary };
+  console.warn(`[kids-segments] attempt 1 (${primary}) failed gate:\n- ${validation.violations.join("\n- ")}`);
 
-  console.warn(`[kids-segments] attempt 1 failed gate:\n- ${validation.violations.join("\n- ")}`);
-
-  // Attempt 2 — quote the violations back and demand fixes.
-  const raw2 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, validation.violations), model, timeoutMs);
+  // Attempt 2 — same model, violations quoted back with fix demand.
+  const raw2 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, validation.violations), primary, timeoutMs);
   manuscript = coerceSegmented(raw2, opts);
   validation = validateSegments(manuscript, { target: opts.target });
-  return { ok: validation.ok, manuscript, validation, attempts: 2, model };
+  if (validation.ok) return { ok: true, manuscript, validation, attempts: 2, model: primary };
+  console.warn(`[kids-segments] attempt 2 (${primary}) failed gate:\n- ${validation.violations.join("\n- ")}`);
+
+  // Attempt 3 — stronger model with all accumulated violations. Last chance
+  // before the pipeline retires the concept and rotates.
+  const raw3 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, validation.violations), fallback, timeoutMs);
+  manuscript = coerceSegmented(raw3, opts);
+  validation = validateSegments(manuscript, { target: opts.target });
+  return { ok: validation.ok, manuscript, validation, attempts: 3, model: fallback };
 }
+
