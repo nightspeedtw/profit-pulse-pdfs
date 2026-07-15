@@ -814,6 +814,10 @@ Return JSON only: {"line_quality":"","palette":["#","#","#","#","#"],"lighting":
 // force_finish so thumbnail/previews/PDF steps continue automatically.
 async function generateInterior(ctx: Ctx): Promise<StepResult> {
   const db = ctx.supabase;
+  // Character-lock guard: interior cannot dispatch without the four canonical
+  // reference fields (story_bible_id, character_bible_id,
+  // character_reference_id, style_version) being persisted by generate_cover.
+  await assertCoverOrInteriorReady(ctx.ebookId, 'generate_interior', db);
   const existing = Array.isArray(ctx.ebook.interior_illustrations) ? ctx.ebook.interior_illustrations : [];
   const qc = (ctx.ebook.qc_scorecard ?? {}) as Record<string, unknown>;
   const persistedPlan = qc.scene_plan as { scenes?: unknown[] } | undefined;
