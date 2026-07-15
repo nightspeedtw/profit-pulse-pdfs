@@ -160,12 +160,9 @@ ${manuscript}
 Return STRICT JSON only.`;
 
     const raw = await callGemini(system, user);
-    let copy: CopyOut;
-    try { copy = JSON.parse(raw) as CopyOut; }
-    catch {
-      const s = raw.indexOf('{'); const t = raw.lastIndexOf('}');
-      copy = JSON.parse(raw.slice(s, t + 1)) as CopyOut;
-    }
+    const parseResult = parseModelJson<CopyOut>(raw, { requiredKey: 'benefit_bullets' });
+    if (!parseResult.ok) throw new Error(`storefront_copy_bad_json: ${parseResult.diagnostics.errors.slice(-1)[0] ?? 'unknown'} — ${parseResult.diagnostics.raw_excerpt.slice(0, 200)}`);
+    const copy: CopyOut = parseResult.value;
 
     const bullets = Array.isArray(copy.benefit_bullets) ? copy.benefit_bullets.slice(0, 4).map(String) : [];
     const vc = copy.value_cards ?? {} as CopyOut['value_cards'];
