@@ -566,7 +566,7 @@ Deno.serve(async (req) => {
         book_id: ebookId,
         input_reference_ids: [lock.story_bible_id, lock.character_bible_id,
           lock.character_reference_id, lock.style_version].filter(Boolean) as string[],
-        output_asset_ids: records.map((r) => r.path ?? r.url ?? "").filter(Boolean).slice(0, 40),
+        output_asset_ids: records.map((r) => (r?.path ?? r?.url ?? "") as string).filter((s) => !!s).slice(0, 40),
         pass_fail_result: "pass",
       });
     } catch (e) {
