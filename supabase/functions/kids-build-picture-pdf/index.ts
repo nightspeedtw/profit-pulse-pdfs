@@ -18,8 +18,11 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Image } from 'https://deno.land/x/imagescript@1.2.17/mod.ts';
 import {
-  startPicturePdf, appendSpreadsToPdf, finalizePicturePdf, splitManuscriptForSpreads,
+  startPicturePdf, appendSpreadsToPdf, appendUniqueSpreads, finalizePicturePdf,
+  splitManuscriptForSpreads, assertLedgerContiguous,
+  type PageLedger,
 } from '../_shared/kids-picture-pdf.ts';
+import { PdfAssemblyMismatchError } from '../_shared/page-ledger.ts';
 import { KIDS_BOOK_FORMAT } from '../_shared/kids-book-format.ts';
 import { computeLuminance } from '../_shared/image-luminance.ts';
 import { loadSegments, segmentsToPageTexts } from '../_shared/kids-segments.ts';
