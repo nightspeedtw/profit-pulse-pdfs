@@ -281,18 +281,40 @@ async function withRetry<T>(fn: () => Promise<T>, attempts: number): Promise<T> 
   throw lastErr;
 }
 
-async function callAI(prompt: string, system: string): Promise<string> {
+async function callAI(prompt: string, system: string, model = 'google/gemini-2.5-flash'): Promise<string> {
   const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
     body: JSON.stringify({
-      model: 'google/gemini-2.5-flash',
+      model,
       messages: [{ role: 'system', content: `${system}\n\nCRITICAL: Respond in English only. Never use Thai or any other language.` }, { role: 'user', content: prompt }],
     }),
   });
   if (!res.ok) throw new Error(`AI ${res.status}: ${await res.text()}`);
   const j = await res.json();
   return j.choices?.[0]?.message?.content ?? '';
+}
+
+// Tolerant JSON producer: routes every model call through the shared
+// parseModelJson + retry-ladder (2 primary attempts on flash + 1 fallback on
+// pro), feeding violations back to the model between attempts. Every naive
+// `JSON.parse(await callAI(...))` in this file MUST use this helper.
+async function callAiJson<T = Record<string, unknown>>(
+  userPrompt: string,
+  systemPrompt: string,
+  schema?: ModelJsonSchema,
+  label?: string,
+): Promise<T> {
+  const result = await callAndParseModelJson<T>(async (violations, model) => {
+    const violationBlock = violations.length
+      ? `\n\nPREVIOUS RESPONSE WAS REJECTED. Fix EVERY item below:\n- ${violations.join('\n- ')}`
+      : '';
+    return await callAI(userPrompt + violationBlock, systemPrompt, model);
+  }, { schema, label, primaryAttempts: 2, fallbackModel: 'google/gemini-2.5-pro' });
+  if (!result.ok) {
+    throw new Error(`model_json_gate_failed${label ? `:${label}` : ''}: ${result.diagnostics.errors.slice(-1)[0] ?? 'unknown'} — raw excerpt: ${result.diagnostics.raw_excerpt.slice(0, 400)}`);
+  }
+  return result.value;
 }
 
 async function generateIdea(ctx: Ctx): Promise<StepResult> {
