@@ -79,6 +79,34 @@ async function tick() {
   if (error) throw error;
   if (!order) return { skipped: 'no_active_order' };
 
+  // --- P0 REGRESSION GUARD (one_shot_fix_never_repeat, rule 3) ---
+  // If the same blocker_reason class hits 2 distinct books in the last 24h,
+  // pause new launches. In-flight runs continue.
+  const { data: recentFails } = await db.from('autopilot_kids_runs')
+    .select('ebook_kids_id, blocker_reason')
+    .eq('status', 'failed')
+    .not('blocker_reason', 'is', null)
+    .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+    .limit(200);
+  const classCounts = new Map<string, Set<string>>();
+  for (const r of (recentFails ?? []) as Array<{ ebook_kids_id: string | null; blocker_reason: string }>) {
+    if (!r.ebook_kids_id) continue;
+    const cls = (r.blocker_reason.split(':')[0] || 'unknown').trim().slice(0, 80);
+    const set = classCounts.get(cls) ?? new Set<string>();
+    set.add(r.ebook_kids_id);
+    classCounts.set(cls, set);
+  }
+  const regression = [...classCounts.entries()].find(([, s]) => s.size >= 2);
+  if (regression) {
+    const [cls, books] = regression;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (db.from('kids_batch_orders') as any)
+      .update({ status: 'paused', notes: `P0 regression pause: blocker class "${cls}" hit ${books.size} books in 24h. Fix regression before resume.` })
+      .eq('id', (order as { id: string }).id);
+    console.warn('[batch-producer] P0 REGRESSION PAUSE', cls, [...books]);
+    return { paused: true, reason: 'p0_regression', blocker_class: cls, affected_books: [...books] };
+  }
+
   const rec = await reconcile(db, order as {
     id: string; created_at: string; counted_ebook_ids: string[]; target_live_books: number;
   });
@@ -93,6 +121,7 @@ async function tick() {
   if ((active?.length ?? 0) > 0) {
     return { skipped: 'parent_run_active', active_id: active![0].id };
   }
+
 
   const themeId = await pickTheme(db, (order as { last_used_theme_id: string | null }).last_used_theme_id);
   const lane = pickLane((order as { last_used_lane: string | null }).last_used_lane);
