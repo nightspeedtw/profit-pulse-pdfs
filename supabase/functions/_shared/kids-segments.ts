@@ -86,7 +86,7 @@ export function validateSegments(
   } else {
     const count = countRefrainOccurrences(pages, refrain);
     if (count < minRefrain) {
-      v.push(`refrain "${refrain}" appears in ${count} pages (need ≥${minRefrain} verbatim)`);
+      v.push(`refrain "${refrain}" appears in ${count} pages, need ≥${minRefrain} — add it VERBATIM (identical wording and punctuation) to at least ${minRefrain - count} more page(s). Recommended placement: page 1 (setup), a mid page (~14), and the final page (${m?.target ?? 28}). Do not paraphrase, do not translate, do not shorten — copy the exact string "${refrain}" into the additional page(s).`);
     }
   }
 
