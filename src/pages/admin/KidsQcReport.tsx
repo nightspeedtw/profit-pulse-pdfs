@@ -171,6 +171,7 @@ export default function KidsQcReport() {
           </div>
         )}
       </Card>
+      <SkillsUsedPanel bookId={book.id} />
     </div>
   );
 }
