@@ -16,6 +16,7 @@ import { verifyTitleSpelling, type TitleTreatmentMetadata } from "../_shared/cov
 import { computeLuminanceFromUrl } from "../_shared/image-luminance.ts";
 import { splitManuscriptForSpreads } from "../_shared/kids-picture-pdf.ts";
 import { loadSegments, segmentsToPageTexts } from "../_shared/kids-segments.ts";
+import { resolveStageOrThrow, logStageEvidence } from "../_shared/skill-evidence.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
