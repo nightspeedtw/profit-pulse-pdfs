@@ -11,6 +11,7 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { loadStoryCraftBlock } from '../_shared/story-craft-skill.ts';
 import { hasGeminiDirect, geminiDirectChat } from '../_shared/gemini-direct.ts';
+import { sanitizeSalesCopy, SalesCopyLeakError } from '../_shared/sales-copy-sanitizer.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -194,9 +195,39 @@ Return STRICT JSON only.`;
       },
     };
 
+    // Phase 8 — split internal vs customer copy.
+    // internal_story_brief_json = raw craft/brief (private; NEVER rendered).
+    // customer_product_description_html = sanitized HTML (public storefront).
+    const internal_story_brief_json = {
+      concept_brief: concept ?? null,
+      raw_llm_copy: copy,
+      manuscript_excerpt: manuscript.slice(0, 800),
+      generated_at: new Date().toISOString(),
+    };
+    let customer_product_description_html: string | null = null;
+    let sales_copy_sanitized_at: string | null = null;
+    try {
+      const sanitized = sanitizeSalesCopy({
+        hook: (copy.selling_hook ?? '').trim(),
+        child_benefit: (copy.ad_promise?.primary_benefit ?? copy.shopping_card_description ?? '').trim(),
+        what_kids_will_love: (value_cards.why_kids_love_it ?? []).slice(0, 4),
+        parent_reassurance: (copy.preview_blurb ?? '').trim() || undefined,
+        age_band: age_band ?? undefined,
+      });
+      customer_product_description_html = sanitized.html;
+      sales_copy_sanitized_at = sanitized.sanitized_at;
+    } catch (e) {
+      if (e instanceof SalesCopyLeakError) {
+        console.warn('[kids-generate-storefront-copy] sales_copy_leak — leaving customer_product_description_html NULL', e.leaks);
+      } else { throw e; }
+    }
+
     await db.from('ebooks_kids').update({
       description: (copy.product_description ?? '').slice(0, 2000),
       storefront_meta: nextMeta2,
+      internal_story_brief_json,
+      customer_product_description_html,
+      sales_copy_sanitized_at,
     }).eq('id', ebook_id);
 
     return json({ ok: true, ebook_id, copy });
