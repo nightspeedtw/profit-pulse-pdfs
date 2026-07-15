@@ -281,7 +281,7 @@ export default function KidsAutopilot() {
         ) : authState === "signed_out" ? (
           <p className="text-sm text-muted-foreground">
             Sign in as an admin to see recent runs.{" "}
-            <a href="/auth" className="underline">Sign in</a>
+            <a href="/admin/login" className="underline">Sign in</a>
           </p>
         ) : authState === "not_admin" ? (
           <p className="text-sm text-muted-foreground">
