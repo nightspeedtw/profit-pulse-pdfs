@@ -157,32 +157,30 @@ Deno.serve(async (req) => {
     const ageBand: string = body.age_band ?? '4-6';
     const ageGroupId: string = body.age_group_id ?? AGE_4_6;
     const themeIds: string[] = body.theme_ids ?? [THEME_HUMOR];
-    const useEbookId: string | undefined = body.use_ebook_id;
+    // NOTE: `use_ebook_id` is intentionally NOT honored. Book identity is
+    // immutable — a book_id is never reused. Every concept attempt gets a new
+    // ebooks_kids row (enforced additionally by DB trigger
+    // ebooks_kids_identity_guard). See pipeline_skills:book_identity_immutable.
     const lockedConcept: Record<string, unknown> | undefined = body.locked_concept;
     const lockedScores: Record<string, unknown> | undefined = body.locked_scores;
     const skipPreflight: boolean = Boolean(body.skip_preflight);
     const parentRunId: string | undefined = body.parent_run_id;
 
-    let ebookId: string;
-    if (useEbookId) {
-      ebookId = useEbookId;
-    } else {
-      const { data: ebook, error: ebookErr } = await db.from('ebooks_kids').insert({
-        title: 'Fresh kids book (preflight in progress)',
-        subtitle: '',
-        description: '',
-        age_group_id: ageGroupId,
-        theme_ids: themeIds,
-        status: 'concept_preflight',
-        listing_status: 'draft',
-        pipeline_status: 'concept_preflight',
-        sellable: false,
-        locked: false,
-        price_cents: 799,
-      }).select('id').single();
-      if (ebookErr || !ebook) throw new Error(`create ebook failed: ${ebookErr?.message}`);
-      ebookId = ebook.id;
-    }
+    const { data: ebook, error: ebookErr } = await db.from('ebooks_kids').insert({
+      title: 'Fresh kids book (preflight in progress)',
+      subtitle: '',
+      description: '',
+      age_group_id: ageGroupId,
+      theme_ids: themeIds,
+      status: 'concept_preflight',
+      listing_status: 'draft',
+      pipeline_status: 'concept_preflight',
+      sellable: false,
+      locked: false,
+      price_cents: 799,
+    }).select('id').single();
+    if (ebookErr || !ebook) throw new Error(`create ebook failed: ${ebookErr?.message}`);
+    const ebookId: string = ebook.id;
 
     const { data: run, error: runErr } = await db.from('autopilot_kids_runs').insert({
       ebook_kids_id: ebookId,
