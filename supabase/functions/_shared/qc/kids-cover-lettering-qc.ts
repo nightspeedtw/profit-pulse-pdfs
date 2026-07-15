@@ -38,6 +38,7 @@ export async function qcCoverLettering(input: {
       title_present: false, title_spelled_correctly: false,
       lettering_stylized: false, thumbnail_readable: false,
       detected_title_text: "",
+      similarity: 0, threshold: TITLE_SIMILARITY_THRESHOLD,
       reasons: ["missing_lovable_api_key"],
     };
   }
