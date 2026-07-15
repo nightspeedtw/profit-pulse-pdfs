@@ -63,3 +63,35 @@ describe("kids segmented writer parser recovery", () => {
     expect(parsed.diagnostics.errors.some((e) => e.includes("writer_output_missing_pages"))).toBe(true);
   });
 });
+
+describe("page_text_completeness_gate — terminal punctuation with closing wrappers", () => {
+  const REFRAIN = "Stir, Pip, stir!";
+  const filler = (extra: string) => `Chef Pip stirred bright berry jam with a patient little spoon and it went ${extra}`;
+  const build = (endings: string[]): SegmentedManuscript => ({
+    title: "Chef Pip",
+    refrain: REFRAIN,
+    target: endings.length,
+    pages: endings.map((end, i) => ({ page: i + 1, text: i < 3 ? `${filler(end)} ${REFRAIN}` : filler(end) })),
+  });
+
+  it("accepts dialogue-final text ending with terminal punct + closing curly/straight quotes, parens, or ellipsis", () => {
+    const ok = build([
+      `enjoyed every bite and cheered, "Yum!"`,
+      `and everyone shouted PLOOP!”`,
+      `and tumbled right back in!”`,
+      `finally said, "It is done."`,
+      `so they smiled at the mess (again!)`,
+      `then whispered "goodnight…"`,
+      `and drifted off into a warm dream…`,
+    ]);
+    const v = validateSegments(ok, { target: 7, minRefrainOccurrences: 3 });
+    const completeness = v.violations.filter((s) => s.includes("page_text_completeness_gate"));
+    expect(completeness).toEqual([]);
+  });
+
+  it("still rejects genuinely truncated text ending with a comma or no terminal punct", () => {
+    const bad = build([`and then Pip made a big,`]);
+    const v = validateSegments(bad, { target: 1, minRefrainOccurrences: 0 });
+    expect(v.violations.some((s) => s.includes("page_text_completeness_gate") && s.includes("no terminal punctuation"))).toBe(true);
+  });
+});
