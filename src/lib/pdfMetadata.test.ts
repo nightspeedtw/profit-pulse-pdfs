@@ -1,6 +1,8 @@
 // Phase 7 regression tests — pdf-metadata derivation from actual bytes.
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   countPdfPages,
   pdfVersion,
@@ -8,6 +10,7 @@ import {
   assertDerivedMatchesPlan,
   PdfMetadataError,
 } from "../../supabase/functions/_shared/pdf-metadata.ts";
+
 
 // Minimal synthetic PDF-ish buffer containing N `/Type /Page` markers plus a
 // header. The derive functions only inspect the header + these markers, so
