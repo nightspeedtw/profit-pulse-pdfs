@@ -13,6 +13,16 @@
 
 import { PDFDocument, PDFImage, PDFFont, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
 import { KIDS_BOOK_FORMAT } from "./kids-book-format.ts";
+import {
+  assertAppendable,
+  assertLedgerContiguous,
+  mergeLedger,
+  type PageLedger,
+} from "./page-ledger.ts";
+
+// Re-export the finalize-time gate so callers can enforce it before publish.
+export { assertLedgerContiguous } from "./page-ledger.ts";
+export type { PageLedger, PageLedgerEntry } from "./page-ledger.ts";
 
 const PAGE_W = KIDS_BOOK_FORMAT.page_width_pt;   // 612
 const PAGE_H = KIDS_BOOK_FORMAT.page_height_pt;  // 612
