@@ -53,6 +53,37 @@ const STEPS: Step[] = [
   { name: 'dispatch_pdf_qc_publish', label: 'Dispatch multi-stage PDF → QC → publish', critical: true, run: dispatchPdfQcPublish },
 ];
 
+// -----------------------------------------------------------------------------
+// UNIFIED STEP-FAILURE POLICY (one_shot_fix_never_repeat, rule 1e)
+// Every step declares what happens when it fails. Fixes to this table apply to
+// every entry point (one-click, batch producer, watchdog, supervisor, repair
+// functions) because they all converge on this pipeline runner.
+//
+// Policies:
+//   'retire'            — this concept can never recover; retire ebook so the
+//                         parent one-click loop rotates to a fresh concept.
+//   'repair_story_gate' — dispatch kids-repair-story-gate (which itself retires
+//                         after MAX_ATTEMPTS). Skip if the error means the
+//                         manuscript itself is missing.
+//   'soft'              — record and keep going. Downstream may decide.
+// -----------------------------------------------------------------------------
+type StepFailurePolicy = 'retire' | 'repair_story_gate' | 'soft';
+const STEP_FAILURE_POLICY: Record<string, StepFailurePolicy> = {
+  generate_idea: 'retire',
+  generate_manuscript: 'retire',
+  story_gate: 'repair_story_gate',
+  metadata_gate: 'retire',
+  bible_check: 'retire',
+  generate_cover: 'retire',            // dead-image / cover generation failure = unrecoverable concept
+  generate_style_bible: 'retire',
+  generate_interior: 'retire',
+  generate_thumbnail: 'soft',
+  generate_previews: 'soft',
+  dispatch_pdf_qc_publish: 'retire',
+};
+
+
+
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
