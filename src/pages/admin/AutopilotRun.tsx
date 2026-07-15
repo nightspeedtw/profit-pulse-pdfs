@@ -183,6 +183,9 @@ export default function AutopilotRun() {
         </CardContent>
       </Card>
 
+      {/* Runtime skill usage evidence */}
+      <SkillsUsedPanel runId={run.id} bookId={run.ebook_id} />
+
       {/* Pricing engine */}
       {run.ebook_id && (
         <PricingPanel
