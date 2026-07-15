@@ -42,4 +42,24 @@ describe("kids segmented writer parser recovery", () => {
     expect(pagesOf(parsed.value).map((p) => p.page)).toEqual([1, 2]);
     expect(parsed.diagnostics.repairs).toContain("complete_pages_salvaged");
   });
+
+  it("treats an empty JSON object as a parse failure so the retry ladder continues", () => {
+    const parsed = parseSegmentedWriterOutput("{}");
+    expect(parsed.ok).toBe(false);
+    expect(parsed.diagnostics.errors.some((e) => e.includes("writer_output_missing_pages"))).toBe(true);
+    expect(parsed.diagnostics.raw_model_output).toBe("{}");
+  });
+
+  it("treats a JSON object with an empty pages array as a parse failure", () => {
+    const parsed = parseSegmentedWriterOutput(JSON.stringify({ title: "x", refrain: "y", pages: [] }));
+    expect(parsed.ok).toBe(false);
+    expect(parsed.diagnostics.errors.some((e) => e.includes("writer_output_missing_pages"))).toBe(true);
+  });
+
+  it("treats a JSON object with a mis-keyed pages field as a parse failure (no silent success)", () => {
+    // Model returns valid JSON but uses `story` instead of `pages`.
+    const parsed = parseSegmentedWriterOutput(JSON.stringify({ title: "x", refrain: "y", story: [page(1), page(2)] }));
+    expect(parsed.ok).toBe(false);
+    expect(parsed.diagnostics.errors.some((e) => e.includes("writer_output_missing_pages"))).toBe(true);
+  });
 });
