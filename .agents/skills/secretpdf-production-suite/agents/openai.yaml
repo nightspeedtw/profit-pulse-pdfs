@@ -1,0 +1,3 @@
+interface:
+  display_name: "SecretPDF Production Suite"
+  short_description: "Audit, repair, validate, and release SecretPDF books"
