@@ -13,10 +13,11 @@ import Bundles from "./pages/Bundles.tsx";
 import About from "./pages/About.tsx";
 import Download from "./pages/Download.tsx";
 import Kids from "./pages/Kids.tsx";
-import Exchange from "./pages/Exchange.tsx";
-import ExchangeBook from "./pages/ExchangeBook.tsx";
-import ExchangePortfolio from "./pages/ExchangePortfolio.tsx";
-import ExchangeWallet from "./pages/ExchangeWallet.tsx";
+import Royalty from "./pages/Royalty.tsx";
+import RoyaltyBook from "./pages/RoyaltyBook.tsx";
+import MyRoyalties from "./pages/MyRoyalties.tsx";
+import RoyaltySettings from "./pages/admin/RoyaltySettings.tsx";
+import { Navigate } from "react-router-dom";
 import KidsCheckout from "./pages/KidsCheckout.tsx";
 import Create from "./pages/Create.tsx";
 import Checkout from "./pages/Checkout.tsx";
@@ -57,10 +58,13 @@ const App = () => (
             <Route path="/category/:slug" element={<Category />} />
             <Route path="/product/:handle" element={<Product />} />
             <Route path="/kids" element={<Kids />} />
-            <Route path="/exchange" element={<Exchange />} />
-            <Route path="/exchange/book/:bookId" element={<ExchangeBook />} />
-            <Route path="/exchange/portfolio" element={<ExchangePortfolio />} />
-            <Route path="/exchange/wallet" element={<ExchangeWallet />} />
+            <Route path="/royalty" element={<Royalty />} />
+            <Route path="/royalty/book/:bookId" element={<RoyaltyBook />} />
+            <Route path="/my-royalties" element={<MyRoyalties />} />
+            <Route path="/exchange" element={<Navigate to="/royalty" replace />} />
+            <Route path="/exchange/book/:bookId" element={<Navigate to="/royalty" replace />} />
+            <Route path="/exchange/portfolio" element={<Navigate to="/my-royalties" replace />} />
+            <Route path="/exchange/wallet" element={<Navigate to="/my-royalties" replace />} />
             <Route path="/kids/checkout/:id" element={<KidsCheckout />} />
             <Route path="/create" element={<Create />} />
             <Route path="/bundles" element={<Bundles />} />
@@ -84,6 +88,7 @@ const App = () => (
             <Route path="store/:id" element={<EbookReview />} />
             <Route path="products" element={<Products />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="royalty-settings" element={<RoyaltySettings />} />
             <Route path="ebook/:id" element={<EbookReview />} />
             <Route path="ebook/:id/writing" element={<EbookWriting />} />
             <Route path="ebook/:id/cover" element={<EbookCover />} />

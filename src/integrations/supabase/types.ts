@@ -497,6 +497,123 @@ export type Database = {
           },
         ]
       }
+      book_royalty_markets: {
+        Row: {
+          book_id: string
+          book_sale_price_usd: number
+          created_at: string
+          current_indicative_book_value_usd: number
+          current_indicative_unit_price_usd: number
+          gateway_fee_rate: number
+          id: string
+          initial_book_value_usd: number
+          initial_unit_price_usd: number
+          max_daily_value_change: number
+          minimum_purchase_usd: number
+          royalty_pool_percent: number
+          sales_gateway_fee_rate: number
+          sales_vat_rate: number
+          status: Database["public"]["Enums"]["royalty_market_status"]
+          thai_vat_rate: number
+          total_units: number
+          units_available: number
+          updated_at: string
+          valuation_multiple: number
+        }
+        Insert: {
+          book_id: string
+          book_sale_price_usd?: number
+          created_at?: string
+          current_indicative_book_value_usd?: number
+          current_indicative_unit_price_usd?: number
+          gateway_fee_rate?: number
+          id?: string
+          initial_book_value_usd?: number
+          initial_unit_price_usd?: number
+          max_daily_value_change?: number
+          minimum_purchase_usd?: number
+          royalty_pool_percent?: number
+          sales_gateway_fee_rate?: number
+          sales_vat_rate?: number
+          status?: Database["public"]["Enums"]["royalty_market_status"]
+          thai_vat_rate?: number
+          total_units?: number
+          units_available?: number
+          updated_at?: string
+          valuation_multiple?: number
+        }
+        Update: {
+          book_id?: string
+          book_sale_price_usd?: number
+          created_at?: string
+          current_indicative_book_value_usd?: number
+          current_indicative_unit_price_usd?: number
+          gateway_fee_rate?: number
+          id?: string
+          initial_book_value_usd?: number
+          initial_unit_price_usd?: number
+          max_daily_value_change?: number
+          minimum_purchase_usd?: number
+          royalty_pool_percent?: number
+          sales_gateway_fee_rate?: number
+          sales_vat_rate?: number
+          status?: Database["public"]["Enums"]["royalty_market_status"]
+          thai_vat_rate?: number
+          total_units?: number
+          units_available?: number
+          updated_at?: string
+          valuation_multiple?: number
+        }
+        Relationships: []
+      }
+      book_sales_ledger: {
+        Row: {
+          book_id: string
+          chargeback_usd: number
+          created_at: string
+          gateway_fee_usd: number
+          id: string
+          net_revenue_usd: number
+          order_id: string | null
+          refund_usd: number
+          royalty_pool_usd: number
+          sale_price_usd: number
+          sale_status: Database["public"]["Enums"]["royalty_sale_status"]
+          sold_at: string
+          vat_usd: number
+        }
+        Insert: {
+          book_id: string
+          chargeback_usd?: number
+          created_at?: string
+          gateway_fee_usd?: number
+          id?: string
+          net_revenue_usd: number
+          order_id?: string | null
+          refund_usd?: number
+          royalty_pool_usd: number
+          sale_price_usd: number
+          sale_status?: Database["public"]["Enums"]["royalty_sale_status"]
+          sold_at?: string
+          vat_usd?: number
+        }
+        Update: {
+          book_id?: string
+          chargeback_usd?: number
+          created_at?: string
+          gateway_fee_usd?: number
+          id?: string
+          net_revenue_usd?: number
+          order_id?: string | null
+          refund_usd?: number
+          royalty_pool_usd?: number
+          sale_price_usd?: number
+          sale_status?: Database["public"]["Enums"]["royalty_sale_status"]
+          sold_at?: string
+          vat_usd?: number
+        }
+        Relationships: []
+      }
       book_series: {
         Row: {
           cover_image_url: string | null
@@ -527,6 +644,60 @@ export type Database = {
           sort_order?: number
           title?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      book_valuation_snapshots: {
+        Row: {
+          book_id: string
+          calculation_json: Json
+          created_at: string
+          growth_adjustment: number
+          id: string
+          indicative_book_value: number
+          indicative_unit_value: number
+          initial_value: number
+          quality_adjustment: number
+          refund_adjustment: number
+          snapshot_date: string
+          trailing_30d_net_sales: number
+          trailing_7d_net_sales: number
+          trailing_90d_net_sales: number
+          valuation_multiple: number
+        }
+        Insert: {
+          book_id: string
+          calculation_json?: Json
+          created_at?: string
+          growth_adjustment?: number
+          id?: string
+          indicative_book_value: number
+          indicative_unit_value: number
+          initial_value: number
+          quality_adjustment?: number
+          refund_adjustment?: number
+          snapshot_date?: string
+          trailing_30d_net_sales?: number
+          trailing_7d_net_sales?: number
+          trailing_90d_net_sales?: number
+          valuation_multiple: number
+        }
+        Update: {
+          book_id?: string
+          calculation_json?: Json
+          created_at?: string
+          growth_adjustment?: number
+          id?: string
+          indicative_book_value?: number
+          indicative_unit_value?: number
+          initial_value?: number
+          quality_adjustment?: number
+          refund_adjustment?: number
+          snapshot_date?: string
+          trailing_30d_net_sales?: number
+          trailing_7d_net_sales?: number
+          trailing_90d_net_sales?: number
+          valuation_multiple?: number
         }
         Relationships: []
       }
@@ -3279,6 +3450,170 @@ export type Database = {
           },
         ]
       }
+      royalty_earnings_ledger: {
+        Row: {
+          book_id: string
+          created_at: string
+          distributable_royalty_pool_usd: number
+          holding_id: string | null
+          id: string
+          ownership_percentage_at_sale: number
+          royalty_earned_usd: number
+          sale_ledger_id: string
+          status: Database["public"]["Enums"]["royalty_earning_status"]
+          units_owned_at_sale: number
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          distributable_royalty_pool_usd: number
+          holding_id?: string | null
+          id?: string
+          ownership_percentage_at_sale: number
+          royalty_earned_usd: number
+          sale_ledger_id: string
+          status?: Database["public"]["Enums"]["royalty_earning_status"]
+          units_owned_at_sale: number
+          user_id: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          distributable_royalty_pool_usd?: number
+          holding_id?: string | null
+          id?: string
+          ownership_percentage_at_sale?: number
+          royalty_earned_usd?: number
+          sale_ledger_id?: string
+          status?: Database["public"]["Enums"]["royalty_earning_status"]
+          units_owned_at_sale?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "royalty_earnings_ledger_sale_ledger_id_fkey"
+            columns: ["sale_ledger_id"]
+            isOneToOne: false
+            referencedRelation: "book_sales_ledger"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      royalty_holdings: {
+        Row: {
+          average_unit_cost: number
+          book_id: string
+          created_at: string
+          id: string
+          lifetime_royalty_earned: number
+          ownership_percentage: number
+          pending_royalty: number
+          subtotal_invested_usd: number
+          total_gateway_fee_usd: number
+          total_paid_usd: number
+          total_vat_usd: number
+          units_owned: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          average_unit_cost?: number
+          book_id: string
+          created_at?: string
+          id?: string
+          lifetime_royalty_earned?: number
+          ownership_percentage?: number
+          pending_royalty?: number
+          subtotal_invested_usd?: number
+          total_gateway_fee_usd?: number
+          total_paid_usd?: number
+          total_vat_usd?: number
+          units_owned?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          average_unit_cost?: number
+          book_id?: string
+          created_at?: string
+          id?: string
+          lifetime_royalty_earned?: number
+          ownership_percentage?: number
+          pending_royalty?: number
+          subtotal_invested_usd?: number
+          total_gateway_fee_usd?: number
+          total_paid_usd?: number
+          total_vat_usd?: number
+          units_owned?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      royalty_purchase_quotes: {
+        Row: {
+          book_id: string
+          created_at: string
+          estimated_break_even_sales_subtotal: number
+          estimated_break_even_sales_total: number
+          estimated_royalty_per_sale: number
+          expires_at: string
+          gateway_fee_usd: number
+          id: string
+          ownership_percentage: number
+          requested_usd: number | null
+          status: Database["public"]["Enums"]["royalty_quote_status"]
+          subtotal_usd: number
+          total_payment_usd: number
+          unit_price: number
+          units: number
+          updated_at: string
+          user_id: string
+          vat_usd: number
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          estimated_break_even_sales_subtotal: number
+          estimated_break_even_sales_total: number
+          estimated_royalty_per_sale: number
+          expires_at?: string
+          gateway_fee_usd: number
+          id?: string
+          ownership_percentage: number
+          requested_usd?: number | null
+          status?: Database["public"]["Enums"]["royalty_quote_status"]
+          subtotal_usd: number
+          total_payment_usd: number
+          unit_price: number
+          units: number
+          updated_at?: string
+          user_id: string
+          vat_usd: number
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          estimated_break_even_sales_subtotal?: number
+          estimated_break_even_sales_total?: number
+          estimated_royalty_per_sale?: number
+          expires_at?: string
+          gateway_fee_usd?: number
+          id?: string
+          ownership_percentage?: number
+          requested_usd?: number | null
+          status?: Database["public"]["Enums"]["royalty_quote_status"]
+          subtotal_usd?: number
+          total_payment_usd?: number
+          unit_price?: number
+          units?: number
+          updated_at?: string
+          user_id?: string
+          vat_usd?: number
+        }
+        Relationships: []
+      }
       system_fix_instructions: {
         Row: {
           acceptance_test: string | null
@@ -3519,6 +3854,17 @@ export type Database = {
         | "final_qc"
         | "published"
         | "rejected"
+      royalty_earning_status: "recorded" | "paid" | "reversed"
+      royalty_market_status: "active" | "paused" | "closed"
+      royalty_quote_status:
+        | "draft"
+        | "quoted"
+        | "awaiting_payment"
+        | "reserved"
+        | "simulated_completed"
+        | "cancelled"
+        | "expired"
+      royalty_sale_status: "recorded" | "refunded" | "charged_back"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -3663,6 +4009,18 @@ export const Constants = {
         "published",
         "rejected",
       ],
+      royalty_earning_status: ["recorded", "paid", "reversed"],
+      royalty_market_status: ["active", "paused", "closed"],
+      royalty_quote_status: [
+        "draft",
+        "quoted",
+        "awaiting_payment",
+        "reserved",
+        "simulated_completed",
+        "cancelled",
+        "expired",
+      ],
+      royalty_sale_status: ["recorded", "refunded", "charged_back"],
     },
   },
 } as const

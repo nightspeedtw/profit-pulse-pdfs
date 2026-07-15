@@ -1,107 +1,99 @@
-## Royalty Rights Exchange — Phase 1 Build Plan
+# Royalty Ownership (buy-only, simulated)
 
-Stock-market-style trading of book royalty shares with a **simulated USD wallet** (no real payments yet). All two currently live books auto-list; every future publish auto-lists.
+Supersedes the earlier /exchange + /rights builds. Prior tables/functions are reused where compatible; the order-book / sell UI is removed from the surface (tables kept for later phase, unreferenced).
 
----
+## Reconciliation with existing work
 
-### 1. Economic Model (single source of truth)
+Kept & remapped (schema exists, semantics compatible):
+- `rights_offerings` → treated as the underlying market row (1M units, treasury). We add a thin `book_royalty_markets` view/table that maps 1:1 by `book_id` and carries the new admin-editable fields (royalty_pool_percent, thai_vat_rate, gateway_fee_rate, initial/indicative values, minimum_purchase).
+- `rights_holdings` → renamed-in-UI to Royalty Holdings; add derived columns (`total_vat_usd`, `total_gateway_fee_usd`, `total_paid_usd`, `lifetime_royalty_earned`, `pending_royalty`) via a new `royalty_holdings` table that this phase writes to. `rights_holdings` continues to exist for the (dormant) sell path.
+- `rights_price_history` → reused for `book_valuation_snapshots` (add columns; keep row shape backward-compatible).
+- `wallets` / `wallet_transactions` → kept but Buy button no longer debits them (see Purchase flow).
 
-Constants file `src/lib/exchange/model.ts` + edge mirror `supabase/functions/_shared/exchange-model.ts`, plus a `pipeline_skills` row `rights_exchange_model` documenting the formula.
+Removed from UI (rows preserved, code hidden):
+- `SellPanel`, `OrderBook` components — deleted from routes but files kept unreferenced.
+- `exchange-sell-list`, `exchange-cancel-order` edge functions — remain deployed but no UI links.
+- The wallet top-up flow — hidden behind admin-only route.
 
-- **1,000,000 shares per book**, base valuation **$1,000** → base share price **$0.001**.
-- **Reference price formula** (recomputed daily + on each trade):
-  `ref = max(0.001, (1000 + trailing_90d_net_sales_rev × 4) / 1_000_000) × momentum`
-  `momentum = clamp(1 + 0.10 × sales_rank_percentile, 0.8, 1.5)` (0.8 floor for zero-sales)
-- **Royalty split on each recorded book sale**:
-  `net = sale_price × (1 − fee_pct − tax_pct)` (defaults: fee 3%, tax 0% — stored in `platform_settings`)
-  → 50% creator pool (if Create&Earn creator exists) → remainder to royalty pool → credited pro-rata to shareholders by snapshot at sale time. Treasury earns on unsold shares.
-- Every distribution logged in `royalty_distributions`.
+## New DB tables (migration, all with GRANTs + RLS)
 
----
+- `book_royalty_markets` (id, book_id UNIQUE, total_units=1000000, units_available, initial_book_value_usd=1000, initial_unit_price_usd=0.001, current_indicative_book_value_usd, current_indicative_unit_price_usd, royalty_pool_percent=0.50, minimum_purchase_usd=20, thai_vat_rate=0.07, gateway_fee_rate=0.05, valuation_multiple=3.0, max_daily_value_change=0.10, status enum('active','paused','closed'), timestamps).
+- `royalty_purchase_quotes` (id, user_id, book_id, requested_usd, unit_price, units, ownership_percentage, subtotal_usd, vat_usd, gateway_fee_usd, total_payment_usd, estimated_royalty_per_sale, estimated_break_even_sales_subtotal, estimated_break_even_sales_total, status enum('draft','quoted','awaiting_payment','reserved','simulated_completed','cancelled','expired'), expires_at, created_at).
+- `royalty_holdings` (id, user_id, book_id UNIQUE-pair, units_owned, ownership_percentage, average_unit_cost, subtotal_invested_usd, total_vat_usd, total_gateway_fee_usd, total_paid_usd, lifetime_royalty_earned=0, pending_royalty=0, timestamps).
+- `book_sales_ledger` (id, book_id, order_id, sale_price_usd, vat_usd, gateway_fee_usd, refund_usd=0, chargeback_usd=0, net_revenue_usd, royalty_pool_usd, sale_status enum('recorded','refunded','charged_back'), sold_at, created_at) — IMMUTABLE (no UPDATE policy; admin-only DELETE).
+- `royalty_earnings_ledger` (id, user_id, book_id, holding_id, sale_ledger_id, units_owned_at_sale, ownership_percentage_at_sale, distributable_royalty_pool_usd, royalty_earned_usd, status enum('recorded','paid','reversed'), created_at) — IMMUTABLE.
+- `book_valuation_snapshots` (id, book_id, initial_value, trailing_7d/30d/90d_net_sales, valuation_multiple, quality/growth/refund adjustments, indicative_book_value, indicative_unit_value, calculation_json, snapshot_date UNIQUE per (book_id,snapshot_date), created_at).
 
-### 2. Data Model (migration)
+All numeric money columns use `numeric(18,4)`; unit prices use `numeric(18,8)`.
 
-Tables (all with GRANTs + RLS):
+RLS: user reads own holdings/quotes/earnings; markets/valuations/sales_ledger public-readable; only service_role writes ledgers; admin role writes market settings.
 
-- `wallets` (user_id PK, usd_balance NUMERIC ≥ 0, is_demo bool)
-- `wallet_transactions` (id, user_id, type: `topup_placeholder|trade_buy|trade_sell|royalty_credit|demo_grant`, amount_usd, ref_id, meta)
-- `rights_offerings` (book_id PK → ebooks_kids.id (nullable) / ebooks.id, total_shares=1M, treasury_shares, ref_price_per_share, market_cap, last_trade_price, updated_at)
-- `rights_holdings` (user_id, book_id, shares ≥ 0, PK(user_id, book_id)) — treasury represented by user_id = NULL sentinel row **or** a dedicated `is_treasury` boolean; using dedicated `platform_treasury` view over `rights_offerings.treasury_shares` to avoid NULL FK
-- `rights_orders` (id, seller_id (nullable=treasury), book_id, qty_remaining, price_per_share, status: `open|filled|cancelled`, created_at)
-- `rights_trades` (id, book_id, buyer_id, seller_id (nullable), qty, price_per_share, gross_usd, executed_at)
-- `rights_price_history` (book_id, day/ts, ref_price, last_trade_price, volume) — daily snapshots + intraday rollup
-- `royalty_distributions` (id, book_id, sale_ref, holder_id, shares_at_snapshot, amount_usd, created_at)
-- `platform_settings` (key PK, value_json) seeded with `royalty_fee_pct=0.03`, `royalty_tax_pct=0`, `creator_pool_pct=0.50`
+## Server-side calculation
 
-**Constraints:** `wallets.usd_balance >= 0`, `rights_holdings.shares >= 0`, `rights_orders.qty_remaining >= 0`, `rights_offerings.treasury_shares >= 0`.
+New file `supabase/functions/_shared/royalty-math.ts` — pure functions (server + client can import a subset; ONLY server results are trusted):
+- `computeQuote({ market, requested_usd | requested_units }) → { units, subtotal, vat, gateway_fee, total_payment, ownership_pct }`
+- `computeOneSaleEconomics({ market, ownership_pct })`
+- `computeBreakEven({ subtotal, total_payment, royalty_per_sale })`
+- `computeIndicativeValuation({ trailing_sales, multiple, adjustments })`
 
-**RLS:**
-- wallets/wallet_transactions/rights_holdings/royalty_distributions → owner (`auth.uid()`) SELECT only; writes via service role.
-- rights_offerings / rights_orders / rights_trades / rights_price_history → public SELECT.
-- Cancel own order via edge function (service role), not direct DELETE.
+All arithmetic uses string-based decimals (helpers `d.add/sub/mul/div/round`) — never JS float on money.
 
----
+## Edge functions
 
-### 3. Edge Functions
+New (buy-only path):
+- `royalty-quote` — POST { book_id, amount_usd? , units? } → validates min $20, computes fresh quote from DB (never trusts client), writes `royalty_purchase_quotes` row (status `quoted`, 15-min expiry), returns full breakdown.
+- `royalty-reserve` — POST { quote_id } → flips status to `reserved`. NO wallet debit, NO ownership row created. Returns "Payment activation coming soon."
+- `royalty-admin-simulate-complete` — admin-only. Given `quote_id`, creates/updates `royalty_holdings`, decrements `book_royalty_markets.units_available`, writes an audit row.
+- `royalty-record-book-sale` — hook called from purchase/download path; writes `book_sales_ledger` and fans out `royalty_earnings_ledger` rows for every holder pro-rata.
+- `royalty-valuation-recompute` — daily cron; writes one `book_valuation_snapshots` per active book, clamped by `max_daily_value_change`, then updates `book_royalty_markets.current_indicative_*`.
 
-- `exchange-list-book` — idempotent auto-list: create `rights_offerings` (1M treasury shares) + seed ask at ref price + first price-history row.
-- `exchange-buy` — transactional matcher: walk asks ascending, partial-fill allowed, atomic wallet/holdings/orders update, insert trades, update `last_trade_price` + price history, reject on insufficient balance.
-- `exchange-sell-list` — validate holdings, create sell order, escrow shares (deduct from holdings into order).
-- `exchange-cancel-order` — return escrowed shares to holdings.
-- `exchange-recompute-refprice` — daily cron + on-trade recompute; writes `rights_price_history` snapshot.
-- `exchange-record-book-sale` — hook invoked by existing purchase/download-grant paths; computes distribution, credits wallets, inserts `royalty_distributions` + `wallet_transactions`.
-- `exchange-wallet-topup-demo` — grants $100 DEMO once per new user (idempotent).
-- `exchange-backfill-live-books` — one-shot: list all `listing_status='live'` books.
+Migrated (renamed for clarity in this phase, old kept as alias):
+- `auto-list-ebook` — now also inserts a `book_royalty_markets` row on publish.
 
-Hooks: `kids-publish-if-qc-passed` (kids) and `auto-list-ebook` (adult) → invoke `exchange-list-book` after flipping live.
+## Frontend
 
----
+Routes:
+- `/royalty` — public catalog (`src/pages/Royalty.tsx`), summary cards + book grid.
+- `/royalty/book/:bookId` — purchase page (`src/pages/RoyaltyBook.tsx`) with LEFT (book meta) + RIGHT (calculator, one-sale earning section, break-even, Reserve button).
+- `/my-royalties` — user ownership (`src/pages/MyRoyalties.tsx`).
+- `/admin/royalty-settings` — admin controls (`src/pages/admin/RoyaltySettings.tsx`).
 
-### 4. Frontend (`/exchange`)
+Components (new, under `src/components/royalty/`):
+- `RoyaltyBookCard`, `PurchaseCalculator` (USD⇄units two-way sync, debounced server quote), `OneSaleEconomics`, `BreakEvenBox`, `RoyaltyDisclaimers`, `ReserveButton` (shows "Payment activation coming soon" toast on success).
 
-Routes added to `src/App.tsx`:
-- `/exchange` — Board (public)
-- `/exchange/book/:bookId` — Book detail (public browse, auth-gated trade panels)
-- `/exchange/portfolio` — auth-required
-- `/exchange/wallet` — auth-required
+Removed from routes:
+- `/exchange`, `/exchange/book/:bookId`, `/exchange/portfolio`, `/exchange/wallet` — redirect to `/royalty` equivalents (301 in `App.tsx`).
+- `Header` "Exchange" link renamed to "Royalty Ownership" → `/royalty`.
 
-Components:
-- `Board`: card+table with cover, title, last price, 24h/7d %, ref price, market cap, star rating, sparkline (recharts). Sort tabs: Movers / Market Cap / Newest.
-- `BookDetail`: price chart (recharts area/line), asks ladder, recent trades, BUY panel (qty → live cost preview → execute), SELL panel (qty + limit price → escrow), your position + royalty earnings.
-- `Portfolio`: holdings table with current value & P/L, royalty income history, open orders (cancel button).
-- `Wallet`: balance, "Top Up" placeholder modal (bilingual copy), transaction history. Demo grant runs on first visit.
-- Compliance banner component reused site-wide on all exchange pages:
-  > 🇹🇭 นี่คือส่วนแบ่งรายได้ค่าลิขสิทธิ์ ไม่ใช่หุ้นบริษัท · รายได้ไม่การันตี · ระบบช่วงทดลองใช้ยอดเงินจำลอง (DEMO) ยังไม่มีการชำระเงินจริง
-  > 🇬🇧 These are royalty revenue shares, not company equity. No income guaranteed. Demo balance only — no real payments yet.
+Copy: all UI strings use approved vocabulary (Royalty Units, Lifetime Revenue Share, etc.). Disclaimer component rendered on every calculator, book card footer, and my-royalties page. Never use "stock/securities/guaranteed/return/profit".
 
-Header nav gets a new "Exchange" link.
+## Skill row
 
-Admin: small section on `/admin` (Dashboard) showing exchange totals (books listed, total shares out of treasury, 24h volume, total royalties distributed).
+Update `pipeline_skills.rights_exchange_model` → rename `skill_key` to `royalty_ownership_model` v3, content_md rewritten to match this spec (all constants, formulas, disclaimers, phase limits). Old key deleted to avoid drift.
 
----
+## Acceptance tests
 
-### 5. Verification
+Encoded as one Deno test file `supabase/functions/tests/royalty-math.test.ts`:
+1. Base valuation → $0.001 unit
+2. $20 → 20,000 units / 2% / VAT $1.40 / gateway $1.07 / total $22.47
+3. $19.99 rejected with min-purchase error
+4. one-sale royalty computed dynamically
+5. break-even both variants
+6. no sell endpoint / order-book route exists (grep-based check)
+7. reserve creates quote only, no holding, no wallet debit
 
-- Migration + backfill run → confirm both current live books appear on board.
-- Playwright script logs in a test user, tops up demo balance (auto-granted), buys 5,000 shares of one book, sells 1,000 back at a limit price, cancels remainder — screenshots of board, detail, buy-preview, portfolio, wallet.
-- SQL asserts: wallets never negative, sum(holdings)+treasury = 1,000,000 per book, trades match orders atomically.
+## Verification
 
----
+After deploy, drive Playwright from the sandbox against localhost:
+- Screenshot `/royalty` grid
+- Screenshot `/royalty/book/:bookId` with $20 example populated (assert values match test #2)
+- Screenshot Reserve click → toast + no ownership row (query DB after)
+- Screenshot `/my-royalties` empty state and post-simulated-completion state (admin action)
 
-### 6. Out of scope (Phase 1)
+## Out of scope (this phase)
 
-- Real payment gateway (Top Up is a placeholder modal only).
-- KYC / regulatory registration.
-- Order types beyond limit sell + market buy (matched against ask ladder).
-- WebSocket live updates — Phase 1 uses polling / React Query refetch.
-- Mobile-native app.
+Real payment gateway, real wallet top-up, KYC, resale, user-to-user transfer, order book. All Sell UI removed.
 
----
+## Ordering (batch remains priority)
 
-### Files created / edited (high level)
-
-**New migrations:** 1 file (all tables + RLS + GRANTs + seed platform_settings + `rights_exchange_model` skill row).
-**New edge functions:** 8 (listed above).
-**New shared:** `supabase/functions/_shared/exchange-model.ts`.
-**New frontend:** `src/pages/Exchange.tsx`, `ExchangeBook.tsx`, `ExchangePortfolio.tsx`, `ExchangeWallet.tsx`, `src/components/exchange/*` (Board, OrderBook, PriceChart, BuyPanel, SellPanel, ComplianceBanner, TopUpModal), `src/lib/exchange/{model.ts, api.ts, formatters.ts}`.
-**Edited:** `src/App.tsx` (routes), `src/components/Header.tsx` (nav link), `src/pages/admin/Dashboard.tsx` (exchange totals card), `supabase/functions/kids-publish-if-qc-passed/index.ts` (auto-list hook), `supabase/functions/auto-list-ebook/index.ts` (auto-list hook), existing purchase/download-grant path (`supabase/functions/customer-download-pdf/index.ts` or equivalent — will confirm during build) to invoke `exchange-record-book-sale`.
+Cover-fix work is now stable. This module builds while the 10-book batch continues untouched — no shared edge functions modified except `auto-list-ebook` (single additive INSERT into `book_royalty_markets`, wrapped in try/catch so a batch book publish never fails on royalty-market row creation).
