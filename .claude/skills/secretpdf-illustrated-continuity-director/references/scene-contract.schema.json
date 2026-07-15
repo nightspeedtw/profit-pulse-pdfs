@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SecretPDF illustrated per-page scene contract",
+  "type": "object",
+  "required": ["page_number","characters_required","action_required","emotion_required","setting_required","forbidden_objects","reference_asset_ids","style_version"],
+  "properties": {
+    "page_number": {"type": "integer", "minimum": 1},
+    "characters_required": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "props_required": {"type": "array", "items": {"type": "string"}},
+    "action_required": {"type": "string", "minLength": 8},
+    "emotion_required": {"type": "string", "minLength": 3},
+    "setting_required": {"type": "string", "minLength": 5},
+    "forbidden_objects": {"type": "array", "items": {"type": "string"}},
+    "reference_asset_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "style_version": {"type": "string", "minLength": 3}
+  },
+  "additionalProperties": false
+}
