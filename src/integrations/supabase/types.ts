@@ -1907,6 +1907,8 @@ export type Database = {
         Row: {
           age_group_id: string | null
           blocker_reason: string | null
+          character_bible_id: string | null
+          character_reference_id: string | null
           character_sheet_url: string | null
           cover_url: string | null
           created_at: string
@@ -1940,7 +1942,9 @@ export type Database = {
           storefront_subtitle: string | null
           storefront_title: string | null
           story_bible: Json | null
+          story_bible_id: string | null
           style_bible_json: Json | null
+          style_version: string | null
           subtitle: string | null
           theme_ids: string[]
           thumbnail_url: string | null
@@ -1951,6 +1955,8 @@ export type Database = {
         Insert: {
           age_group_id?: string | null
           blocker_reason?: string | null
+          character_bible_id?: string | null
+          character_reference_id?: string | null
           character_sheet_url?: string | null
           cover_url?: string | null
           created_at?: string
@@ -1984,7 +1990,9 @@ export type Database = {
           storefront_subtitle?: string | null
           storefront_title?: string | null
           story_bible?: Json | null
+          story_bible_id?: string | null
           style_bible_json?: Json | null
+          style_version?: string | null
           subtitle?: string | null
           theme_ids?: string[]
           thumbnail_url?: string | null
@@ -1995,6 +2003,8 @@ export type Database = {
         Update: {
           age_group_id?: string | null
           blocker_reason?: string | null
+          character_bible_id?: string | null
+          character_reference_id?: string | null
           character_sheet_url?: string | null
           cover_url?: string | null
           created_at?: string
@@ -2028,7 +2038,9 @@ export type Database = {
           storefront_subtitle?: string | null
           storefront_title?: string | null
           story_bible?: Json | null
+          story_bible_id?: string | null
           style_bible_json?: Json | null
+          style_version?: string | null
           subtitle?: string | null
           theme_ids?: string[]
           thumbnail_url?: string | null
