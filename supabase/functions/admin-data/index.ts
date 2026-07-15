@@ -397,17 +397,36 @@ Deno.serve(async (req) => {
 
 
     if (resource === "kids_runs") {
-      const [runsRes, weightsRes] = await Promise.all([
+      const [runsRes, weightsRes, statsRes, slowRes, regressionRes] = await Promise.all([
         supabase
           .from("autopilot_kids_runs")
           .select("id, status, current_step_label, progress_percent, blocker_reason, ebook_kids_id, created_at, metadata")
           .order("created_at", { ascending: false })
           .limit(30),
         supabase.from("kids_category_weights").select("*"),
+        supabase.rpc("kids_cycle_stats", { p_days: 30 }),
+        supabase.from("production_slowdowns")
+          .select("id, ebook_kids_id, total_minutes, slowest_stage, slowest_stage_minutes, watchdog_rescues, created_at")
+          .order("created_at", { ascending: false })
+          .limit(10),
+        supabase.from("kids_batch_orders")
+          .select("id, status, notes, updated_at")
+          .eq("status", "paused")
+          .order("updated_at", { ascending: false })
+          .limit(1),
+
       ]);
       if (runsRes.error) throw runsRes.error;
-      return json({ runs: runsRes.data ?? [], weights: weightsRes.data ?? [] });
+      const statsRow = Array.isArray(statsRes.data) ? statsRes.data[0] : null;
+      return json({
+        runs: runsRes.data ?? [],
+        weights: weightsRes.data ?? [],
+        cycle_stats: statsRow ?? null,
+        recent_slowdowns: slowRes.data ?? [],
+        regression_pause: regressionRes.data?.[0] ?? null,
+      });
     }
+
 
     return json({ error: "unknown resource" }, 400);
 

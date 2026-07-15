@@ -3012,6 +3012,54 @@ export type Database = {
           },
         ]
       }
+      production_slowdowns: {
+        Row: {
+          concept_at: string | null
+          created_at: string
+          ebook_kids_id: string | null
+          id: string
+          live_at: string | null
+          notes: string | null
+          run_id: string | null
+          sla_minutes: number
+          slowest_stage: string | null
+          slowest_stage_minutes: number | null
+          stage_breakdown: Json
+          total_minutes: number
+          watchdog_rescues: number
+        }
+        Insert: {
+          concept_at?: string | null
+          created_at?: string
+          ebook_kids_id?: string | null
+          id?: string
+          live_at?: string | null
+          notes?: string | null
+          run_id?: string | null
+          sla_minutes?: number
+          slowest_stage?: string | null
+          slowest_stage_minutes?: number | null
+          stage_breakdown?: Json
+          total_minutes: number
+          watchdog_rescues?: number
+        }
+        Update: {
+          concept_at?: string | null
+          created_at?: string
+          ebook_kids_id?: string | null
+          id?: string
+          live_at?: string | null
+          notes?: string | null
+          run_id?: string | null
+          sla_minutes?: number
+          slowest_stage?: string | null
+          slowest_stage_minutes?: number | null
+          stage_breakdown?: Json
+          total_minutes?: number
+          watchdog_rescues?: number
+        }
+        Relationships: []
+      }
       qc_findings: {
         Row: {
           category: string
@@ -3824,6 +3872,17 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      kids_cycle_stats: {
+        Args: { p_days?: number }
+        Returns: {
+          max_min: number
+          min_min: number
+          n_live: number
+          n_sla_breach: number
+          p50_min: number
+          p90_min: number
+        }[]
       }
       release_lock: {
         Args: { p_holder: string; p_name: string }
