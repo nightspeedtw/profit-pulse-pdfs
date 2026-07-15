@@ -14,6 +14,7 @@ import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment
 import { uploadAndSignImage, versionedKidsAssetPath } from '../_shared/versioned-assets.ts';
 import { computeLuminance, generateLiveImage } from '../_shared/image-luminance.ts';
 import { resolveStageOrThrow, logStageEvidence, assertCoverOrInteriorReady } from '../_shared/skill-evidence.ts';
+import { callAndParseModelJson, type ModelJsonSchema } from '../_shared/model-json.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
