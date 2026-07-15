@@ -138,14 +138,7 @@ function countRefrainOccurrences(pages: KidsSegment[], refrain: string): number 
   return c;
 }
 
-function countRefrainOccurrences(pages: KidsSegment[], refrain: string): number {
-  const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-  const n = norm(refrain);
-  if (n.length < 3) return 0;
-  let c = 0;
-  for (const p of pages) if (norm(String(p.text ?? "")).includes(n)) c++;
-  return c;
-}
+
 
 // ---------------------------------------------------------------------------
 // Human-readable render — kept for legacy consumers of manuscript_md.
