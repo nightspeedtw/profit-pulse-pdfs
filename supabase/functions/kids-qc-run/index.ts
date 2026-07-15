@@ -337,7 +337,8 @@ Deno.serve(async (req) => {
     const preservedScorecard: Record<string, unknown> = {};
     if (existingScorecard.final_text_repair) preservedScorecard.final_text_repair = existingScorecard.final_text_repair;
     if (existingScorecard.repair_log) preservedScorecard.repair_log = existingScorecard.repair_log;
-    if (existingScorecard.style_anchor_fingerprint) preservedScorecard.style_anchor_fingerprint = existingScorecard.style_anchor_fingerprint;
+    if (healedAnchor) preservedScorecard.style_anchor_fingerprint = healedAnchor;
+    else if (existingScorecard.style_anchor_fingerprint) preservedScorecard.style_anchor_fingerprint = existingScorecard.style_anchor_fingerprint;
 
     await supabase.from("ebooks_kids").update({
       sellable: cappedSellable,
