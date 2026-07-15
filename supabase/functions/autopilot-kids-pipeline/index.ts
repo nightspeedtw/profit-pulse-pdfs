@@ -38,7 +38,7 @@ type Step = {
   critical?: boolean;
   run: (ctx: Ctx) => Promise<StepResult>;
 };
-type Ctx = { supabase: ReturnType<typeof createClient>; ebookId: string; ebook: Record<string, unknown>; runId?: string };
+type Ctx = { supabase: ReturnType<typeof createClient>; ebookId: string; ebook: Record<string, unknown>; runId?: string; stepRowId?: string };
 
 const STEPS: Step[] = [
   { name: 'generate_idea', label: 'Generate story idea', critical: true, run: generateIdea },
@@ -143,6 +143,7 @@ Deno.serve(async (req) => {
         run_id, step_name: step.name, step_label: step.label,
         status: 'running', started_at: new Date().toISOString(),
       }).select('id').single();
+      ctx.stepRowId = stepRow?.id as string | undefined;
 
       // reload ebook state between steps
       const { data: fresh } = await supabase.from('ebooks_kids').select('*').eq('id', ctx.ebookId).single();
@@ -180,11 +181,22 @@ Deno.serve(async (req) => {
         else softFailures.push(`${step.name}: ${msg}`);
       }
 
+      let outputToPersist = outcome.output;
+      if (outcome.status === 'failed' && stepRow?.id) {
+        const { data: existingStep } = await supabase
+          .from('autopilot_kids_steps')
+          .select('output')
+          .eq('id', stepRow.id)
+          .maybeSingle();
+        const priorOutput = (existingStep?.output ?? {}) as Record<string, unknown>;
+        if (Object.keys(priorOutput).length > 0) outputToPersist = { ...priorOutput, ...outcome.output };
+      }
+
       await supabase.from('autopilot_kids_steps').update({
         status: outcome.status,
         completed_at: new Date().toISOString(),
         duration_ms: Date.now() - stepStart,
-        output: outcome.output,
+        output: outputToPersist,
         error_message: outcome.error ?? null,
       }).eq('id', stepRow!.id);
 
@@ -332,6 +344,15 @@ async function generateManuscript(ctx: Ctx): Promise<StepResult> {
     extraCraftBlock: craft,
   });
 
+  if (result.parseFailures?.length && ctx.stepRowId) {
+    await ctx.supabase.from('autopilot_kids_steps').update({
+      output: {
+        writer_json_parse_failures: result.parseFailures,
+        writer_json_parse_failure_count: result.parseFailures.length,
+      },
+    }).eq('id', ctx.stepRowId);
+  }
+
   if (!result.ok) {
     throw new Error(`segmented_writer_gate_failed: ${result.validation.violations.slice(0, 6).join(' | ')}`);
   }
@@ -349,7 +370,7 @@ async function generateManuscript(ctx: Ctx): Promise<StepResult> {
   }).eq('id', ctx.ebookId);
   ctx.ebook.manuscript_md = md;
   ctx.ebook.storefront_meta = nextMeta;
-  return { output: { word_count: wordCount, segments: result.manuscript.pages.length, attempts: result.attempts, refrain: result.manuscript.refrain } };
+  return { output: { word_count: wordCount, segments: result.manuscript.pages.length, attempts: result.attempts, refrain: result.manuscript.refrain, writer_json_parse_failure_count: result.parseFailures?.length ?? 0, writer_json_parse_failures: result.parseFailures ?? [] } };
 }
 
 // Story gate — runs BEFORE any art/PDF step so baseline never spends image cost on a rejected story.
