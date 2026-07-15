@@ -78,8 +78,9 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
   try {
-    const { ebook_id, age_band } = await req.json();
+    const { ebook_id, age_band, run_id } = await req.json();
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
+    const salesContracts = await resolveStageOrThrow('generate_sales_page');
 
     const { data: e, error } = await db.from('ebooks_kids')
       .select('id, title, subtitle, description, manuscript_md, storefront_meta, page_count, price_cents')
