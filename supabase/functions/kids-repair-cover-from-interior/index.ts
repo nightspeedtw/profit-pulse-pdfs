@@ -97,6 +97,7 @@ interface RepairOpts {
   ebook_id: string;
   max_attempts?: number;
   splice_pdf?: boolean;
+  hero_moment_override?: string; // owner directive: e.g. "Pip centered, holding magnifying glass and detective bag"
 }
 
 Deno.serve(async (req) => {
