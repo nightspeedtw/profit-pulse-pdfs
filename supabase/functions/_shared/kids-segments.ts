@@ -18,7 +18,25 @@ const LOVABLE_API_KEY = (globalThis as unknown as { Deno?: { env?: { get?: (key:
 export interface KidsSegment {
   page: number;
   text: string;
+  contains_refrain?: boolean;
 }
+
+// Structural refrain placement: pages that MUST carry the refrain verbatim.
+// Choosing 2 (setup echo), middle beat, and final (payoff) guarantees the
+// ≥3-verbatim gate BY CONSTRUCTION rather than hoping the model repeats it.
+export function refrainPagesFor(target: number): number[] {
+  const setup = 2;
+  const mid = Math.max(setup + 1, Math.floor(target / 2));
+  const finalPage = target;
+  return Array.from(new Set([setup, mid, finalPage])).sort((a, b) => a - b);
+}
+
+// Historical failures the writer has produced against this gate. Fed into
+// every prompt so the model does not repeat them. Append-only.
+export const KNOWN_REFRAIN_FAILURES: string[] = [
+  `run 0d592fc9 (2026-07-15): refrain "Sticky-gooey, wobbly-gluey, it's Pip's sweet mess!" appeared on only 2 pages — model paraphrased it as "sticky-gooey mess" on the third page instead of copying it verbatim.`,
+  `run 770bfe17 (2026-07-15): refrain-count gate failed a second time despite the rewrite receiving the exact violation text — auto-rewrite prompt did not re-embed the refrain STRING itself, so the model invented a new one on retry.`,
+];
 
 export interface SegmentedManuscript {
   title: string;
