@@ -489,6 +489,9 @@ Deno.serve(async (req) => {
       // Persist cover hash on prepare so future runs can detect a regenerated
       // cover and rebuild page 1 (Gate 1).
       cover_bytes_hash: pos.lane === 'prepare' ? currentCoverHash : (job?.cover_bytes_hash ?? currentCoverHash),
+      // On prepare we start a fresh PDF ⇒ ledger is empty. On other lanes the
+      // interior branch has already persisted its ledger update.
+      ...(pos.lane === 'prepare' ? { page_ledger: [] } : {}),
       error: null,
     });
 
