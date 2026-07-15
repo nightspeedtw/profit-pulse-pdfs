@@ -423,6 +423,11 @@ export function parseSegmentedWriterOutput(raw: string): WriterParseResult {
 async function callWriter(system: string, user: string, model: string, timeoutMs: number): Promise<WriterParseResult> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  // 28-page segmented JSON needs ~2.5-4k content tokens. gemini-2.5-pro is a
+  // thinking model whose reasoning tokens ALSO bill against max_tokens — at the
+  // gateway default (~4k) it burns its budget on hidden reasoning and returns
+  // ~500 output tokens (observed 2026-07-15). 16k gives both budget + slack.
+  const MAX_TOKENS = 16000;
   try {
     if (!LOVABLE_API_KEY) throw new Error("missing LOVABLE_API_KEY");
     const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -432,6 +437,7 @@ async function callWriter(system: string, user: string, model: string, timeoutMs
       body: JSON.stringify({
         model,
         response_format: { type: "json_object" },
+        max_tokens: MAX_TOKENS,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -441,7 +447,22 @@ async function callWriter(system: string, user: string, model: string, timeoutMs
     if (!r.ok) throw new Error(`writer ${r.status}: ${(await r.text()).slice(0, 300)}`);
     const j = await r.json();
     const raw = j.choices?.[0]?.message?.content ?? "";
-    return parseSegmentedWriterOutput(raw);
+    const finishReason = j.choices?.[0]?.finish_reason ?? undefined;
+    const outputTokens = j.usage?.completion_tokens ?? j.usage?.output_tokens ?? undefined;
+    const parsed = parseSegmentedWriterOutput(raw);
+    parsed.diagnostics.finish_reason = finishReason;
+    parsed.diagnostics.output_tokens = outputTokens;
+    parsed.diagnostics.max_tokens = MAX_TOKENS;
+    parsed.diagnostics.provider_truncation = classifyProviderTruncation(
+      String(raw ?? ""), parsed.diagnostics.errors, finishReason, outputTokens, MAX_TOKENS,
+    );
+    if (parsed.diagnostics.provider_truncation) {
+      parsed.diagnostics.errors.push(
+        `provider_truncation: finish_reason=${finishReason ?? "?"} output_tokens=${outputTokens ?? "?"}/${MAX_TOKENS}`,
+      );
+      console.warn(`[kids-segments] provider_truncation model=${model} finish=${finishReason} out=${outputTokens}/${MAX_TOKENS}`);
+    }
+    return parsed;
   } finally { clearTimeout(t); }
 }
 
