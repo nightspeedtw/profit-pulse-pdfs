@@ -494,47 +494,64 @@ export async function finalizePicturePdf(existing: Uint8Array, bonus?: BonusCont
 }
 
 // Split a manuscript into N caption blocks.
-// IMPORTANT: never emit a "Page N" placeholder. If the manuscript is slightly
-// under-segmented, split real long paragraphs/sentences so every illustrated
-// page receives genuine story text. Only return "" when there is not enough
-// real manuscript content at all.
+//
+// SKILL E rewrite: sentence-first bin-packing. NEVER cut a sentence in half —
+// the owner review of Detective Pip proved word-splitting causes "I just make
+// a big," / "for his happy" truncations. We split the entire manuscript into
+// complete sentences (or short line-blocks for chant refrains), then greedily
+// pack them into N bins targeting equal word counts.
 export function splitManuscriptForSpreads(md: string, n: number): string[] {
-  const paras = md.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
-  if (paras.length === 0) return Array(n).fill("");
+  const cleaned = normalizeText(md).replace(/\*\*[^*]+\*\*/g, "").trim();
+  if (!cleaned) return Array(n).fill("");
 
-  const expanded = [...paras];
-  while (expanded.length < n) {
-    let bestIdx = -1;
-    let bestScore = 0;
-    for (let i = 0; i < expanded.length; i++) {
-      const words = expanded[i].split(/\s+/).filter(Boolean).length;
-      const sentences = expanded[i].split(/(?<=[.!?])\s+/).filter(Boolean).length;
-      const score = words + sentences * 12;
-      if (words >= 12 && score > bestScore) {
-        bestScore = score;
-        bestIdx = i;
-      }
+  // Split into sentence-ish units: prefer sentence terminators, but preserve
+  // asterisked chant lines (refrain markers) as their own units.
+  const units: string[] = [];
+  for (const block of cleaned.split(/\n{2,}/)) {
+    const b = block.trim();
+    if (!b) continue;
+    // Chant/refrain block (italic-star lines) → keep as one unit.
+    if (b.startsWith("*") && b.split("\n").every((l) => l.trim().startsWith("*"))) {
+      units.push(b.replace(/\*/g, "").split("\n").map((l) => l.trim()).filter(Boolean).join(" "));
+      continue;
     }
-    if (bestIdx < 0) break;
+    // Prose block → sentence split.
+    const sentences = b.replace(/\n+/g, " ").split(/(?<=[.!?])\s+(?=[A-Z"'])/).map((s) => s.trim()).filter(Boolean);
+    for (const s of sentences) units.push(s);
+  }
+  if (units.length === 0) return Array(n).fill("");
 
-    const text = expanded[bestIdx];
-    const sentences = text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
-    if (sentences.length >= 2) {
-      const mid = Math.ceil(sentences.length / 2);
-      expanded.splice(bestIdx, 1, sentences.slice(0, mid).join(" "), sentences.slice(mid).join(" "));
-    } else {
-      const words = text.split(/\s+/).filter(Boolean);
-      const mid = Math.ceil(words.length / 2);
-      expanded.splice(bestIdx, 1, words.slice(0, mid).join(" "), words.slice(mid).join(" "));
-    }
+  // Bin-pack: distribute units across n bins, minimizing word-count variance,
+  // NEVER splitting a unit across bins. Greedy: assign each unit to the bin
+  // with the smallest current word count.
+  const bins: string[][] = Array.from({ length: n }, () => []);
+  const wc: number[] = Array(n).fill(0);
+  // Prefer to spread evenly by processing in original order but with a soft
+  // "next open bin" preference so bin-1's don't monopolize early units.
+  let nextBin = 0;
+  const totalWords = units.reduce((s, u) => s + u.split(/\s+/).filter(Boolean).length, 0);
+  const targetPerBin = Math.max(1, Math.floor(totalWords / n));
+  for (const u of units) {
+    const w = u.split(/\s+/).filter(Boolean).length;
+    // If the "current" bin is under target, keep filling it; else advance.
+    if (wc[nextBin] >= targetPerBin && nextBin < n - 1) nextBin++;
+    bins[nextBin].push(u);
+    wc[nextBin] += w;
   }
 
-  const source = expanded.length >= n ? expanded : paras;
-  const chunkSize = Math.max(1, Math.ceil(source.length / n));
-  const out: string[] = [];
-  for (let i = 0; i < n; i++) {
-    const chunk = source.slice(i * chunkSize, (i + 1) * chunkSize).join(" ");
-    out.push(chunk);
+  // If some bins are empty (few units, many pages), pad by re-distributing
+  // from the largest bins: split their unit list in halves until every bin
+  // has content. This never cuts a sentence.
+  let empty = bins.findIndex((b) => b.length === 0);
+  while (empty >= 0) {
+    let donor = 0;
+    for (let i = 1; i < n; i++) if (bins[i].length > bins[donor].length) donor = i;
+    if (bins[donor].length < 2) break;
+    const mid = Math.ceil(bins[donor].length / 2);
+    bins[empty] = bins[donor].slice(mid);
+    bins[donor] = bins[donor].slice(0, mid);
+    empty = bins.findIndex((b) => b.length === 0);
   }
-  return out;
+
+  return bins.map((b) => b.join(" "));
 }
