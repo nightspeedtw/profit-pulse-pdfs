@@ -505,10 +505,16 @@ function mergeRecoveredPages(base: SegmentedManuscript | null, next: SegmentedMa
 function parseFailureViolations(parseFailures: WriterParseDiagnostics[]): string[] {
   const last = parseFailures.at(-1);
   if (!last) return [];
-  return [
+  const out = [
     `writer_json_malformation: return one valid JSON object only; parser errors were ${last.errors.slice(-2).join("; ")}`,
     "Do not include markdown fences, commentary, truncated arrays, or adjacent properties without commas.",
   ];
+  if (last.provider_truncation) {
+    out.push(
+      `provider_truncation: previous response was cut off at the token cap (finish_reason=${last.finish_reason ?? "?"}, out=${last.output_tokens ?? "?"}/${last.max_tokens ?? "?"}). Keep each page.text tight (15-22 words), NO extra keys, NO comments — the JSON must fit within the token budget with all ${28} pages intact.`,
+    );
+  }
+  return out;
 }
 
 export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise<WriteSegmentsResult> {
