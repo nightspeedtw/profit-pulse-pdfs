@@ -85,7 +85,7 @@ async function callVision(
 }
 
 const PAGE_SYSTEM =
-  "You are a strict picture-book art director doing visual QC. Compare the INTERIOR PAGE (image 2) against the COVER MASTER (image 1). Judge how consistently the hero character, palette, line quality, lighting, and world style match the cover. Also judge whether the page image plausibly depicts the requested scene. Give integer scores 0-100. Provide short concrete evidence naming what you actually see. Never invent scores without visual evidence. FAIRNESS RULE: if the COVER MASTER is lettering-forward with no hero character illustration visible (typography-only or near-empty), do NOT penalize cover_interior_match on character presence — score cover_interior_match on STYLE, PALETTE, LINE QUALITY, LIGHTING, and WORLD continuity only, and mention 'cover_lettering_only' in evidence. Character_match_score in that case is still judged against the character bible description text, not against the cover.";
+  "You are a strict picture-book art director doing visual QC. Compare the INTERIOR PAGE (image 2) against the COVER MASTER (image 1). Judge how consistently the hero character, palette, line quality, lighting, and world style match the cover. Also judge whether the page image plausibly depicts the requested scene. Give integer scores 0-100. Provide short concrete evidence naming what you actually see. Never invent scores without visual evidence. FAIRNESS RULE: if the COVER MASTER is lettering-forward with no hero character illustration visible (typography-only or near-empty), do NOT penalize cover_interior_match on character presence — score cover_interior_match on STYLE, PALETTE, LINE QUALITY, LIGHTING, and WORLD continuity only, and mention 'cover_lettering_only' in evidence. Character_match_score in that case is still judged against the character bible description text, not against the cover. SKILL D (2026-07-15): interior pages must contain NO title-lettering / book-title text. If you can read the book title or any large decorative title-style text inside the illustration, set title_text_present=true and force page_scene_match_score ≤ 40 with evidence naming the words you see. SKILL C strict rubric: mark on-model=false if the depicted creature differs from the cover in species (e.g. bug vs person), face style (kid-face on animal body), proportions, or accessory outfit. Human-like body on an animal hero is an automatic on_model=false.";
 
 const PAGE_SCHEMA_HINT = `Return JSON exactly like:
 {
@@ -98,7 +98,9 @@ const PAGE_SCHEMA_HINT = `Return JSON exactly like:
  "world_style_match_score": 0,
  "cover_interior_match_score": 0,
  "page_scene_match_score": 0,
- "evidence": "<what you see; be specific: face shape, outfit, color, brush strokes>",
+ "title_text_present": false,
+ "on_model": true,
+ "evidence": "<what you see; be specific: face shape, outfit, color, brush strokes, any lettering you can read>",
  "repair_action": "<one of: none|regenerate_page|adjust_palette|adjust_character_reference|regenerate_all_interior|regenerate_style_bible>"
 }`;
 
