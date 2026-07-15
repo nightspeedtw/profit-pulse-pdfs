@@ -232,6 +232,14 @@ Return STRICT JSON only.`;
       sales_copy_sanitized_at,
     }).eq('id', ebook_id);
 
+    await logStageEvidence(salesContracts, {
+      run_id: run_id ?? null,
+      book_id: ebook_id,
+      input_reference_ids: [],
+      output_asset_ids: customer_product_description_html ? ['customer_product_description_html'] : [],
+      pass_fail_result: customer_product_description_html ? 'pass' : 'fail',
+    });
+
     return json({ ok: true, ebook_id, copy });
   } catch (e) {
     console.error('kids-generate-storefront-copy error', e);
