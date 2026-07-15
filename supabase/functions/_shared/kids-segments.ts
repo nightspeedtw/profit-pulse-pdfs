@@ -12,7 +12,8 @@
 // manuscript_md is a derived render (segments joined with blank lines) so any
 // legacy consumer still works.
 
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+const LOVABLE_API_KEY = (globalThis as unknown as { Deno?: { env?: { get?: (key: string) => string | undefined } } })
+  .Deno?.env?.get?.("LOVABLE_API_KEY") ?? "";
 
 export interface KidsSegment {
   page: number;
@@ -177,9 +178,15 @@ gentle rhythm, satisfying resolution, implicit moral (never a lecture). English 
 
 You MUST return valid JSON only — no markdown, no prose framing, no code fences.`;
 
-function buildWriterUser(opts: WriteSegmentsOpts, extraViolations?: string[]): string {
+function buildWriterUser(opts: WriteSegmentsOpts, extraViolations?: string[], lockedPages?: KidsSegment[]): string {
   const violationsBlock = extraViolations?.length
     ? `\n\nPREVIOUS ATTEMPT FAILED THE DETERMINISTIC GATE. Fix EVERY violation below on this rewrite:\n- ${extraViolations.join("\n- ")}\n`
+    : "";
+  const locked = (lockedPages ?? []).slice().sort((a, b) => a.page - b.page);
+  const lockedNumbers = new Set(locked.map((p) => p.page));
+  const missingNumbers = Array.from({ length: opts.target }, (_, i) => i + 1).filter((n) => !lockedNumbers.has(n));
+  const partialRecoveryBlock = locked.length > 0
+    ? `\n\nPARTIAL JSON RECOVERY MODE:\nThe parser recovered complete page objects for pages ${locked.map((p) => p.page).join(", ")}. Those pages are LOCKED and must not be rewritten.\nReturn JSON with the same title/refrain shape, but the pages array must contain ONLY the missing/broken page numbers: ${missingNumbers.join(", ")}.\nRecovered pages for context:\n${JSON.stringify(locked)}\n`
     : "";
   return `Book title: "${opts.title}"
 Subtitle: "${opts.subtitle ?? ""}"
@@ -212,13 +219,174 @@ HARD RULES (a deterministic gate checks these — failing any wastes the call):
    climax/turning point (15-22), warm resolution (23-${opts.target}).
 6. Hero solves the problem themselves — no adult swoops in.
 7. Grade 1-2 vocabulary. Never mention brands, tech, violence, or scary imagery.
-${violationsBlock}`;
+${violationsBlock}${partialRecoveryBlock}`;
 }
 
-async function callWriter(system: string, user: string, model: string, timeoutMs: number): Promise<Record<string, unknown>> {
+export interface WriterParseDiagnostics {
+  repairs: string[];
+  errors: string[];
+  raw_excerpt?: string;
+}
+
+export interface WriterParseResult {
+  ok: boolean;
+  value: Record<string, unknown>;
+  partial: boolean;
+  diagnostics: WriterParseDiagnostics;
+}
+
+function stripCodeFence(raw: string, repairs: string[]): string {
+  const trimmed = String(raw ?? "").trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced) {
+    repairs.push("code_fence_stripped");
+    return fenced[1].trim();
+  }
+  return trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+}
+
+function extractOutermostJsonObject(text: string, repairs: string[]): string | null {
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        const out = text.slice(start, i + 1).trim();
+        if (start > 0 || i < text.length - 1) repairs.push("outer_json_extracted");
+        return out;
+      }
+    }
+  }
+  return null;
+}
+
+function repairJsonText(text: string, repairs: string[]): string {
+  let repaired = text;
+  const beforeCommas = repaired;
+  repaired = repaired
+    .replace(/,\s*([}\]])/g, "$1")
+    .replace(/("(?:\\.|[^"\\])*")\s+(?="[^"\\]*(?:\\.[^"\\]*)*"\s*:)/g, "$1,")
+    .replace(/}\s*{/g, "},{")
+    .replace(/]\s*(?="[^"\\]*(?:\\.[^"\\]*)*"\s*:)/g, "],")
+    .replace(/}\s*(?="[^"\\]*(?:\\.[^"\\]*)*"\s*:)/g, "},");
+  if (repaired !== beforeCommas) {
+    if (beforeCommas.replace(/,\s*([}\]])/g, "$1") !== beforeCommas) repairs.push("trailing_comma_removed");
+    if (/("(?:\\.|[^"\\])*")\s+(?="[^"\\]*(?:\\.[^"\\]*)*"\s*:)/.test(beforeCommas)) repairs.push("missing_comma_inserted");
+  }
+  return repaired;
+}
+
+function extractStringField(text: string, field: string): string {
+  const rx = new RegExp(`"${field}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`);
+  const match = text.match(rx);
+  if (!match) return "";
+  try { return JSON.parse(`"${match[1]}"`); }
+  catch { return match[1]; }
+}
+
+function completePageObjectsFromPagesArray(text: string): Record<string, unknown>[] {
+  const pagesMatch = /"pages"\s*:\s*\[/i.exec(text);
+  if (!pagesMatch) return [];
+  const start = pagesMatch.index + pagesMatch[0].length;
+  const objects: Record<string, unknown>[] = [];
+  let depth = 0;
+  let objectStart = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      if (depth === 0) objectStart = i;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0 && objectStart >= 0) {
+        try {
+          const obj = JSON.parse(repairJsonText(text.slice(objectStart, i + 1), []));
+          if (Number.isFinite(Number(obj?.page)) && typeof obj?.text === "string" && obj.text.trim()) objects.push(obj);
+        } catch { /* ignore incomplete object */ }
+        objectStart = -1;
+      }
+    } else if (ch === "]" && depth === 0) {
+      break;
+    }
+  }
+  return objects;
+}
+
+export function parseSegmentedWriterOutput(raw: string): WriterParseResult {
+  const repairs: string[] = [];
+  const errors: string[] = [];
+  const raw_excerpt = String(raw ?? "").slice(0, 12_000);
+  const cleaned = stripCodeFence(raw, repairs);
+  const candidates = [cleaned];
+  const outer = extractOutermostJsonObject(cleaned, repairs);
+  if (outer && outer !== cleaned) candidates.push(outer);
+
+  for (const candidate of candidates) {
+    try {
+      return { ok: true, value: JSON.parse(candidate), partial: false, diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt } };
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : String(e));
+    }
+
+    const repaired = repairJsonText(candidate, repairs);
+    if (repaired !== candidate) {
+      try {
+        return { ok: true, value: JSON.parse(repaired), partial: false, diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt } };
+      } catch (e) {
+        errors.push(e instanceof Error ? e.message : String(e));
+      }
+    }
+  }
+
+  const salvageSource = outer ?? cleaned;
+  const pages = completePageObjectsFromPagesArray(salvageSource);
+  if (pages.length > 0) {
+    repairs.push("complete_pages_salvaged");
+    return {
+      ok: true,
+      value: {
+        title: extractStringField(salvageSource, "title"),
+        refrain: extractStringField(salvageSource, "refrain"),
+        pages,
+      },
+      partial: true,
+      diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt },
+    };
+  }
+
+  return { ok: false, value: {}, partial: false, diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt } };
+}
+
+async function callWriter(system: string, user: string, model: string, timeoutMs: number): Promise<WriterParseResult> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
+    if (!LOVABLE_API_KEY) throw new Error("missing LOVABLE_API_KEY");
     const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       signal: ctrl.signal,
@@ -234,13 +402,8 @@ async function callWriter(system: string, user: string, model: string, timeoutMs
     });
     if (!r.ok) throw new Error(`writer ${r.status}: ${(await r.text()).slice(0, 300)}`);
     const j = await r.json();
-    const raw = (j.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
-    try { return JSON.parse(raw) as Record<string, unknown>; }
-    catch {
-      const s = raw.indexOf("{"); const e = raw.lastIndexOf("}");
-      if (s >= 0 && e > s) return JSON.parse(raw.slice(s, e + 1)) as Record<string, unknown>;
-      throw new Error("writer_json_parse_failed");
-    }
+    const raw = j.choices?.[0]?.message?.content ?? "";
+    return parseSegmentedWriterOutput(raw);
   } finally { clearTimeout(t); }
 }
 
@@ -263,6 +426,30 @@ export interface WriteSegmentsResult {
   validation: SegmentValidation;
   attempts: number;
   model: string;
+  parseFailures?: WriterParseDiagnostics[];
+}
+
+function mergeRecoveredPages(base: SegmentedManuscript | null, next: SegmentedManuscript, opts: WriteSegmentsOpts): SegmentedManuscript {
+  if (!base?.pages?.length) return next;
+  const byPage = new Map<number, KidsSegment>();
+  for (const p of base.pages) byPage.set(p.page, p);
+  for (const p of next.pages) byPage.set(p.page, p);
+  const pages = Array.from(byPage.values()).sort((a, b) => a.page - b.page);
+  return {
+    title: next.title || base.title || opts.title,
+    refrain: next.refrain || base.refrain,
+    target: opts.target,
+    pages,
+  };
+}
+
+function parseFailureViolations(parseFailures: WriterParseDiagnostics[]): string[] {
+  const last = parseFailures.at(-1);
+  if (!last) return [];
+  return [
+    `writer_json_malformation: return one valid JSON object only; parser errors were ${last.errors.slice(-2).join("; ")}`,
+    "Do not include markdown fences, commentary, truncated arrays, or adjacent properties without commas.",
+  ];
 }
 
 export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise<WriteSegmentsResult> {
@@ -270,25 +457,33 @@ export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise
   const fallback = "google/gemini-2.5-pro";  // stronger model for the last-chance rewrite
   const timeoutMs = opts.timeoutMs ?? 180_000;
 
+  const parseFailures: WriterParseDiagnostics[] = [];
+  let recovered: SegmentedManuscript | null = null;
+
   // Attempt 1 — primary model, fresh prompt.
   const raw1 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts), primary, timeoutMs);
-  let manuscript = coerceSegmented(raw1, opts);
+  if (!raw1.ok || raw1.partial || raw1.diagnostics.errors.length > 0) parseFailures.push(raw1.diagnostics);
+  let manuscript = raw1.ok ? coerceSegmented(raw1.value, opts) : coerceSegmented({}, opts);
+  if (raw1.partial && manuscript.pages.length > 0) recovered = manuscript;
   let validation = validateSegments(manuscript, { target: opts.target });
-  if (validation.ok) return { ok: true, manuscript, validation, attempts: 1, model: primary };
+  if (validation.ok) return { ok: true, manuscript, validation, attempts: 1, model: primary, parseFailures };
   console.warn(`[kids-segments] attempt 1 (${primary}) failed gate:\n- ${validation.violations.join("\n- ")}`);
 
   // Attempt 2 — same model, violations quoted back with fix demand.
-  const raw2 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, validation.violations), primary, timeoutMs);
-  manuscript = coerceSegmented(raw2, opts);
+  const raw2 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, [...parseFailureViolations(parseFailures), ...validation.violations], recovered?.pages), primary, timeoutMs);
+  if (!raw2.ok || raw2.partial || raw2.diagnostics.errors.length > 0) parseFailures.push(raw2.diagnostics);
+  manuscript = raw2.ok ? mergeRecoveredPages(recovered, coerceSegmented(raw2.value, opts), opts) : (recovered ?? coerceSegmented({}, opts));
+  if (raw2.partial && manuscript.pages.length > 0) recovered = manuscript;
   validation = validateSegments(manuscript, { target: opts.target });
-  if (validation.ok) return { ok: true, manuscript, validation, attempts: 2, model: primary };
+  if (validation.ok) return { ok: true, manuscript, validation, attempts: 2, model: primary, parseFailures };
   console.warn(`[kids-segments] attempt 2 (${primary}) failed gate:\n- ${validation.violations.join("\n- ")}`);
 
   // Attempt 3 — stronger model with all accumulated violations. Last chance
   // before the pipeline retires the concept and rotates.
-  const raw3 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, validation.violations), fallback, timeoutMs);
-  manuscript = coerceSegmented(raw3, opts);
+  const raw3 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, [...parseFailureViolations(parseFailures), ...validation.violations], recovered?.pages), fallback, timeoutMs);
+  if (!raw3.ok || raw3.partial || raw3.diagnostics.errors.length > 0) parseFailures.push(raw3.diagnostics);
+  manuscript = raw3.ok ? mergeRecoveredPages(recovered, coerceSegmented(raw3.value, opts), opts) : (recovered ?? coerceSegmented({}, opts));
   validation = validateSegments(manuscript, { target: opts.target });
-  return { ok: validation.ok, manuscript, validation, attempts: 3, model: fallback };
+  return { ok: validation.ok, manuscript, validation, attempts: 3, model: fallback, parseFailures };
 }
 
