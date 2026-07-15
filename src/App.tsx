@@ -13,6 +13,10 @@ import Bundles from "./pages/Bundles.tsx";
 import About from "./pages/About.tsx";
 import Download from "./pages/Download.tsx";
 import Kids from "./pages/Kids.tsx";
+import Exchange from "./pages/Exchange.tsx";
+import ExchangeBook from "./pages/ExchangeBook.tsx";
+import ExchangePortfolio from "./pages/ExchangePortfolio.tsx";
+import ExchangeWallet from "./pages/ExchangeWallet.tsx";
 import KidsCheckout from "./pages/KidsCheckout.tsx";
 import Create from "./pages/Create.tsx";
 import Checkout from "./pages/Checkout.tsx";
@@ -53,6 +57,10 @@ const App = () => (
             <Route path="/category/:slug" element={<Category />} />
             <Route path="/product/:handle" element={<Product />} />
             <Route path="/kids" element={<Kids />} />
+            <Route path="/exchange" element={<Exchange />} />
+            <Route path="/exchange/book/:bookId" element={<ExchangeBook />} />
+            <Route path="/exchange/portfolio" element={<ExchangePortfolio />} />
+            <Route path="/exchange/wallet" element={<ExchangeWallet />} />
             <Route path="/kids/checkout/:id" element={<KidsCheckout />} />
             <Route path="/create" element={<Create />} />
             <Route path="/bundles" element={<Bundles />} />
