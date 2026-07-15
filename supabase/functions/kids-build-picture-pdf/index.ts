@@ -220,10 +220,16 @@ Deno.serve(async (req) => {
 
     const allRecs: Array<{ url: string; scene?: string }> = Array.isArray(ebook.interior_illustrations)
       ? (ebook.interior_illustrations as Array<{ url: string; scene?: string }>) : [];
+    const scIn0 = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
     if (allRecs.length < MIN_INTERIOR) {
-      return json({ ok: false, error: `need ${MIN_INTERIOR} interior pages, have ${allRecs.length}` }, 400);
+      const msg = `need ${MIN_INTERIOR} interior pages, have ${allRecs.length}`;
+      await persistJob(db, ebook_id, scIn0, { error: `precondition_failed: ${msg}`, attempt_at: new Date().toISOString(), attempt_stage: 'precondition' });
+      return json({ ok: false, error: msg }, 400);
     }
-    if (!ebook.cover_url) return json({ ok: false, error: 'cover_url missing' }, 400);
+    if (!ebook.cover_url) {
+      await persistJob(db, ebook_id, scIn0, { error: 'precondition_failed: cover_url missing', attempt_at: new Date().toISOString(), attempt_stage: 'precondition' });
+      return json({ ok: false, error: 'cover_url missing' }, 400);
+    }
 
     const recs = allRecs.slice(0, MAX_INTERIOR);
     const numStoryPages = recs.length;
