@@ -95,17 +95,20 @@ Return exactly ${target} scenes.`,
     "You are a picture book art director segmenting a story into illustration beats.",
   );
   let parsed: ScenePlan;
-  try {
-    parsed = JSON.parse(raw) as ScenePlan;
-  } catch {
-    // Recover from malformed JSON by clipping to the last complete scene object
-    // in the "scenes" array — Gemini sometimes truncates mid-object.
+  const tolerant = parseModelJson<ScenePlan>(raw, { requiredKey: 'scenes', minItems: 1 });
+  if (tolerant.ok) {
+    parsed = tolerant.value;
+  } else {
+    // Last-resort chunk recovery: clip to the last complete scene object in
+    // the "scenes" array — Gemini sometimes truncates mid-object beyond what
+    // the tolerant parser can repair.
     const m = raw.match(/"scenes"\s*:\s*\[([\s\S]*)/);
     const items: Array<{ scene: string; emotion: string; setting: string }> = [];
     if (m) {
       const rx = /\{[^{}]*"scene"[^{}]*\}/g;
       for (const chunk of m[1].match(rx) ?? []) {
-        try { items.push(JSON.parse(chunk)); } catch { /* skip */ }
+        const chunkParsed = parseModelJson<{ scene: string; emotion: string; setting: string }>(chunk);
+        if (chunkParsed.ok) items.push(chunkParsed.value);
       }
     }
     parsed = { scenes: items };
