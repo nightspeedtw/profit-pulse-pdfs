@@ -1733,6 +1733,7 @@ export type Database = {
         Row: {
           age_group_id: string | null
           blocker_reason: string | null
+          character_sheet_url: string | null
           cover_url: string | null
           created_at: string
           description: string | null
@@ -1768,6 +1769,7 @@ export type Database = {
         Insert: {
           age_group_id?: string | null
           blocker_reason?: string | null
+          character_sheet_url?: string | null
           cover_url?: string | null
           created_at?: string
           description?: string | null
@@ -1803,6 +1805,7 @@ export type Database = {
         Update: {
           age_group_id?: string | null
           blocker_reason?: string | null
+          character_sheet_url?: string | null
           cover_url?: string | null
           created_at?: string
           description?: string | null
