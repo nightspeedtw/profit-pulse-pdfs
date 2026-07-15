@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSegmentedWriterOutput, validateSegments } from "../../supabase/functions/_shared/kids-segments";
+import { parseSegmentedWriterOutput, validateSegments, classifyProviderTruncation } from "../../supabase/functions/_shared/kids-segments";
 import type { KidsSegment, SegmentedManuscript } from "../../supabase/functions/_shared/kids-segments";
 
 const page = (n: number) => ({ page: n, text: `Chef Pip stirred bright berry jam with a patient little spoon on page ${n}.` });
