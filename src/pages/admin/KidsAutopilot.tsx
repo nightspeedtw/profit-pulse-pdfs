@@ -62,6 +62,9 @@ export default function KidsAutopilot() {
   const [loadingRuns, setLoadingRuns] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [authState, setAuthState] = useState<"unknown" | "signed_out" | "not_admin" | "admin">("unknown");
+  const [cycleStats, setCycleStats] = useState<{ n_live: number; p50_min: number | null; p90_min: number | null; n_sla_breach: number } | null>(null);
+  const [slowdowns, setSlowdowns] = useState<Array<{ id: string; ebook_kids_id: string | null; total_minutes: number; slowest_stage: string | null; created_at: string }>>([]);
+  const [regressionPause, setRegressionPause] = useState<{ id: string; notes: string | null; updated_at: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoadingRuns(true);
@@ -75,17 +78,26 @@ export default function KidsAutopilot() {
       }
       setAuthState("admin");
 
-
       const [a, t, adminData] = await Promise.all([
         listAgeGroups(),
         listThemes(),
-        fetchAdminData<{ runs: KidsRun[]; weights: Weight[] }>("kids_runs"),
+        fetchAdminData<{
+          runs: KidsRun[];
+          weights: Weight[];
+          cycle_stats: { n_live: number; p50_min: number | null; p90_min: number | null; n_sla_breach: number } | null;
+          recent_slowdowns: Array<{ id: string; ebook_kids_id: string | null; total_minutes: number; slowest_stage: string | null; created_at: string }>;
+          regression_pause: { id: string; notes: string | null; updated_at: string } | null;
+        }>("kids_runs"),
       ]);
       setAges(a); setThemes(t);
       setWeights((adminData.weights ?? []) as Weight[]);
-      // Hide child runs spawned by a parent job — they surface inside the parent row.
+      setCycleStats(adminData.cycle_stats ?? null);
+      setSlowdowns(adminData.recent_slowdowns ?? []);
+      setRegressionPause(adminData.regression_pause ?? null);
       const rows = ((adminData.runs ?? []) as KidsRun[]).filter(row => !row.metadata?.parent_run_id);
       setRuns(rows);
+
+
 
     } catch (e) {
       console.error("KidsAutopilot load failed", e);
