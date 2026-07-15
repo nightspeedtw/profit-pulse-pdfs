@@ -14,6 +14,7 @@ import { geminiDirectImageWithMeta, hasGeminiDirect } from '../_shared/gemini-di
 import { qcCoverLettering } from '../_shared/qc/kids-cover-lettering-qc.ts';
 import { uploadAndSignImage, versionedKidsAssetPath, storagePathFromUrl, IMAGE_SIGNED_TTL_SECONDS } from '../_shared/versioned-assets.ts';
 import { generateLiveImage } from '../_shared/image-luminance.ts';
+import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
