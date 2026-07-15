@@ -338,6 +338,12 @@ function completePageObjectsFromPagesArray(text: string): Record<string, unknown
   return objects;
 }
 
+function hasNonEmptyPagesArray(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const pages = (value as { pages?: unknown }).pages;
+  return Array.isArray(pages) && pages.length > 0;
+}
+
 export function parseSegmentedWriterOutput(raw: string): WriterParseResult {
   const repairs: string[] = [];
   const errors: string[] = [];
@@ -348,9 +354,14 @@ export function parseSegmentedWriterOutput(raw: string): WriterParseResult {
   const outer = extractOutermostJsonObject(cleaned, repairs);
   if (outer && outer !== cleaned) candidates.push(outer);
 
+  const diag = () => ({ repairs: [...new Set(repairs)], errors, raw_excerpt, raw_model_output });
+  const EMPTY_ERR = "writer_output_missing_pages: parsed JSON has no non-empty `pages` array";
+
   for (const candidate of candidates) {
     try {
-      return { ok: true, value: JSON.parse(candidate), partial: false, diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt, raw_model_output } };
+      const value = JSON.parse(candidate);
+      if (hasNonEmptyPagesArray(value)) return { ok: true, value, partial: false, diagnostics: diag() };
+      errors.push(EMPTY_ERR);
     } catch (e) {
       errors.push(e instanceof Error ? e.message : String(e));
     }
@@ -358,7 +369,9 @@ export function parseSegmentedWriterOutput(raw: string): WriterParseResult {
     const repaired = repairJsonText(candidate, repairs);
     if (repaired !== candidate) {
       try {
-        return { ok: true, value: JSON.parse(repaired), partial: false, diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt, raw_model_output } };
+        const value = JSON.parse(repaired);
+        if (hasNonEmptyPagesArray(value)) return { ok: true, value, partial: false, diagnostics: diag() };
+        errors.push(EMPTY_ERR);
       } catch (e) {
         errors.push(e instanceof Error ? e.message : String(e));
       }
@@ -377,11 +390,12 @@ export function parseSegmentedWriterOutput(raw: string): WriterParseResult {
         pages,
       },
       partial: true,
-      diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt, raw_model_output },
+      diagnostics: diag(),
     };
   }
 
-  return { ok: false, value: {}, partial: false, diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt, raw_model_output } };
+  if (!errors.includes(EMPTY_ERR)) errors.push(EMPTY_ERR);
+  return { ok: false, value: {}, partial: false, diagnostics: diag() };
 }
 
 async function callWriter(system: string, user: string, model: string, timeoutMs: number): Promise<WriterParseResult> {
