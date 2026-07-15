@@ -19,6 +19,7 @@
 // Never touches cover_url / pdf_url / manuscript / price / copy.
 
 import { initWasm, Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
+import { parseModelJson } from "./model-json.ts";
 
 export interface BookMockupInput {
   coverUrl?: string | null;   // accepted for compatibility; not used
