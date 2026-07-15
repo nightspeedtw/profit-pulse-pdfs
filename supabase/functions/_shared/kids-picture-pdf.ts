@@ -560,7 +560,13 @@ export async function finalizePicturePdf(existing: Uint8Array, bonus?: BonusCont
     }
   }
   await addClosingPage(doc);
-  return await doc.save();
+  // Disable object streams so page objects remain top-level ASCII, keeping the
+  // Phase-7 page-count parser (which scans for `/Type /Page` markers) truthful
+  // on the final artifact. pdf-lib's default `useObjectStreams: true` hides
+  // every page object inside a compressed object stream, which caused
+  // countPdfPages() to return 0 → derived page_count is 0 → refuse to persist.
+  return await doc.save({ useObjectStreams: false });
+
 }
 
 // Split a manuscript into N caption blocks.
