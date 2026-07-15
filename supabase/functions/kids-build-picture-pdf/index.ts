@@ -18,8 +18,11 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { Image } from 'https://deno.land/x/imagescript@1.2.17/mod.ts';
 import {
-  startPicturePdf, appendSpreadsToPdf, finalizePicturePdf, splitManuscriptForSpreads,
+  startPicturePdf, appendSpreadsToPdf, appendUniqueSpreads, finalizePicturePdf,
+  splitManuscriptForSpreads, assertLedgerContiguous,
+  type PageLedger,
 } from '../_shared/kids-picture-pdf.ts';
+import { PdfAssemblyMismatchError } from '../_shared/page-ledger.ts';
 import { KIDS_BOOK_FORMAT } from '../_shared/kids-book-format.ts';
 import { computeLuminance } from '../_shared/image-luminance.ts';
 import { loadSegments, segmentsToPageTexts } from '../_shared/kids-segments.ts';
@@ -326,6 +329,27 @@ Deno.serve(async (req) => {
       stageResult = { pdf_size: bytes.length, pages_added: 3, format: 'square_612', cover_bytes_hash: currentCoverHash, cover_luminance: coverLum };
     } else if (pos.lane === 'finalize') {
       const existing = await readInprogress(db, ebook_id);
+      // FINALIZE-TIME LEDGER GATE (Chef Pip regression): the ledger must
+      // cover every canonical story page 1..N with unique image hashes.
+      // If it doesn't, the in-progress PDF is corrupted — discard and restart.
+      const finalizeLedger: PageLedger = Array.isArray((job as Record<string, unknown> | null)?.page_ledger)
+        ? ((job as Record<string, unknown>).page_ledger as PageLedger) : [];
+      try {
+        assertLedgerContiguous(finalizeLedger, numStoryPages);
+      } catch (e) {
+        if (e instanceof PdfAssemblyMismatchError) {
+          console.warn(`[build-picture-pdf] finalize ledger gate: ${e.message} — restarting from prepare`);
+          try { await db.storage.from('ebook-pdfs').remove([INPROGRESS_PATH(ebook_id)]); } catch { /* ignore */ }
+          await persistJob(db, ebook_id, scorecard, {
+            error: e.message, error_code: e.code, error_details: e.details,
+            failed_at: new Date().toISOString(),
+            prepared: false, pages_done: 0, page_ledger: [],
+          });
+          selfChainDoubleTap(db, ebook_id, publish, scorecard);
+          return json({ ok: false, error: e.message, restart: 'prepare' }, 409);
+        }
+        throw e;
+      }
       // SKILL F — build bonus content (Spot the Clues + Talk About the Story)
       // from the manuscript segments before finalizing.
       let bonus = null as null | Awaited<ReturnType<typeof buildBonusContent>>;
@@ -362,29 +386,90 @@ Deno.serve(async (req) => {
       finalized = true;
     } else {
       // Interior batch — fetch, downscale to JPEG, embed, save.
+      //
+      // IDEMPOTENCY GATE (Chef Pip regression, 2026-07-15):
+      // Every appended page carries a canonical_page_number + content_version
+      // + image_hash entry in `qc_scorecard.repair_log.pdf_repair_job.page_ledger`.
+      // `appendUniqueSpreads` throws PdfAssemblyMismatchError if:
+      //   - the in-progress PDF page count doesn't match front-matter + ledger,
+      //   - or the batch tries to re-append a page number already in the ledger,
+      //   - or two pages share identical image bytes.
+      // On mismatch we DELETE the in-progress artifact and restart from prepare
+      // — never silently append duplicates.
       const [start, end] = range!;
       const slice = recs.slice(start, end);
-      const spreads: Array<{ caption: string; imagePng: Uint8Array }> = [];
+      const spreads: Array<{
+        canonical_page_number: number; content_version: number;
+        caption: string; imagePng: Uint8Array;
+      }> = [];
       const deadPages: Array<{ index: number; reason: string; mean: number; variance: number }> = [];
+      const priorLedger: PageLedger = Array.isArray((job as Record<string, unknown> | null)?.page_ledger)
+        ? ((job as Record<string, unknown>).page_ledger as PageLedger) : [];
+      // Skip pages that are already ledgered — a chained retry might resubmit
+      // the same range even though the DB cursor already covers part of it.
+      const ledgeredNums = new Set(priorLedger.map((e) => e.canonical_page_number));
       for (let i = 0; i < slice.length; i++) {
         const abs = start + i;
+        const canonicalPageNumber = abs + 1; // 1-based story-page number
+        if (ledgeredNums.has(canonicalPageNumber)) continue;
         const raw = await fetchImage(slice[i].url);
-        // Gate 2 (dead-page): fail hard on solid black/white/gray interiors.
         const lum = await computeLuminance(raw);
         if (lum.dead) {
           deadPages.push({ index: abs, reason: lum.reason ?? 'dead', mean: lum.mean, variance: lum.variance });
         }
         const jpeg = await toJpegBytes(raw);
-        spreads.push({ caption: captions[abs], imagePng: jpeg });
+        spreads.push({
+          canonical_page_number: canonicalPageNumber,
+          content_version: 1,
+          caption: captions[abs],
+          imagePng: jpeg,
+        });
       }
       if (deadPages.length) {
         throw new Error(`dead_page_gate: ${deadPages.length} dead page(s) in batch ${range![0]}..${range![1]}: ${JSON.stringify(deadPages)}`);
       }
       const existing = await readInprogress(db, ebook_id);
-      const bytes = await appendSpreadsToPdf(existing, spreads);
+      let newLedger: PageLedger = priorLedger;
+      let bytes: Uint8Array;
+      try {
+        const out = await appendUniqueSpreads({
+          existing,
+          frontMatterPages: 3, // cover + title + copyright (see startPicturePdf)
+          totalStoryPages: numStoryPages,
+          existingLedger: priorLedger,
+          incoming: spreads,
+        });
+        bytes = out.bytes;
+        newLedger = out.ledger;
+      } catch (e) {
+        if (e instanceof PdfAssemblyMismatchError) {
+          console.warn(`[build-picture-pdf] ${e.message} — discarding in-progress PDF and restarting from prepare`);
+          try { await db.storage.from('ebook-pdfs').remove([INPROGRESS_PATH(ebook_id)]); } catch { /* ignore */ }
+          await persistJob(db, ebook_id, scorecard, {
+            error: e.message,
+            error_code: e.code,
+            error_details: e.details,
+            failed_at: new Date().toISOString(),
+            prepared: false,
+            pages_done: 0,
+            page_ledger: [],
+          });
+          selfChainDoubleTap(db, ebook_id, publish, scorecard);
+          return json({ ok: false, error: e.message, restart: 'prepare' }, 409);
+        }
+        throw e;
+      }
       await writeInprogress(db, ebook_id, bytes);
       newPagesDone = end;
-      stageResult = { pdf_size: bytes.length, pages_added: spreads.length, range: [start, end], encoding: 'jpeg_q80_1024' };
+      stageResult = {
+        pdf_size: bytes.length,
+        pages_added: spreads.length,
+        range: [start, end],
+        encoding: 'jpeg_q80_1024',
+        ledger_size: newLedger.length,
+      };
+      // Persist the new ledger alongside pages_done so the next stage sees it.
+      await persistJob(db, ebook_id, scorecard, { page_ledger: newLedger });
     }
 
     const nextLane = finalized ? 'done' : (newPagesDone >= numStoryPages ? 'finalize' : 'interior');
@@ -404,6 +489,9 @@ Deno.serve(async (req) => {
       // Persist cover hash on prepare so future runs can detect a regenerated
       // cover and rebuild page 1 (Gate 1).
       cover_bytes_hash: pos.lane === 'prepare' ? currentCoverHash : (job?.cover_bytes_hash ?? currentCoverHash),
+      // On prepare we start a fresh PDF ⇒ ledger is empty. On other lanes the
+      // interior branch has already persisted its ledger update.
+      ...(pos.lane === 'prepare' ? { page_ledger: [] } : {}),
       error: null,
     });
 

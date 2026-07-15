@@ -13,6 +13,16 @@
 
 import { PDFDocument, PDFImage, PDFFont, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
 import { KIDS_BOOK_FORMAT } from "./kids-book-format.ts";
+import {
+  assertAppendable,
+  assertLedgerContiguous,
+  mergeLedger,
+  type PageLedger,
+} from "./page-ledger.ts";
+
+// Re-export the finalize-time gate so callers can enforce it before publish.
+export { assertLedgerContiguous } from "./page-ledger.ts";
+export type { PageLedger, PageLedgerEntry } from "./page-ledger.ts";
 
 const PAGE_W = KIDS_BOOK_FORMAT.page_width_pt;   // 612
 const PAGE_H = KIDS_BOOK_FORMAT.page_height_pt;  // 612
@@ -477,6 +487,66 @@ export async function appendSpreadsToPdf(
   const doc = await PDFDocument.load(existing);
   for (const s of spreads) await addStoryPage(doc, s.caption, s.imagePng, s.paletteHint ?? null);
   return await doc.save();
+}
+
+// Idempotent, ledger-aware appender. Every kids picture-book batch MUST go
+// through this path — the legacy `appendSpreadsToPdf` is retained only for
+// one-shot repair callers that hold their own coherence guarantees.
+//
+// Guarantees:
+//   * Existing PDF page count must equal front_matter + ledger.length,
+//     else the in-progress artifact is out of sync with the ledger and
+//     the caller MUST discard it and rebuild from prepare.
+//   * Every incoming canonical_page_number and image hash must be unique
+//     against the ledger AND within the batch itself.
+//   * On success returns {bytes, ledger, hashes} — the caller persists the
+//     updated ledger atomically with the new bytes.
+export async function appendUniqueSpreads(params: {
+  existing: Uint8Array;
+  frontMatterPages: number;
+  totalStoryPages: number;
+  existingLedger: PageLedger;
+  incoming: Array<{
+    canonical_page_number: number;
+    content_version: number;
+    caption: string;
+    imagePng: Uint8Array;
+    paletteHint?: [number, number, number] | null;
+  }>;
+}): Promise<{ bytes: Uint8Array; ledger: PageLedger; hashes: string[] }> {
+  const doc = await PDFDocument.load(params.existing);
+  const { hashes } = assertAppendable({
+    existingLedger: params.existingLedger,
+    existingPdfPageCount: doc.getPageCount(),
+    frontMatterPages: params.frontMatterPages,
+    totalStoryPages: params.totalStoryPages,
+    incoming: params.incoming.map((s) => ({
+      canonical_page_number: s.canonical_page_number,
+      content_version: s.content_version,
+      image_bytes: s.imagePng,
+    })),
+  });
+  // Append in canonical order to keep the printed sequence stable.
+  const ordered = [...params.incoming]
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => a.s.canonical_page_number - b.s.canonical_page_number);
+  const orderedHashes: string[] = [];
+  for (const { s, i } of ordered) {
+    await addStoryPage(doc, s.caption, s.imagePng, s.paletteHint ?? null);
+    orderedHashes.push(hashes[i]);
+  }
+  const nowIso = new Date().toISOString();
+  const newLedger = mergeLedger(
+    params.existingLedger,
+    ordered.map(({ s }, k) => ({
+      canonical_page_number: s.canonical_page_number,
+      content_version: s.content_version,
+      image_hash: orderedHashes[k],
+      appended_at: nowIso,
+    })),
+  );
+  const bytes = await doc.save();
+  return { bytes, ledger: newLedger, hashes: orderedHashes };
 }
 
 // SKILL F: append bonus + closing in one atomic finalize pass so page count
