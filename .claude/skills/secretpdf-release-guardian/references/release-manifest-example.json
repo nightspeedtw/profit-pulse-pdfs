@@ -1,0 +1,51 @@
+{
+  "validation_mode": "permanent_fix",
+  "book_id": "example-book-id",
+  "book_type": "children_illustrated",
+  "final_status": "final_pdf_ready",
+  "assets": {
+    "cover_present": true,
+    "cover_blank": false,
+    "final_pdf_present": true,
+    "final_pdf_opens": true,
+    "thumbnail_present": true
+  },
+  "defect_counts": {
+    "duplicate_pages": 0,
+    "duplicate_text_blocks": 0,
+    "duplicate_image_hashes": 0,
+    "raw_markdown": 0,
+    "html_comments": 0,
+    "watermarks": 0,
+    "random_image_text": 0,
+    "truncated_text": 0,
+    "metadata_mismatches": 0,
+    "unverified_public_claims": 0
+  },
+  "scores": {
+    "character_consistency": 97,
+    "cover_to_interior_match": 96,
+    "style_consistency": 97,
+    "page_continuity": 96,
+    "text_image_match": 96,
+    "story_chronology": 100,
+    "age_appropriateness": 97,
+    "typography_layout": 96,
+    "cover_quality": 94,
+    "thumbnail_quality": 93,
+    "sales_page_sanitization": 100,
+    "product_metadata_match": 100,
+    "final_sellable": 94
+  },
+  "proof": {
+    "original_fixture_passed": true,
+    "consecutive_fresh_books_passed": 3,
+    "manual_db_edits": 0,
+    "threshold_reductions": 0,
+    "gate_bypasses": 0,
+    "clean_install": true,
+    "typecheck": true,
+    "tests": true,
+    "build": true
+  }
+}
