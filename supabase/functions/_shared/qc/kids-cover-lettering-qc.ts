@@ -11,6 +11,8 @@
 // regenerates. After N failed attempts the caller falls back to compositing
 // a styled SVG text overlay — we never ship a misspelled cover.
 
+import { verifyTitleFuzzy, TITLE_SIMILARITY_THRESHOLD } from "../covers/title-mastery.ts";
+
 export interface CoverLetteringQcResult {
   passed: boolean;
   score: number;                 // 0-100 overall
@@ -19,12 +21,10 @@ export interface CoverLetteringQcResult {
   lettering_stylized: boolean;
   thumbnail_readable: boolean;
   detected_title_text: string;
+  similarity: number;            // 0..1 Levenshtein similarity vs expected
+  threshold: number;
   reasons: string[];
   raw?: unknown;
-}
-
-function normalize(s: string): string {
-  return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
 export async function qcCoverLettering(input: {
