@@ -718,7 +718,7 @@ Deno.serve(async (req) => {
         break;
       case 'qc_missing':
         handler = 'kids-qc-run';
-        repairBody = { ebook_id, run_id, use_cached_story_judge_if_hash_matches: true, auto_repair_on_fail: false };
+        repairBody = { ebook_id, run_id, skip_vision: true, use_cached_story_judge_if_hash_matches: true, auto_repair_on_fail: false };
         break;
       case 'cover':
         handler = 'kids-repair-cover-from-interior';
