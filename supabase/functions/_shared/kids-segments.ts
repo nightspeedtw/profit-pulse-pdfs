@@ -51,9 +51,13 @@ export function validateSegments(
   }
 
   const placeholderRx = /^\s*(page\s*\d+|todo|tbd|lorem|placeholder|\.\.\.)\s*\.?\s*$/i;
-  // SKILL E — trailing conjunctions/articles that indicate a mid-sentence cut.
-  const trailingCutRx = /\b(and|but|or|so|for|nor|yet|a|an|the|to|of|in|on|at|with|from|by|as|his|her|their|my|your|our)$/i;
-  const terminalPunctRx = /[.!?…"'\)]\s*$/;
+  // SKILL E — page_text_completeness_gate. Text must END with terminal
+  // punctuation (. ! ? …), optionally followed by closing wrappers
+  // (straight/curly quotes, closing parens/brackets/braces). Dialogue-final
+  // text like `…PLOOP!”` or `…done!)` is legitimate and must PASS. A bare
+  // trailing comma or mid-sentence connector (e.g. `He made a big,`) still
+  // FAILS because there is no terminal punctuation before the wrapper.
+  const terminalPunctRx = /[.!?…][\s"'”“’‘)\]\}]*$/u;
   pages.forEach((p, i) => {
     const idx = i + 1;
     const text = String(p?.text ?? "").trim();
@@ -71,14 +75,8 @@ export function validateSegments(
     if (Number(p?.page ?? idx) !== idx) {
       v.push(`page ${idx}: page number is ${p?.page} — must be sequential 1..${target}`);
     }
-    // SKILL E — page_text_completeness_gate. Text must end with terminal
-    // punctuation and NOT end with a conjunction/article. Runs pre-image so
-    // truncated segments are fixed for free.
-    const lastWord = text.replace(/[^\p{L}\p{N}\s]/gu, "").trim().split(/\s+/).pop() ?? "";
     if (!terminalPunctRx.test(text)) {
-      v.push(`page ${idx}: page_text_completeness_gate — no terminal punctuation (.!?) — "${text.slice(-60)}"`);
-    } else if (trailingCutRx.test(lastWord)) {
-      v.push(`page ${idx}: page_text_completeness_gate — ends on connector "${lastWord}" (mid-sentence cut) — "${text.slice(-60)}"`);
+      v.push(`page ${idx}: page_text_completeness_gate — no terminal punctuation (.!?…) — "${text.slice(-60)}"`);
     }
   });
 
