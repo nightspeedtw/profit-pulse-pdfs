@@ -97,13 +97,14 @@ interface RepairOpts {
   ebook_id: string;
   max_attempts?: number;
   splice_pdf?: boolean;
+  hero_moment_override?: string; // owner directive: e.g. "Pip centered, holding magnifying glass and detective bag"
 }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
   try {
-    const { ebook_id, max_attempts = 3, splice_pdf = true } = (await req.json()) as RepairOpts;
+    const { ebook_id, max_attempts = 3, splice_pdf = true, hero_moment_override } = (await req.json()) as RepairOpts;
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
     if (!hasGeminiDirect()) return json({ ok: false, error: 'GEMINI_API_KEY required for reference-conditioned generation' }, 500);
 
@@ -129,13 +130,26 @@ Deno.serve(async (req) => {
       return (m?.[0] ?? '').slice(0, 500);
     })();
 
+    // Derive the joyful hero moment from the actual concept brief (or accept
+    // an owner override). Never hardcode a scene from a different book.
+    const conceptBrief = ((eb.storefront_meta as Record<string, unknown> | null)?.concept_brief
+      ?? (eb.storefront_meta as Record<string, unknown> | null)?.locked_concept
+      ?? {}) as Record<string, unknown>;
+    const heroName = String(conceptBrief.hero ?? conceptBrief.hero_name ?? 'the hero').trim();
+    const heroMoment = String(
+      hero_moment_override
+        ?? conceptBrief.cover_hero_moment
+        ?? conceptBrief.final_page_payoff
+        ?? `${heroName} centered/upper-middle in a joyful key moment from the story, story-defining prop or object in-hand`,
+    ).trim();
+
     const basePrompt = [
       `Whimsical children's picture-book cover artwork, SQUARE 1:1 format.`,
-      `Use the two attached interior illustrations as the DEFINITIVE reference for the hero character's identity (face, skin, hair, glasses, freckles, outfit, proportions) AND for the overall art style (line quality, palette, lighting, texture). The cover MUST show the SAME child drawn in the SAME style — no restyling, no different character.`,
+      `Use the two attached interior illustrations as the DEFINITIVE reference for the hero character's identity (face, skin, hair, glasses, freckles, outfit, proportions) AND for the overall art style (line quality, palette, lighting, texture). The cover MUST show the SAME hero drawn in the SAME style — no restyling, no different character, no species drift.`,
       charDesc ? `Character notes: ${charDesc}` : ``,
-      `Composition: hero character centered/upper-middle, joyful hero moment from the story (the sneeze-powered sock-sorting machine whizzing socks through tubes). Warm painterly lighting, generous space in the upper third for the title.`,
+      `Composition: ${heroMoment}. Warm painterly lighting, generous space in the upper third for the title.`,
       `TYPOGRAPHY (must be drawn INTO the artwork as hand-lettered painted title): the ONLY text visible on the cover is the exact title "${title}"${subtitle ? ` and the subtitle "${subtitle}" underneath in a smaller hand-lettered style` : ''}. The lettering must be chunky, playful, bouncy baseline, watercolor-style, sitting in the upper third with clear readability armor (soft outline or shadow) so it survives at 100×160 thumbnail size.`,
-      `ABSOLUTE RULES: (1) The ONLY text anywhere on the entire canvas is the title${subtitle ? ' + subtitle' : ''} above. Do NOT draw any in-scene labels, basket tags, sign text, box labels, onomatopoeia (no "ah-choo", no "whizz", no "pop"), speech bubbles, tag-lines, author lines, publisher marks, badges, or signatures. If a container appears in the scene, it must be UNLABELED. (2) Spell the title EXACTLY: "${title}". (3) No glossy 3D, no stock photo, no six-finger hands, no generic purple gradient. (4) Square 1:1 aspect ratio.`,
+      `ABSOLUTE RULES: (1) The ONLY text anywhere on the entire canvas is the title${subtitle ? ' + subtitle' : ''} above. Do NOT draw any in-scene labels, basket tags, sign text, box labels, onomatopoeia, speech bubbles, tag-lines, author lines, publisher marks, badges, or signatures. If a container appears in the scene, it must be UNLABELED. (2) Spell the title EXACTLY: "${title}". (3) No glossy 3D, no stock photo, no six-finger hands, no generic purple gradient. (4) Square 1:1 aspect ratio.`,
     ].filter(Boolean).join(' ');
 
     let lastReason = '';

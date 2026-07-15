@@ -133,7 +133,8 @@ RULES:
 - Emotional recognition beats cleverness.
 - STORY PROMISE names the hero + the concrete refrain or callback object from the actual book.
 - OUTCOME names the felt at-home benefit (giggles, easier bedtime, easier conversation about X).
-- value_cards.whats_inside: keep the first three items EXACTLY in the shape above (page count, refrain in quotes, read-aloud). Add one more if useful.
+- SKILL F (2026-07-15) — DEVELOPMENTAL VALUE LINE IS REQUIRED. The product_description MUST include one explicit line naming the developmental value ("A playful garden story that teaches empathy, creative problem-solving, and friendship") — parents/teachers scan for this. Include the same phrasing in ad_promise.primary_benefit.
+- value_cards.whats_inside: keep the first three items EXACTLY in the shape above (page count, refrain in quotes, read-aloud). Add one more if useful. Also add "Bonus 'Can You Spot the Clues?' + 'Talk About the Story' pages" — every book ships with these.
 - value_cards.why_kids_love_it: MUST reference concrete book details (character name, refrain, funniest moment). No generic "engaging story".
 - value_cards.perfect_for: include age band + theme + one gifting occasion.
 - NEVER include fake reviews, fake scarcity, or made-up awards.

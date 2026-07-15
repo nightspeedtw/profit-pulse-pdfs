@@ -23,6 +23,7 @@ import {
 import { KIDS_BOOK_FORMAT } from '../_shared/kids-book-format.ts';
 import { computeLuminance } from '../_shared/image-luminance.ts';
 import { loadSegments, segmentsToPageTexts } from '../_shared/kids-segments.ts';
+import { buildBonusContent } from '../_shared/bonus-pages.ts';
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', bytes);
@@ -130,7 +131,7 @@ async function chainQcAndPublish(ebook_id: string, publish: boolean) {
 }
 
 function isDeterministicGateFailure(msg: string): boolean {
-  return /cover_dead_image_gate|dead_page_gate|text_mapping_gate|PDF_WRONG_TRIM|PDF_PAGE_COUNT_OUT_OF_RANGE|FAKE_PDF_MIME_TYPE|INVALID_PDF|MISSING_PAGE/i.test(msg);
+  return /cover_dead_image_gate|dead_page_gate|text_mapping_gate|text_safe_frame_gate|PDF_WRONG_TRIM|PDF_PAGE_COUNT_OUT_OF_RANGE|FAKE_PDF_MIME_TYPE|INVALID_PDF|MISSING_PAGE/i.test(msg);
 }
 
 function dispatchSupervisorForGate(ebook_id: string, error: string) {
@@ -319,7 +320,23 @@ Deno.serve(async (req) => {
       stageResult = { pdf_size: bytes.length, pages_added: 3, format: 'square_612', cover_bytes_hash: currentCoverHash, cover_luminance: coverLum };
     } else if (pos.lane === 'finalize') {
       const existing = await readInprogress(db, ebook_id);
-      const bytes = await finalizePicturePdf(existing);
+      // SKILL F — build bonus content (Spot the Clues + Talk About the Story)
+      // from the manuscript segments before finalizing.
+      let bonus = null as null | Awaited<ReturnType<typeof buildBonusContent>>;
+      try {
+        if (segs && segs.pages.length) {
+          bonus = await buildBonusContent({
+            title: String(ebook.title ?? ''),
+            segments: segs.pages,
+            theme: ((ebook.storefront_meta as Record<string, unknown> | null)?.theme as string | undefined) ?? null,
+            ageBand: ((ebook.storefront_meta as Record<string, unknown> | null)?.age_band as string | undefined) ?? null,
+            heroName: ((ebook.storefront_meta as Record<string, unknown> | null)?.hero_name as string | undefined) ?? null,
+          });
+        }
+      } catch (e) {
+        console.warn('[build-picture-pdf] bonus content build failed:', (e as Error).message);
+      }
+      const bytes = await finalizePicturePdf(existing, bonus);
       if (!(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
         throw new Error('PDF byte validation failed (%PDF- missing)');
       }
@@ -328,12 +345,14 @@ Deno.serve(async (req) => {
       });
       if (up.error) throw up.error;
       const { data: signed } = await db.storage.from('ebook-pdfs').createSignedUrl(FINAL_PATH(ebook_id), 60 * 60 * 24 * 365);
-      const pageCount = 3 + numStoryPages + 1;
+      // SKILL F: +2 bonus pages when present.
+      const bonusPageCount = (bonus?.clues?.length ? 1 : 0) + (bonus?.discussion_questions?.length ? 1 : 0);
+      const pageCount = 3 + numStoryPages + bonusPageCount + 1;
       await db.from('ebooks_kids').update({
         pdf_url: signed?.signedUrl ?? null, page_count: pageCount,
       }).eq('id', ebook_id);
       try { await db.storage.from('ebook-pdfs').remove([INPROGRESS_PATH(ebook_id)]); } catch { /* ignore */ }
-      stageResult = { pdf_size: bytes.length, page_count: pageCount, pdf_url: signed?.signedUrl ?? null, format: 'square_612', cover_bytes_hash: currentCoverHash };
+      stageResult = { pdf_size: bytes.length, page_count: pageCount, pdf_url: signed?.signedUrl ?? null, format: 'square_612', cover_bytes_hash: currentCoverHash, bonus_pages: bonusPageCount };
       finalized = true;
     } else {
       // Interior batch — fetch, downscale to JPEG, embed, save.
