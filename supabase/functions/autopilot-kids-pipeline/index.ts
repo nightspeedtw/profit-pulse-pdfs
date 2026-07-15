@@ -532,6 +532,10 @@ async function bibleCheck(ctx: Ctx): Promise<StepResult> {
 }
 
 async function generateCover(ctx: Ctx): Promise<StepResult> {
+  // Resolve required skill contracts BEFORE any generation. If a mandatory
+  // contract is missing/disabled, this throws MissingRequiredSkillContract
+  // and the outer loop escalates via error_class.
+  const coverContracts = await resolveStageOrThrow('generate_cover');
   // 1. Pick / load style preset (auto-rotate across pool)
   // 2. Build character bible via AI
   // 3. Generate character reference sheet with Fal Flux Schnell (fast, cheap)
