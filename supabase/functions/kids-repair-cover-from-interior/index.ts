@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
   try {
-    const { ebook_id, max_attempts = 3, splice_pdf = true } = (await req.json()) as RepairOpts;
+    const { ebook_id, max_attempts = 3, splice_pdf = true, hero_moment_override } = (await req.json()) as RepairOpts;
     if (!ebook_id) return json({ ok: false, error: 'ebook_id required' }, 400);
     if (!hasGeminiDirect()) return json({ ok: false, error: 'GEMINI_API_KEY required for reference-conditioned generation' }, 500);
 
