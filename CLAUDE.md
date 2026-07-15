@@ -25,3 +25,6 @@ P0 is complete only after three consecutive fresh books reach final PDF with no 
 - One package manager (bun). Synced lockfile.
 - Scripts: `bun install`, `bun run typecheck`, `bun run lint`, `bun run test`, `bun run build`.
 - Clean install must pass before any P0 change is claimed done.
+
+## Release Guardian (P0 policy)
+For any SecretPDF book-generation, PDF, illustrated-book, QC, preview, storefront, recurring-regression, or Fix-All task, load `.claude/skills/secretpdf-release-guardian/SKILL.md` and follow it as a release-blocking policy. Do not lower quality thresholds, bypass gates, manually edit QC scores, or claim a permanent fix without the required fixture and fresh-book proof. Run the release-manifest validator (`python .claude/skills/secretpdf-release-guardian/scripts/validate_release_manifest.py artifacts/secretpdf-release-manifest.json`) before declaring completion.

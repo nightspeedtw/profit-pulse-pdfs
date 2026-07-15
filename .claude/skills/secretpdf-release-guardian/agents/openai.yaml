@@ -1,0 +1,12 @@
+interface:
+  display_name: SecretPDF Release Guardian
+  short_description: Permanently harden ebook, PDF, illustrated-book, and sales-page releases
+  icon: 🛡️
+  brand_color: '#0F2740'
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true
