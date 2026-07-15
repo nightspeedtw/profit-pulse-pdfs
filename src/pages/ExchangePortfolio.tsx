@@ -3,12 +3,9 @@ import { Link, Navigate } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { useAuth } from "@/hooks/useAuth";
 import { ComplianceBanner } from "@/components/exchange/ComplianceBanner";
-import {
-  getMyHoldings, getMyOpenOrders, getMyRoyalties, invoke,
-} from "@/lib/exchange/api";
+import { getMyHoldings, getMyRoyalties } from "@/lib/exchange/api";
 import { formatSharePrice, formatShares, formatUsd } from "@/lib/exchange/model";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
 
 export default function ExchangePortfolio() {
   const { user, loading } = useAuth();
