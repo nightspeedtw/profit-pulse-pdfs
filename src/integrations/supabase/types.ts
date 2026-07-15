@@ -127,6 +127,7 @@ export type Database = {
       }
       autopilot_kids_runs: {
         Row: {
+          archived_at: string | null
           attempts: number
           blocker_reason: string | null
           completed_at: string | null
@@ -147,6 +148,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          archived_at?: string | null
           attempts?: number
           blocker_reason?: string | null
           completed_at?: string | null
@@ -167,6 +169,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          archived_at?: string | null
           attempts?: number
           blocker_reason?: string | null
           completed_at?: string | null

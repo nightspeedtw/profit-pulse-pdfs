@@ -223,9 +223,35 @@ export default function KidsAutopilot() {
         <Card className="p-4 border-2 border-red-600 bg-red-50">
           <p className="font-mono uppercase text-xs text-red-700">P0 regression pause</p>
           <p className="text-sm mt-1">{regressionPause.notes ?? "Same blocker class hit 2+ books after being marked fixed."}</p>
-          <p className="text-xs text-muted-foreground mt-1">Paused at {new Date(regressionPause.updated_at).toLocaleString()}. In-flight books continue. Fix regression, then resume batch order.</p>
+          <p className="text-xs text-muted-foreground mt-1">Paused at {new Date(regressionPause.updated_at).toLocaleString()}. In-flight books continue. Fix regression, then resume.</p>
+          <Button
+            size="sm"
+            className="mt-2"
+            onClick={async () => {
+              const r = await fetchAdminData<{ ok: boolean; resumed: number }>("kids_batch_resume").catch((e) => ({ ok: false, resumed: 0, error: String(e) } as unknown as { ok: boolean; resumed: number }));
+              toast({ title: r.resumed ? "Batch resumed" : "No paused batch found" });
+              await load();
+            }}
+          >
+            Resume batch after fix
+          </Button>
         </Card>
       )}
+
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={async () => {
+            const r = await fetchAdminData<{ ok: boolean; archived: number }>("kids_archive_diagnosed");
+            toast({ title: `Archived ${r.archived} diagnosed failure${r.archived === 1 ? "" : "s"}` });
+            await load();
+          }}
+        >
+          Archive diagnosed failures
+        </Button>
+      </div>
+
 
       <Card className="p-4 border-2 border-foreground">
         <p className="font-mono uppercase text-xs mb-2">Cycle time (30d, concept → live) — target 30–50 min, SLA 90 min</p>

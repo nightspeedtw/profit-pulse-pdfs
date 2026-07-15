@@ -53,6 +53,37 @@ const STEPS: Step[] = [
   { name: 'dispatch_pdf_qc_publish', label: 'Dispatch multi-stage PDF → QC → publish', critical: true, run: dispatchPdfQcPublish },
 ];
 
+// -----------------------------------------------------------------------------
+// UNIFIED STEP-FAILURE POLICY (one_shot_fix_never_repeat, rule 1e)
+// Every step declares what happens when it fails. Fixes to this table apply to
+// every entry point (one-click, batch producer, watchdog, supervisor, repair
+// functions) because they all converge on this pipeline runner.
+//
+// Policies:
+//   'retire'            — this concept can never recover; retire ebook so the
+//                         parent one-click loop rotates to a fresh concept.
+//   'repair_story_gate' — dispatch kids-repair-story-gate (which itself retires
+//                         after MAX_ATTEMPTS). Skip if the error means the
+//                         manuscript itself is missing.
+//   'soft'              — record and keep going. Downstream may decide.
+// -----------------------------------------------------------------------------
+type StepFailurePolicy = 'retire' | 'repair_story_gate' | 'soft';
+const STEP_FAILURE_POLICY: Record<string, StepFailurePolicy> = {
+  generate_idea: 'retire',
+  generate_manuscript: 'retire',
+  story_gate: 'repair_story_gate',
+  metadata_gate: 'retire',
+  bible_check: 'retire',
+  generate_cover: 'retire',            // dead-image / cover generation failure = unrecoverable concept
+  generate_style_bible: 'retire',
+  generate_interior: 'retire',
+  generate_thumbnail: 'soft',
+  generate_previews: 'soft',
+  dispatch_pdf_qc_publish: 'retire',
+};
+
+
+
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -156,45 +187,49 @@ Deno.serve(async (req) => {
         error_message: outcome.error ?? null,
       }).eq('id', stepRow!.id);
 
-      // Hard stop: if the story-gate step failed, do NOT run any art/PDF/QC/publish steps.
-      // Fire the repair-story-gate function (fire-and-forget). It will loop the
-      // reviser up to MAX_ATTEMPTS; on success it resumes this pipeline
-      // (force_finish=true) — on exhaustion it sets pipeline_status='retired'
-      // so the parent one-click loop rotates to a fresh concept. Autopilot must
-      // NEVER rest in human_review_required (owner rule).
-      if (step.name === 'story_gate' && outcome.status === 'failed') {
-        await supabase.from('ebooks_kids').update({
-          listing_status: 'draft',
-          status: 'needs_revision',
-          pipeline_status: 'story_gate_repairing',
-          blocker_reason: `story_gate_failed: ${(outcome.error ?? 'unknown').slice(0, 200)}`,
-        }).eq('id', ctx.ebookId);
-        console.log(`story_gate failed; dispatching kids-repair-story-gate for ${ctx.ebookId}`);
-        fetch(`${SUPABASE_URL}/functions/v1/kids-repair-story-gate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-          body: JSON.stringify({ ebook_id: ctx.ebookId, run_id: ctx.runId, resume_pipeline: true }),
-        }).catch(e => console.error('repair-story-gate dispatch failed', e));
-        break;
-      }
+      // UNIFIED STEP-FAILURE DISPATCH — all entry points share this logic.
+      if (outcome.status === 'failed') {
+        const policy = STEP_FAILURE_POLICY[step.name] ?? 'soft';
+        const errText = String(outcome.error ?? 'unknown').slice(0, 400);
 
-      // Hard stop: bible/story or metadata/story mismatch means any downstream
-      // art would use the wrong character/premise. Retire directly so the
-      // parent one-click loop rotates to a fresh concept (never dead-end).
-      if ((step.name === 'bible_check' || step.name === 'metadata_gate') && outcome.status === 'failed') {
-        await supabase.from('ebooks_kids').update({
-          listing_status: 'draft',
-          status: 'needs_revision',
-          pipeline_status: 'retired',
-          blocker_reason: `auto_retired_for_fresh_concept: ${step.name}_failed: ${(outcome.error ?? (step.name === 'metadata_gate' ? METADATA_STORY_MISMATCH : 'BIBLE_STORY_MISMATCH')).slice(0, 180)}`,
-          human_review_reason: outcome.error ?? (step.name === 'metadata_gate' ? METADATA_STORY_MISMATCH : 'BIBLE_STORY_MISMATCH'),
-        }).eq('id', ctx.ebookId);
-        console.log(`${step.name} blocked pipeline: ${outcome.error}`);
-        break;
-      }
+        // Special case: if a downstream step throws "manuscript missing", the
+        // real fault is generate_manuscript; a repair loop cannot recover this.
+        // Force retire regardless of the step's declared policy.
+        const manuscriptMissing = /manuscript\s+missing|manuscript\s+too\s+short/i.test(errText);
 
-      // Never break the loop for other steps — keep pushing forward. Later steps decide what to do given prior state.
+        if (policy === 'repair_story_gate' && !manuscriptMissing) {
+          await supabase.from('ebooks_kids').update({
+            listing_status: 'draft',
+            status: 'needs_revision',
+            pipeline_status: 'story_gate_repairing',
+            blocker_reason: `story_gate_failed: ${errText.slice(0, 200)}`,
+          }).eq('id', ctx.ebookId);
+          console.log(`story_gate failed; dispatching kids-repair-story-gate for ${ctx.ebookId}`);
+          fetch(`${SUPABASE_URL}/functions/v1/kids-repair-story-gate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+            body: JSON.stringify({ ebook_id: ctx.ebookId, run_id: ctx.runId, resume_pipeline: true }),
+          }).catch(e => console.error('repair-story-gate dispatch failed', e));
+          break;
+        }
+
+        if (policy === 'retire' || manuscriptMissing) {
+          const effectiveStep = manuscriptMissing ? 'generate_manuscript' : step.name;
+          await supabase.from('ebooks_kids').update({
+            listing_status: 'draft',
+            status: 'needs_revision',
+            pipeline_status: 'retired',
+            blocker_reason: `auto_retired_for_fresh_concept: ${effectiveStep}_failed: ${errText.slice(0, 180)}`,
+            human_review_reason: errText,
+          }).eq('id', ctx.ebookId);
+          console.log(`[unified_failure_policy] retire on ${step.name}: ${errText.slice(0, 160)}`);
+          break;
+        }
+        // policy === 'soft' → fall through, loop continues.
+      }
     }
+
+
 
 
     const finalStatus = criticalFailures.length > 0 ? 'failed' : 'completed';

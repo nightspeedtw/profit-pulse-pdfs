@@ -401,6 +401,7 @@ Deno.serve(async (req) => {
         supabase
           .from("autopilot_kids_runs")
           .select("id, status, current_step_label, progress_percent, blocker_reason, ebook_kids_id, created_at, metadata")
+          .is("archived_at", null)
           .order("created_at", { ascending: false })
           .limit(30),
         supabase.from("kids_category_weights").select("*"),
@@ -414,7 +415,6 @@ Deno.serve(async (req) => {
           .eq("status", "paused")
           .order("updated_at", { ascending: false })
           .limit(1),
-
       ]);
       if (runsRes.error) throw runsRes.error;
       const statsRow = Array.isArray(statsRes.data) ? statsRes.data[0] : null;
@@ -427,8 +427,41 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (resource === "kids_archive_diagnosed") {
+      // Archive all failed runs older than 5 minutes (protects an in-flight
+      // failure the operator hasn't seen yet). Keeps the row, marks archived.
+      const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { data: updated, error: updErr } = await supabase
+        .from("autopilot_kids_runs")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update({ archived_at: new Date().toISOString() } as any)
+        .eq("status", "failed")
+        .is("archived_at", null)
+        .lt("created_at", cutoff)
+        .select("id");
+      if (updErr) throw updErr;
+      return json({ ok: true, archived: updated?.length ?? 0 });
+    }
+
+    if (resource === "kids_batch_resume") {
+      const { data: order } = await supabase
+        .from("kids_batch_orders")
+        .select("id")
+        .eq("status", "paused")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!order) return json({ ok: true, resumed: 0 });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: upErr } = await (supabase.from("kids_batch_orders") as any)
+        .update({ status: "active", notes: "resumed after regression fix" })
+        .eq("id", order.id);
+      if (upErr) throw upErr;
+      return json({ ok: true, resumed: 1, order_id: order.id });
+    }
 
     return json({ error: "unknown resource" }, 400);
+
 
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : String(err) }, 500);
