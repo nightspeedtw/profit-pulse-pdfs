@@ -25,7 +25,7 @@ const MAX_PER_CLASS: Record<string, number> = {
   character_identity: 3,
   pdf_glyph: 2,
   worker_resource_limit: 2,
-  qc_missing: 3,
+  qc_missing: 5,
   cover: 2,
   image_missing: 2,
   text_mapping: 2,
@@ -99,6 +99,13 @@ function countAttempts(meta: Record<string, unknown> | null, klass: string): num
   const entries = Array.isArray(rs?.entries) ? rs!.entries : [];
   // Do not count transient handler errors toward the class budget — the model
   // failed to return valid JSON, no real repair attempt was consumed.
+  //
+  // EXCEPTION: qc_missing errors DO count. When kids-qc-run keeps crashing
+  // (e.g. CPU Time exceeded), a `result: 'error'` IS the entire "attempt" —
+  // if we exclude it, the book loops forever. Bounded to MAX_PER_CLASS.qc_missing.
+  if (klass === 'qc_missing') {
+    return entries.filter(e => e.blocker_class === klass).length;
+  }
   return entries.filter(e => e.blocker_class === klass && e.result !== 'error').length;
 }
 
@@ -134,6 +141,25 @@ function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_
   const stepName = latestFailedStep?.step_name;
   const criticalErrors = Array.isArray(sc.critical_errors) ? (sc.critical_errors as unknown[]).map(String) : [];
   const reasons = Array.isArray(sc.reasons) ? (sc.reasons as unknown[]).map(String) : [];
+
+  // ---- QC-CRASH RECLASSIFICATION (highest priority) ----
+  // A book with paid interiors + a PDF but NO verdict (overall_qc_score IS
+  // NULL) OR an explicit qc_crash marker OR pipeline_status='qc_pending' is
+  // an INFRASTRUCTURE failure, never a quality verdict. Route to qc_missing
+  // (kids-qc-run re-invocation) regardless of the outer status text so books
+  // already parked in human_review_required from before this fix get unstuck.
+  const pipelineStatus = String(ebook.pipeline_status ?? '');
+  const hasPdf = Boolean(ebook.pdf_url);
+  const interiorCount = Array.isArray(ebook.interior_illustrations) ? (ebook.interior_illustrations as unknown[]).length : 0;
+  const overallScore = ebook.overall_qc_score as number | null | undefined;
+  const qcCrashMarker = (sc.qc_crash ?? null) as { error?: string } | null;
+  const looksLikeQcCrash = hasPdf && interiorCount >= 12 && (overallScore == null || qcCrashMarker != null || pipelineStatus === 'qc_pending');
+  if (looksLikeQcCrash) {
+    const detail = qcCrashMarker?.error
+      ? `qc_crash: ${String(qcCrashMarker.error).slice(0, 240)}`
+      : (pipelineStatus === 'qc_pending' ? 'qc_pending: verdict missing' : 'qc_missing: no scorecard after pdf assembly');
+    return { klass: 'qc_missing', detail };
+  }
 
   // If an async PDF rebuild is already mid-chain, never start a new art/style
   // repair from stale QC errors. Just resume the PDF chain.
@@ -317,7 +343,10 @@ Deno.serve(async (req) => {
     const allEntries = ((meta.repair_supervisor as { entries?: RepairEntry[] } | undefined)?.entries) ?? [];
     // Free resume entries (see tryFreeResume below) never count toward the
     // repair budget — resuming an interrupted build is not a repair.
-    const FREE_CLASSES = new Set(['resume_interior', 'resume_pdf']);
+    // qc_missing (infrastructure QC re-runs) is also excluded from the global
+    // totalAttempts budget — it has its own MAX_PER_CLASS cap and must not be
+    // starved by prior art/style repair attempts.
+    const FREE_CLASSES = new Set(['resume_interior', 'resume_pdf', 'qc_missing']);
     const totalAttempts = allEntries.filter(e => !FREE_CLASSES.has(e.blocker_class)).length;
     const stage_before = latestFailedStep?.step_name ?? String(ebook.pipeline_status ?? 'unknown');
 

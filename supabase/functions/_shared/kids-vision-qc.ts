@@ -310,7 +310,7 @@ export interface BatchCellVerdict {
 }
 
 async function makeContactSheet(urls: string[]): Promise<string> {
-  const CELL = 384;
+  const CELL = 256; // 256×256 per cell → 768×768 sheet; ~4× less decode CPU than 384.
   const canvas = new Image(CELL * 3, CELL * 3);
   canvas.fill(0xffffffff);
   for (let i = 0; i < urls.length && i < 9; i++) {
@@ -400,4 +400,85 @@ For each cell 1-${group.length} return an object. Return JSON:
     }
   }
   return results;
+}
+
+/**
+ * Auto-selecting vision QC. For large books (>12 interior pages) uses the 3x3
+ * contact-sheet batched path (≤4 vision calls for a 32-page book) to stay
+ * inside the edge-function CPU budget. Otherwise falls back to the per-page
+ * path so small repair re-checks keep their higher-fidelity scoring.
+ *
+ * Always returns a VisionReport-shaped object so downstream findings code
+ * (visionReportToFindings) is untouched.
+ */
+export async function runKidsVisionQcAuto(opts: RunKidsVisionOpts): Promise<VisionReport> {
+  if (opts.interior.length <= 12) return runKidsVisionQc(opts);
+
+  const cells = await runKidsVisionQcBatched({
+    coverUrl: opts.coverUrl,
+    interior: opts.interior,
+    ebook_id: opts.ebook_id,
+  });
+
+  // Map contact-sheet cell verdicts back into the full VisionPageScore shape
+  // by broadcasting the batched scores into the per-dimension fields the
+  // downstream findings code reads.
+  const pages: VisionPageScore[] = cells.map((c) => ({
+    page_number: c.page_number,
+    index: c.index,
+    url: c.url,
+    character_match_score: c.character_match_score,
+    protagonist_face_body_score: c.character_match_score,
+    clothing_prop_consistency_score: c.character_match_score,
+    palette_match_score: c.overall_score,
+    line_quality_match_score: c.overall_score,
+    lighting_match_score: c.overall_score,
+    world_style_match_score: c.overall_score,
+    cover_interior_match_score: c.cover_interior_match_score,
+    page_scene_match_score: c.page_scene_match_score,
+    duplicate_or_near_duplicate_score: 0,
+    evidence: c.evidence,
+    repair_action: c.repair_action,
+  }));
+
+  // Duplicate detection (hash-based) — mirrors runKidsVisionQc.
+  const hashes: Record<string, number[]> = {};
+  for (const p of opts.interior) {
+    if (!p.hash) continue;
+    (hashes[p.hash] ??= []).push(p.index);
+  }
+  for (const [, idxs] of Object.entries(hashes)) {
+    if (idxs.length > 1) {
+      for (const i of idxs) {
+        const pg = pages.find((x) => x.index === i);
+        if (pg) {
+          pg.duplicate_or_near_duplicate_score = 100;
+          pg.evidence = `${pg.evidence} | DUPLICATE bytes vs pages ${idxs.filter((x) => x !== i).join(",")}`;
+          pg.repair_action = "regenerate_page";
+        }
+      }
+    }
+  }
+
+  const overall_character_consistency = avg(pages.map((p) => p.character_match_score));
+  const overall_cover_interior_match = avg(pages.map((p) => p.cover_interior_match_score));
+  const overall_style_bible_match = avg(pages.map((p) => p.palette_match_score));
+
+  const critical: string[] = [];
+  if (overall_character_consistency < 90) critical.push(`character_consistency ${overall_character_consistency} < 90`);
+  if (overall_cover_interior_match < 90) critical.push(`cover_interior_match ${overall_cover_interior_match} < 90`);
+  if (overall_style_bible_match < 90) critical.push(`style_bible_match ${overall_style_bible_match} < 90`);
+  for (const p of pages) {
+    if (p.character_match_score < 82) critical.push(`page ${p.page_number} character ${p.character_match_score} < 82`);
+    if (p.duplicate_or_near_duplicate_score >= 90) critical.push(`page ${p.page_number} duplicate`);
+  }
+
+  return {
+    overall_character_consistency,
+    overall_cover_interior_match,
+    overall_style_bible_match,
+    pages,
+    critical_findings: critical,
+    computed_at: new Date().toISOString(),
+  };
 }

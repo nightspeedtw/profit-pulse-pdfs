@@ -39,8 +39,37 @@ Deno.serve(async (req) => {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
       body: JSON.stringify({ ebook_id, run_id, use_cached_story_judge_if_hash_matches: true, auto_repair_on_fail: false }),
     });
-    const qcBody = await qcRes.json();
-    const sellable = !!qcBody?.verdict?.sellable;
+    const qcText = await qcRes.text();
+    let qcBody: Record<string, unknown> = {};
+    try { qcBody = JSON.parse(qcText); } catch { qcBody = {}; }
+
+    // Infrastructure crash detection: QC produced no verdict at all. Treat as
+    // a stall, NOT as a quality verdict. Set pipeline_status='qc_pending' so
+    // the supervisor/watchdog re-invoke QC (bounded by MAX_PER_CLASS.qc_missing).
+    const verdictObj = (qcBody as { verdict?: { sellable?: boolean; reasons?: unknown[] } }).verdict;
+    const qcCrashed = !qcRes.ok
+      || (qcBody as { ok?: boolean }).ok === false
+      || !verdictObj
+      || typeof verdictObj.sellable !== 'boolean';
+
+    if (qcCrashed) {
+      const crashMsg = String(
+        (qcBody as { error?: string }).error
+        ?? `qc_run http=${qcRes.status}`,
+      ).slice(0, 300);
+      await db.from('ebooks_kids').update({
+        pipeline_status: 'qc_pending',
+        blocker_reason: `qc_crash: ${crashMsg}`,
+        human_review_reason: null,
+      }).eq('id', ebook_id);
+      if (autoRepairOnFail) {
+        // @ts-expect-error EdgeRuntime is a Deno Deploy global
+        EdgeRuntime.waitUntil(dispatchRepairSupervisor(ebook_id, run_id));
+      }
+      return json({ ok: false, ebook_id, publishState: 'qc_crashed', qc_crash: true, error: crashMsg, supervisor_dispatched: autoRepairOnFail });
+    }
+
+    const sellable = !!verdictObj.sellable;
 
     let publishState = 'not_attempted';
     let supervisorDispatched = false;
