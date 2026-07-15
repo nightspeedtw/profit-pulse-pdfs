@@ -132,7 +132,7 @@ function parseDeadInteriorPageNumbers(detail: string): number[] {
 }
 
 
-function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_name?: string; error_message?: string } | null): { klass: string; detail: string } | null {
+export function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: { step_name?: string; error_message?: string } | null): { klass: string; detail: string } | null {
   const sc = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
   const listing = String(ebook.listing_status ?? 'draft');
   const sellable = Boolean(ebook.sellable);
