@@ -733,12 +733,32 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
   }).eq('ebook_id', ctx.ebookId);
 
   const existingMeta = (ctx.ebook.storefront_meta ?? {}) as Record<string, unknown>;
+  // Persist canonical character-lock evidence for downstream stages
+  // (interior + release). story_bible_id and character_bible_id resolve to
+  // the same kids_book_bibles row; character_reference_id is a fresh UUID
+  // representing the reference-sheet asset (whose storage path is masterPath).
+  const bibleRowId = ((bible ?? {}) as { id?: string }).id ?? null;
+  const characterReferenceId = crypto.randomUUID();
   await db.from('ebooks_kids').update({
     cover_url: coverUrl,
     thumbnail_url: coverUrl,
     status: 'rendering', pipeline_status: 'rendering',
     storefront_meta: { ...existingMeta, title_treatment: treatment.metadata, cover_luminance: { master: { note: 'live_verified_at_birth' }, final: finalLum } },
+    story_bible_id: bibleRowId,
+    character_bible_id: bibleRowId,
+    character_reference_id: characterReferenceId,
+    style_version: styleSlug,
   }).eq('id', ctx.ebookId);
+
+  // Emit skill-usage evidence for generate_cover (character_reference,
+  // illustration_style_lock, cover_art_direction, image_artifact_guard).
+  await logStageEvidence(coverContracts, {
+    run_id: ctx.runId ?? null,
+    book_id: ctx.ebookId,
+    input_reference_ids: [bibleRowId, characterReferenceId, styleSlug].filter(Boolean) as string[],
+    output_asset_ids: [composedPath, masterPath],
+    pass_fail_result: 'pass',
+  });
   return {
     output: {
       composed_path: composedPath,
@@ -748,6 +768,8 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
       title_theme: treatment.metadata.theme,
       title_font_size: treatment.metadata.font_size,
       lines: treatment.metadata.lines,
+      character_reference_id: characterReferenceId,
+      story_bible_id: bibleRowId,
     },
   };
 }
