@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { parseSegmentedWriterOutput } from "../../supabase/functions/_shared/kids-segments";
+import type { KidsSegment } from "../../supabase/functions/_shared/kids-segments";
 
 const page = (n: number) => ({ page: n, text: `Chef Pip stirred bright berry jam with a patient little spoon on page ${n}.` });
+const pagesOf = (value: Record<string, unknown>) => value.pages as KidsSegment[];
 
 describe("kids segmented writer parser recovery", () => {
   it("recovers markdown-fenced JSON", () => {
@@ -9,7 +11,7 @@ describe("kids segmented writer parser recovery", () => {
     const parsed = parseSegmentedWriterOutput(raw);
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.value.pages).toHaveLength(2);
+    expect(pagesOf(parsed.value)).toHaveLength(2);
     expect(parsed.diagnostics.repairs).toContain("code_fence_stripped");
   });
 
@@ -18,7 +20,7 @@ describe("kids segmented writer parser recovery", () => {
     const parsed = parseSegmentedWriterOutput(raw);
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.value.pages[0].page).toBe(1);
+    expect(pagesOf(parsed.value)[0].page).toBe(1);
     expect(parsed.diagnostics.repairs).toContain("outer_json_extracted");
   });
 
@@ -27,7 +29,7 @@ describe("kids segmented writer parser recovery", () => {
     const parsed = parseSegmentedWriterOutput(raw);
 
     expect(parsed.ok).toBe(true);
-    expect(parsed.value.pages).toHaveLength(2);
+    expect(pagesOf(parsed.value)).toHaveLength(2);
     expect(parsed.diagnostics.repairs).toEqual(expect.arrayContaining(["missing_comma_inserted"]));
   });
 
@@ -37,7 +39,7 @@ describe("kids segmented writer parser recovery", () => {
 
     expect(parsed.ok).toBe(true);
     expect(parsed.partial).toBe(true);
-    expect(parsed.value.pages.map((p) => p.page)).toEqual([1, 2]);
+    expect(pagesOf(parsed.value).map((p) => p.page)).toEqual([1, 2]);
     expect(parsed.diagnostics.repairs).toContain("complete_pages_salvaged");
   });
 });
