@@ -253,6 +253,13 @@ Deno.serve(async (req) => {
       .eq("id", ebookId);
     if (upErr) throw upErr;
 
+    // Auto-list on Royalty Rights Exchange (idempotent, best-effort)
+    try {
+      await supabase.functions.invoke('exchange-list-book', {
+        body: { book_id: ebookId, book_type: 'adult' },
+      });
+    } catch (e) { console.warn('exchange-list-book failed', (e as Error).message); }
+
     await log(ebookId, "auto_list", "completed", { environment, ...stripe });
 
     return new Response(

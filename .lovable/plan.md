@@ -1,70 +1,107 @@
+## Royalty Rights Exchange — Phase 1 Build Plan
 
-# Owner Editorial Review → 6 Permanent Skills + Book Repair
+Stock-market-style trading of book royalty shares with a **simulated USD wallet** (no real payments yet). All two currently live books auto-list; every future publish auto-lists.
 
-Owner graded live book 27a1fe60 68/100 while final QC gave 100 — every issue is a missing gate. Plan: encode six skills as pipeline_skills rows, wire each as a deterministic gate + repair reaction, then apply to 27a1fe60.
+---
 
-## Part 1 — Encode 6 skills (pipeline_skills, source='learned')
+### 1. Economic Model (single source of truth)
 
-| Skill | Rule | Gate (where) | Reaction |
-|---|---|---|---|
-| A. Text-safe frame | ≥36pt margin from trim for body/title text; ≥18pt for folios; shrink-to-fit (step down to 14pt min, then wrap, never clip); line-height 1.3–1.5; text block ≤65% page width; panel padding ≥16pt | `text_safe_frame_gate` — bbox check at every PDF stamp (title page, captions, bonus pages) | Re-layout: shrink font → wrap → repaginate. Never publish with clipped text. |
-| B. Integrated caption treatment | Story text sits in reserved lower-third with translucent tinted panel (palette-derived, 85–92% opacity, feathered), warm dark-brown text (#3a2a1e), 16–20pt, rounded friendly font. Onomatopoeia stays as in-art lettering. | `caption_integration_gate` — captions never rendered as stark #FFFFFF rects | Re-render PDF with new `drawCaptionOverlay` (palette-tinted) |
-| C. Character sheet lock (mandatory) | Before interiors: generate multi-pose character sheet (front/side/action + swatches + proportions); QC once; pin sheet URL into EVERY page prompt. Per-batch verify uses SHEET as reference with strict species/face/proportions rubric matching final QC. | `character_sheet_required_gate` before interior_build; `character_match_gate` per batch page | Missing sheet → run `kids-build-character-sheet`; page fail → regenerate that page with sheet |
-| D. No title echo in interior | Vision transcription per batch page; any interior containing title words or lettering fails that page | `interior_title_echo_gate` in batch verify | Regenerate offending page via `kids-regenerate-offmodel-pages` |
-| E. Text completeness pre-render | Every page segment ends with `. ! ?`; not ending in conjunction/article ("and","but","a","the","for","to","of"); complete sentence; runs at segmentation time (free, pre-illustration) | `page_text_completeness_gate` in segmenter | Extend segment from next paragraph or trim to prior sentence boundary; if unfixable, rewrite via `rewrite-kids-manuscript` |
-| F. Sellability + bonus pages | Every book gets +2 bonus pages before back cover: (1) "Can You Spot the Clues?" — auto-extracted key objects from manuscript + 1 prompt Q; (2) "Talk About the Story" — 4 discussion Qs from theme. Positioning copy must name developmental value. Page-count gate +2. | `bonus_pages_present_gate` at pdf_prepare; `positioning_copy_developmental_value_gate` at storefront copy | Auto-generate bonus pages via new helper `buildBonusPages`; storefront copy re-gen with developmental-value directive |
+Constants file `src/lib/exchange/model.ts` + edge mirror `supabase/functions/_shared/exchange-model.ts`, plus a `pipeline_skills` row `rights_exchange_model` documenting the formula.
 
-## Part 2 — Code changes
+- **1,000,000 shares per book**, base valuation **$1,000** → base share price **$0.001**.
+- **Reference price formula** (recomputed daily + on each trade):
+  `ref = max(0.001, (1000 + trailing_90d_net_sales_rev × 4) / 1_000_000) × momentum`
+  `momentum = clamp(1 + 0.10 × sales_rank_percentile, 0.8, 1.5)` (0.8 floor for zero-sales)
+- **Royalty split on each recorded book sale**:
+  `net = sale_price × (1 − fee_pct − tax_pct)` (defaults: fee 3%, tax 0% — stored in `platform_settings`)
+  → 50% creator pool (if Create&Earn creator exists) → remainder to royalty pool → credited pro-rata to shareholders by snapshot at sale time. Treasury earns on unsold shares.
+- Every distribution logged in `royalty_distributions`.
 
-### New/updated files
-- `supabase/functions/_shared/kids-picture-pdf.ts`
-  - Rewrite `drawCaptionOverlay`: palette-tinted panel (accept `paletteHint`), warm-ink text, rounded feathered look via multiple stacked rects w/ decreasing opacity.
-  - Rewrite `addTitlePage`: shrink-to-fit (measure width, step 34→28→22→18→14; then wrap).
-  - New `addBonusSpotCluesPage(doc, clues[])` and `addBonusDiscussionPage(doc, questions[])`.
-  - New `assertTextSafeBox(text, font, size, x, y, maxW)` helper used everywhere text is stamped.
-- `supabase/functions/_shared/kids-segments.ts` (or wherever page text is finalized)
-  - Add `validatePageTextCompleteness(segments)` — fails on non-terminal punct / trailing stopwords; auto-repair by pulling from next segment.
-- `supabase/functions/_shared/kids-vision-qc.ts`
-  - Per-batch page prompt: compare against `character_sheet_url` (new arg); rubric fields: species_match, face_match, proportions_match, palette_match, accessories_match, human_like_body (must be false), title_text_present (must be false).
-- `supabase/functions/kids-build-character-sheet/index.ts` (NEW)
-  - Generate a 4-pose sheet from the cover-style prompt + character bible; store on `ebooks_kids.character_sheet_url` (add column via migration).
-- `supabase/functions/kids-render-interior/index.ts`
-  - Gate: refuse to start if `character_sheet_url` missing → invoke build-sheet, then continue.
-  - Pin sheet URL into every page prompt as a locked reference alongside cover.
-  - After batch verify, apply new gates (title-echo + character-sheet-match); reaction routes to `kids-regenerate-offmodel-pages`.
-- `supabase/functions/kids-build-picture-pdf/index.ts`
-  - Insert bonus pages before "The End".
-  - Assert text-safe frame on every stamped page; if fail → shrink-to-fit path.
-- `supabase/functions/_shared/story-craft-skill.ts` + `supabase/functions/kids-generate-storefront-copy/index.ts`
-  - Add "developmental-value line required" directive to description/preview generation.
-- New helper `supabase/functions/_shared/bonus-pages.ts`
-  - Extract clues (concrete nouns repeated ≥2× in manuscript) + generate 4 discussion Qs via Lovable AI.
+---
 
-### Migrations
-1. `pipeline_skills` inserts for skills A–F (id, key, rule, source='learned', version).
-2. `ebooks_kids` add column `character_sheet_url text`.
-3. Update page-count expectation: assembly gate uses `illustrations + 4 + 2` (bonus).
+### 2. Data Model (migration)
 
-## Part 3 — Apply to 27a1fe60 (Detective Pip)
+Tables (all with GRANTs + RLS):
 
-1. Build character sheet from best on-model pages (owner-implicit: not 5,8,11,17,23,29). Pick highest-agreement fingerprint pages.
-2. Regenerate off-model pages: 5, 8, 11, 17, 23, 29.
-3. Regenerate title-echo pages: 7, 9, 10, 14, 21.
-4. Fix truncated segments on pages 24, 27, 30 — extend from next paragraph or complete via rewrite; re-layout shrink-to-fit.
-5. Fix clipping on title page (shrink-to-fit).
-6. Cover: regenerate via `kids-repair-cover-from-interior` with directive "Pip centered/prominent, holding magnifying glass and detective bag".
-7. Append 2 bonus pages (Spot the Clues: pebble, thimble, blue ribbon; Talk About: empathy/problem-solving).
-8. Re-render full PDF with SKILL B caption treatment; re-run QC with upgraded rubric; keep live only on pass.
-9. Update storefront copy to include developmental-value line.
+- `wallets` (user_id PK, usd_balance NUMERIC ≥ 0, is_demo bool)
+- `wallet_transactions` (id, user_id, type: `topup_placeholder|trade_buy|trade_sell|royalty_credit|demo_grant`, amount_usd, ref_id, meta)
+- `rights_offerings` (book_id PK → ebooks_kids.id (nullable) / ebooks.id, total_shares=1M, treasury_shares, ref_price_per_share, market_cap, last_trade_price, updated_at)
+- `rights_holdings` (user_id, book_id, shares ≥ 0, PK(user_id, book_id)) — treasury represented by user_id = NULL sentinel row **or** a dedicated `is_treasury` boolean; using dedicated `platform_treasury` view over `rights_offerings.treasury_shares` to avoid NULL FK
+- `rights_orders` (id, seller_id (nullable=treasury), book_id, qty_remaining, price_per_share, status: `open|filled|cancelled`, created_at)
+- `rights_trades` (id, book_id, buyer_id, seller_id (nullable), qty, price_per_share, gross_usd, executed_at)
+- `rights_price_history` (book_id, day/ts, ref_price, last_trade_price, volume) — daily snapshots + intraday rollup
+- `royalty_distributions` (id, book_id, sale_ref, holder_id, shares_at_snapshot, amount_usd, created_at)
+- `platform_settings` (key PK, value_json) seeded with `royalty_fee_pct=0.03`, `royalty_tax_pct=0`, `creator_pool_pct=0.50`
 
-## Part 4 — Audit table (post in reply)
+**Constraints:** `wallets.usd_balance >= 0`, `rights_holdings.shares >= 0`, `rights_orders.qty_remaining >= 0`, `rights_offerings.treasury_shares >= 0`.
 
-Extend the gate/reaction table with rows for text_safe_frame, caption_integration, character_sheet_required, character_match, interior_title_echo, page_text_completeness, bonus_pages_present, positioning_copy_developmental_value — all marked WIRED.
+**RLS:**
+- wallets/wallet_transactions/rights_holdings/royalty_distributions → owner (`auth.uid()`) SELECT only; writes via service role.
+- rights_offerings / rights_orders / rights_trades / rights_price_history → public SELECT.
+- Cancel own order via edge function (service role), not direct DELETE.
 
-## Assumptions (flag for correction)
-- Character sheet is stored as a single composite PNG at `ebooks_kids.character_sheet_url` (add column). If you prefer a JSONB with multiple pose URLs, say so.
-- Bonus-page clue extraction uses a lightweight LLM call (Gemini flash via gateway) — cost is one extra call per book.
-- Batch stays running throughout; changes apply to books not yet at interior_build. In-flight books at later stages will be repaired opportunistically by the supervisor when they hit the new gates.
-- I will NOT rewrite the entire manuscript for 27a1fe60 — only complete the 3 truncated segments and shrink-to-fit layout.
+---
 
-Ready to implement on approval.
+### 3. Edge Functions
+
+- `exchange-list-book` — idempotent auto-list: create `rights_offerings` (1M treasury shares) + seed ask at ref price + first price-history row.
+- `exchange-buy` — transactional matcher: walk asks ascending, partial-fill allowed, atomic wallet/holdings/orders update, insert trades, update `last_trade_price` + price history, reject on insufficient balance.
+- `exchange-sell-list` — validate holdings, create sell order, escrow shares (deduct from holdings into order).
+- `exchange-cancel-order` — return escrowed shares to holdings.
+- `exchange-recompute-refprice` — daily cron + on-trade recompute; writes `rights_price_history` snapshot.
+- `exchange-record-book-sale` — hook invoked by existing purchase/download-grant paths; computes distribution, credits wallets, inserts `royalty_distributions` + `wallet_transactions`.
+- `exchange-wallet-topup-demo` — grants $100 DEMO once per new user (idempotent).
+- `exchange-backfill-live-books` — one-shot: list all `listing_status='live'` books.
+
+Hooks: `kids-publish-if-qc-passed` (kids) and `auto-list-ebook` (adult) → invoke `exchange-list-book` after flipping live.
+
+---
+
+### 4. Frontend (`/exchange`)
+
+Routes added to `src/App.tsx`:
+- `/exchange` — Board (public)
+- `/exchange/book/:bookId` — Book detail (public browse, auth-gated trade panels)
+- `/exchange/portfolio` — auth-required
+- `/exchange/wallet` — auth-required
+
+Components:
+- `Board`: card+table with cover, title, last price, 24h/7d %, ref price, market cap, star rating, sparkline (recharts). Sort tabs: Movers / Market Cap / Newest.
+- `BookDetail`: price chart (recharts area/line), asks ladder, recent trades, BUY panel (qty → live cost preview → execute), SELL panel (qty + limit price → escrow), your position + royalty earnings.
+- `Portfolio`: holdings table with current value & P/L, royalty income history, open orders (cancel button).
+- `Wallet`: balance, "Top Up" placeholder modal (bilingual copy), transaction history. Demo grant runs on first visit.
+- Compliance banner component reused site-wide on all exchange pages:
+  > 🇹🇭 นี่คือส่วนแบ่งรายได้ค่าลิขสิทธิ์ ไม่ใช่หุ้นบริษัท · รายได้ไม่การันตี · ระบบช่วงทดลองใช้ยอดเงินจำลอง (DEMO) ยังไม่มีการชำระเงินจริง
+  > 🇬🇧 These are royalty revenue shares, not company equity. No income guaranteed. Demo balance only — no real payments yet.
+
+Header nav gets a new "Exchange" link.
+
+Admin: small section on `/admin` (Dashboard) showing exchange totals (books listed, total shares out of treasury, 24h volume, total royalties distributed).
+
+---
+
+### 5. Verification
+
+- Migration + backfill run → confirm both current live books appear on board.
+- Playwright script logs in a test user, tops up demo balance (auto-granted), buys 5,000 shares of one book, sells 1,000 back at a limit price, cancels remainder — screenshots of board, detail, buy-preview, portfolio, wallet.
+- SQL asserts: wallets never negative, sum(holdings)+treasury = 1,000,000 per book, trades match orders atomically.
+
+---
+
+### 6. Out of scope (Phase 1)
+
+- Real payment gateway (Top Up is a placeholder modal only).
+- KYC / regulatory registration.
+- Order types beyond limit sell + market buy (matched against ask ladder).
+- WebSocket live updates — Phase 1 uses polling / React Query refetch.
+- Mobile-native app.
+
+---
+
+### Files created / edited (high level)
+
+**New migrations:** 1 file (all tables + RLS + GRANTs + seed platform_settings + `rights_exchange_model` skill row).
+**New edge functions:** 8 (listed above).
+**New shared:** `supabase/functions/_shared/exchange-model.ts`.
+**New frontend:** `src/pages/Exchange.tsx`, `ExchangeBook.tsx`, `ExchangePortfolio.tsx`, `ExchangeWallet.tsx`, `src/components/exchange/*` (Board, OrderBook, PriceChart, BuyPanel, SellPanel, ComplianceBanner, TopUpModal), `src/lib/exchange/{model.ts, api.ts, formatters.ts}`.
+**Edited:** `src/App.tsx` (routes), `src/components/Header.tsx` (nav link), `src/pages/admin/Dashboard.tsx` (exchange totals card), `supabase/functions/kids-publish-if-qc-passed/index.ts` (auto-list hook), `supabase/functions/auto-list-ebook/index.ts` (auto-list hook), existing purchase/download-grant path (`supabase/functions/customer-download-pdf/index.ts` or equivalent — will confirm during build) to invoke `exchange-record-book-sale`.

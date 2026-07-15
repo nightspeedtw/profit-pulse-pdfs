@@ -108,6 +108,14 @@ Deno.serve(async (req) => {
         storefront_meta: nextMeta,
       }).eq('id', ebook_id);
       publishState = 'live';
+      // Auto-list on Royalty Rights Exchange (idempotent, best-effort)
+      try {
+        await fetch(`${SUPABASE_URL}/functions/v1/exchange-list-book`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+          body: JSON.stringify({ book_id: ebook_id, book_type: 'kids' }),
+        });
+      } catch (e) { console.warn('exchange-list-book failed', (e as Error).message); }
     } else {
       await db.from('ebooks_kids').update({
         listing_status: 'draft', status: 'needs_revision', pipeline_status: 'human_review_required',
