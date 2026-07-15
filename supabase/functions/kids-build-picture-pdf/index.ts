@@ -329,6 +329,27 @@ Deno.serve(async (req) => {
       stageResult = { pdf_size: bytes.length, pages_added: 3, format: 'square_612', cover_bytes_hash: currentCoverHash, cover_luminance: coverLum };
     } else if (pos.lane === 'finalize') {
       const existing = await readInprogress(db, ebook_id);
+      // FINALIZE-TIME LEDGER GATE (Chef Pip regression): the ledger must
+      // cover every canonical story page 1..N with unique image hashes.
+      // If it doesn't, the in-progress PDF is corrupted — discard and restart.
+      const finalizeLedger: PageLedger = Array.isArray((job as Record<string, unknown> | null)?.page_ledger)
+        ? ((job as Record<string, unknown>).page_ledger as PageLedger) : [];
+      try {
+        assertLedgerContiguous(finalizeLedger, numStoryPages);
+      } catch (e) {
+        if (e instanceof PdfAssemblyMismatchError) {
+          console.warn(`[build-picture-pdf] finalize ledger gate: ${e.message} — restarting from prepare`);
+          try { await db.storage.from('ebook-pdfs').remove([INPROGRESS_PATH(ebook_id)]); } catch { /* ignore */ }
+          await persistJob(db, ebook_id, scorecard, {
+            error: e.message, error_code: e.code, error_details: e.details,
+            failed_at: new Date().toISOString(),
+            prepared: false, pages_done: 0, page_ledger: [],
+          });
+          selfChainDoubleTap(db, ebook_id, publish, scorecard);
+          return json({ ok: false, error: e.message, restart: 'prepare' }, 409);
+        }
+        throw e;
+      }
       // SKILL F — build bonus content (Spot the Clues + Talk About the Story)
       // from the manuscript segments before finalizing.
       let bonus = null as null | Awaited<ReturnType<typeof buildBonusContent>>;
