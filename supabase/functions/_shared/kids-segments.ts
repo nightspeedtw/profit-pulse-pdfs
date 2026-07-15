@@ -225,6 +225,10 @@ export interface WriterParseDiagnostics {
   errors: string[];
   raw_excerpt?: string;
   raw_model_output?: string;
+  finish_reason?: string;
+  output_tokens?: number;
+  max_tokens?: number;
+  provider_truncation?: boolean;
 }
 
 export interface WriterParseResult {
@@ -232,6 +236,26 @@ export interface WriterParseResult {
   value: Record<string, unknown>;
   partial: boolean;
   diagnostics: WriterParseDiagnostics;
+}
+
+// Deterministic truncation classifier. Signals `provider_truncation` when the
+// model completion was cut by the output-token cap. Combines signals to avoid
+// false positives: finish_reason==='length' OR (mid-JSON tail AND near cap).
+export function classifyProviderTruncation(
+  raw: string,
+  parseErrors: string[],
+  finishReason?: string,
+  outputTokens?: number,
+  maxTokens?: number,
+): boolean {
+  if (finishReason && finishReason.toLowerCase() === "length") return true;
+  const errText = parseErrors.join(" | ");
+  const looksMidJson =
+    /Unterminated string|Unexpected end of|Expected ',' or '}'|Expected ',' or '\]'/i.test(errText)
+    || (raw.trim().length > 0 && !/[}\]]\s*$/.test(raw.trim()));
+  const nearCap = typeof outputTokens === "number" && typeof maxTokens === "number" && maxTokens > 0
+    && outputTokens >= Math.floor(maxTokens * 0.95);
+  return looksMidJson && nearCap;
 }
 
 function stripCodeFence(raw: string, repairs: string[]): string {
