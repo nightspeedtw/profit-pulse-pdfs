@@ -226,6 +226,7 @@ export interface WriterParseDiagnostics {
   repairs: string[];
   errors: string[];
   raw_excerpt?: string;
+  raw_model_output?: string;
 }
 
 export interface WriterParseResult {
@@ -340,7 +341,8 @@ function completePageObjectsFromPagesArray(text: string): Record<string, unknown
 export function parseSegmentedWriterOutput(raw: string): WriterParseResult {
   const repairs: string[] = [];
   const errors: string[] = [];
-  const raw_excerpt = String(raw ?? "").slice(0, 12_000);
+  const raw_model_output = String(raw ?? "");
+  const raw_excerpt = raw_model_output.slice(0, 12_000);
   const cleaned = stripCodeFence(raw, repairs);
   const candidates = [cleaned];
   const outer = extractOutermostJsonObject(cleaned, repairs);
@@ -348,7 +350,7 @@ export function parseSegmentedWriterOutput(raw: string): WriterParseResult {
 
   for (const candidate of candidates) {
     try {
-      return { ok: true, value: JSON.parse(candidate), partial: false, diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt } };
+      return { ok: true, value: JSON.parse(candidate), partial: false, diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt, raw_model_output } };
     } catch (e) {
       errors.push(e instanceof Error ? e.message : String(e));
     }
@@ -356,7 +358,7 @@ export function parseSegmentedWriterOutput(raw: string): WriterParseResult {
     const repaired = repairJsonText(candidate, repairs);
     if (repaired !== candidate) {
       try {
-        return { ok: true, value: JSON.parse(repaired), partial: false, diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt } };
+        return { ok: true, value: JSON.parse(repaired), partial: false, diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt, raw_model_output } };
       } catch (e) {
         errors.push(e instanceof Error ? e.message : String(e));
       }
@@ -375,11 +377,11 @@ export function parseSegmentedWriterOutput(raw: string): WriterParseResult {
         pages,
       },
       partial: true,
-      diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt },
+      diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt, raw_model_output },
     };
   }
 
-  return { ok: false, value: {}, partial: false, diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt } };
+  return { ok: false, value: {}, partial: false, diagnostics: { repairs: [...new Set(repairs)], errors, raw_excerpt, raw_model_output } };
 }
 
 async function callWriter(system: string, user: string, model: string, timeoutMs: number): Promise<WriterParseResult> {
