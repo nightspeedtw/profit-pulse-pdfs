@@ -28,6 +28,7 @@ import { computeLuminance } from '../_shared/image-luminance.ts';
 import { loadSegments, segmentsToPageTexts } from '../_shared/kids-segments.ts';
 import { buildBonusContent } from '../_shared/bonus-pages.ts';
 import { deriveFinalPdfMetadata, assertDerivedMatchesPlan, PdfMetadataError } from '../_shared/pdf-metadata.ts';
+import { resolveStageOrThrow, logStageEvidence } from '../_shared/skill-evidence.ts';
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', bytes);
