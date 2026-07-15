@@ -3458,6 +3458,16 @@ export type Database = {
       }
     }
     Functions: {
+      exchange_buy_amount: {
+        Args: {
+          p_amount_gross: number
+          p_book: string
+          p_buyer: string
+          p_fee_pct: number
+          p_tax_pct: number
+        }
+        Returns: Json
+      }
       exchange_execute_buy: {
         Args: {
           p_book: string

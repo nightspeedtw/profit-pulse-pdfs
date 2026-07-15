@@ -3,23 +3,18 @@ import { Link, Navigate } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { useAuth } from "@/hooks/useAuth";
 import { ComplianceBanner } from "@/components/exchange/ComplianceBanner";
-import {
-  getMyHoldings, getMyOpenOrders, getMyRoyalties, invoke,
-} from "@/lib/exchange/api";
+import { getMyHoldings, getMyRoyalties } from "@/lib/exchange/api";
 import { formatSharePrice, formatShares, formatUsd } from "@/lib/exchange/model";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
 
 export default function ExchangePortfolio() {
   const { user, loading } = useAuth();
   const [holdings, setHoldings] = useState<any[]>([]);
-  const [orders, setOrders] = useState<any[]>([]);
   const [royalties, setRoyalties] = useState<any[]>([]);
-  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = () => {
-    Promise.all([getMyHoldings(), getMyOpenOrders(), getMyRoyalties(100)]).then(([h, o, r]) => {
-      setHoldings(h); setOrders(o); setRoyalties(r);
+    Promise.all([getMyHoldings(), getMyRoyalties(100)]).then(([h, r]) => {
+      setHoldings(h); setRoyalties(r);
     });
   };
   useEffect(() => { if (user) load(); }, [user]);
@@ -53,7 +48,7 @@ export default function ExchangePortfolio() {
         </div>
 
         <section className="rounded-xl border border-border p-4">
-          <h2 className="font-serif text-lg mb-3">Holdings</h2>
+          <h2 className="font-serif text-lg mb-3">Holdings (Lifetime Royalty Shares)</h2>
           {holdings.length === 0 ? (
             <p className="text-sm text-muted-foreground">No holdings yet. Browse the <Link className="underline" to="/exchange">exchange</Link>.</p>
           ) : (
@@ -62,7 +57,7 @@ export default function ExchangePortfolio() {
                 <span className="col-span-2">Book</span>
                 <span className="text-right">Shares</span>
                 <span className="text-right">Avg cost</span>
-                <span className="text-right">Last</span>
+                <span className="text-right">Ref price</span>
                 <span className="text-right">Value</span>
               </div>
               {holdings.map(h => {
@@ -79,35 +74,9 @@ export default function ExchangePortfolio() {
               })}
             </div>
           )}
-        </section>
-
-        <section className="rounded-xl border border-border p-4">
-          <h2 className="font-serif text-lg mb-3">Open Sell Orders</h2>
-          {orders.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No open orders.</p>
-          ) : (
-            <div className="text-sm space-y-1">
-              {orders.map(o => (
-                <div key={o.id} className="flex items-center justify-between border-b border-border/40 py-2">
-                  <span className="flex-1 truncate">{o.rights_offerings.title}</span>
-                  <span className="font-mono w-24 text-right">{formatShares(Number(o.qty_remaining))}</span>
-                  <span className="font-mono w-32 text-right">@ {formatSharePrice(Number(o.price_per_share))}</span>
-                  <Button
-                    variant="ghost" size="sm" disabled={busyId === o.id}
-                    onClick={async () => {
-                      setBusyId(o.id);
-                      try {
-                        await invoke("exchange-cancel-order", { order_id: o.id });
-                        toast.success("Order cancelled");
-                        load();
-                      } catch (e) { toast.error((e as Error).message); }
-                      finally { setBusyId(null); }
-                    }}
-                  >Cancel</Button>
-                </div>
-              ))}
-            </div>
-          )}
+          <p className="text-[11px] text-muted-foreground mt-3">
+            Phase 1: buy-only. Shares are lifetime royalty entitlements — no sell-back yet.
+          </p>
         </section>
 
         <section className="rounded-xl border border-border p-4">
