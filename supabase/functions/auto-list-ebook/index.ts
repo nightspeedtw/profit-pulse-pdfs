@@ -253,12 +253,17 @@ Deno.serve(async (req) => {
       .eq("id", ebookId);
     if (upErr) throw upErr;
 
-    // Auto-list on Royalty Rights Exchange (idempotent, best-effort)
+    // Auto-list on Royalty Ownership market (buy-only, idempotent, best-effort)
     try {
-      await supabase.functions.invoke('exchange-list-book', {
-        body: { book_id: ebookId, book_type: 'adult' },
+      await supabase.from('book_royalty_markets').insert({
+        book_id: ebookId,
+        book_sale_price_usd: finalPrice,
       });
-    } catch (e) { console.warn('exchange-list-book failed', (e as Error).message); }
+    } catch (e) {
+      // duplicate is expected on re-list; other errors are non-fatal
+      const msg = (e as Error).message ?? '';
+      if (!/duplicate|unique/i.test(msg)) console.warn('book_royalty_markets insert', msg);
+    }
 
     await log(ebookId, "auto_list", "completed", { environment, ...stripe });
 
