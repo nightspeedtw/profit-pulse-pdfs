@@ -1170,7 +1170,9 @@ async function deriveCoverConcept(input: BookMockupInput, avoidPhrases: string[]
     const j = await res.json();
     const txt: string | undefined = j?.choices?.[0]?.message?.content;
     if (!txt) return null;
-    const parsed = JSON.parse(txt);
+    const parseResult = parseModelJson<Record<string, unknown>>(txt);
+    if (!parseResult.ok) { console.warn("book-mockup: concept parse failed", parseResult.diagnostics.errors.slice(-1)[0]); return null; }
+    const parsed = parseResult.value as any;
     const symArr = Array.isArray(parsed.symbol_keywords)
       ? parsed.symbol_keywords.map((x: unknown) => String(x).toLowerCase().trim()).filter(Boolean).slice(0, 6)
       : [];
