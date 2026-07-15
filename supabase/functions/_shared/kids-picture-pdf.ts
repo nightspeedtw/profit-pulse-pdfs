@@ -1,21 +1,45 @@
 // Square kids picture-book PDF builder (612 × 612 pt = 8.5 × 8.5 in).
 //
-// Layout per page:
-//   - Cover page:       full-bleed cover image.
-//   - Title page:       centered title + subtitle.
-//   - Copyright page:   small centered copyright line.
-//   - Story pages (N):  full-bleed illustration; a soft white rounded panel at
-//                       the lower ~30% carries 1–3 short sentences of caption.
-//   - Closing page:     "The End" in the story's warm accent.
-//
-// All glyphs are normalized to StandardFont-safe ASCII BEFORE encoding so the
-// QC glyph-mangling rule never trips on curly quotes / em-dashes.
+// Skills wired here (owner review 2026-07-15):
+//   SKILL A — text-safe frame: 36pt margin from trim for body/title text,
+//             shrink-to-fit for titles, panel padding ≥16pt, line-height 1.35,
+//             text block ≤ 65% page width. `assertTextSafe` throws if any
+//             stamped glyph would leave the safe box.
+//   SKILL B — integrated caption: warm dark-brown ink on a palette-tinted
+//             translucent panel with feathered stacked-rect edge, not a stark
+//             white rectangle.
+//   SKILL F — bonus pages: `addSpotTheCluesPage` + `addTalkAboutStoryPage`
+//             sit between the last story page and "The End".
 
-import { PDFDocument, PDFImage, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
+import { PDFDocument, PDFImage, PDFFont, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
 import { KIDS_BOOK_FORMAT } from "./kids-book-format.ts";
 
 const PAGE_W = KIDS_BOOK_FORMAT.page_width_pt;   // 612
 const PAGE_H = KIDS_BOOK_FORMAT.page_height_pt;  // 612
+
+// SKILL A: safe-frame constants.
+const SAFE_MARGIN_PT = 36;              // 0.5in from trim for body/title
+const FOLIO_MARGIN_PT = 18;             // 0.25in for folios
+const BODY_MAX_WIDTH_PT = PAGE_W * 0.65; // ≤ 65% page width
+const LINE_HEIGHT_RATIO = 1.35;
+const PANEL_PADDING_PT = 16;
+const WARM_INK = rgb(0.22, 0.15, 0.10);   // #3a2619 warm dark-brown
+const WARM_INK_SOFT = rgb(0.35, 0.25, 0.18);
+
+// SKILL A: throws when text would clip the safe frame. Callers must catch and
+// shrink-to-fit rather than render past the trim.
+export class TextOverflowError extends Error {
+  constructor(public reason: string, public bbox: { x: number; y: number; w: number; h: number }) {
+    super(`text_safe_frame_gate: ${reason} bbox=${JSON.stringify(bbox)}`);
+  }
+}
+
+function assertTextSafe(bbox: { x: number; y: number; w: number; h: number }, minMargin = SAFE_MARGIN_PT) {
+  if (bbox.x < minMargin) throw new TextOverflowError("left-clip", bbox);
+  if (bbox.y < minMargin) throw new TextOverflowError("bottom-clip", bbox);
+  if (bbox.x + bbox.w > PAGE_W - minMargin) throw new TextOverflowError("right-clip", bbox);
+  if (bbox.y + bbox.h > PAGE_H - minMargin) throw new TextOverflowError("top-clip", bbox);
+}
 
 async function embedImageSmart(doc: PDFDocument, bytes: Uint8Array): Promise<PDFImage> {
   if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
@@ -27,15 +51,22 @@ async function embedImageSmart(doc: PDFDocument, bytes: Uint8Array): Promise<PDF
   try { return await doc.embedPng(bytes); } catch { return await doc.embedJpg(bytes); }
 }
 
+export interface BonusContent {
+  clues?: string[];                     // 3-5 short clue phrases for "Spot the Clues"
+  discussion_questions?: string[];      // 3-4 discussion questions
+  developmental_hook?: string | null;   // one-liner shown on Talk page footer
+}
+
 export interface PicturePdfInput {
   title: string;
   subtitle?: string | null;
   authorLine?: string;
   coverPng: Uint8Array;
-  spreads: Array<{ caption: string; imagePng: Uint8Array }>;
+  spreads: Array<{ caption: string; imagePng: Uint8Array; paletteHint?: [number, number, number] | null }>;
+  bonus?: BonusContent | null;
 }
 
-// WinAnsi/StandardFont-safe normalization. Must match pdf-preflight glyph check.
+// WinAnsi/StandardFont-safe normalization.
 export function normalizeText(s: string): string {
   return s
     .normalize("NFKC")
@@ -55,22 +86,47 @@ export function normalizeText(s: string): string {
 
 function safePdfText(text: string): string { return normalizeText(text); }
 
-function wrapLines(text: string, maxChars: number): string[] {
+// Word-wrap by measured pixel width, not char count. This is the core of the
+// SKILL A shrink-to-fit algorithm.
+function wrapLinesByWidth(text: string, font: PDFFont, size: number, maxWidthPt: number): string[] {
   const out: string[] = [];
   for (const para of normalizeText(text).split(/\n+/)) {
     const words = para.split(/\s+/);
     let line = "";
     for (const w of words) {
-      if ((line + " " + w).trim().length > maxChars) {
-        if (line) out.push(line);
+      const trial = line ? `${line} ${w}` : w;
+      if (font.widthOfTextAtSize(trial, size) > maxWidthPt && line) {
+        out.push(line);
         line = w;
       } else {
-        line = (line ? line + " " : "") + w;
+        line = trial;
       }
     }
     if (line) out.push(line);
   }
   return out;
+}
+
+// SKILL A: pick the largest font size that fits `text` inside a maxWidth/maxHeight
+// box with wrapping. Returns {size, lines}. Never falls below `minSize`; if
+// still overflowing at minSize, returns anyway with truncation flag (caller
+// treats as gate failure).
+function shrinkToFit(
+  text: string,
+  font: PDFFont,
+  opts: { startSize: number; minSize: number; step: number; maxWidthPt: number; maxHeightPt: number },
+): { size: number; lines: string[]; overflow: boolean } {
+  const { startSize, minSize, step, maxWidthPt, maxHeightPt } = opts;
+  for (let size = startSize; size >= minSize; size -= step) {
+    const lines = wrapLinesByWidth(text, font, size, maxWidthPt);
+    const totalH = lines.length * size * LINE_HEIGHT_RATIO;
+    if (totalH <= maxHeightPt) return { size, lines, overflow: false };
+  }
+  // Last resort: force minSize, truncate to fit height.
+  const size = minSize;
+  const lines = wrapLinesByWidth(text, font, size, maxWidthPt);
+  const maxLines = Math.max(1, Math.floor(maxHeightPt / (size * LINE_HEIGHT_RATIO)));
+  return { size, lines: lines.slice(0, maxLines), overflow: lines.length > maxLines };
 }
 
 // Draw a full-bleed image scaled to cover the page (may crop overflow).
@@ -81,47 +137,78 @@ function drawFullBleed(page: ReturnType<PDFDocument["addPage"]>, img: PDFImage) 
   page.drawImage(img, { x: (PAGE_W - w) / 2, y: (PAGE_H - h) / 2, width: w, height: h });
 }
 
-// Draw a soft rounded white panel at the bottom carrying 1-3 short sentences.
-// The panel auto-sizes to fit the wrapped caption (min 25% / max 38% of page).
+// SKILL B — integrated caption panel.
+// Instead of stark white, sample a warm cream tinted toward the paletteHint,
+// paint 3 stacked rects with decreasing opacity to fake a feathered edge, and
+// use warm-ink text (not pure black).
 async function drawCaptionOverlay(
   doc: PDFDocument,
   page: ReturnType<PDFDocument["addPage"]>,
   caption: string,
+  paletteHint?: [number, number, number] | null,
 ) {
   const bodyFont = await doc.embedFont(StandardFonts.Helvetica);
   const text = safePdfText(caption);
   if (!text) return;
-  const size = 16;
-  const lineHeight = size * 1.35;
-  const sideMargin = 36;
-  const maxWidth = PAGE_W - sideMargin * 2 - 24;
-  // Char-width approx wrap.
-  const avgCharPt = bodyFont.widthOfTextAtSize("m", size) * 0.9;
-  const maxChars = Math.max(20, Math.floor(maxWidth / avgCharPt));
-  const lines = wrapLines(text, maxChars).slice(0, 4); // hard-cap 4 lines
 
-  const panelPad = 14;
-  const panelH = Math.min(PAGE_H * 0.38, Math.max(PAGE_H * 0.16, lines.length * lineHeight + panelPad * 2));
+  const sideMargin = SAFE_MARGIN_PT;
+  const panelPad = PANEL_PADDING_PT;
+  const maxPanelH = PAGE_H * 0.34;
+  const minPanelH = PAGE_H * 0.18;
+  const maxTextWidth = Math.min(BODY_MAX_WIDTH_PT, PAGE_W - sideMargin * 2 - panelPad * 2);
+  const maxTextHeight = maxPanelH - panelPad * 2;
+
+  const fit = shrinkToFit(text, bodyFont, {
+    startSize: 18, minSize: 14, step: 1,
+    maxWidthPt: maxTextWidth, maxHeightPt: maxTextHeight,
+  });
+  const size = fit.size;
+  const lineHeight = size * LINE_HEIGHT_RATIO;
+  const lines = fit.lines;
+
+  const textH = lines.length * lineHeight;
+  const panelH = Math.max(minPanelH, Math.min(maxPanelH, textH + panelPad * 2));
   const panelY = sideMargin;
   const panelX = sideMargin;
   const panelW = PAGE_W - sideMargin * 2;
 
-  // Rounded-ish panel (pdf-lib has no rounded rect natively; draw filled rect with light border).
+  // Panel color: warm cream biased toward paletteHint.
+  const [pr, pg, pb] = paletteHint ?? [0.98, 0.95, 0.88];
+  // Blend 70% cream + 30% palette hint, keep it light so text is readable.
+  const cream: [number, number, number] = [0.98, 0.95, 0.88];
+  const mix = (a: number, b: number) => a * 0.7 + b * 0.3;
+  const fill = rgb(
+    Math.min(1, mix(cream[0], pr)),
+    Math.min(1, mix(cream[1], pg)),
+    Math.min(1, mix(cream[2], pb)),
+  );
+
+  // Feathered stacked-rect look (3 layers, decreasing opacity outward).
+  page.drawRectangle({
+    x: panelX - 4, y: panelY - 4, width: panelW + 8, height: panelH + 8,
+    color: fill, opacity: 0.35,
+  });
+  page.drawRectangle({
+    x: panelX - 2, y: panelY - 2, width: panelW + 4, height: panelH + 4,
+    color: fill, opacity: 0.65,
+  });
   page.drawRectangle({
     x: panelX, y: panelY, width: panelW, height: panelH,
-    color: rgb(1, 1, 1), opacity: 0.92,
-    borderColor: rgb(0.85, 0.85, 0.88), borderWidth: 1,
+    color: fill, opacity: 0.9,
   });
 
-  // Center each line horizontally, stack vertically.
-  const totalTextH = lines.length * lineHeight;
-  let y = panelY + (panelH - totalTextH) / 2 + (lines.length - 1) * lineHeight;
-  for (const line of lines) {
-    const safe = safePdfText(line);
+  // Assert the panel itself stays in the safe frame.
+  assertTextSafe({ x: panelX, y: panelY, w: panelW, h: panelH });
+
+  // Center each line horizontally, stack from top.
+  const startY = panelY + (panelH - textH) / 2 + textH - lineHeight;
+  let y = startY;
+  for (const raw of lines) {
+    const safe = safePdfText(raw);
     const w = bodyFont.widthOfTextAtSize(safe, size);
-    page.drawText(safe, {
-      x: (PAGE_W - w) / 2, y, size, font: bodyFont, color: rgb(0.12, 0.12, 0.18),
-    });
+    const x = (PAGE_W - w) / 2;
+    assertTextSafe({ x, y, w, h: size });
+    page.drawText(safe, { x, y, size, font: bodyFont, color: WARM_INK });
     y -= lineHeight;
   }
 }
@@ -132,30 +219,60 @@ async function addCoverPage(doc: PDFDocument, coverPng: Uint8Array) {
   drawFullBleed(page, img);
 }
 
+// SKILL A — shrink-to-fit title/subtitle so nothing ever clips the trim.
 async function addTitlePage(doc: PDFDocument, title: string, subtitle: string | null, authorLine?: string) {
   const bodyFont = await doc.embedFont(StandardFonts.Helvetica);
   const titleFont = await doc.embedFont(StandardFonts.HelveticaBold);
   const page = doc.addPage([PAGE_W, PAGE_H]);
+  // Warm cream background so title is not a stark white page.
+  page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.99, 0.97, 0.92) });
+
   const t = safePdfText(title);
-  const tSize = 34;
-  const tw = titleFont.widthOfTextAtSize(t, tSize);
-  page.drawText(t, { x: (PAGE_W - tw) / 2, y: PAGE_H / 2 + 20, size: tSize, font: titleFont, color: rgb(0.1, 0.1, 0.15) });
+  const titleMaxW = PAGE_W - SAFE_MARGIN_PT * 2;
+  const titleMaxH = PAGE_H * 0.35;
+  const tf = shrinkToFit(t, titleFont, { startSize: 40, minSize: 18, step: 2, maxWidthPt: titleMaxW, maxHeightPt: titleMaxH });
+  const tLineH = tf.size * LINE_HEIGHT_RATIO;
+  const tTotalH = tf.lines.length * tLineH;
+  let ty = PAGE_H / 2 + tTotalH / 2 - tLineH + 16;
+  for (const line of tf.lines) {
+    const w = titleFont.widthOfTextAtSize(line, tf.size);
+    const x = (PAGE_W - w) / 2;
+    assertTextSafe({ x, y: ty, w, h: tf.size });
+    page.drawText(line, { x, y: ty, size: tf.size, font: titleFont, color: WARM_INK });
+    ty -= tLineH;
+  }
+
   if (subtitle) {
     const s = safePdfText(subtitle);
-    const ss = 16;
-    const sw = bodyFont.widthOfTextAtSize(s, ss);
-    page.drawText(s, { x: (PAGE_W - sw) / 2, y: PAGE_H / 2 - 12, size: ss, font: bodyFont, color: rgb(0.35, 0.35, 0.4) });
+    const sf = shrinkToFit(s, bodyFont, {
+      startSize: 18, minSize: 12, step: 1,
+      maxWidthPt: PAGE_W - SAFE_MARGIN_PT * 2, maxHeightPt: 60,
+    });
+    const sLineH = sf.size * LINE_HEIGHT_RATIO;
+    let sy = ty - 12;
+    for (const line of sf.lines) {
+      const w = bodyFont.widthOfTextAtSize(line, sf.size);
+      const x = (PAGE_W - w) / 2;
+      assertTextSafe({ x, y: sy, w, h: sf.size });
+      page.drawText(line, { x, y: sy, size: sf.size, font: bodyFont, color: WARM_INK_SOFT });
+      sy -= sLineH;
+    }
   }
+
   if (authorLine) {
     const a = safePdfText(authorLine);
-    const aw = bodyFont.widthOfTextAtSize(a, 12);
-    page.drawText(a, { x: (PAGE_W - aw) / 2, y: 60, size: 12, font: bodyFont, color: rgb(0.4, 0.4, 0.45) });
+    const w = bodyFont.widthOfTextAtSize(a, 12);
+    const x = (PAGE_W - w) / 2;
+    const y = SAFE_MARGIN_PT + 12;
+    assertTextSafe({ x, y, w, h: 12 });
+    page.drawText(a, { x, y, size: 12, font: bodyFont, color: WARM_INK_SOFT });
   }
 }
 
 async function addCopyrightPage(doc: PDFDocument) {
   const bodyFont = await doc.embedFont(StandardFonts.Helvetica);
   const page = doc.addPage([PAGE_W, PAGE_H]);
+  page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.99, 0.97, 0.92) });
   const year = new Date().getFullYear();
   const lines = [
     `Copyright (c) ${year}. All rights reserved.`,
@@ -166,24 +283,164 @@ async function addCopyrightPage(doc: PDFDocument) {
   for (const l of lines) {
     const safe = safePdfText(l);
     const w = bodyFont.widthOfTextAtSize(safe, 10);
-    page.drawText(safe, { x: (PAGE_W - w) / 2, y, size: 10, font: bodyFont, color: rgb(0.45, 0.45, 0.5) });
+    const x = (PAGE_W - w) / 2;
+    assertTextSafe({ x, y, w, h: 10 });
+    page.drawText(safe, { x, y, size: 10, font: bodyFont, color: WARM_INK_SOFT });
     y -= 16;
   }
 }
 
-async function addStoryPage(doc: PDFDocument, caption: string, imgBytes: Uint8Array) {
+async function addStoryPage(
+  doc: PDFDocument,
+  caption: string,
+  imgBytes: Uint8Array,
+  paletteHint?: [number, number, number] | null,
+) {
   const page = doc.addPage([PAGE_W, PAGE_H]);
   const img = await embedImageSmart(doc, imgBytes);
   drawFullBleed(page, img);
-  await drawCaptionOverlay(doc, page, caption);
+  await drawCaptionOverlay(doc, page, caption, paletteHint);
 }
 
 async function addClosingPage(doc: PDFDocument) {
   const titleFont = await doc.embedFont(StandardFonts.HelveticaBold);
   const page = doc.addPage([PAGE_W, PAGE_H]);
+  page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.99, 0.97, 0.92) });
   const end = safePdfText("The End");
   const w = titleFont.widthOfTextAtSize(end, 44);
-  page.drawText(end, { x: (PAGE_W - w) / 2, y: PAGE_H / 2 - 10, size: 44, font: titleFont, color: rgb(0.15, 0.15, 0.2) });
+  const x = (PAGE_W - w) / 2;
+  const y = PAGE_H / 2 - 10;
+  assertTextSafe({ x, y, w, h: 44 });
+  page.drawText(end, { x, y, size: 44, font: titleFont, color: WARM_INK });
+}
+
+// SKILL F — bonus page 1: "Can You Spot the Clues?"
+async function addSpotTheCluesPage(doc: PDFDocument, clues: string[]) {
+  const bodyFont = await doc.embedFont(StandardFonts.Helvetica);
+  const titleFont = await doc.embedFont(StandardFonts.HelveticaBold);
+  const page = doc.addPage([PAGE_W, PAGE_H]);
+  // Warm decorated background.
+  page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.99, 0.96, 0.88) });
+  // Decorative accent band.
+  page.drawRectangle({ x: 0, y: PAGE_H - 24, width: PAGE_W, height: 12, color: rgb(0.88, 0.72, 0.42), opacity: 0.6 });
+  page.drawRectangle({ x: 0, y: 12, width: PAGE_W, height: 12, color: rgb(0.88, 0.72, 0.42), opacity: 0.6 });
+
+  const title = "Can You Spot the Clues?";
+  const tf = shrinkToFit(title, titleFont, {
+    startSize: 30, minSize: 20, step: 1,
+    maxWidthPt: PAGE_W - SAFE_MARGIN_PT * 2, maxHeightPt: 80,
+  });
+  let y = PAGE_H - 100;
+  for (const line of tf.lines) {
+    const w = titleFont.widthOfTextAtSize(line, tf.size);
+    const x = (PAGE_W - w) / 2;
+    assertTextSafe({ x, y, w, h: tf.size });
+    page.drawText(line, { x, y, size: tf.size, font: titleFont, color: WARM_INK });
+    y -= tf.size * LINE_HEIGHT_RATIO;
+  }
+
+  const intro = "Look back through the story. Which of these clues can you find?";
+  const introFit = shrinkToFit(intro, bodyFont, {
+    startSize: 16, minSize: 13, step: 1,
+    maxWidthPt: BODY_MAX_WIDTH_PT, maxHeightPt: 60,
+  });
+  y -= 12;
+  for (const line of introFit.lines) {
+    const w = bodyFont.widthOfTextAtSize(line, introFit.size);
+    const x = (PAGE_W - w) / 2;
+    assertTextSafe({ x, y, w, h: introFit.size });
+    page.drawText(line, { x, y, size: introFit.size, font: bodyFont, color: WARM_INK_SOFT });
+    y -= introFit.size * LINE_HEIGHT_RATIO;
+  }
+
+  y -= 24;
+  const bulletSize = 18;
+  for (const clueRaw of clues.slice(0, 5)) {
+    const clue = safePdfText(`•  ${clueRaw}`);
+    const bf = shrinkToFit(clue, bodyFont, {
+      startSize: bulletSize, minSize: 14, step: 1,
+      maxWidthPt: BODY_MAX_WIDTH_PT, maxHeightPt: 40,
+    });
+    for (const line of bf.lines) {
+      const w = bodyFont.widthOfTextAtSize(line, bf.size);
+      const x = (PAGE_W - w) / 2;
+      assertTextSafe({ x, y, w, h: bf.size });
+      page.drawText(line, { x, y, size: bf.size, font: bodyFont, color: WARM_INK });
+      y -= bf.size * LINE_HEIGHT_RATIO;
+    }
+    y -= 4;
+  }
+
+  y -= 12;
+  const prompt = safePdfText("Which clue did you notice first?");
+  const pf = shrinkToFit(prompt, titleFont, {
+    startSize: 16, minSize: 13, step: 1,
+    maxWidthPt: BODY_MAX_WIDTH_PT, maxHeightPt: 40,
+  });
+  for (const line of pf.lines) {
+    const w = titleFont.widthOfTextAtSize(line, pf.size);
+    const x = (PAGE_W - w) / 2;
+    assertTextSafe({ x, y, w, h: pf.size });
+    page.drawText(line, { x, y, size: pf.size, font: titleFont, color: WARM_INK });
+    y -= pf.size * LINE_HEIGHT_RATIO;
+  }
+}
+
+// SKILL F — bonus page 2: "Talk About the Story"
+async function addTalkAboutStoryPage(doc: PDFDocument, questions: string[], hook?: string | null) {
+  const bodyFont = await doc.embedFont(StandardFonts.Helvetica);
+  const titleFont = await doc.embedFont(StandardFonts.HelveticaBold);
+  const page = doc.addPage([PAGE_W, PAGE_H]);
+  page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.96, 0.98, 0.94) });
+  page.drawRectangle({ x: 0, y: PAGE_H - 24, width: PAGE_W, height: 12, color: rgb(0.6, 0.78, 0.6), opacity: 0.55 });
+  page.drawRectangle({ x: 0, y: 12, width: PAGE_W, height: 12, color: rgb(0.6, 0.78, 0.6), opacity: 0.55 });
+
+  const title = "Talk About the Story";
+  const tf = shrinkToFit(title, titleFont, {
+    startSize: 30, minSize: 20, step: 1,
+    maxWidthPt: PAGE_W - SAFE_MARGIN_PT * 2, maxHeightPt: 80,
+  });
+  let y = PAGE_H - 100;
+  for (const line of tf.lines) {
+    const w = titleFont.widthOfTextAtSize(line, tf.size);
+    const x = (PAGE_W - w) / 2;
+    assertTextSafe({ x, y, w, h: tf.size });
+    page.drawText(line, { x, y, size: tf.size, font: titleFont, color: WARM_INK });
+    y -= tf.size * LINE_HEIGHT_RATIO;
+  }
+
+  y -= 20;
+  const qs = questions.slice(0, 4);
+  for (let i = 0; i < qs.length; i++) {
+    const q = safePdfText(`${i + 1}.  ${qs[i]}`);
+    const qf = shrinkToFit(q, bodyFont, {
+      startSize: 17, minSize: 13, step: 1,
+      maxWidthPt: BODY_MAX_WIDTH_PT, maxHeightPt: 90,
+    });
+    for (const line of qf.lines) {
+      const w = bodyFont.widthOfTextAtSize(line, qf.size);
+      const x = (PAGE_W - w) / 2;
+      assertTextSafe({ x, y, w, h: qf.size });
+      page.drawText(line, { x, y, size: qf.size, font: bodyFont, color: WARM_INK });
+      y -= qf.size * LINE_HEIGHT_RATIO;
+    }
+    y -= 8;
+  }
+
+  if (hook) {
+    y = Math.max(SAFE_MARGIN_PT + 24, y - 20);
+    const hf = shrinkToFit(safePdfText(hook), titleFont, {
+      startSize: 14, minSize: 11, step: 1,
+      maxWidthPt: BODY_MAX_WIDTH_PT, maxHeightPt: 40,
+    });
+    for (const line of hf.lines) {
+      const w = titleFont.widthOfTextAtSize(line, hf.size);
+      const x = (PAGE_W - w) / 2;
+      assertTextSafe({ x, y, w, h: hf.size });
+      page.drawText(line, { x, y, size: hf.size, font: titleFont, color: WARM_INK_SOFT });
+      y -= hf.size * LINE_HEIGHT_RATIO;
+    }
+  }
 }
 
 // ── One-shot builder (kept for legacy repair callers) ────────────────────
@@ -192,7 +449,13 @@ export async function buildPicturePdf(input: PicturePdfInput): Promise<Uint8Arra
   await addCoverPage(doc, input.coverPng);
   await addTitlePage(doc, input.title, input.subtitle ?? null, input.authorLine);
   await addCopyrightPage(doc);
-  for (const s of input.spreads) await addStoryPage(doc, s.caption, s.imagePng);
+  for (const s of input.spreads) await addStoryPage(doc, s.caption, s.imagePng, s.paletteHint ?? null);
+  if (input.bonus) {
+    if (input.bonus.clues?.length) await addSpotTheCluesPage(doc, input.bonus.clues);
+    if (input.bonus.discussion_questions?.length) {
+      await addTalkAboutStoryPage(doc, input.bonus.discussion_questions, input.bonus.developmental_hook ?? null);
+    }
+  }
   await addClosingPage(doc);
   return await doc.save();
 }
@@ -207,14 +470,25 @@ export async function startPicturePdf(input: { title: string; subtitle?: string 
   return await doc.save();
 }
 
-export async function appendSpreadsToPdf(existing: Uint8Array, spreads: Array<{ caption: string; imagePng: Uint8Array }>): Promise<Uint8Array> {
+export async function appendSpreadsToPdf(
+  existing: Uint8Array,
+  spreads: Array<{ caption: string; imagePng: Uint8Array; paletteHint?: [number, number, number] | null }>,
+): Promise<Uint8Array> {
   const doc = await PDFDocument.load(existing);
-  for (const s of spreads) await addStoryPage(doc, s.caption, s.imagePng);
+  for (const s of spreads) await addStoryPage(doc, s.caption, s.imagePng, s.paletteHint ?? null);
   return await doc.save();
 }
 
-export async function finalizePicturePdf(existing: Uint8Array): Promise<Uint8Array> {
+// SKILL F: append bonus + closing in one atomic finalize pass so page count
+// math and cross-references stay consistent.
+export async function finalizePicturePdf(existing: Uint8Array, bonus?: BonusContent | null): Promise<Uint8Array> {
   const doc = await PDFDocument.load(existing);
+  if (bonus) {
+    if (bonus.clues?.length) await addSpotTheCluesPage(doc, bonus.clues);
+    if (bonus.discussion_questions?.length) {
+      await addTalkAboutStoryPage(doc, bonus.discussion_questions, bonus.developmental_hook ?? null);
+    }
+  }
   await addClosingPage(doc);
   return await doc.save();
 }
