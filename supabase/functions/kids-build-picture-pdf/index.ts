@@ -421,6 +421,13 @@ Deno.serve(async (req) => {
         planned_page_count: plannedPageCount,
       };
       finalized = true;
+      await logStageEvidence(pdfContracts, {
+        run_id: runIdFromBody,
+        book_id: ebook_id,
+        input_reference_ids: [derived.pdf_sha256].filter(Boolean) as string[],
+        output_asset_ids: [FINAL_PATH(ebook_id)],
+        pass_fail_result: 'pass',
+      });
     } else {
       // Interior batch — fetch, downscale to JPEG, embed, save.
       //
