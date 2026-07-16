@@ -202,6 +202,7 @@ Deno.serve(async (req: Request) => {
       ? [...priorHistory, { price_cents: priorPrice, at: new Date().toISOString(), reason: "pre_publish_snapshot" }]
       : priorHistory;
 
+    const isMiniTest = plan.length <= 4;
     const storefrontMeta = {
       ...(row.storefront_meta ?? {}),
       product_type: "coloring_book",
@@ -210,6 +211,10 @@ Deno.serve(async (req: Request) => {
       age_min: ageMin,
       age_max: ageMax,
       page_count: plan.length,
+      // 'mini_test' books exercise the full measured-gate chain end-to-end
+      // at ~$0.02 image cost. Storefront can filter these out with a single
+      // storefront_meta->>format = 'mini_test' clause.
+      format: isMiniTest ? "mini_test" : "standard",
       preview_page_urls: previewUrls,
       release_gate: gate,
       published_at: new Date().toISOString(),

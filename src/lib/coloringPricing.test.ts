@@ -10,7 +10,8 @@ import {
 } from "../../supabase/functions/_shared/coloring/pricing";
 
 describe("coloring pricing — RULE 1 page count → base (owner table v2)", () => {
-  it("maps anchor page counts exactly", () => {
+  it("maps anchor page counts exactly (incl. 4pp mini_test $1.99)", () => {
+    expect(basePriceCents(4)).toBe(199);
     expect(basePriceCents(16)).toBe(599);
     expect(basePriceCents(24)).toBe(799);
     expect(basePriceCents(32)).toBe(999);
@@ -18,7 +19,7 @@ describe("coloring pricing — RULE 1 page count → base (owner table v2)", () 
   });
 
   it("clamps below the smallest anchor and above the largest", () => {
-    expect(basePriceCents(8)).toBe(599);
+    expect(basePriceCents(1)).toBe(199);
     expect(basePriceCents(120)).toBe(1299);
   });
 

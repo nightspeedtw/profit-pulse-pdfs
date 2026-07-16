@@ -26,6 +26,7 @@ export type PricingConfig = {
 
 export const DEFAULT_PRICING_CONFIG: PricingConfig = {
   anchors: [
+    { pages: 4,  price_cents: 199 },  // mini_test format (owner-run smoke tests)
     { pages: 16, price_cents: 599 },
     { pages: 24, price_cents: 799 },
     { pages: 32, price_cents: 999 },

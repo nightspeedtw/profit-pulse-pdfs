@@ -1,12 +1,19 @@
 // coloring-book-assemble — builds the final 8.5"×11" portrait PDF.
 //
-// Structure (matches owner spec):
+// STANDARD structure (page_count >= 8):
 //   1. Full-bleed cover
 //   2. Title page (title + subtitle + age badge)
 //   3. Copyright page
 //   4. "How to color" tips page
 //   5. N interior coloring pages (with kids-branding footer: logo BR + © BL)
 //   6. Completion certificate page
+//   → expected_page_count = 4 + N + 1
+//
+// MINI_TEST structure (page_count <= 4, owner smoke test):
+//   1. Full-bleed cover
+//   2. N interior coloring pages (same branded footer, same gates)
+//   3. Combined back page: certificate + compact copyright + secretpdf.co
+//   → expected_page_count = N + 2
 //
 // Applies weighted acceptance gate on the assembled page set before
 // uploading. Never lowers thresholds.
@@ -343,63 +350,68 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ── 2. Title page ─────────────────────────────────────────────────
-    {
-      const p = doc.addPage([PAGE_W, PAGE_H]);
-      p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.996, 0.973, 0.910) });
-      centerFit(p, row.title, PAGE_H - 180, 32, helvBold, undefined, 14);
-      centerFit(p, subtitle, PAGE_H - 220, 14, helv, rgb(0.35, 0.25, 0.15), 9);
-      centerFit(p, "A SecretPDF Kids coloring book", 220, 12, helv, rgb(0.4, 0.3, 0.2), 8);
-      drawColoringFooter(p, logoImg, helv);
+    const isMiniTest = totalPages <= 4;
+
+    if (!isMiniTest) {
+      // ── 2. Title page ─────────────────────────────────────────────────
+      {
+        const p = doc.addPage([PAGE_W, PAGE_H]);
+        p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.996, 0.973, 0.910) });
+        centerFit(p, row.title, PAGE_H - 180, 32, helvBold, undefined, 14);
+        centerFit(p, subtitle, PAGE_H - 220, 14, helv, rgb(0.35, 0.25, 0.15), 9);
+        centerFit(p, "A SecretPDF Kids coloring book", 220, 12, helv, rgb(0.4, 0.3, 0.2), 8);
+        drawColoringFooter(p, logoImg, helv);
+      }
+
+      // ── 3. Copyright page ─────────────────────────────────────────────
+      {
+        const p = doc.addPage([PAGE_W, PAGE_H]);
+        const paragraph = [
+          `© ${new Date().getFullYear()} secretpdf.co. All rights reserved.`,
+          "",
+          "This coloring book is licensed for personal, non-commercial use.",
+          "Individual coloring pages may be copied for personal or classroom use.",
+          "Not for resale, redistribution, or commercial reproduction.",
+          "",
+          "Visit secretpdf.co for more coloring books and kids' printables.",
+        ].join("\n");
+        drawFitParagraph(p, {
+          text: paragraph,
+          x: SAFE_MARGIN + 40, y: PAGE_H - 120,
+          maxWidth: PAGE_W - 2 * SAFE_MARGIN - 80,
+          maxHeight: PAGE_H - 220,
+          font: helv, size: 11, minSize: 7,
+          color: rgb(0.2, 0.15, 0.1),
+          lineHeightFactor: 1.5,
+        });
+        drawColoringFooter(p, logoImg, helv);
+      }
+
+      // ── 4. How to color tips ──────────────────────────────────────────
+      {
+        const p = doc.addPage([PAGE_W, PAGE_H]);
+        centerFit(p, "How to Use This Book", PAGE_H - 140, 22, helvBold, undefined, 12);
+        const tips = [
+          `1. Pick your favorite coloring tools — crayons, markers, or colored pencils.`,
+          `2. Start with the outlines, then fill each shape with color.`,
+          `3. There's no right way — try wild colors!`,
+          `4. Take a break between pages. Rest your hand.`,
+          `5. When you finish a page, show a grown-up your masterpiece.`,
+          `6. Complete all ${totalPages} pages to earn your certificate at the end.`,
+        ].join("\n");
+        drawFitParagraph(p, {
+          text: tips,
+          x: SAFE_MARGIN + 20, y: PAGE_H - 200,
+          maxWidth: PAGE_W - 2 * SAFE_MARGIN - 40,
+          maxHeight: PAGE_H - 300,
+          font: helv, size: 13, minSize: 8,
+          color: rgb(0.2, 0.15, 0.1),
+          lineHeightFactor: 1.6,
+        });
+        drawColoringFooter(p, logoImg, helv);
+      }
     }
 
-    // ── 3. Copyright page ─────────────────────────────────────────────
-    {
-      const p = doc.addPage([PAGE_W, PAGE_H]);
-      const paragraph = [
-        `© ${new Date().getFullYear()} secretpdf.co. All rights reserved.`,
-        "",
-        "This coloring book is licensed for personal, non-commercial use.",
-        "Individual coloring pages may be copied for personal or classroom use.",
-        "Not for resale, redistribution, or commercial reproduction.",
-        "",
-        "Visit secretpdf.co for more coloring books and kids' printables.",
-      ].join("\n");
-      drawFitParagraph(p, {
-        text: paragraph,
-        x: SAFE_MARGIN + 40, y: PAGE_H - 120,
-        maxWidth: PAGE_W - 2 * SAFE_MARGIN - 80,
-        maxHeight: PAGE_H - 220,
-        font: helv, size: 11, minSize: 7,
-        color: rgb(0.2, 0.15, 0.1),
-        lineHeightFactor: 1.5,
-      });
-      drawColoringFooter(p, logoImg, helv);
-    }
-
-    // ── 4. How to color tips ──────────────────────────────────────────
-    {
-      const p = doc.addPage([PAGE_W, PAGE_H]);
-      centerFit(p, "How to Use This Book", PAGE_H - 140, 22, helvBold, undefined, 12);
-      const tips = [
-        `1. Pick your favorite coloring tools — crayons, markers, or colored pencils.`,
-        `2. Start with the outlines, then fill each shape with color.`,
-        `3. There's no right way — try wild colors!`,
-        `4. Take a break between pages. Rest your hand.`,
-        `5. When you finish a page, show a grown-up your masterpiece.`,
-        `6. Complete all ${totalPages} pages to earn your certificate at the end.`,
-      ].join("\n");
-      drawFitParagraph(p, {
-        text: tips,
-        x: SAFE_MARGIN + 20, y: PAGE_H - 200,
-        maxWidth: PAGE_W - 2 * SAFE_MARGIN - 40,
-        maxHeight: PAGE_H - 300,
-        font: helv, size: 13, minSize: 8,
-        color: rgb(0.2, 0.15, 0.1),
-        lineHeightFactor: 1.6,
-      });
-      drawColoringFooter(p, logoImg, helv);
-    }
 
 
     // ── 5. Interior coloring pages ────────────────────────────────────
@@ -439,7 +451,9 @@ Deno.serve(async (req: Request) => {
       interiorReports.push({ page: pageRec.page, ok: true });
     }
 
-    // ── 6. Completion certificate ─────────────────────────────────────
+    // ── Back page ─────────────────────────────────────────────────────
+    // Standard: certificate only. Mini_test: certificate + compact copyright
+    // line + secretpdf.co footer on the same page.
     {
       const p = doc.addPage([PAGE_W, PAGE_H]);
       p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.996, 0.973, 0.910) });
@@ -453,8 +467,21 @@ Deno.serve(async (req: Request) => {
       centerFit(p, `for completing "${row.title}"`, PAGE_H - 370, 14, helv, undefined, 9);
       centerFit(p, `${totalPages} coloring pages · ${ageBadge}`, PAGE_H - 400, 12, helv, undefined, 8);
       centerFit(p, "Great job, artist!", PAGE_H - 470, 18, helvBold, rgb(0.35, 0.22, 0.05), 12);
+      if (isMiniTest) {
+        // Compact copyright line above the branded footer.
+        centerFit(
+          p,
+          `© ${new Date().getFullYear()} secretpdf.co · Personal use only · Visit secretpdf.co`,
+          SAFE_MARGIN + 34,
+          9,
+          helv,
+          rgb(0.35, 0.28, 0.22),
+          7,
+        );
+      }
       drawColoringFooter(p, logoImg, helv);
     }
+
 
     const pdfBytes = await doc.save();
     const pdfSha = await sha256Hex(pdfBytes);
@@ -468,7 +495,7 @@ Deno.serve(async (req: Request) => {
     const { data: signed } = await db.storage.from("ebook-pdfs").createSignedUrl(pdfPath, 60 * 60 * 24 * 365);
 
     const pageCount = doc.getPageCount();
-    const expectedPageCount = 4 + totalPages + 1; // front matter (4) + interior + certificate
+    const expectedPageCount = isMiniTest ? (totalPages + 2) : (4 + totalPages + 1); // mini: cover+N+back; std: 4 front + N + certificate
 
     // ── Weighted acceptance gate ──────────────────────────────────────
     // Build a book scorecard from what we know (all pages passed per-page

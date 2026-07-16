@@ -31,6 +31,7 @@ const DEFAULTS = {
   // Data-only config; edit here or via generation_settings.coloring_autopilot.pricing.
   pricing: {
     anchors: [
+      { pages: 4,  price_cents: 199 },
       { pages: 16, price_cents: 599 },
       { pages: 24, price_cents: 799 },
       { pages: 32, price_cents: 999 },
