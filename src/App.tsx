@@ -24,6 +24,7 @@ import Create from "./pages/Create.tsx";
 import Checkout from "./pages/Checkout.tsx";
 import CheckoutReturn from "./pages/CheckoutReturn.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import ColoringProduct from "./pages/ColoringProduct.tsx";
 import AdminLogin from "./pages/admin/Login.tsx";
 import AdminLayout from "./pages/admin/AdminLayout.tsx";
 import CommandCenter from "./pages/admin/Dashboard.tsx";
