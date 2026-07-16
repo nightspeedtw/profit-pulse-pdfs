@@ -274,13 +274,25 @@ export async function verifyAnatomyBatch(
     try { await markVerifierHealthy(opts.db); } catch { /* best-effort */ }
   }
 
-  const byIndex = new Map<number, { pass: boolean; anatomy_score: number; defects: string[] }>();
+  const byIndex = new Map<number, {
+    pass: boolean;
+    anatomy_score: number;
+    defects: string[];
+    named_subject: string | null;
+    recognizable: boolean;
+    category_match: boolean;
+  }>();
   for (const v of winner.parsed.verdicts ?? []) {
     if (typeof v.index === "number") {
+      const recognizable = v.recognizable !== false; // undefined = pass-safe when model omits
+      const categoryMatch = v.category_match !== false;
       byIndex.set(v.index, {
         pass: !!v.pass,
         anatomy_score: Number.isFinite(v.anatomy_score) ? Math.max(0, Math.min(100, Math.round(v.anatomy_score))) : 0,
         defects: Array.isArray(v.defects) ? v.defects.map(String).slice(0, 12) : [],
+        named_subject: typeof v.named_subject === "string" ? v.named_subject.slice(0, 80) : null,
+        recognizable,
+        category_match: categoryMatch,
       });
     }
   }
@@ -296,17 +308,26 @@ export async function verifyAnatomyBatch(
       out.push(degradedVerdict(p, `${winner.model}:no_verdict_for_index`));
       continue;
     }
+    // Owner law: unrecognizable subject = category_match FAIL and page must
+    // regenerate. Merge into defects so the assemble gate + repair ladder
+    // treat it the same as an anatomy defect.
+    const mergedDefects = [...v.defects];
+    if (!v.recognizable) mergedDefects.push(`unrecognizable_subject:${v.named_subject ?? "unknown"}`);
+    if (!v.category_match) mergedDefects.push(`category_match_fail:${v.named_subject ?? "unknown"}_vs_${p.subject}`);
     out.push({
       page: p.page,
       subject: p.subject,
       species_key: spec.species_key,
-      pass: v.pass && v.anatomy_score >= 90 && v.defects.length === 0,
+      pass: v.pass && v.anatomy_score >= 90 && mergedDefects.length === 0 && v.recognizable && v.category_match,
       anatomy_score: v.anatomy_score,
-      defects: v.defects,
+      defects: mergedDefects,
       degraded: false,
       model: winner.model,
       measured_at: new Date().toISOString(),
       measured_version: ANATOMY_VERIFIER_VERSION,
+      named_subject: v.named_subject,
+      recognizable: v.recognizable,
+      category_match: v.category_match,
     });
   }
   return out;
