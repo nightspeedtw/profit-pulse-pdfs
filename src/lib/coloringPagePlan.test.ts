@@ -85,14 +85,36 @@ describe("coloring page plan", () => {
     expect(issues).toEqual([]);
   });
 
-  it("assemble expected_page_count follows plan length (front matter 4 + plan + certificate 1)", () => {
-    // Mirrors coloring-book-assemble: expectedPageCount = 4 + plan.length + 1.
-    // 16pp interior → 21 total PDF pages.
-    const compute = (planLen: number) => 4 + planLen + 1;
+  it("assemble expected_page_count follows plan length: standard = 4+N+1, mini_test (N<=4) = N+2", () => {
+    // Mirrors coloring-book-assemble expectedPageCount logic exactly.
+    const compute = (planLen: number) => (planLen <= 4 ? planLen + 2 : 4 + planLen + 1);
+    // Mini test: 4 interior + cover + combined back page = 6.
+    expect(compute(4)).toBe(6);
+    // Standard formats
     expect(compute(16)).toBe(21);
     expect(compute(24)).toBe(29);
     expect(compute(32)).toBe(37);
     expect(compute(48)).toBe(53);
   });
+
+  it("4-page mini_test plan passes with 4 distinct scene buckets (owner smoke format)", () => {
+    const cat4 = { ...CAT, coloring_page_count: 4 };
+    const { plan } = generatePagePlan(cat4);
+    expect(plan).toHaveLength(4);
+    // Every page must use a DISTINCT bucket (the <8 override rule)
+    const buckets = new Set(plan.map((p) => (p as any).scene_bucket));
+    expect(buckets.size).toBe(4);
+    expect(validatePagePlan(plan, cat4)).toEqual([]);
+  });
+
+  it("4-page plan REJECTED when any two pages share a bucket (distinct-bucket rule)", () => {
+    const cat4 = { ...CAT, coloring_page_count: 4 };
+    const { plan } = generatePagePlan(cat4);
+    // Force a collision
+    (plan[1] as any).scene_bucket = (plan[0] as any).scene_bucket;
+    const issues = validatePagePlan(plan, cat4);
+    expect(issues.some((i) => i.code === "SCENE_TAXONOMY_UNDERCOVERED")).toBe(true);
+  });
 });
+
 
