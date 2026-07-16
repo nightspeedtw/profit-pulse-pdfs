@@ -53,7 +53,7 @@ Deno.serve(async (req: Request) => {
           coloring_angle: angle,
           coloring_variant: variant_number,
           coloring_progress_percent: 5,
-          coloring_current_step_label: "Queued — waiting for coloring engine",
+          coloring_current_step_label: "Queued — waiting for coloring worker to dispatch",
           coloring_theme_bible: {
             category_key: category.category_key,
             category_name: category.category_name,
@@ -63,13 +63,12 @@ Deno.serve(async (req: Request) => {
           coloring_page_plan: pagePlan,
           coloring_style_contract: styleContract,
           coloring_workflow_version: "v1",
-          awaiting: "p0_close_before_generation",
         },
       })
       .select("id")
       .single();
     if (error) throw error;
-    return json({ ok: true, ebook_id: data.id, note: "queued; generation blocked until P0 closes" });
+    return json({ ok: true, ebook_id: data.id, note: "queued for coloring worker" });
   } catch (e: any) {
     return json({ error: e?.message ?? String(e) }, 500);
   }
