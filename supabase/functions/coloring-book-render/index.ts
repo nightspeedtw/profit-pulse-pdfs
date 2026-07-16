@@ -148,6 +148,20 @@ Deno.serve(async (req: Request) => {
       throw e;
     }
 
+    // Same pattern for the anatomy vision verifier: if it's been down for
+    // ≥3 consecutive batches, don't burn FAL cost on pages we can't measure.
+    try { await assertAnatomyVerifierAvailable(db); } catch (e: any) {
+      if (e instanceof AnatomyVerifierBlockedError) {
+        await patchMeta(db, ebook_id, {
+          coloring_current_step_label:
+            "Paused: anatomy_verifier_blocked — vision verifier ladder is down, will auto-resume when a model is healthy",
+        });
+        await db.from("ebooks_kids").update({ pipeline_status: "queued" }).eq("id", ebook_id);
+        return json({ ok: false, halted: true, reason: e.kind, detail: e.message });
+      }
+      throw e;
+    }
+
     // Multi-provider policy (data-driven; A/B pilot may flip primary via
     // generation_settings.coloring_autopilot.image_provider_policy).
     const imagePolicy = (await readImageProviderPolicy(db)).interiors;
