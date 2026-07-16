@@ -767,6 +767,41 @@ export type Database = {
         }
         Relationships: []
       }
+      coloring_book_events: {
+        Row: {
+          created_at: string
+          ebook_kids_id: string
+          event_type: string
+          id: string
+          metadata: Json
+          session_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          ebook_kids_id: string
+          event_type: string
+          id?: string
+          metadata?: Json
+          session_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          ebook_kids_id?: string
+          event_type?: string
+          id?: string
+          metadata?: Json
+          session_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_book_events_ebook_kids_id_fkey"
+            columns: ["ebook_kids_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks_kids"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       coloring_categories: {
         Row: {
           active: boolean
