@@ -83,7 +83,20 @@ export function buildInteriorPrompt(
 ): string {
   const [minScale, maxScale] = contract.subject_scale_pct;
   const anatomyClause = speciesAnatomyPromptClause(page.primary_subject);
+  // Owner law (2026-07-16, cover audit fallout): the age-band's declared
+  // line thickness is authoritative. Older thin-line renders shipped for a
+  // "thick" band because the directive was buried inside a mid-prompt
+  // sentence. Emit an UPPERCASE, first-position mandate the model cannot
+  // miss, tied to the band's numeric hint.
+  const thicknessPx = contract.line_thickness === "extra_thick" ? "8-12"
+    : contract.line_thickness === "thick" ? "6-9"
+    : contract.line_thickness === "medium" ? "4-6"
+    : "2-4";
+  const thicknessMandate = `LINE THICKNESS: ${contract.line_thickness.toUpperCase()} (~${thicknessPx}px equivalent). ` +
+    `EVERY contour is a uniform ${contract.line_thickness} pure-black stroke. ` +
+    `DO NOT ship thin, hairline, or sketch-weight lines — that violates the age-band contract.`;
   const parts = [
+    thicknessMandate,
     `Printable children's coloring-book page.`,
     `Category: ${category.category_name}. Primary subject: ${page.primary_subject}.`,
     page.secondary_subjects.length
