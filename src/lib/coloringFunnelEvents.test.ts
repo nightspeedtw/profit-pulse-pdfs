@@ -20,7 +20,7 @@ describe("coloring funnel events — popularity signal wiring", () => {
     await emitColoringEvent("view_product", "book-1");
     await emitColoringEvent("open_preview", "book-1");
     await emitColoringEvent("click_buy", "book-1", { force: true });
-    const names = insertMock.mock.calls.map((c) => (c[0] as any).event_type);
+    const names = insertMock.mock.calls.map((c: any[]) => (c[0] as any).event_type);
     expect(names).toEqual(["view_product", "open_preview", "click_buy"]);
   });
 
