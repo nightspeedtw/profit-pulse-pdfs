@@ -41,3 +41,19 @@ describe("cursor overflow terminates instead of looping with rung=undefined", ()
     expect(decide(4)).toEqual({ terminal: false, rung: "svg_synthetic_fallback" });
   });
 });
+
+describe("coloring cover single-rung policy", () => {
+  it("runs exactly one Flux/Schnell cover attempt for coloring books", () => {
+    const policy = { rungs: ["flux_schnell_single"], selfInvokeCover: false, fallbackSvg: false };
+    expect(policy.rungs).toEqual(["flux_schnell_single"]);
+    expect(policy.selfInvokeCover).toBe(false);
+    expect(policy.fallbackSvg).toBe(false);
+  });
+
+  it("blocks instead of shipping a blank cover when the single rung fails", () => {
+    const result = { cover_url: null, pipeline_status: "queued", blocker_reason: "coloring_cover_single_rung:provider_timeout" };
+    expect(result.cover_url).toBeNull();
+    expect(result.pipeline_status).toBe("queued");
+    expect(result.blocker_reason).toContain("provider_timeout");
+  });
+});
