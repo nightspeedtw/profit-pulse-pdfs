@@ -61,15 +61,32 @@ Deno.serve(async (req: Request) => {
 
     const { data: queued } = await db
       .from("ebooks_kids")
-      .select("id, title")
+      .select("id, title, metadata, pdf_url, cover_url")
       .eq("book_type", "coloring_book")
       .eq("pipeline_status", "queued")
       .order("created_at", { ascending: true })
       .limit(slots);
     result.queue_size = queued?.length ?? 0;
 
+    // Route each queued coloring row to the correct stage based on `awaiting`:
+    //   'cover_pdf_publish'          → coloring-book-cover (chains → assemble → publish)
+    //   'publish'                    → coloring-book-publish
+    //   'owner_calibration_review'   → skip (external approval)
+    //   otherwise                    → coloring-book-render (interior)
     for (const row of queued ?? []) {
-      const r = await fetch(`${url}/functions/v1/coloring-book-render`, {
+      const meta = (row.metadata ?? {}) as Record<string, unknown>;
+      const awaiting = meta.awaiting as string | undefined;
+      if (awaiting === "owner_calibration_review") {
+        (result.dispatched as unknown[]).push({ ebook_id: row.id, title: row.title, skipped: "owner_calibration_review" });
+        continue;
+      }
+      let target = "coloring-book-render";
+      if (awaiting === "cover_pdf_publish") {
+        target = row.cover_url ? (row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble") : "coloring-book-cover";
+      } else if (awaiting === "publish") {
+        target = "coloring-book-publish";
+      }
+      const r = await fetch(`${url}/functions/v1/${target}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -80,7 +97,7 @@ Deno.serve(async (req: Request) => {
       });
       const j = await r.json().catch(() => ({}));
       (result.dispatched as unknown[]).push({
-        ebook_id: row.id, title: row.title, ok: r.ok, status: r.status,
+        ebook_id: row.id, title: row.title, target, ok: r.ok, status: r.status,
         note: j?.note ?? j?.error ?? null,
       });
     }
