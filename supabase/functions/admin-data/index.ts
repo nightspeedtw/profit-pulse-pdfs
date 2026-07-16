@@ -460,6 +460,43 @@ Deno.serve(async (req) => {
       return json({ ok: true, resumed: 1, order_id: order.id });
     }
 
+    if (resource === "kids_library") {
+      const [booksRes, runsRes, costsRes] = await Promise.all([
+        supabase
+          .from("ebooks_kids")
+          .select("id,title,status,listing_status,pipeline_status,cover_url,blocker_reason,updated_at")
+          .order("updated_at", { ascending: false })
+          .limit(60),
+        supabase
+          .from("autopilot_kids_runs")
+          .select("id,ebook_kids_id,status,current_step_label,progress_percent,blocker_reason,updated_at")
+          .order("updated_at", { ascending: false })
+          .limit(60),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase.from("ebook_costs" as any) as any)
+          .select("ebook_id,total_usd,image_usd,text_usd,n_images,n_calls"),
+      ]);
+      if (booksRes.error) throw booksRes.error;
+      return json({
+        books: booksRes.data ?? [],
+        runs: runsRes.data ?? [],
+        costs: costsRes.data ?? [],
+      });
+    }
+
+    if (resource === "kids_publish" || resource === "kids_unpublish") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const id = (body as any).ebook_kids_id as string | undefined;
+      if (!id) return json({ error: "ebook_kids_id required" }, 400);
+      const patch = resource === "kids_publish"
+        ? { listing_status: "live", status: "live" }
+        : { listing_status: "draft" };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase.from("ebooks_kids") as any).update(patch).eq("id", id);
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
     return json({ error: "unknown resource" }, 400);
 
 
