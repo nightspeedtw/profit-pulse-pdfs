@@ -2205,6 +2205,7 @@ export type Database = {
           autopilot_mode: string
           browserless_concurrency: number
           category_mix: Json
+          coloring_autopilot: Json
           cost_limit_reached: boolean
           cost_limit_reached_at: string | null
           cost_limit_reason: string | null
@@ -2249,6 +2250,7 @@ export type Database = {
           autopilot_mode?: string
           browserless_concurrency?: number
           category_mix?: Json
+          coloring_autopilot?: Json
           cost_limit_reached?: boolean
           cost_limit_reached_at?: string | null
           cost_limit_reason?: string | null
@@ -2293,6 +2295,7 @@ export type Database = {
           autopilot_mode?: string
           browserless_concurrency?: number
           category_mix?: Json
+          coloring_autopilot?: Json
           cost_limit_reached?: boolean
           cost_limit_reached_at?: string | null
           cost_limit_reason?: string | null
