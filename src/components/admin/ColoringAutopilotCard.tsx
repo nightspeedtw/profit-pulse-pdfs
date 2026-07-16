@@ -43,12 +43,19 @@ export function ColoringAutopilotCard() {
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
 
+  const passcode = () =>
+    typeof window !== "undefined" && localStorage.getItem("admin_passcode_ok") === "1" ? "453451" : "";
+
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const { data, error } = await supabase.functions.invoke("coloring-autopilot-config", { method: "GET" as any });
+        const { data, error } = await supabase.functions.invoke("coloring-autopilot-config", {
+          body: { passcode: passcode() },
+          headers: { "x-admin-passcode": passcode() },
+        });
         if (error) throw error;
+        if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
         setCfg({ ...DEFAULTS, ...(data?.config ?? {}) });
         setCats(data?.categories ?? []);
       } catch (e) {
@@ -62,8 +69,12 @@ export function ColoringAutopilotCard() {
   const save = async (next: ColoringConfig) => {
     setSaving(true);
     try {
-      const { data, error } = await supabase.functions.invoke("coloring-autopilot-config", { body: { config: next } });
+      const { data, error } = await supabase.functions.invoke("coloring-autopilot-config", {
+        body: { config: next, passcode: passcode() },
+        headers: { "x-admin-passcode": passcode() },
+      });
       if (error) throw error;
+      if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
       setCfg({ ...DEFAULTS, ...(data?.config ?? next) });
       toast({ title: "Coloring autopilot saved" });
     } catch (e) {
@@ -77,9 +88,11 @@ export function ColoringAutopilotCard() {
     setRunning(true);
     try {
       const { data, error } = await supabase.functions.invoke("coloring-autopilot-tick", {
-        body: { manual: true, override_batch: cfg.batch_size },
+        body: { manual: true, override_batch: cfg.batch_size, passcode: passcode() },
+        headers: { "x-admin-passcode": passcode() },
       });
       if (error) throw error;
+      if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
       const queued = (data?.queued ?? []) as Array<{ ok: boolean; title: string; ebook_id?: string; error?: string }>;
       const ok = queued.filter((q) => q.ok).length;
       toast({
