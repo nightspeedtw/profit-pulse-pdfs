@@ -22,7 +22,7 @@ import {
 } from "../_shared/kids-branding.ts";
 import { KIDS_BRAND_LAYOUT, KIDS_BRAND_FOOTER_DIMS } from "../_shared/kids-branding-policy.ts";
 import { coloringBookWeightedGate, coloringCoverGate, coloringReleaseGate } from "../_shared/coloring/gates.ts";
-import { computeSharpness, DEFAULT_SHARPNESS_MIN_SCORE, SHARPNESS_GATE_VERSION } from "../_shared/coloring/sharpness-gate.ts";
+import { computeSharpness, SHARPNESS_GATE_VERSION } from "../_shared/coloring/sharpness-gate.ts";
 import { decideAssemblySharpnessPreflight } from "../_shared/coloring/assembly-sharpness.ts";
 import { verifyAnatomyBatch, ANATOMY_VERIFIER_VERSION, summarizeBookAnatomy, type AnatomyPageVerdict } from "../_shared/coloring/anatomy-verify.ts";
 import { drawFitText, drawFitParagraph } from "../_shared/pdf/shrink-to-fit.ts";
@@ -170,8 +170,6 @@ Deno.serve(async (req: Request) => {
     // Assembly-time sharpness sweep: every legacy/stored interior page must be
     // measured before embedding. Below-floor or decode-unmeasured pages are
     // removed from metadata and regenerated under the crisp repair regime.
-    const sharpnessMin = ((meta.coloring_style_contract as any)?.sharpness_min_score as number | undefined)
-      ?? DEFAULT_SHARPNESS_MIN_SCORE;
     const priorSharpnessTable = (((meta as any).coloring_assembly?.sharpness_table as any[] | undefined) ?? []);
     const sharpnessByPage = new Map<number, any>();
     for (const r of priorSharpnessTable) {
@@ -180,7 +178,7 @@ Deno.serve(async (req: Request) => {
     for (const pageRec of pages) {
       if (sharpnessByPage.has(pageRec.page)) continue;
       const bytes = await fetchBytes(pageRec.signed_url);
-      const sharp = await computeSharpness(bytes, { minRequired: sharpnessMin });
+      const sharp = await computeSharpness(bytes);
       const unmeasured = String(sharp.reason ?? "").startsWith("sharpness_decode_error");
       sharpnessByPage.set(pageRec.page, {
         page: pageRec.page,
@@ -478,7 +476,7 @@ Deno.serve(async (req: Request) => {
     // + verifyImageAtBirth). This is the aggregate weighted average.
     const perPageScores = sharpnessTable.map((r) => Math.max(
       COLORING_PAGE_FLOOR_FROM_SHARPNESS,
-      Math.min(99, Math.round(88 + Math.max(0, Number(r.score) - Number(r.min_required))))
+      Math.min(99, Math.round(88 + Math.max(0, (Number(r.boundary_edge_strength) - Number(r.boundary_edge_min_required)) / 10)))
     ));
     const bookGate = coloringBookWeightedGate({
       theme_fit: 96,

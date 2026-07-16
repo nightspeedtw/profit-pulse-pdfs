@@ -37,7 +37,7 @@ import {
 } from "../_shared/coloring/style-contract.ts";
 import { verifyImageAtBirth, type ImageKind } from "../_shared/coloring/image-kind.ts";
 import { analyzeSolidBlack, DEFAULT_SOLID_BLACK_TH } from "../_shared/coloring/solid-black.ts";
-import { computeSharpness, DEFAULT_SHARPNESS_MIN_SCORE } from "../_shared/coloring/sharpness-gate.ts";
+import { computeSharpness } from "../_shared/coloring/sharpness-gate.ts";
 import { decideRepair, replanEscalatedPage, sanitizeSceneForColorability } from "../_shared/coloring/repair-ladder.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 import { verifyAnatomyBatch, ANATOMY_VERIFIER_VERSION, type AnatomyPageVerdict } from "../_shared/coloring/anatomy-verify.ts";
@@ -369,11 +369,9 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        // Sharpness gate — Ocean Friends defect: per-page edge-density
-        // ranged 2.6–20.3. Floor at DEFAULT_SHARPNESS_MIN_SCORE (8.0).
-        const sharpnessMin = ((meta.coloring_style_contract as any)?.sharpness_min_score as number | undefined)
-          ?? DEFAULT_SHARPNESS_MIN_SCORE;
-        const sharp = await computeSharpness(bytes, { minRequired: sharpnessMin });
+        // Sharpness gate — v5 authority is boundary_edge_strength only.
+        // Sobel/Laplacian `score` is telemetry and cannot veto sparse pages.
+        const sharp = await computeSharpness(bytes);
         if (!sharp.pass) {
           repairAttempts[String(page.canonical_page_number)] = attempt + 1;
           errors.push({
@@ -401,7 +399,16 @@ Deno.serve(async (req: Request) => {
           render_params: { ...INTERIOR_GEN_PARAMS },
           image_provider: providerUsed,
           image_provider_attempts: gen.attempts,
-          sharpness: { score: sharp.score, sobel_mean: sharp.sobel_mean, laplacian_var: sharp.laplacian_var, min_required: sharp.min_required },
+          sharpness: {
+            score: sharp.score,
+            sobel_mean: sharp.sobel_mean,
+            laplacian_var: sharp.laplacian_var,
+            min_required: sharp.min_required,
+            visible_edge_score: sharp.visible_edge_score,
+            boundary_edge_strength: sharp.boundary_edge_strength,
+            boundary_edge_min_required: sharp.boundary_edge_min_required,
+            boundary_pixel_count: sharp.boundary_pixel_count,
+          },
         } as any);
         // Buffer raw bytes for batch anatomy verification below.
         anatomyBuffer.push({ page: page.canonical_page_number, subject: page.primary_subject, bytes, mime: verified.mime });

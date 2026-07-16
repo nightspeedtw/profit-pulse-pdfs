@@ -112,6 +112,17 @@ describe("boundary-edge gate — crisp-sparse fixture (toddler/senior contract)"
     expect(boundary_pixels).toBeGreaterThan(MIN_BOUNDARY_PIXELS);
     expect(score).toBeGreaterThanOrEqual(DEFAULT_BOUNDARY_EDGE_MIN_SCORE);
   });
+
+  it("legacy Sobel/Laplacian score below 13 cannot veto a boundary pass", () => {
+    const W = 256, H = 256;
+    const g = makeGrid(W, H, 255);
+    paintCrispRect(g, W, 118, 118, 138, 138, 5);
+    const { score, boundary_pixels, ink_pixels } = boundaryEdgeStrength(g, W, H);
+    const legacyScore = combineScore(12, 0); // 3.0 — below legacy floor 13
+    expect(legacyScore).toBeLessThan(DEFAULT_SHARPNESS_MIN_SCORE);
+    expect(score).toBeGreaterThanOrEqual(DEFAULT_BOUNDARY_EDGE_MIN_SCORE);
+    expect(passesBoundaryEdgeGate(boundary_pixels, score, DEFAULT_BOUNDARY_EDGE_MIN_SCORE, ink_pixels)).toBe(true);
+  });
 });
 
 // ---------- fixture set 3: blurry → FAIL ----------

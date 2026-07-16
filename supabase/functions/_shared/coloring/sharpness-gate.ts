@@ -7,9 +7,9 @@
 // on ink-boundary pixels. See ./sharpness-scoring.ts header for the full
 // evidence trail. This is a metric correction, NOT a threshold reduction.
 //
-// The combined Sobel+Laplacian floor (DEFAULT_SHARPNESS_MIN_SCORE=13.0)
-// is preserved as a secondary safety check against decode/degenerate
-// failures.
+// The combined Sobel+Laplacian score is preserved as TELEMETRY only. It is
+// intentionally not an AND-condition: whole-image/global scores were proven
+// to confound sparse-by-design toddler/senior pages with blur.
 
 // @ts-nocheck  Deno edge runtime
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
@@ -144,13 +144,12 @@ export async function computeSharpness(
     const visible = meanNeighborDiffTelemetry(luma, w, h);
     const boundary = boundaryEdgeStrength(luma, w, h);
     const boundaryPass = passesBoundaryEdgeGate(boundary.boundary_pixels, boundary.score, boundaryMin, boundary.ink_pixels);
-    const combinedPass = score >= min;
-    const pass = combinedPass && boundaryPass;
+    // v5 authority: boundary edge strength only. `score` (Sobel+Laplacian)
+    // remains persisted telemetry/trend data and MUST NOT veto sparse pages.
+    const pass = boundaryPass;
     const reason = pass
       ? "ok"
-      : !combinedPass
-        ? `sharpness_below_floor:score=${score.toFixed(2)}_min=${min}`
-        : `boundary_blur_below_floor:score=${boundary.score.toFixed(2)}_min=${boundaryMin}_boundary_pixels=${boundary.boundary_pixels}_ink_pixels=${boundary.ink_pixels}`;
+      : `boundary_blur_below_floor:score=${boundary.score.toFixed(2)}_min=${boundaryMin}_boundary_pixels=${boundary.boundary_pixels}_ink_pixels=${boundary.ink_pixels}`;
     return {
       score: Number(score.toFixed(2)),
       sobel_mean: Number(sm.toFixed(2)),
