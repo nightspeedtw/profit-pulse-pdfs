@@ -18,15 +18,15 @@ import {
   type BrandingDecision,
   type CornerStats,
   type KidsPageKind,
-} from "../../../src/lib/kidsBranding.ts";
+} from "./kids-branding-policy.ts";
 
 export {
   KIDS_BRAND_ASSETS,
   KIDS_BRAND_LAYOUT,
   decideBrandingForCorner,
   pageKindAllowsBranding,
-} from "../../../src/lib/kidsBranding.ts";
-export type { KidsPageKind, BrandingDecision } from "../../../src/lib/kidsBranding.ts";
+} from "./kids-branding-policy.ts";
+export type { KidsPageKind, BrandingDecision } from "./kids-branding-policy.ts";
 
 /** Bytes for the trimmed footer logo — fetched once per process. */
 let cachedLogoBytes: Uint8Array | null = null;
