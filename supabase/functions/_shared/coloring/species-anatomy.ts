@@ -13,9 +13,41 @@ export interface SpeciesAnatomy {
   body_parts: Record<string, string>;// part -> "exact count/shape/attachment rule"
   proportion_rules: string[];
   common_ai_failure_modes: string[];
+  /**
+   * Owner law "anatomy_imagination_vs_deformity" (2026-07-16):
+   * true = this is a canonical FANTASY creature. Its own anatomy is judged
+   * by the fantasy canon (unicorn: one horn; mermaid: torso+fish tail).
+   * A fantasy creature PASSES in any scene when the page plan's subject IS
+   * this creature, and specifically in fantasy-flagged categories.
+   */
+  fantasy?: boolean;
 }
 
 const s = (o: SpeciesAnatomy): SpeciesAnatomy => o;
+
+/**
+ * Category keys where uninvited fantasy additions on a REAL species are
+ * still out-of-spec (a sea_animals dolphin doesn't sprout a horn), but the
+ * category itself hosts fantasy creatures whose canonical form is passable.
+ * Extend as fantasy categories are queued.
+ */
+export const FANTASY_CATEGORY_KEYS = new Set<string>([
+  "cute_mermaid_and_ocean_fantasy",
+  "mermaid",
+  "fantasy",
+  "princess_and_fantasy",
+  "unicorn_and_rainbow",
+  "unicorn",
+  "dragons_and_castles",
+  "fairy_garden",
+]);
+
+export function isFantasyCategoryKey(key?: string | null): boolean {
+  if (!key) return false;
+  const k = String(key).toLowerCase().trim();
+  if (FANTASY_CATEGORY_KEYS.has(k)) return true;
+  return /(fantasy|mermaid|unicorn|dragon|fairy|princess)/i.test(k);
+}
 
 // NOTE: keep body_parts values short — they are concatenated into prompts.
 export const SPECIES_ANATOMY: SpeciesAnatomy[] = [
@@ -28,7 +60,7 @@ export const SPECIES_ANATOMY: SpeciesAnatomy[] = [
       pectoral_fins: "exactly TWO pectoral (side) fins, one per side, small paddle shape",
       tail: "HORIZONTAL two-lobed tail flukes (never vertical, never mermaid fin, never split into a Y-tail)",
       blowhole: "single blowhole on top of head",
-      eye: "one small round eye visible in profile, no eyelashes",
+      eye: "one small round eye visible in profile (cute stylization such as eyelashes, sparkles, or big pupils is allowed)",
       mouth: "long narrow rostrum with subtle smile line, no teeth shown",
     },
     proportion_rules: [
@@ -40,7 +72,7 @@ export const SPECIES_ANATOMY: SpeciesAnatomy[] = [
       "vertical mermaid-style tail fin",
       "split Y-shaped tail",
       "extra dorsal fins or fins on belly",
-      "human-like face or expression with eyelashes",
+      "grotesque proportions that read as injured or disabled",
     ],
   }),
   s({
@@ -202,6 +234,101 @@ export const SPECIES_ANATOMY: SpeciesAnatomy[] = [
     },
     proportion_rules: ["three white bands (head, mid, tail-base) outlined in black"],
     common_ai_failure_modes: ["wrong band count", "beak mouth", "leaf-shaped fins"],
+  }),
+  // ── FANTASY CREATURES (owner law anatomy_imagination_vs_deformity) ─
+  // Judged by their canonical fantasy anatomy, not by real biology.
+  s({
+    species_key: "mermaid",
+    aliases: ["mermaid", "merfolk", "merboy", "mergirl", "merman", "merchild"],
+    body_parts: {
+      upper_body: "ONE human upper torso (head, two arms, two hands with FIVE fingers each, one head with two eyes)",
+      lower_body: "ONE fish-like tail replacing the legs, ending in ONE horizontal fluke or ONE fanned caudal fin",
+      hair: "flowing hair (any length)",
+      eyes: "two eyes on the face (cute stylization welcome — big eyes, eyelashes, sparkles)",
+    },
+    proportion_rules: [
+      "exactly one human torso attached seamlessly to exactly one fish tail",
+      "no legs; no second tail; five fingers per hand",
+    ],
+    common_ai_failure_modes: [
+      "legs AND a fish tail on the same body",
+      "two fish tails",
+      "extra arms or extra hands",
+      "wrong finger count (six fingers, fused fingers)",
+    ],
+    fantasy: true,
+  }),
+  s({
+    species_key: "unicorn",
+    aliases: ["unicorn", "baby unicorn", "unicorn foal"],
+    body_parts: {
+      body: "one horse-like body with four legs and one tail",
+      horn: "EXACTLY ONE straight or spiral horn projecting from the CENTER of the forehead",
+      mane: "flowing mane along the neck",
+      tail: "one flowing tail",
+      hooves: "four hooves, one per leg",
+      eyes: "two eyes on the face (cute stylization welcome)",
+    },
+    proportion_rules: [
+      "exactly one horn (never two, never zero)",
+      "four legs (never three, never five)",
+      "no wings unless the subject is specifically 'winged unicorn' / 'alicorn'",
+    ],
+    common_ai_failure_modes: [
+      "two horns",
+      "horn on the nose instead of the forehead",
+      "five legs / three legs",
+      "extra tails",
+    ],
+    fantasy: true,
+  }),
+  s({
+    species_key: "pegasus",
+    aliases: ["pegasus", "winged horse", "alicorn"],
+    body_parts: {
+      body: "one horse-like body with four legs and one tail",
+      wings: "EXACTLY TWO feathered wings, one on each side of the back",
+      mane: "flowing mane",
+      tail: "one flowing tail",
+      hooves: "four hooves",
+    },
+    proportion_rules: ["four legs + two wings; alicorn adds exactly one forehead horn"],
+    common_ai_failure_modes: ["one wing only", "four wings", "extra legs"],
+    fantasy: true,
+  }),
+  s({
+    species_key: "dragon",
+    aliases: ["dragon", "baby dragon", "cute dragon"],
+    body_parts: {
+      body: "one reptilian body with four legs and one tail",
+      wings: "TWO bat-like wings on the back (may be omitted for wingless/eastern dragons — declare in the plan)",
+      head: "one head with two eyes and often small horns",
+      tail: "one tail",
+    },
+    proportion_rules: ["one head; four legs; symmetric wing count (0 or 2)"],
+    common_ai_failure_modes: [
+      "one wing only",
+      "extra heads (unless subject is specifically 'hydra')",
+      "five legs / three legs",
+    ],
+    fantasy: true,
+  }),
+  s({
+    species_key: "fairy",
+    aliases: ["fairy", "pixie", "sprite"],
+    body_parts: {
+      body: "one human-shaped body (child or adult proportion)",
+      wings: "EXACTLY TWO wings (insect- or butterfly-style) on the back",
+      hands: "two hands with FIVE fingers each",
+      face: "two eyes; cute stylization welcome",
+    },
+    proportion_rules: ["one body; two wings; five fingers per hand"],
+    common_ai_failure_modes: [
+      "one wing only",
+      "four arms",
+      "wrong finger count",
+    ],
+    fantasy: true,
   }),
 ];
 

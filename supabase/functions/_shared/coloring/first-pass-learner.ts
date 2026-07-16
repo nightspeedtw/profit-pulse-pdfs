@@ -60,6 +60,11 @@ const SEALS = new Set(["seal","sea lion","fur seal","harbor seal"]);
 
 const TECHNICAL_MATCH = /(verifier|degraded|no_verdict|billing|budget|provider_|http_?\d{3}|timeout|replanned_to_portrait|coloring_page_dead)/i;
 
+// Owner law anatomy_imagination_vs_deformity — Tier 2 stylization is NEVER
+// a defect. If the verifier still surfaces such a string, drop it here so it
+// does not increment counters or promote learned rules.
+const STYLIZATION_MATCH = /(eyelash|long\s+lashes|big\s+(sparkly\s+)?eyes|sparkl(e|y)\s+eyes|smile|smiling|blush|rosy\s+cheeks|bow(\s+on|tie)|wearing\s+(a\s+)?(bow|hat|ribbon|crown|scarf)|humani[sz]ed\s+(face|expression)|anthropomorphic|cute\s+(face|expression))/i;
+
 const NORMALIZERS: NormalizerRule[] = [
   { pattern_key: "cetacean_horizontal_flukes", gate: "anatomy",
     match: /(vertical\s+(fish\s+)?tail|vertical\s+flukes?|mermaid\s+fin|split\s+y[- ]?tail|y[- ]?shaped\s+tail|caudal\s+fin\s+vertical)/i },
@@ -73,7 +78,7 @@ const NORMALIZERS: NormalizerRule[] = [
     match: /(solid[- ]?black\s+water|water\s+filled\s+solid|dense\s+water\s+fill|water_mass_fill|black\s+water\s+mass)/i },
   // Generic fallbacks
   { pattern_key: "extra_limb", gate: "anatomy",
-    match: /(extra\s+(limb|leg|arm|fin)|five\s+legs?|six\s+legs?|too\s+many\s+(legs|arms|fins))/i },
+    match: /(extra\s+(limb|leg|arm|fin|finger|toe)|five\s+legs?|six\s+(legs?|fingers?|toes?)|seven\s+fingers?|too\s+many\s+(legs|arms|fins|fingers|toes))/i },
   { pattern_key: "fused_features", gate: "anatomy",
     match: /(fused|conjoined|merged\s+into)/i },
   { pattern_key: "solid_black_fill", gate: "solid_black",
@@ -92,6 +97,7 @@ export function normalizeDefect(
 ): DefectHit | null {
   if (!raw) return null;
   if (TECHNICAL_MATCH.test(raw)) return null;
+  if (STYLIZATION_MATCH.test(raw)) return null;
   const text = raw.toLowerCase();
   const speciesLc = (species_key ?? "").toLowerCase();
   const sceneLc = (scene ?? "").toLowerCase();

@@ -19,7 +19,7 @@
 //     page, do not increment repair attempts, do not delete storage;
 //     halt via anatomy-verifier-guard when the lane counter trips).
 
-import { speciesAnatomyChecklistJson } from "./species-anatomy.ts";
+import { speciesAnatomyChecklistJson, getSpeciesAnatomy, isFantasyCategoryKey } from "./species-anatomy.ts";
 import {
   ANATOMY_VERIFIER_MODEL_LADDER_DEFAULT,
   markVerifierHealthy,
@@ -39,13 +39,20 @@ export interface AnatomyPageVerdict {
   measured_version: string;  // ties verdict to this verifier version
 }
 
-export const ANATOMY_VERIFIER_VERSION = "v2:model_ladder_gateway";
+// v3 — anatomy_imagination_vs_deformity three-tier rubric:
+// Tier 1 deformity always FAILS; Tier 2 cute stylization always PASSES;
+// Tier 3 canonical fantasy PASSES when the scene/subject invites it.
+export const ANATOMY_VERIFIER_VERSION = "v3:imagination_vs_deformity";
 
 export interface AnatomyInputPage {
   page: number;
   subject: string;
   bytes: Uint8Array;
   mime: string; // "image/png" | "image/jpeg"
+  /** Category the page ships in — enables fantasy tolerance per owner law. */
+  category_key?: string;
+  /** Optional scene/setting hint (e.g. "underwater reef") for context. */
+  scene?: string;
 }
 
 const LOVABLE_API_KEY = (globalThis as any).Deno?.env?.get?.("LOVABLE_API_KEY") ?? "";
@@ -73,18 +80,38 @@ function degradedVerdict(p: AnatomyInputPage, reason: string): AnatomyPageVerdic
   };
 }
 
-const SYSTEM_TEXT =
+// Owner law: anatomy_imagination_vs_deformity — separate real defects from
+// intentional cuteness or canonical fantasy. Do NOT penalise stylization.
+export const ANATOMY_RUBRIC_SYSTEM_TEXT =
   "You are an anatomy auditor for a printable children's coloring-book. " +
-  "For EACH indexed image, compare the depicted subject against its species checklist " +
-  "(body_parts, proportion_rules, common_ai_failure_modes). " +
-  "A page PASSES only if every body_part is present with the correct count/shape/attachment, " +
-  "proportions are within the rules, and none of the common_ai_failure_modes are visible. " +
-  "Line-art style, cartoon stylization, and simplification are acceptable — only anatomical " +
-  "correctness is judged here. " +
+  "For EACH indexed image, compare the depicted subject against the checklist " +
+  "provided for that index (body_parts, proportion_rules, common_ai_failure_modes, " +
+  "fantasy flag, category_key). " +
+  "Apply this THREE-TIER rubric — do NOT invent additional rules:\n" +
+  "TIER 1 (DEFORMITY = ALWAYS FAIL): wrong COUNT of standard parts for the depicted " +
+  "creature (a 4-legged animal drawn with 5 legs, a hand with 6 fingers, 3 eyes on one head), " +
+  "fused/missing/extra/severed limbs, disembodied parts, broken incoherent bodies, or " +
+  "grotesque proportions that read as injured/disabled. Also fail species-plan violations for " +
+  "realistic subjects (e.g. cetacean flukes drawn vertical, stegosaurus drawn bipedal, narwhal " +
+  "tusk on forehead instead of upper lip).\n" +
+  "TIER 2 (CUTE STYLIZATION = ALWAYS PASS): anthropomorphic charm is welcome everywhere and " +
+  "is NEVER a defect — eyelashes on any animal, big sparkly eyes, smiles, blush marks, " +
+  "bows/hats/props/clothing, expressive faces, cartoon simplification, line-art style. " +
+  "Do NOT list any of these as defects.\n" +
+  "TIER 3 (COHERENT FANTASY = PASS WHEN INTENTIONAL): unicorns (exactly one forehead horn), " +
+  "pegasus (two wings), mermaids (one human torso + one fish tail), dragons, fairies — PASS " +
+  "when either (a) the image's checklist has fantasy:true, or (b) the image's category_key " +
+  "is a fantasy category. In strictly realistic categories, an UNINVITED fantasy addition to a " +
+  "real species (e.g. a dolphin sprouting a unicorn horn in a sea_animals book) is a Tier 1 fail. " +
+  "For fantasy creatures, judge against the fantasy canon in the checklist, not real biology.\n" +
   "Return STRICT JSON: " +
   `{"verdicts":[{"index":number,"pass":boolean,"anatomy_score":number(0..100),` +
   `"defects":string[]}]}. ` +
-  "Score 90+ only when no defects are present. Do not include prose.";
+  "Score 90+ only when no Tier 1 defects are present. Never list Tier 2 stylization in defects. " +
+  "Do not include prose.";
+
+// Kept for backwards-compat with any external import.
+const SYSTEM_TEXT = ANATOMY_RUBRIC_SYSTEM_TEXT;
 
 interface OneModelResult {
   ok: boolean;
@@ -178,12 +205,20 @@ export async function verifyAnatomyBatch(
     ? opts.models
     : [...ANATOMY_VERIFIER_MODEL_LADDER_DEFAULT];
 
-  const checklists = batch.map((p, i) => ({
-    index: i,
-    page: p.page,
-    subject: p.subject,
-    checklist: speciesAnatomyChecklistJson(p.subject),
-  }));
+  const checklists = batch.map((p, i) => {
+    const spec = getSpeciesAnatomy(p.subject);
+    const fantasyOk = !!spec.fantasy || isFantasyCategoryKey(p.category_key);
+    return {
+      index: i,
+      page: p.page,
+      subject: p.subject,
+      category_key: p.category_key ?? null,
+      scene: p.scene ?? null,
+      fantasy: !!spec.fantasy,
+      fantasy_ok: fantasyOk,
+      checklist: speciesAnatomyChecklistJson(p.subject),
+    };
+  });
 
   let lastReason = "no_models_tried";
   let winner: OneModelResult | null = null;
