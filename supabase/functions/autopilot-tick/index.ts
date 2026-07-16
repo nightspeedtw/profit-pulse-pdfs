@@ -153,6 +153,14 @@ Deno.serve(async (req) => {
     result.published = published;
     result.publish_skipped = skipped;
 
+    // ---------- 5. Coloring-book autopilot fan-out (non-blocking) ----------
+    try {
+      const cb = await invoke("coloring-autopilot-tick", {});
+      result.coloring_autopilot = { ok: cb.ok, status: cb.status, body: cb.body };
+    } catch (e) {
+      result.coloring_autopilot = { ok: false, error: String(e) };
+    }
+
     return await finish(db, result);
   } catch (e) {
     result.error = e instanceof Error ? e.message : String(e);
