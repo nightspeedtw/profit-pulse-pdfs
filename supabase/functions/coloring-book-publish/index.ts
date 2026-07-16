@@ -128,17 +128,26 @@ Deno.serve(async (req: Request) => {
     if (!row.cover_url) return json({ error: "cover_missing" }, 422);
     if (pages.length !== plan.length) return json({ error: "interior_incomplete" }, 422);
 
-    // OWNER LAW: publish-candidate is the terminal automated state UNLESS
-    // (a) the owner explicitly flips (`owner_flip === true`), OR
-    // (b) batch-learning `clean_auto_flip` is on AND `defect_ledger` is
-    //     empty (clean book — owner has pre-delegated the flip).
+    // OWNER LAW batch_learning_rounds (v2 — full-live amendment):
+    //   qc_mode = 'learning' (default): every book with pdf_url + cover_url
+    //     goes LIVE regardless of defect_ledger. Ledger is still recorded
+    //     in full — it is the learning fuel between rounds.
+    //   qc_mode = 'strict': restores original QC-blocking regime — only an
+    //     explicit owner flip (owner_flip===true) or a clean_auto_flip+
+    //     empty-ledger book goes live; everything else stays candidate.
+    //   Absolute floor (non-negotiable commerce integrity): pdf_url +
+    //   cover_url must be present and non-zero. Enforced above (422) AND
+    //   by the ebooks_kids_live_assets_guard DB trigger.
     const { data: gsPreview } = await db.from("generation_settings")
       .select("coloring_autopilot").eq("id", 1).maybeSingle();
     const autopilotCfg = (gsPreview?.coloring_autopilot ?? {}) as Record<string, unknown>;
     const ledger = Array.isArray(meta.defect_ledger) ? (meta.defect_ledger as any[]) : [];
     const cleanLedger = ledger.length === 0;
     const autoFlipEnabled = autopilotCfg.clean_auto_flip === true;
-    const publishLive = (mode === "live" && owner_flip === true) || (cleanLedger && autoFlipEnabled);
+    const qcMode = (autopilotCfg.qc_mode as string) ?? "learning";
+    const publishLive = qcMode === "learning"
+      ? true
+      : ((mode === "live" && owner_flip === true) || (cleanLedger && autoFlipEnabled));
 
 
     await patchMeta(db, ebook_id, {
