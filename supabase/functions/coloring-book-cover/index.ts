@@ -24,6 +24,7 @@ import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 import { classifyProviderError } from "../_shared/covers/provider-errors.ts";
 import { loadActivePreventionRules, indexRulesBySpecies, pickLearnedRulesFor, learnedClauseFromRules } from "../_shared/coloring/first-pass-learner.ts";
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
+import { detectBlankRegions } from "../_shared/covers/blank-detect.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -115,30 +116,43 @@ function compactLearnedClause(clause: string): string {
 async function colorEvidence(bytes: Uint8Array) {
   const img = await Image.decode(bytes);
   const w = img.width, h = img.height;
+  // Pack imagescript's RGBA-in-uint32 pixels into a flat RGBA byte buffer
+  // so the pure detectBlankRegions() helper (unit-tested in
+  // coloringCoverRenderedProof.test.ts) can operate on it. Same code path
+  // in production and in the rendered-proof regression suite.
+  const rgba = new Uint8Array(w * h * 4);
+  let n = 0, satSum = 0, chromaSum = 0;
   const stepX = Math.max(1, Math.floor(w / 48));
   const stepY = Math.max(1, Math.floor(h / 48));
-  let n = 0, satSum = 0, chromaSum = 0;
-  for (let y = 0; y < h; y += stepY) {
-    for (let x = 0; x < w; x += stepX) {
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
       const px = img.getPixelAt(x + 1, y + 1);
       const r = (px >>> 24) & 0xff;
       const g = (px >>> 16) & 0xff;
       const b = (px >>> 8) & 0xff;
-      const max = Math.max(r, g, b), min = Math.min(r, g, b);
-      const chroma = max - min;
-      chromaSum += chroma;
-      satSum += max > 0 ? chroma / max : 0;
-      n += 1;
+      const i = (y * w + x) * 4;
+      rgba[i] = r; rgba[i + 1] = g; rgba[i + 2] = b; rgba[i + 3] = 255;
+      if (x % stepX === 0 && y % stepY === 0) {
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        const chroma = max - min;
+        chromaSum += chroma;
+        satSum += max > 0 ? chroma / max : 0;
+        n += 1;
+      }
     }
   }
   const avg_saturation = n ? satSum / n : 0;
   const avg_chroma = n ? chromaSum / n : 0;
+  const blank = detectBlankRegions(rgba, w, h);
   return {
     width: w,
     height: h,
     avg_saturation: Number(avg_saturation.toFixed(4)),
     avg_chroma: Number(avg_chroma.toFixed(2)),
-    pass: avg_saturation >= 0.08 && avg_chroma >= 12,
+    region_stats: blank.region_stats,
+    blank_background: blank.blank_background,
+    blank_ratio: blank.blank_ratio,
+    pass: avg_saturation >= 0.08 && avg_chroma >= 12 && !blank.blank_background,
     min_saturation: 0.08,
     min_chroma: 12,
   };
@@ -156,11 +170,14 @@ function constructedOverlayTranscription(title: string, subtitle: string, ageBad
 }
 
 async function markCoverBlocked(db: any, ebookId: string, patch: Record<string, unknown>, reason: string, status = 202) {
+  const isBlankArt = reason.startsWith("raw_art_blank_background") || reason.includes("blank_background");
   await patchMeta(db, ebookId, {
     ...patch,
     coloring_progress_percent: 92,
-    coloring_current_step_label: `Cover single-rung requeued: ${reason}`,
-    awaiting: "cover_pdf_publish",
+    coloring_current_step_label: isBlankArt
+      ? `Cover single-rung parked awaiting_cover_retry: ${reason}`
+      : `Cover single-rung requeued: ${reason}`,
+    awaiting: isBlankArt ? "cover_retry" : "cover_pdf_publish",
     coloring_blocker: {
       class: reason.startsWith("provider_") ? "temporary_provider_error" : reason.startsWith("unmeasured") ? "missing_dependency" : "content_quality_failure",
       reason,
@@ -169,6 +186,8 @@ async function markCoverBlocked(db: any, ebookId: string, patch: Record<string, 
   });
   await db.from("ebooks_kids").update({
     pipeline_status: "queued",
+    // Owner law: blank fallback NEVER publishes — book stays awaiting_cover_retry
+    // and the single-rung art path retries until real artwork is produced.
     blocker_reason: `coloring_cover_single_rung:${reason}`.slice(0, 300),
   }).eq("id", ebookId);
   // Lane-blocked reasons (provider billing/quota) must NOT self-advance — a
@@ -177,7 +196,7 @@ async function markCoverBlocked(db: any, ebookId: string, patch: Record<string, 
   if (!isLaneBlocked) {
     await scheduleSelfAdvance(db, ebookId, { delayMs: SELF_ADVANCE_DELAY_BACKOFF_MS, reason: `cover:${reason}` });
   }
-  return json({ ok: false, requeued: true, reason, self_advance: !isLaneBlocked }, status);
+  return json({ ok: false, requeued: true, reason, self_advance: !isLaneBlocked, awaiting_cover_retry: isBlankArt }, status);
 }
 
 Deno.serve(async (req: Request) => {
@@ -313,7 +332,11 @@ Deno.serve(async (req: Request) => {
       attempt.ended_at = new Date().toISOString();
       attempt.status = "requeued";
       attempt.checks = { luminance, color };
-      const reason = luminance.dead ? `raw_art_dead:${luminance.reason}` : `raw_art_not_colorful:saturation=${color.avg_saturation},chroma=${color.avg_chroma}`;
+      const reason = luminance.dead
+        ? `raw_art_dead:${luminance.reason}`
+        : color.blank_background
+          ? `raw_art_blank_background:blank_ratio=${color.blank_ratio}:region_stats=${JSON.stringify(color.region_stats)}`
+          : `raw_art_not_colorful:saturation=${color.avg_saturation},chroma=${color.avg_chroma}`;
       return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, reason, 422);
     }
 
@@ -375,7 +398,13 @@ Deno.serve(async (req: Request) => {
         present: (treatmentMeta as any)?.logo_present === true,
         rect: ((treatmentMeta as any)?.overlay_frame?.elements ?? []).find((e: any) => e.name === "secretpdf_kids_logo") ?? null,
       },
-      artwork: { used_svg_fallback: false, synthesized_background: false, blank_background: false, blank_ratio: 0 },
+      artwork: {
+        used_svg_fallback: false,
+        synthesized_background: false,
+        blank_background: color.blank_background === true,
+        blank_ratio: color.blank_ratio ?? 0,
+        region_stats: color.region_stats,
+      },
       quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
       pageCountMatchesFinalPdf: true,
     });

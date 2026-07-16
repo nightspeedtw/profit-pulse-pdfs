@@ -517,22 +517,25 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
     : "";
 
   const ageBadge = (input.ageBadge ?? "").trim();
-  // Safe-zone placement — scale pill to canvas so it never clips off-canvas.
-  // (Owner defect: 280×90 pill anchored at translate(W-340, H-150) clipped
-  // off the composited portrait 4:3 canvas.)
+  // Owner defect (3rd occurrence): "Ages 4-6" pill clipped at right edge and
+  // logo clipped at left edge because the pill stroke rendered OUTSIDE the
+  // reported bbox. Fix: bake the stroke thickness into the safe-margin so
+  // `pillX + pillW + stroke <= W - safe_margin - stroke` and the same for
+  // the logo — both must sit STRICTLY inside the safe zone.
   const safe = Math.max(72, Math.round(W * 0.05));
-  const pillW = Math.min(Math.max(180, Math.round(W * 0.19)), W - 2 * safe);
-  const pillH = Math.max(60, Math.round(pillW * 0.32));
   const pillStroke = 5;
-  const pillX = Math.max(safe + pillStroke, W - safe - pillW - pillStroke);
-  const pillY = Math.max(safe + pillStroke, H - safe - pillH - pillStroke);
+  const effectiveMargin = safe + pillStroke * 2;
+  const pillW = Math.min(Math.max(180, Math.round(W * 0.19)), W - 2 * effectiveMargin);
+  const pillH = Math.max(60, Math.round(pillW * 0.32));
+  const pillX = Math.max(effectiveMargin, W - effectiveMargin - pillW);
+  const pillY = Math.max(effectiveMargin, H - effectiveMargin - pillH);
   const pillTextY = Math.round(pillH * 0.68);
   const pillFont = Math.max(24, Math.round(pillH * 0.46));
   const ageBadgeEl = ageBadge
     ? `<g transform="translate(${pillX}, ${pillY})">
         <rect x="0" y="0" width="${pillW}" height="${pillH}" rx="${Math.round(pillH / 2)}" ry="${Math.round(pillH / 2)}"
               fill="${colors.accent}" opacity="0.96"
-              stroke="${colors.stroke}" stroke-width="5"/>
+              stroke="${colors.stroke}" stroke-width="${pillStroke}"/>
         <text x="${pillW / 2}" y="${pillTextY}" text-anchor="middle" font-family="${subFontFamily}"
               font-weight="800" font-size="${pillFont}" fill="${colors.stroke}" letter-spacing="3">
           ${esc(ageBadge)}
@@ -545,10 +548,10 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
   const logoB64 = await loadCoverLogoB64();
   const logoPanelPadX = 14;
   const logoPanelPadY = 10;
-  const logoW = Math.round(W * 0.12);
+  const logoW = Math.min(Math.round(W * 0.12), W - 2 * effectiveMargin - logoPanelPadX * 2);
   const logoH = Math.round(logoW * (KIDS_BRAND_FOOTER_DIMS.h / KIDS_BRAND_FOOTER_DIMS.w));
-  const logoX = safe + logoPanelPadX;
-  const logoY = H - safe - logoH - logoPanelPadY;
+  const logoX = effectiveMargin + logoPanelPadX;
+  const logoY = H - effectiveMargin - logoH - logoPanelPadY;
   const logoEl = logoB64
     ? `<g transform="translate(${logoX}, ${logoY})">
         <rect x="-${logoPanelPadX}" y="-${logoPanelPadY}" width="${logoW + logoPanelPadX * 2}" height="${logoH + logoPanelPadY * 2}" rx="18" ry="18" fill="#FFFFFF" opacity="0.74"/>
