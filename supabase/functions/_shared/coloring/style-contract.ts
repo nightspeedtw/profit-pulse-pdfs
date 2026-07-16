@@ -47,6 +47,7 @@ export interface PagePlanEntry {
   required_elements: string[];
   forbidden_elements: string[];
   composition_type: string;
+  scene_bucket?: string; // one of SCENE_TAXONOMY
 }
 
 const NEGATIVE_CLAUSES = [
