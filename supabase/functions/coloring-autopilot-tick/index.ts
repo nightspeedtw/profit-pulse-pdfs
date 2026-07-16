@@ -115,6 +115,21 @@ Deno.serve(async (req: Request) => {
     const cfg = { ...DEFAULTS, ...(gs?.coloring_autopilot ?? {}) };
     result.config = cfg;
 
+    // Piggyback: fire-and-forget daily repricer (owner pricing law RULE 2).
+    // The repricer is idempotent same-day, so calling it every tick is safe;
+    // it exits fast when nothing is due.
+    try {
+      const lastRun = (cfg as any)?.pricing?.last_repricer_run_at as string | undefined;
+      const hoursSince = lastRun ? (Date.now() - new Date(lastRun).getTime()) / 3_600_000 : 999;
+      if (hoursSince >= 23) {
+        fetch(`${url}/functions/v1/coloring-repricer`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${service}`, apikey: service },
+          body: JSON.stringify({}),
+        }).catch(() => { /* fire and forget */ });
+      }
+    } catch { /* never block the tick on pricing */ }
+
     // Coloring engine runs on its own queue — independent of the picture-book
     // autopilot pause/cost cap. Only the coloring config controls it.
     if (cfg.paused) { result.skipped = "engine_paused"; return json(result); }

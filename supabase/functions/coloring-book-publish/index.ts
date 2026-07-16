@@ -11,11 +11,11 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 import { coloringReleaseGate } from "../_shared/coloring/gates.ts";
+import { DEFAULT_PRICING_CONFIG, computePrice, type PricingConfig } from "../_shared/coloring/pricing.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const DEFAULT_PRICE_CENTS = 499;
 
 function json(x: unknown, status = 200) {
   return new Response(JSON.stringify(x), {
@@ -185,6 +185,23 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, release_blocked: true, gate });
     }
 
+    // ── Pricing (RULE 1: page-count → base) ───────────────────────────
+    // Popularity tier is applied by the daily coloring-repricer; at initial
+    // publish every book starts at the "base" tier (top-tier promotion is
+    // earned after live signals accumulate).
+    const { data: gs } = await db.from("generation_settings")
+      .select("coloring_autopilot").eq("id", 1).maybeSingle();
+    const pricingCfg: PricingConfig = {
+      ...DEFAULT_PRICING_CONFIG,
+      ...((gs?.coloring_autopilot as any)?.pricing ?? {}),
+    };
+    const priceBreakdown = computePrice({ pageCount: plan.length, tier: "base", cfg: pricingCfg });
+    const priorHistory = ((row.storefront_meta as any)?.pricing?.price_history ?? []) as any[];
+    const priorPrice = Number(row.price_cents ?? 0);
+    const priceHistory = priorPrice > 0 && priorPrice !== priceBreakdown.price_cents
+      ? [...priorHistory, { price_cents: priorPrice, at: new Date().toISOString(), reason: "pre_publish_snapshot" }]
+      : priorHistory;
+
     const storefrontMeta = {
       ...(row.storefront_meta ?? {}),
       product_type: "coloring_book",
@@ -196,6 +213,11 @@ Deno.serve(async (req: Request) => {
       preview_page_urls: previewUrls,
       release_gate: gate,
       published_at: new Date().toISOString(),
+      pricing: {
+        ...priceBreakdown,
+        source: "owner_pricing_law_v1",
+        price_history: priceHistory,
+      },
     };
 
     await db.from("ebooks_kids").update({
@@ -203,7 +225,7 @@ Deno.serve(async (req: Request) => {
       status: "live",
       pipeline_status: "published",
       sellable: true,
-      price_cents: row.price_cents && row.price_cents > 0 ? row.price_cents : DEFAULT_PRICE_CENTS,
+      price_cents: priceBreakdown.price_cents,
       thumbnail_url,
       preview_page_urls: previewUrls,
       customer_product_description_html: descHtml,
