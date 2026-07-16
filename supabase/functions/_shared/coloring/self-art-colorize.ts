@@ -9,7 +9,21 @@
 
 import type { ColoringPalette } from "./coloring-palettes.ts";
 
-export const SELF_ART_COVER_VERSION = "coloring_self_art_cover_v1";
+export const SELF_ART_COVER_VERSION = "coloring_self_art_cover_v2_beautified";
+
+/** Blend two rgb ints toward a lighter tone by t in [0,1]. Used for soft
+ *  two-tone region gradients that give the beautified cover a Crayola-like
+ *  hand-colored feel instead of flat kindergarten fills. */
+export function twoToneShade(baseRgb: number, t: number, lightenBy = 0.22): number {
+  const r = (baseRgb >> 16) & 0xff;
+  const g = (baseRgb >> 8) & 0xff;
+  const b = baseRgb & 0xff;
+  const k = 1 + lightenBy * (1 - t); // top of region = lighter, bottom = base
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  return (clamp(r * (2 - k) + 255 * (k - 1)) << 16)
+       | (clamp(g * (2 - k) + 255 * (k - 1)) << 8)
+       |  clamp(b * (2 - k) + 255 * (k - 1));
+}
 
 const FILLABLE_LUM_MIN = 210;
 const MIN_REGION_PIXELS = 40;
