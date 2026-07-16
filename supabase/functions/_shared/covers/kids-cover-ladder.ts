@@ -23,6 +23,12 @@ import { computeLuminance, type LuminanceStats } from "../image-luminance.ts";
 import { falIdeogramV3, falRecraftV3 } from "../fal.ts";
 import { geminiDirectImageWithMeta } from "../gemini-direct.ts";
 import { renderKidsTitleTreatment } from "./kids-title-treatment.ts";
+import {
+  transcribeGlyphs,
+  verifyCategoryHero,
+  type GlyphVerdict,
+  type HeroVerdict,
+} from "./cover-vision-guards.ts";
 
 export type CoverRungLabel =
   | "ideogram_v3_a"
