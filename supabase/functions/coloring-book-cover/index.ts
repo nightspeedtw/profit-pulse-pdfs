@@ -13,6 +13,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import { TEXTLESS_DIRECTIVE } from "../_shared/textless-illustration-policy.ts";
+import { buildColoringCoverArtPrompt } from "../_shared/coloring/cover-prompt.ts";
 import { renderKidsTitleTreatment } from "../_shared/covers/kids-title-treatment.ts";
 import { transcribeGlyphs, verifyCategoryHero } from "../_shared/covers/cover-vision-guards.ts";
 import { MEASURED_COVER_GATE_VERSION, measuredCoverScorecard } from "../_shared/covers/cover-measured-gate.ts";
