@@ -19,10 +19,59 @@ import {
   mergeLedger,
   type PageLedger,
 } from "./page-ledger.ts";
+import {
+  drawKidsBrandingOnPage,
+  embedKidsFooterLogo,
+  type BrandingReport,
+  type KidsPageKind,
+} from "./kids-branding.ts";
 
 // Re-export the finalize-time gate so callers can enforce it before publish.
 export { assertLedgerContiguous } from "./page-ledger.ts";
 export type { PageLedger, PageLedgerEntry } from "./page-ledger.ts";
+export type { BrandingReport } from "./kids-branding.ts";
+
+// ── Kids-branding context ────────────────────────────────────────────────
+// Set by the caller before invoking any of the incremental builders. When
+// `logoBytes` is null branding is disabled (used only by pre-branding
+// legacy callers). The report array is populated as pages are stamped and
+// can be consumed with `consumeKidsBrandingReports()`.
+interface BrandingCtx {
+  logoBytes: Uint8Array | null;
+  startingPageIndex: number;
+  reports: BrandingReport[];
+}
+let BRANDING: BrandingCtx = { logoBytes: null, startingPageIndex: 0, reports: [] };
+
+export function configureKidsBranding(opts: { logoBytes: Uint8Array | null; startingPageIndex?: number }) {
+  BRANDING = {
+    logoBytes: opts.logoBytes ?? null,
+    startingPageIndex: opts.startingPageIndex ?? 0,
+    reports: [],
+  };
+}
+
+export function consumeKidsBrandingReports(): BrandingReport[] {
+  const out = BRANDING.reports;
+  BRANDING.reports = [];
+  return out;
+}
+
+async function stampBranding(
+  doc: PDFDocument,
+  page: ReturnType<PDFDocument["addPage"]>,
+  pageKind: KidsPageKind,
+  underlyingImageBytes: Uint8Array | null,
+) {
+  if (!BRANDING.logoBytes) return;
+  const logoImage = await embedKidsFooterLogo(doc, BRANDING.logoBytes);
+  const pageIndex = BRANDING.startingPageIndex + doc.getPageCount() - 1;
+  const report = await drawKidsBrandingOnPage({
+    doc, page, pageKind, pageIndex, pageW: PAGE_W, pageH: PAGE_H,
+    logoImage, underlyingImageBytes,
+  });
+  BRANDING.reports.push(report);
+}
 
 const PAGE_W = KIDS_BOOK_FORMAT.page_width_pt;   // 612
 const PAGE_H = KIDS_BOOK_FORMAT.page_height_pt;  // 612
