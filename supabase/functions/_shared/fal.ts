@@ -16,6 +16,7 @@ type FalImageOpts = {
   negative_prompt?: string;
   ebook_id?: string;
   step?: string;
+  output_format?: "png" | "jpeg";
 };
 
 async function callFal(endpoint: string, body: Record<string, unknown>, meta?: { ebook_id?: string; step?: string; model: string }): Promise<Uint8Array> {
