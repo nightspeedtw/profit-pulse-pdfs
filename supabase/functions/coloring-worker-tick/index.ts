@@ -130,48 +130,62 @@ Deno.serve(async (req: Request) => {
     }
     result.watchdog_requeued = requeued;
 
-    const { data: queued } = await db
-      .from("ebooks_kids")
-      .select("id, title, metadata, pdf_url, cover_url")
-      .eq("book_type", "coloring_book")
-      .eq("pipeline_status", "queued")
-      .order("created_at", { ascending: true })
-      .limit(slots);
-    result.queue_size = queued?.length ?? 0;
+    // Focus mode: when a stage self-advances it passes `ebook_id`; we
+    // dispatch only that row (still respecting the parallelism cap above)
+    // and skip the general queue scan. This is the class fix for "books
+    // park between stages waiting for the next cron tick".
+    const focusEbookId = typeof body.ebook_id === "string" ? body.ebook_id : null;
+    let queued: any[] = [];
+    if (focusEbookId) {
+      const { data: row } = await db
+        .from("ebooks_kids")
+        .select("id, title, metadata, pdf_url, cover_url, pipeline_status, book_type")
+        .eq("id", focusEbookId)
+        .maybeSingle();
+      if (row && row.book_type === "coloring_book" && row.pipeline_status === "queued") {
+        queued = [row];
+      } else {
+        result.focus_skipped = { ebook_id: focusEbookId, status: row?.pipeline_status ?? "not_found" };
+      }
+    } else {
+      const { data } = await db
+        .from("ebooks_kids")
+        .select("id, title, metadata, pdf_url, cover_url")
+        .eq("book_type", "coloring_book")
+        .eq("pipeline_status", "queued")
+        .order("created_at", { ascending: true })
+        .limit(slots);
+      queued = data ?? [];
+    }
+    result.queue_size = queued.length;
+    result.focus = focusEbookId;
 
     // Route each queued coloring row to the correct stage based on `awaiting`:
     //   'cover_pdf_publish'          → coloring-book-cover (chains → assemble → publish)
     //   'publish'                    → coloring-book-publish
     //   otherwise                    → coloring-book-render (interior)
-    // NOTE: 'owner_calibration_review' and 'owner_final_verification' pins
-    // are REMOVED — calibration is auto-approved by the gates and publish
-    // is auto-chained. Any legacy row still carrying those awaits is routed
-    // back to its natural stage (render or publish) so it flows without wait.
-    for (const row of queued ?? []) {
+    //
+    // Dispatch is FIRE-AND-FORGET (3s timeout treated as dispatched). A
+    // dispatcher must never wait for the work it dispatches — otherwise the
+    // gateway wall-clock kills the tick and books stall mid-stage.
+    for (const row of queued) {
       const meta = (row.metadata ?? {}) as Record<string, unknown>;
       const awaiting = meta.awaiting as string | undefined;
       let target = "coloring-book-render";
       if (awaiting === "cover_pdf_publish") {
         target = row.cover_url ? (row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble") : "coloring-book-cover";
       } else if (awaiting === "publish" || awaiting === "publish_candidate" || awaiting === "owner_final_verification") {
-        // owner_final_verification is a legacy human-hold pin — route to candidate.
         target = row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble";
       }
-      // 'owner_calibration_review' legacy pin: fall through to coloring-book-render;
-      // the render function will detect calibration-complete and auto-approve.
-      const r = await fetch(`${url}/functions/v1/${target}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${service}`,
-          apikey: service,
-        },
-        body: JSON.stringify({ ebook_id: row.id, ...(awaiting === "publish_candidate" || awaiting === "owner_final_verification" ? { mode: "candidate" } : {}) }),
-      });
-      const j = await r.json().catch(() => ({}));
+      const outcome = await fireAndForgetPost(
+        `${url}/functions/v1/${target}`,
+        { Authorization: `Bearer ${service}`, apikey: service },
+        { ebook_id: row.id, ...(awaiting === "publish_candidate" || awaiting === "owner_final_verification" ? { mode: "candidate" } : {}) },
+        3_000,
+      );
       (result.dispatched as unknown[]).push({
-        ebook_id: row.id, title: row.title, target, ok: r.ok, status: r.status,
-        note: j?.note ?? j?.error ?? null,
+        ebook_id: row.id, title: row.title, target,
+        dispatched: outcome.dispatched, status: outcome.status ?? null, note: outcome.error ?? null,
       });
     }
 
