@@ -8,7 +8,8 @@ import { KidsFilterChips } from "@/components/kids/KidsFilterChips";
 import { KidsSectionNav } from "@/components/kids/KidsSectionNav";
 import {
   resolveCategory, bookMatchesFilter, parseKidsUrl,
-  type AgeBandSlug, type BookTypeSlug,
+  resolveAgeChip, bookMatchesAgeChip, bookIsForKids,
+  type BookTypeSlug,
 } from "@/lib/kidsCatalogTaxonomy";
 import { listThemes, type KidsTheme } from "@/lib/kidsTaxonomy";
 
@@ -18,6 +19,8 @@ interface Row {
   cover_url: string | null;
   price_cents: number;
   age_band: string | null;
+  age_min: number | null;
+  age_max: number | null;
   book_type: string | null;
   theme_ids: string[] | null;
   theme_slugs: string[] | null;
