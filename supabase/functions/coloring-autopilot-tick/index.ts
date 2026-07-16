@@ -166,7 +166,7 @@ Deno.serve(async (req: Request) => {
       } else {
         cat = weightedPick(allCats as any);
       }
-      const title = titleFor(cat.category_name, cfg.age_band);
+      const chosen = await pickUniqueTitle(db, cat.category_key, cat.category_name, cfg.age_band);
       const r = await fetch(`${url}/functions/v1/coloring-book-start`, {
         method: "POST",
         headers: {
@@ -176,7 +176,9 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify({
           category_key: cat.category_key,
-          title,
+          title: chosen.title,
+          angle: chosen.angle,
+          variant_number: chosen.variant,
           age_band: cfg.age_band,
           page_count: cfg.page_count,
         }),
@@ -184,7 +186,8 @@ Deno.serve(async (req: Request) => {
       const j = await r.json().catch(() => ({}));
       (result.queued as unknown[]).push({
         ok: r.ok, status: r.status,
-        category_key: cat.category_key, title,
+        category_key: cat.category_key, title: chosen.title,
+        angle: chosen.angle, variant_number: chosen.variant,
         ebook_id: j?.ebook_id ?? null,
         error: j?.error ?? null,
       });
