@@ -97,13 +97,14 @@ export function ColoringAutopilotCard() {
     }
   };
 
+  const hasActive = !!(status?.generating || status?.queued);
   useEffect(() => {
     setLoading(true);
     loadStatus();
-    const t = setInterval(loadStatus, 15000);
+    const t = setInterval(loadStatus, hasActive ? 10000 : 20000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hasActive]);
 
   const save = async (next: ColoringConfig) => {
     setSaving(true);
