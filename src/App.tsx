@@ -13,6 +13,7 @@ import Bundles from "./pages/Bundles.tsx";
 import About from "./pages/About.tsx";
 import Download from "./pages/Download.tsx";
 import Kids from "./pages/Kids.tsx";
+import KidsCategory from "./pages/KidsCategory.tsx";
 import Royalty from "./pages/Royalty.tsx";
 import RoyaltyBook from "./pages/RoyaltyBook.tsx";
 import MyRoyalties from "./pages/MyRoyalties.tsx";
