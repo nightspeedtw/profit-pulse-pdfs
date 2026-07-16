@@ -15,7 +15,7 @@ interface ColoringConfig {
   topic_mode: "random" | "specific";
   specific_category_key: string | null;
   age_band: "3-5" | "4-6" | "6-8";
-  page_count: 24 | 32 | 48;
+  page_count: 16 | 24 | 32 | 48;
   batch_size: number;
   daily_cap: number;
   daily_stop_utc: string;
@@ -357,6 +357,7 @@ export function ColoringAutopilotCard() {
           <Select value={String(cfg.page_count)} onValueChange={(v) => update("page_count", Number(v) as ColoringConfig["page_count"])}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
+              <SelectItem value="16">16 pages</SelectItem>
               <SelectItem value="24">24 pages</SelectItem>
               <SelectItem value="32">32 pages</SelectItem>
               <SelectItem value="48">48 pages</SelectItem>

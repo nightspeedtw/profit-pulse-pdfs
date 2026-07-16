@@ -1,7 +1,7 @@
 // Coloring Book Pricing — owner pricing law.
 // RULE 1 (page count → base): linear interp across anchor table.
 // RULE 2 (popularity → multiplier): top 10% +40%, top 25% +20%, else base.
-// Ceiling $12.99, floor = base. Data-driven; config lives in
+// Ceiling $16.99, floor = base. Data-driven; config lives in
 // generation_settings.coloring_autopilot.pricing.
 //
 // Pure module — no I/O, no Deno globals. Runs in vitest (node) and Deno.
@@ -26,12 +26,12 @@ export type PricingConfig = {
 
 export const DEFAULT_PRICING_CONFIG: PricingConfig = {
   anchors: [
-    { pages: 24, price_cents: 399 },
-    { pages: 32, price_cents: 499 },
-    { pages: 48, price_cents: 699 },
-    { pages: 64, price_cents: 899 },
+    { pages: 16, price_cents: 599 },
+    { pages: 24, price_cents: 799 },
+    { pages: 32, price_cents: 999 },
+    { pages: 48, price_cents: 1299 },
   ],
-  ceiling_cents: 1299,
+  ceiling_cents: 1699,
   popularity: {
     top10_multiplier: 1.40,
     top25_multiplier: 1.20,

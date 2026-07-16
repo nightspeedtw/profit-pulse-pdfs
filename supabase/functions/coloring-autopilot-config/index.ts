@@ -31,12 +31,12 @@ const DEFAULTS = {
   // Data-only config; edit here or via generation_settings.coloring_autopilot.pricing.
   pricing: {
     anchors: [
-      { pages: 24, price_cents: 399 },
-      { pages: 32, price_cents: 499 },
-      { pages: 48, price_cents: 699 },
-      { pages: 64, price_cents: 899 },
+      { pages: 16, price_cents: 599 },
+      { pages: 24, price_cents: 799 },
+      { pages: 32, price_cents: 999 },
+      { pages: 48, price_cents: 1299 },
     ],
-    ceiling_cents: 1299,
+    ceiling_cents: 1699,
     popularity: {
       top10_multiplier: 1.40,
       top25_multiplier: 1.20,
