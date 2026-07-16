@@ -8,11 +8,12 @@
 //   3. Stage 1 = CALIBRATION (pages 1..CALIBRATION_COUNT). Render each via
 //      FAL Flux Schnell using buildInteriorPrompt(). Verify-at-birth: PNG
 //      magic + non-trivial byte size. Upload → append record → progress.
-//   4. When calibration pages are all present AND owner has not approved
-//      the style lock (metadata.coloring_calibration_approved != true) →
-//      stop with awaiting='owner_calibration_review'. Progress = 25%.
-//   5. When calibration is approved → resume; render the remaining pages
-//      in batches of BATCH_SIZE, self-invoking between batches.
+//   4. When calibration pages are all present, calibration is AUTO-APPROVED
+//      by the deterministic + vision gates that already gated each stored
+//      page (solid-black, sharpness, white-bg, prompt-compliance). Reviewer
+//      note = 'auto_gates'. No human wait. Progress advances to production.
+//   5. Production: render remaining pages in batches of BATCH_SIZE,
+//      self-invoking between batches.
 //   6. When every plan page has a stored PNG → hand off to the post-P0
 //      cover+PDF+publish chain (currently: mark awaiting='cover_pdf_publish'
 //      + progress 90%). Cover / PDF / publish live in follow-up functions
