@@ -78,7 +78,7 @@ const NORMALIZERS: NormalizerRule[] = [
     match: /(solid[- ]?black\s+water|water\s+filled\s+solid|dense\s+water\s+fill|water_mass_fill|black\s+water\s+mass)/i },
   // Generic fallbacks
   { pattern_key: "extra_limb", gate: "anatomy",
-    match: /(extra\s+(limb|leg|arm|fin)|five\s+legs?|six\s+legs?|too\s+many\s+(legs|arms|fins))/i },
+    match: /(extra\s+(limb|leg|arm|fin|finger|toe)|five\s+legs?|six\s+(legs?|fingers?|toes?)|seven\s+fingers?|too\s+many\s+(legs|arms|fins|fingers|toes))/i },
   { pattern_key: "fused_features", gate: "anatomy",
     match: /(fused|conjoined|merged\s+into)/i },
   { pattern_key: "solid_black_fill", gate: "solid_black",
