@@ -187,21 +187,33 @@ export function validatePagePlan(
   }
 
   const distinctBuckets = bucketCounts.size;
-  if (distinctBuckets > 0 && distinctBuckets < 5) {
-    issues.push({
-      page: 0,
-      code: "SCENE_TAXONOMY_UNDERCOVERED",
-      message: `only ${distinctBuckets}/8 scene buckets used; require ≥5`,
-    });
-  }
-  const maxBucketShare = plan.length * 0.35;
-  for (const [b, n] of bucketCounts) {
-    if (n > maxBucketShare) {
+  if (plan.length > 0 && plan.length < 8) {
+    // MINI_TEST rule: with <8 pages the standard ≥5-of-8 bucket coverage is
+    // impossible; require every page to use a DISTINCT scene bucket instead.
+    if (distinctBuckets > 0 && distinctBuckets < plan.length) {
       issues.push({
         page: 0,
         code: "SCENE_TAXONOMY_UNDERCOVERED",
-        message: `scene bucket '${b}' has ${n} pages (>${Math.floor(maxBucketShare)} max = 35%)`,
+        message: `mini format: ${plan.length} pages must use ${plan.length} distinct scene buckets (got ${distinctBuckets})`,
       });
+    }
+  } else {
+    if (distinctBuckets > 0 && distinctBuckets < 5) {
+      issues.push({
+        page: 0,
+        code: "SCENE_TAXONOMY_UNDERCOVERED",
+        message: `only ${distinctBuckets}/8 scene buckets used; require ≥5`,
+      });
+    }
+    const maxBucketShare = plan.length * 0.35;
+    for (const [b, n] of bucketCounts) {
+      if (n > maxBucketShare) {
+        issues.push({
+          page: 0,
+          code: "SCENE_TAXONOMY_UNDERCOVERED",
+          message: `scene bucket '${b}' has ${n} pages (>${Math.floor(maxBucketShare)} max = 35%)`,
+        });
+      }
     }
   }
   return issues;
