@@ -3926,6 +3926,39 @@ export type Database = {
         }
         Relationships: []
       }
+      species_anatomy: {
+        Row: {
+          aliases: string[]
+          body_parts: Json
+          common_ai_failure_modes: string[]
+          created_at: string
+          proportion_rules: string[]
+          species_key: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          aliases?: string[]
+          body_parts: Json
+          common_ai_failure_modes?: string[]
+          created_at?: string
+          proportion_rules?: string[]
+          species_key: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          aliases?: string[]
+          body_parts?: Json
+          common_ai_failure_modes?: string[]
+          created_at?: string
+          proportion_rules?: string[]
+          species_key?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: []
+      }
       stall_events: {
         Row: {
           awaiting: string | null

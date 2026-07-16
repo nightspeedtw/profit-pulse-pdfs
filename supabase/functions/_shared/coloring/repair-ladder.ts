@@ -36,7 +36,7 @@ export function classifyFailure(reasons: string[]): FailureClass {
   const s = reasons.join(" | ").toLowerCase();
   if (/sharpness_below_floor|sharpness_gate/.test(s)) return "sharpness_below_floor";
   if (/watermark|signature|random_text|letters/.test(s)) return "text_or_watermark";
-  if (/anatom|limb|finger|paw|horn|wing|tail|face|eyes|malformed|fused|extra/.test(s)) return "anatomy_structural";
+  if (/anatom|limb|finger|paw|horn|wing|tail|fin|face|eyes|beak|mouth|mermaid|balloon|leaf-shaped|malformed|fused|extra/.test(s)) return "anatomy_structural";
   if (/solid.?black|black_pixel_ratio|black_cluster/.test(s)) return "solid_black_fill";
   if (/composition|cropped|margin|scale|centered/.test(s)) return "composition_off";
   if (/out_of_category|not in allowed_subjects|forbidden/.test(s)) return "off_category";
@@ -60,6 +60,7 @@ const CORRECTIVE_CLAUSES: Record<FailureClass, string[]> = {
     "Anatomically correct: exactly the expected number of limbs, fingers/paws, eyes, ears, wings, tails and horns for this subject",
     "No fused, missing, or extra body parts",
     "Faces must be coherent with symmetric, readable features",
+    "Follow the injected species anatomy checklist EXACTLY (body_parts + proportion_rules + avoid failure modes)",
   ],
   composition_off: [
     "Single well-centered subject, generous safe margin on all four sides",

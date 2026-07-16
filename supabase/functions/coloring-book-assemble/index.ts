@@ -24,6 +24,7 @@ import { KIDS_BRAND_LAYOUT, KIDS_BRAND_FOOTER_DIMS } from "../_shared/kids-brand
 import { coloringBookWeightedGate, coloringCoverGate, coloringReleaseGate } from "../_shared/coloring/gates.ts";
 import { computeSharpness, DEFAULT_SHARPNESS_MIN_SCORE, SHARPNESS_GATE_VERSION } from "../_shared/coloring/sharpness-gate.ts";
 import { decideAssemblySharpnessPreflight } from "../_shared/coloring/assembly-sharpness.ts";
+import { verifyAnatomyBatch, ANATOMY_VERIFIER_VERSION, summarizeBookAnatomy, type AnatomyPageVerdict } from "../_shared/coloring/anatomy-verify.ts";
 import { drawFitText, drawFitParagraph } from "../_shared/pdf/shrink-to-fit.ts";
 
 declare const Deno: any;
@@ -228,6 +229,79 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, action: sharpnessDecision.action, pages: sharpnessDecision.failures, sharpness_table: sharpnessTable }, 202);
     }
 
+    // ── ANATOMY SWEEP (measured, not constants) ────────────────────────
+    // Legacy pages predate the anatomy verifier — sweep them in batches of 6.
+    // Any anatomy_defect page is removed from metadata + requeued for regen.
+    // A page without a fresh verdict is treated as UNMEASURED (block release).
+    const anatomyByPage = new Map<number, AnatomyPageVerdict>();
+    for (const p of pages) {
+      const v = (p as any).anatomy_verdict;
+      if (v && v.measured_version === ANATOMY_VERIFIER_VERSION && !v.degraded) {
+        anatomyByPage.set(p.page, v as AnatomyPageVerdict);
+      }
+    }
+    const anatomyMissing = pages.filter((p) => !anatomyByPage.has(p.page));
+    for (let i = 0; i < anatomyMissing.length; i += 6) {
+      const chunk = anatomyMissing.slice(i, i + 6);
+      const inputs = await Promise.all(chunk.map(async (p) => ({
+        page: p.page,
+        subject: String(p.primary_subject ?? "unknown"),
+        bytes: await fetchBytes(p.signed_url),
+        mime: p.mime || "image/png",
+      })));
+      const verdicts = await verifyAnatomyBatch(inputs);
+      for (const v of verdicts) anatomyByPage.set(v.page, v);
+      await patchMeta(db, ebook_id, {
+        coloring_assembly: {
+          ...((meta as any).coloring_assembly ?? {}),
+          anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
+          anatomy_sweep_updated_at: new Date().toISOString(),
+        },
+        coloring_current_step_label: `Assembly anatomy sweep ${anatomyByPage.size}/${pages.length}`,
+      });
+    }
+    const anatomySummary = summarizeBookAnatomy(
+      [...anatomyByPage.values()],
+      pages.map((p) => p.page),
+    );
+    const anatomyFailedPages = anatomySummary.hard_fail_pages.map((p) => p.page);
+    if (anatomyFailedPages.length > 0 || !anatomySummary.every_page_measured) {
+      const badPages = new Set<number>([...anatomyFailedPages, ...anatomySummary.unmeasured_pages]);
+      const attempts = { ...(((meta as any).coloring_repair_attempts as Record<string, number>) ?? {}) };
+      for (const p of badPages) attempts[String(p)] = Math.max(1, attempts[String(p)] ?? 0);
+      await patchMeta(db, ebook_id, {
+        coloring_pages: pages.filter((p) => !badPages.has(p.page)),
+        coloring_repair_attempts: attempts,
+        coloring_assembly: {
+          ...((meta as any).coloring_assembly ?? {}),
+          anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
+          anatomy_summary: anatomySummary,
+          blocked_at: new Date().toISOString(),
+          blocked_reason: `anatomy_gate:${anatomyFailedPages.length ? `defects=${anatomyFailedPages.join(",")}` : ""}${anatomySummary.unmeasured_pages.length ? `;unmeasured=${anatomySummary.unmeasured_pages.join(",")}` : ""}`,
+        },
+        coloring_current_step_label: `Assembly anatomy sweep rejected pages ${[...badPages].join(", ")} — regenerating with species checklist`,
+        coloring_progress_percent: 90,
+        awaiting: "render",
+      });
+      await db.from("ebooks_kids").update({ pipeline_status: "queued", blocker_reason: null, pdf_url: null }).eq("id", ebook_id);
+      chain("coloring-book-render", { ebook_id });
+      return json({
+        ok: false,
+        action: "regen_for_anatomy",
+        pages: [...badPages],
+        anatomy_summary: anatomySummary,
+      }, 202);
+    }
+    // Persist final anatomy table now that every page is measured + passing.
+    await patchMeta(db, ebook_id, {
+      coloring_assembly: {
+        ...((meta as any).coloring_assembly ?? {}),
+        anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
+        anatomy_summary: anatomySummary,
+      },
+    });
+
+
     const persistedCoverGate = (meta.coloring_cover_gate as any) ?? (meta.coloring_cover as any)?.measured_gate ?? null;
     if (!persistedCoverGate?.scorecard) {
       await patchMeta(db, ebook_id, {
@@ -406,7 +480,7 @@ Deno.serve(async (req: Request) => {
     const bookGate = coloringBookWeightedGate({
       theme_fit: 96,
       age_fit: 96,
-      anatomy_correctness: 95,
+      anatomy_correctness: anatomySummary.min_page_score,   // MEASURED (species-checklist vision)
       line_art_cleanliness: 96,
       colorability: 94,
       composition_margins: 96,

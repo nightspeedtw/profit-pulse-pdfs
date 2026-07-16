@@ -4,6 +4,7 @@
 
 import { TEXTLESS_DIRECTIVE, withTextlessDirective } from "../textless-illustration-policy.ts";
 import type { ColoringCategory } from "./category.ts";
+import { speciesAnatomyPromptClause } from "./species-anatomy.ts";
 
 export interface LineArtStyleContract {
   style_family: string;                     // e.g. "clean_friendly_thick_line"
@@ -71,6 +72,7 @@ export function buildInteriorPrompt(
   category: Pick<ColoringCategory, "category_name" | "target_age_min" | "target_age_max">,
 ): string {
   const [minScale, maxScale] = contract.subject_scale_pct;
+  const anatomyClause = speciesAnatomyPromptClause(page.primary_subject);
   const parts = [
     `Printable children's coloring-book page.`,
     `Category: ${category.category_name}. Primary subject: ${page.primary_subject}.`,
@@ -84,6 +86,7 @@ export function buildInteriorPrompt(
     `Background complexity: ${contract.background_complexity}. Detail density: ${contract.detail_density}.`,
     `Subject fills ${minScale}-${maxScale}% of usable area. Centered, balanced composition. Safe margin preserved.`,
     `Pure black outlines on pure white. Printable 8.5x11 portrait.`,
+    anatomyClause,
     NEGATIVE_CLAUSES.join(". ") + ".",
   ].filter(Boolean);
   return withTextlessDirective(parts.join(" "));
