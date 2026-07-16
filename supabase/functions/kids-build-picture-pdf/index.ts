@@ -384,7 +384,11 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.warn('[build-picture-pdf] bonus content build failed:', (e as Error).message);
       }
+      // Branding on finalize covers bonus + closing pages (indices after
+      // front-matter + all story pages already in the file).
+      configureKidsBranding({ logoBytes: brandingLogoBytes, startingPageIndex: 3 + numStoryPages });
       const bytes = await finalizePicturePdf(existing, bonus);
+      runBrandingReports.push(...consumeKidsBrandingReports());
       if (!(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
         throw new Error('PDF byte validation failed (%PDF- missing)');
       }
