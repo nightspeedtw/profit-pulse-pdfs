@@ -209,8 +209,9 @@ async function markCoverBlocked(db: any, ebookId: string, patch: Record<string, 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    const { ebook_id, force } = await req.json();
+    const { ebook_id, force, mode } = await req.json();
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
+    const isUpgradeMode = mode === "upgrade";
     const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
     const { data: row, error } = await db.from("ebooks_kids")
@@ -222,9 +223,10 @@ Deno.serve(async (req: Request) => {
 
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
 
-    // Already have a cover? Advance.
+    // Already have a cover? Advance — UNLESS we're in explicit upgrade mode
+    // (which retries rung 1 to replace an existing rung-2 fallback cover).
     const existingGateVersion = (meta.coloring_cover_gate as any)?.scorecard?.version ?? (meta.coloring_cover as any)?.measured_gate?.scorecard?.version;
-    if (!force && meta.coloring_cover && row.cover_url && existingGateVersion === MEASURED_COVER_GATE_VERSION) {
+    if (!force && !isUpgradeMode && meta.coloring_cover && row.cover_url && existingGateVersion === MEASURED_COVER_GATE_VERSION) {
       fireAndForget("coloring-book-assemble", { ebook_id });
       return json({ ok: true, skipped: "cover_exists", chained: "assemble" });
     }
@@ -317,6 +319,7 @@ Deno.serve(async (req: Request) => {
       const path = `kids/${ebook_id}/coloring/cover-${version}.png`;
       const up = await uploadAndSignImage(db, "ebook-covers", path, params.finalBytes, { contentType: "image/png" });
       const measuredGate = { pass: true, scorecard: params.measured, reasons: [] as string[] };
+      const isRung2Fallback = params.acceptedRung.startsWith("coloring_self_art_cover");
       const coverRecord = {
         version: SINGLE_RUNG_VERSION,
         url: up.signedUrl,
@@ -332,20 +335,56 @@ Deno.serve(async (req: Request) => {
         learned_rules: [...learnedRules.values()].map((r: any) => ({ pattern_key: r.pattern_key, species_key: r.species_key })),
         previous_ladder_state: meta.coloring_cover_ladder ?? null,
         measured_gate: measuredGate,
+        is_fallback_rung: isRung2Fallback,
+        upgraded_from_rung: isUpgradeMode
+          ? ((meta.coloring_cover as any)?.accepted_rung ?? null)
+          : null,
         ...params.coverRecordExtras,
       };
-      await db.from("ebooks_kids").update({ cover_url: up.signedUrl, thumbnail_url: up.signedUrl, blocker_reason: null }).eq("id", ebook_id);
-      await patchMeta(db, ebook_id, {
+      // ATOMIC SWAP: write cover_url + thumbnail_url + metadata in a single
+      // update so an upgrade cannot leave a book with mismatched fields. If
+      // this update throws, the previous cover remains fully intact.
+      const prevCover = meta.coloring_cover ?? null;
+      const nextMeta = {
+        ...meta,
         coloring_cover: coverRecord,
         coloring_cover_gate: measuredGate,
         coloring_cover_single_attempt: attempt,
         coloring_progress_percent: 94,
         coloring_current_step_label: `Cover generated (${params.acceptedRung}) — assembling PDF`,
         awaiting: "cover_pdf_publish",
+        // Owner refinement: rung-2 covers auto-upgrade later; rung-1 covers do NOT.
+        cover_upgrade_pending: isRung2Fallback,
+        cover_upgrade_last_attempt_at: isUpgradeMode ? new Date().toISOString() : (meta as any).cover_upgrade_last_attempt_at ?? null,
+        cover_upgrade_history: [
+          ...((meta as any).cover_upgrade_history ?? []),
+          ...(isUpgradeMode ? [{
+            at: new Date().toISOString(),
+            outcome: "upgraded",
+            from_rung: (prevCover as any)?.accepted_rung ?? null,
+            to_rung: params.acceptedRung,
+          }] : []),
+        ].slice(-10),
+      };
+      await db.from("ebooks_kids").update({
+        cover_url: up.signedUrl,
+        thumbnail_url: up.signedUrl,
+        blocker_reason: null,
+        metadata: nextMeta,
+      }).eq("id", ebook_id);
+      // In upgrade mode we do NOT re-run assembly (sale continuity: price and
+      // listing unchanged, only the cover art + thumbnail change). Normal
+      // (first-generation) flow continues to the assembly step as before.
+      if (!isUpgradeMode) fireAndForget("coloring-book-assemble", { ebook_id });
+      return json({
+        ok: true,
+        accepted_rung: params.acceptedRung,
+        chained: isUpgradeMode ? "none_upgrade_only" : "assemble",
+        upgrade_pending: isRung2Fallback,
+        upgraded: isUpgradeMode,
       });
-      fireAndForget("coloring-book-assemble", { ebook_id });
-      return json({ ok: true, accepted_rung: params.acceptedRung, chained: "assemble" });
     }
+
 
     // ═══════════════════ RUNG 1 — up to 3 Flux/Schnell attempts ═══════════════════
     const MAX_FLUX_ATTEMPTS = 3;
@@ -453,6 +492,25 @@ Deno.serve(async (req: Request) => {
         // rung 2 immediately; the self-art rung succeeds without providers.
         if (providerClass === "billing_exhausted" || providerClass === "quota_exceeded") break;
       }
+    }
+
+    // Upgrade mode: rung 1 is the ONLY acceptable outcome. If all 3 flux
+    // attempts failed, leave the existing (rung-2 fallback) cover untouched
+    // and stamp the attempt for the next day's sweep. Sale continuity: price,
+    // listing, thumbnail, PDF — all remain intact.
+    if (isUpgradeMode) {
+      await patchMeta(db, ebook_id, {
+        cover_upgrade_last_attempt_at: new Date().toISOString(),
+        cover_upgrade_history: [
+          ...((meta as any).cover_upgrade_history ?? []),
+          {
+            at: new Date().toISOString(),
+            outcome: "no_change_rung1_failed",
+            flux_attempts: fluxAttempts.map((a) => ({ attempt: a.attempt, status: a.status, reason: a.reason })),
+          },
+        ].slice(-10),
+      });
+      return json({ ok: true, upgraded: false, reason: "rung1_failed_existing_cover_untouched", flux_attempts: fluxAttempts });
     }
 
     // ═══════════════════ RUNG 2 — DETERMINISTIC SELF-ART COVER ═══════════════════

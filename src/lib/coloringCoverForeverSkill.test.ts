@@ -77,11 +77,11 @@ describe("cover_can_never_fail: palette catalog", () => {
   });
 });
 
-describe("cover_can_never_fail: flood-fill colorization contract", () => {
+describe("cover_can_never_fail: flood-fill colorization contract (flat)", () => {
   const W = 60, H = 60;
   const fixture = buildFixtureRgba(W, H);
   const palette = paletteForCategory("farm_and_woodland");
-  const { rgba, evidence } = colorizeLineArt(fixture, W, H, palette);
+  const { rgba, evidence } = colorizeLineArt(fixture, W, H, palette, { beautify: false });
 
   it("returns evidence with at least 2 filled regions (outer + inner)", () => {
     expect(evidence.regions_filled).toBeGreaterThanOrEqual(2);
@@ -97,8 +97,7 @@ describe("cover_can_never_fail: flood-fill colorization contract", () => {
     expect(rgba[i + 2]).toBeLessThan(60);
   });
 
-  it("paints the outer/background region with the palette background color", () => {
-    // Sample a corner pixel that was white and is well outside the border.
+  it("paints the outer/background region with the palette background color when beautify=false", () => {
     const i = (2 * W + 2) * 4;
     const expectedR = (palette.background >> 16) & 0xFF;
     const expectedG = (palette.background >> 8) & 0xFF;
@@ -109,38 +108,55 @@ describe("cover_can_never_fail: flood-fill colorization contract", () => {
   });
 
   it("paints the enclosed inner region with a SUBJECT color, distinct from background", () => {
-    // Center pixel of the inner enclosed area.
     const cx = Math.floor(W / 2), cy = Math.floor(H / 2);
     const i = (cy * W + cx) * 4;
     const gotR = rgba[i], gotG = rgba[i + 1], gotB = rgba[i + 2];
     const bgR = (palette.background >> 16) & 0xFF;
     const bgG = (palette.background >> 8) & 0xFF;
     const bgB = palette.background & 0xFF;
-    const differentFromBg = gotR !== bgR || gotG !== bgG || gotB !== bgB;
-    expect(differentFromBg).toBe(true);
-    // And matches one of the palette subject colors.
+    expect(gotR !== bgR || gotG !== bgG || gotB !== bgB).toBe(true);
     const matches = palette.subjects.some((c) =>
       gotR === ((c >> 16) & 0xFF) && gotG === ((c >> 8) & 0xFF) && gotB === (c & 0xFF));
     expect(matches).toBe(true);
   });
+});
 
-  it("produces color variance across the raster (not a solid tint)", () => {
-    const colorsSeen = new Set<number>();
-    for (let y = 0; y < H; y += 3) {
-      for (let x = 0; x < W; x += 3) {
-        const i = (y * W + x) * 4;
-        colorsSeen.add((rgba[i] << 16) | (rgba[i + 1] << 8) | rgba[i + 2]);
-      }
-    }
-    // At least background + one subject + line-art black.
-    expect(colorsSeen.size).toBeGreaterThanOrEqual(3);
+describe("cover_can_never_fail: beautified two-tone gradient (default)", () => {
+  const W = 80, H = 80;
+  const fixture = buildFixtureRgba(W, H);
+  const palette = paletteForCategory("cute_animals");
+  const { rgba } = colorizeLineArt(fixture, W, H, palette); // beautify default ON
+
+  it("produces vertical color variance WITHIN the background region (two-tone gradient, not flat)", () => {
+    // Sample two rows in the outer background: near-top and near-bottom.
+    const topI = (2 * W + 2) * 4;
+    const botI = ((H - 3) * W + 2) * 4;
+    const dR = Math.abs(rgba[topI] - rgba[botI]);
+    const dG = Math.abs(rgba[topI + 1] - rgba[botI + 1]);
+    const dB = Math.abs(rgba[topI + 2] - rgba[botI + 2]);
+    // Top should be visibly lighter than bottom in at least one channel.
+    expect(dR + dG + dB).toBeGreaterThan(6);
+  });
+
+  it("top of background region is close to a lightened palette background (Crayola card feel)", () => {
+    const i = (2 * W + 2) * 4;
+    const bgR = (palette.background >> 16) & 0xFF;
+    // Beautified top pixel lightens the base color; hue should still be near bg (within 40).
+    expect(Math.abs(rgba[i] - bgR)).toBeLessThan(60);
+    // But it must NOT be pure white (which would look like a blank cover).
+    expect(rgba[i] < 253 || rgba[i + 1] < 253 || rgba[i + 2] < 253).toBe(true);
+  });
+
+  it("preserves line art regardless of beautify setting", () => {
+    const bx0 = Math.floor(W * 0.3), by0 = Math.floor(H * 0.3);
+    const i = (by0 * W + bx0) * 4;
+    expect(rgba[i]).toBeLessThan(60);
   });
 });
 
-describe("cover_can_never_fail: version stamp", () => {
-  it("bumps its own version tag when the flood-fill algorithm changes", () => {
-    // Freezes the current version so a future silent algorithm change forces
-    // a matching version bump, which in turn invalidates cached covers.
-    expect(SELF_ART_COVER_VERSION).toBe("coloring_self_art_cover_v1");
+describe("cover_can_never_fail: version stamp bumped for beautified rung", () => {
+  it("bumps SELF_ART_COVER_VERSION to v2 so cached rung-2 covers are invalidated when the beautifier changes", () => {
+    expect(SELF_ART_COVER_VERSION).toBe("coloring_self_art_cover_v2_beautified");
   });
 });
+
