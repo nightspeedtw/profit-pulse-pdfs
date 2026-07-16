@@ -170,7 +170,13 @@ async function markCoverBlocked(db: any, ebookId: string, patch: Record<string, 
     pipeline_status: "queued",
     blocker_reason: `coloring_cover_single_rung:${reason}`.slice(0, 300),
   }).eq("id", ebookId);
-  return json({ ok: false, requeued: true, reason }, status);
+  // Lane-blocked reasons (provider billing/quota) must NOT self-advance — a
+  // human/lane clear is required. Everything else self-retries with backoff.
+  const isLaneBlocked = reason.startsWith("provider_billing") || reason.startsWith("provider_quota") || reason.startsWith("provider_unavailable");
+  if (!isLaneBlocked) {
+    await scheduleSelfAdvance(db, ebookId, { delayMs: SELF_ADVANCE_DELAY_BACKOFF_MS, reason: `cover:${reason}` });
+  }
+  return json({ ok: false, requeued: true, reason, self_advance: !isLaneBlocked }, status);
 }
 
 Deno.serve(async (req: Request) => {
