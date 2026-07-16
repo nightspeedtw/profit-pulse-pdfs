@@ -19,7 +19,7 @@
 //     page, do not increment repair attempts, do not delete storage;
 //     halt via anatomy-verifier-guard when the lane counter trips).
 
-import { speciesAnatomyChecklistJson } from "./species-anatomy.ts";
+import { speciesAnatomyChecklistJson, getSpeciesAnatomy, isFantasyCategoryKey } from "./species-anatomy.ts";
 import {
   ANATOMY_VERIFIER_MODEL_LADDER_DEFAULT,
   markVerifierHealthy,
@@ -39,13 +39,20 @@ export interface AnatomyPageVerdict {
   measured_version: string;  // ties verdict to this verifier version
 }
 
-export const ANATOMY_VERIFIER_VERSION = "v2:model_ladder_gateway";
+// v3 — anatomy_imagination_vs_deformity three-tier rubric:
+// Tier 1 deformity always FAILS; Tier 2 cute stylization always PASSES;
+// Tier 3 canonical fantasy PASSES when the scene/subject invites it.
+export const ANATOMY_VERIFIER_VERSION = "v3:imagination_vs_deformity";
 
 export interface AnatomyInputPage {
   page: number;
   subject: string;
   bytes: Uint8Array;
   mime: string; // "image/png" | "image/jpeg"
+  /** Category the page ships in — enables fantasy tolerance per owner law. */
+  category_key?: string;
+  /** Optional scene/setting hint (e.g. "underwater reef") for context. */
+  scene?: string;
 }
 
 const LOVABLE_API_KEY = (globalThis as any).Deno?.env?.get?.("LOVABLE_API_KEY") ?? "";
