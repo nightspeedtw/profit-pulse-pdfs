@@ -38,18 +38,31 @@ Deno.serve(async (req) => {
     const { ebook_id } = await req.json();
     if (!ebook_id) throw new Error("ebook_id required");
 
-    const { data: e, error: ebookError } = await db
+    // Look up the book in either ebooks (adult) or ebooks_kids (kids/coloring)
+    let e: { title: string | null; pdf_url: string | null } | null = null;
+    const { data: adult } = await db
       .from("ebooks")
       .select("title,pdf_url")
       .eq("id", ebook_id)
-      .single();
-    if (ebookError) throw ebookError;
-    if (!e) throw new Error("Ebook not found");
+      .maybeSingle();
+    if (adult) e = adult as any;
+    if (!e) {
+      const { data: kids } = await db
+        .from("ebooks_kids")
+        .select("title,pdf_url")
+        .eq("id", ebook_id)
+        .maybeSingle();
+      if (kids) e = kids as any;
+    }
+    if (!e) throw new Error("Book not found in ebooks or ebooks_kids");
+    if (!e.pdf_url) {
+      throw new Error("PDF has not been built yet for this book (pdf_url is empty). Run the PDF build step before downloading.");
+    }
 
     const path = pathFromPdfUrl(e.pdf_url) ?? `${ebook_id}/${filenameFromTitle(e.title)}`;
     const { data: file, error: downloadError } = await db.storage.from("ebook-pdfs").download(path);
     if (downloadError) throw downloadError;
-    if (!file) throw new Error("PDF file not found");
+    if (!file) throw new Error("PDF file not found in storage at path: " + path);
 
     return new Response(await file.arrayBuffer(), {
       headers: {
