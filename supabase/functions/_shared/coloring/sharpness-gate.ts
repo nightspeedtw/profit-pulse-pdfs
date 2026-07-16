@@ -149,10 +149,10 @@ export async function computeSharpness(
             : `sharpness_below_floor:score=${score.toFixed(2)}_min=${min}`),
     };
   } catch (e) {
-    // Fail SAFE (do not block on decode error) — luminance/solid-black gates run first.
+    // Fail closed: an unmeasured page cannot be treated as crisp/sellable.
     return {
       score: 0, sobel_mean: 0, laplacian_var: 0, width: 0, height: 0,
-      min_required: min, visible_edge_score: 0, visible_edge_min_required: DEFAULT_VISIBLE_EDGE_MIN_SCORE, pass: true,
+      min_required: min, visible_edge_score: 0, visible_edge_min_required: DEFAULT_VISIBLE_EDGE_MIN_SCORE, pass: false,
       reason: `sharpness_decode_error:${(e as Error).message.slice(0, 120)}`,
     };
   }
