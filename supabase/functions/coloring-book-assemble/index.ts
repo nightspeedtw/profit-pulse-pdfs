@@ -33,6 +33,7 @@ import { computeSharpness, SHARPNESS_GATE_VERSION } from "../_shared/coloring/sh
 import { decideAssemblySharpnessPreflight } from "../_shared/coloring/assembly-sharpness.ts";
 import { verifyAnatomyBatch, ANATOMY_VERIFIER_VERSION, summarizeBookAnatomy, type AnatomyPageVerdict } from "../_shared/coloring/anatomy-verify.ts";
 import { drawFitText, drawFitParagraph } from "../_shared/pdf/shrink-to-fit.ts";
+import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
