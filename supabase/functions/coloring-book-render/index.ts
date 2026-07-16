@@ -246,6 +246,7 @@ Deno.serve(async (req: Request) => {
         const bytes = await falFluxSchnell({
           prompt,
           image_size: "portrait_4_3",
+          output_format: "png",
           ebook_id: ebook_id,
           step: `coloring_${stageLabel}_page_${page.canonical_page_number}`,
         });
