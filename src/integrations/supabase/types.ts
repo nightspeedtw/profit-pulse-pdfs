@@ -1962,9 +1962,11 @@ export type Database = {
       }
       ebooks_kids: {
         Row: {
+          age_band: string | null
           age_group_id: string | null
           blocker_reason: string | null
           book_type: Database["public"]["Enums"]["kids_book_type"]
+          buyer_job_tags: string[]
           character_bible_id: string | null
           character_reference_id: string | null
           character_sheet_url: string | null
@@ -2006,15 +2008,18 @@ export type Database = {
           style_version: string | null
           subtitle: string | null
           theme_ids: string[]
+          theme_slugs: string[]
           thumbnail_url: string | null
           title: string
           updated_at: string
           word_count: number | null
         }
         Insert: {
+          age_band?: string | null
           age_group_id?: string | null
           blocker_reason?: string | null
           book_type?: Database["public"]["Enums"]["kids_book_type"]
+          buyer_job_tags?: string[]
           character_bible_id?: string | null
           character_reference_id?: string | null
           character_sheet_url?: string | null
@@ -2056,15 +2061,18 @@ export type Database = {
           style_version?: string | null
           subtitle?: string | null
           theme_ids?: string[]
+          theme_slugs?: string[]
           thumbnail_url?: string | null
           title?: string
           updated_at?: string
           word_count?: number | null
         }
         Update: {
+          age_band?: string | null
           age_group_id?: string | null
           blocker_reason?: string | null
           book_type?: Database["public"]["Enums"]["kids_book_type"]
+          buyer_job_tags?: string[]
           character_bible_id?: string | null
           character_reference_id?: string | null
           character_sheet_url?: string | null
@@ -2106,6 +2114,7 @@ export type Database = {
           style_version?: string | null
           subtitle?: string | null
           theme_ids?: string[]
+          theme_slugs?: string[]
           thumbnail_url?: string | null
           title?: string
           updated_at?: string

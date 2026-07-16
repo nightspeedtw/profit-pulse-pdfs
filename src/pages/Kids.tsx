@@ -7,6 +7,8 @@ import { JourneyWizard, type WizardValue } from "@/components/kids/JourneyWizard
 import { MatchedResults, type MatchedBook } from "@/components/kids/MatchedResults";
 import { SocialProofStrip } from "@/components/kids/SocialProofStrip";
 import { PreviewLightbox } from "@/components/kids/PreviewLightbox";
+import { KidsFilterChips } from "@/components/kids/KidsFilterChips";
+import { KidsSectionNav } from "@/components/kids/KidsSectionNav";
 import { Loader2 } from "lucide-react";
 
 interface RawBook {
@@ -165,7 +167,9 @@ export default function Kids() {
 
   return (
     <>
+      <KidsSectionNav />
       <KidsHero covers={heroCovers} onStart={scrollToPicker} />
+      <KidsFilterChips />
 
       {/* Creator banner */}
       <a

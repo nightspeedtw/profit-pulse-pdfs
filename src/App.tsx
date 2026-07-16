@@ -13,6 +13,7 @@ import Bundles from "./pages/Bundles.tsx";
 import About from "./pages/About.tsx";
 import Download from "./pages/Download.tsx";
 import Kids from "./pages/Kids.tsx";
+import KidsCategory from "./pages/KidsCategory.tsx";
 import Royalty from "./pages/Royalty.tsx";
 import RoyaltyBook from "./pages/RoyaltyBook.tsx";
 import MyRoyalties from "./pages/MyRoyalties.tsx";
@@ -58,6 +59,7 @@ const App = () => (
             <Route path="/category/:slug" element={<Category />} />
             <Route path="/product/:handle" element={<Product />} />
             <Route path="/kids" element={<Kids />} />
+            <Route path="/kids/:categorySlug" element={<KidsCategory />} />
             <Route path="/royalty" element={<Royalty />} />
             <Route path="/royalty/book/:bookId" element={<RoyaltyBook />} />
             <Route path="/my-royalties" element={<MyRoyalties />} />
