@@ -185,7 +185,9 @@ Deno.serve(async (req: Request) => {
       rung: result.report.rung,
       reason: result.report.reason,
       produced_bytes: result.report.produced_bytes,
-    });
+      glyph_verdict: result.report.glyph_verdict ?? null,
+      hero_verdict: result.report.hero_verdict ?? null,
+    } as any);
     state.updated_at = new Date().toISOString();
 
     if (result.status === "ok" || result.status === "fallback") {
