@@ -65,11 +65,11 @@ export function bookMatchesAgeChip(
   chip: AgeChip,
 ): boolean {
   if (chip.kind === "all") return true;
-  if (chip.kind === "all_ages") {
-    // "All Ages" chip = product explicitly tagged all_ages
-    return (book.age_band ?? "").toLowerCase() === "all_ages" ||
-           (book.age_min === 2 && book.age_max === 99);
-  }
+  const isAllAgesBand = (book.age_band ?? "").toLowerCase() === "all_ages"
+    || (book.age_min === 2 && book.age_max === 99);
+  if (chip.kind === "all_ages") return isAllAgesBand;
+  // Explicit range chip: all_ages products stay in the All Ages bucket only.
+  if (isAllAgesBand) return false;
   if (book.age_min == null || book.age_max == null) return false;
   if (chip.min == null || chip.max == null) return false;
   // Range overlap (inclusive): a<=D && C<=b
