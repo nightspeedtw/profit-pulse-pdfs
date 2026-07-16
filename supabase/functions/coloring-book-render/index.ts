@@ -33,6 +33,8 @@ import {
   type PagePlanEntry,
 } from "../_shared/coloring/style-contract.ts";
 import { verifyImageAtBirth, type ImageKind } from "../_shared/coloring/image-kind.ts";
+import { analyzeSolidBlack, DEFAULT_SOLID_BLACK_TH } from "../_shared/coloring/solid-black.ts";
+import { decideRepair } from "../_shared/coloring/repair-ladder.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 
 declare const Deno: any;
