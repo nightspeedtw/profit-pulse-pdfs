@@ -465,6 +465,24 @@ Deno.serve(async (req: Request) => {
 
     // Dead / dead-equivalent / error → cascade speed on ideogram, else advance rung.
     console.warn(`[coloring-cover] ${ebook_id} rung ${rung} speed=${speed} ${result.status}: ${result.report.reason} — cascading`);
+
+    // Provider billing/quota short-circuit (same as exception path).
+    const providerClass2 = classifyProviderError(result.report.reason);
+    if (providerClass2) {
+      await patchMeta(db, ebook_id, {
+        coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
+        coloring_current_step_label: `Cover ladder paused: ${providerClass2} on ${rung}${speed ? `/${speed}` : ""} — awaiting provider top-up`,
+        coloring_blocker: {
+          class: "provider_unavailable",
+          provider_error: providerClass2,
+          rung,
+          speed,
+          reason: result.report.reason,
+          detected_at: new Date().toISOString(),
+        },
+      });
+      return json({ ok: false, paused: true, provider_error: providerClass2, rung, speed, reason: result.report.reason });
+    }
     if (isIdeogram && state.ideogram_speed_cursor < IDEOGRAM_SPEEDS.length - 1) {
       state.ideogram_speed_cursor += 1;
     } else {
