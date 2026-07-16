@@ -279,6 +279,13 @@ Deno.serve(async (req: Request) => {
     const anatomyBuffer: { page: number; subject: string; bytes: Uint8Array; mime: string }[] = [];
     const errors: { page: number; error: string }[] = [];
 
+    // Load learned prevention rules ONCE per invocation. Every page's base
+    // prompt starts with the counter-clauses for its species so past failures
+    // never repeat at birth (owner First-Pass-Yield law).
+    const preventionRules = await loadActivePreventionRules(db);
+    const rulesIndex = indexRulesBySpecies(preventionRules);
+
+
     // Track per-page repair attempts on metadata for the repair ladder.
     const repairAttempts = ((meta.coloring_repair_attempts as Record<string, number> | undefined) ?? {});
 
