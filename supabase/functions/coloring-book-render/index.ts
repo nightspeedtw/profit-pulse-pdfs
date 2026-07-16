@@ -366,7 +366,15 @@ Deno.serve(async (req: Request) => {
         coloring_render_completed_at: new Date().toISOString(),
       });
       await db.from("ebooks_kids").update({ pipeline_status: "queued", blocker_reason: null }).eq("id", ebook_id);
-      return json({ ok: true, stage: "interior_complete", pages_stored: pages.length });
+      // Chain immediately into the cover ladder so we don't wait on the next worker tick.
+      try {
+        await fetch(`${SUPABASE_URL}/functions/v1/coloring-book-cover`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
+          body: JSON.stringify({ ebook_id }),
+        });
+      } catch (e) { console.warn("[coloring-render] chain cover failed", (e as Error).message); }
+      return json({ ok: true, stage: "interior_complete", pages_stored: pages.length, chained: "cover" });
     }
 
     // Still in calibration and more pages to render (rare in one tick).
