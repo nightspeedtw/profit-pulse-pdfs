@@ -132,9 +132,70 @@ export const PROVIDERS: Record<ImageProviderId, (o: GenerateImageOpts) => Promis
   }),
 };
 
-/** Read image_provider_policy from generation_settings.coloring_autopilot. */
+/**
+ * CF daily-quota latch: on the first Cloudflare 429/4006 of the day we set
+ * generation_settings.coloring_autopilot.cf_billing_locked_until = next
+ * 00:00 UTC (Cloudflare's daily neuron pool reset). Until that instant,
+ * `readImageProviderPolicy` transparently swaps CF out (primary→fallback)
+ * so we don't burn a wasted round-trip per page — only ONE per day.
+ */
+// deno-lint-ignore no-explicit-any
+export async function readCfBillingLockedUntil(db: any): Promise<Date | null> {
+  try {
+    const { data } = await db.from("generation_settings")
+      .select("coloring_autopilot").eq("id", 1).maybeSingle();
+    const cfg = (data?.coloring_autopilot ?? {}) as Record<string, unknown>;
+    const raw = cfg.cf_billing_locked_until as string | undefined;
+    if (!raw) return null;
+    const dt = new Date(raw);
+    if (isNaN(dt.getTime())) return null;
+    return dt > new Date() ? dt : null;
+  } catch (_e) { return null; }
+}
+
+function nextUtcMidnight(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
+}
+
+// deno-lint-ignore no-explicit-any
+export async function latchCfBillingUntilNextUtcMidnight(db: any, ebook_id?: string): Promise<Date> {
+  const until = nextUtcMidnight();
+  try {
+    const { data } = await db.from("generation_settings")
+      .select("coloring_autopilot").eq("id", 1).maybeSingle();
+    const cfg = (data?.coloring_autopilot ?? {}) as Record<string, unknown>;
+    // Idempotent: don't rewrite if already latched further out.
+    const existing = cfg.cf_billing_locked_until ? new Date(cfg.cf_billing_locked_until as string) : null;
+    if (!existing || isNaN(existing.getTime()) || existing < until) {
+      await db.from("generation_settings").update({
+        coloring_autopilot: { ...cfg, cf_billing_locked_until: until.toISOString() },
+      }).eq("id", 1);
+    }
+  } catch (_e) { /* best-effort */ }
+  // Observability: one cost_log row marking the latch (cost 0).
+  try {
+    logAiCost(costDb(), {
+      ebook_id,
+      step: "cloudflare_quota_exhausted_latched",
+      model: "@cf/black-forest-labs/flux-1-schnell",
+      images: 0,
+      cost_usd: 0,
+      provider: "cloudflare_direct",
+    });
+  } catch (_e) { /* best-effort */ }
+  return until;
+}
+
+/**
+ * Read image_provider_policy from generation_settings.coloring_autopilot.
+ * Applies the CF daily-quota latch: if `cf_billing_locked_until` is in the
+ * future and the primary is CF, swap it out for the fallback (no CF
+ * round-trips today). CF auto-reactivates the moment the latch expires.
+ */
 // deno-lint-ignore no-explicit-any
 export async function readImageProviderPolicy(db: any): Promise<ImageProviderPolicy> {
+  let base = DEFAULT_IMAGE_PROVIDER_POLICY;
   try {
     const { data } = await db.from("generation_settings")
       .select("coloring_autopilot").eq("id", 1).maybeSingle();
@@ -142,7 +203,7 @@ export async function readImageProviderPolicy(db: any): Promise<ImageProviderPol
     const policy = cfg.image_provider_policy as Partial<ImageProviderPolicy> | undefined;
     const interiors = policy?.interiors;
     if (interiors?.primary) {
-      return {
+      base = {
         interiors: {
           primary: interiors.primary,
           fallback: interiors.fallback ?? DEFAULT_IMAGE_PROVIDER_POLICY.interiors.fallback,
@@ -150,19 +211,30 @@ export async function readImageProviderPolicy(db: any): Promise<ImageProviderPol
       };
     }
   } catch (_e) { /* fall through */ }
-  return DEFAULT_IMAGE_PROVIDER_POLICY;
+
+  const latch = await readCfBillingLockedUntil(db);
+  if (latch && base.interiors.primary === "cloudflare_flux_schnell") {
+    const alt = base.interiors.fallback && base.interiors.fallback !== "cloudflare_flux_schnell"
+      ? base.interiors.fallback
+      : "fal_flux_schnell";
+    return { interiors: { primary: alt, fallback: null } };
+  }
+  return base;
 }
 
 /**
  * Dispatch with automatic failover. Semantics:
  *   - Try `primary`. Success → return.
  *   - On ProviderUnconfiguredError OR any generic error/timeout → try `fallback`.
- *   - FalBillingLockedError propagates up (lane must halt for BOTH providers
- *     — daily budget cap covers the whole lane, not per-provider).
+ *   - FalBillingLockedError from the LAST provider propagates up.
+ *   - FalBillingLockedError from Cloudflare (when db provided) sets the
+ *     daily latch so tomorrow's runs skip CF entirely until next 00:00 UTC.
  */
 export async function generateImageWithFailover(
   opts: GenerateImageOpts,
   policy: { primary: ImageProviderId; fallback: ImageProviderId | null },
+  // deno-lint-ignore no-explicit-any
+  db?: any,
 ): Promise<GenerateImageResult> {
   const attempts: GenerateImageResult["attempts"] = [];
   const order: ImageProviderId[] = policy.fallback && policy.fallback !== policy.primary
@@ -183,14 +255,14 @@ export async function generateImageWithFailover(
     } catch (e) {
       const err = e as Error;
       attempts.push({ provider: providerId, ok: false, error: err?.message ?? String(e) });
-      // A billing-lock from the LAST provider in the chain halts the lane.
-      // From a non-last provider, we still try the fallback (the fallback
-      // might be a different account and still work).
       lastErr = e;
+      // Cloudflare billing lock → latch for the rest of the UTC day.
+      if (providerId === "cloudflare_flux_schnell" && e instanceof FalBillingLockedError && db) {
+        await latchCfBillingUntilNextUtcMidnight(db, opts.ebook_id);
+      }
       if (e instanceof ProviderUnconfiguredError) continue;
-      // Any other error → try next provider.
     }
   }
-  // All providers failed → surface the last error (preserves billing-lock class).
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
+
