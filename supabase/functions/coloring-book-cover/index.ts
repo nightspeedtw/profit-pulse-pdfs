@@ -271,6 +271,7 @@ Deno.serve(async (req: Request) => {
       categoryName: categoryNameFinal,
       ageMin, ageMax,
       heroSubjects,
+      forbiddenSubjects,
       extraClauses: [anatomyClauses, learnedClause],
       bannedTitle: row.title,
     });
