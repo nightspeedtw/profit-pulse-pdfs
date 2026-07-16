@@ -167,7 +167,9 @@ export default function Kids() {
 
   return (
     <>
+      <KidsSectionNav />
       <KidsHero covers={heroCovers} onStart={scrollToPicker} />
+      <KidsFilterChips />
 
       {/* Creator banner */}
       <a
