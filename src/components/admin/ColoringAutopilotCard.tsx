@@ -113,6 +113,7 @@ export function ColoringAutopilotCard() {
         title: `Queued ${ok}/${queued.length} coloring book${queued.length === 1 ? "" : "s"}`,
         description: data?.skipped ? `Skipped: ${data.skipped}` : queued.map((q) => q.title).join(" · ").slice(0, 200),
       });
+      await loadStatus();
     } catch (e) {
       toast({ title: "Run failed", description: String(e), variant: "destructive" });
     } finally {
