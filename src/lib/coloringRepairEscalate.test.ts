@@ -49,7 +49,7 @@ describe("coloring escalate reaction", () => {
 });
 
 describe("sharpness_below_floor repair reaction", () => {
-  const { classifyFailure } = require("../../supabase/functions/_shared/coloring/repair-ladder.ts");
+  
   it("classifies sharpness_gate reasons as sharpness_below_floor", () => {
     expect(classifyFailure(["sharpness_below_floor:score=11.28_min=15"]))
       .toBe("sharpness_below_floor");
