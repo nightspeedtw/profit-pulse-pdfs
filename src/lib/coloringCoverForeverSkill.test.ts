@@ -22,7 +22,7 @@ import { describe, it, expect } from "vitest";
 import {
   colorizeLineArt,
   SELF_ART_COVER_VERSION,
-} from "../../supabase/functions/_shared/coloring/self-art-cover.ts";
+} from "../../supabase/functions/_shared/coloring/self-art-colorize.ts";
 import {
   paletteForCategory,
   COLORING_CATEGORY_PALETTES,
