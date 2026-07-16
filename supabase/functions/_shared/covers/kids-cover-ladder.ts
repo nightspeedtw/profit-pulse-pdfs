@@ -67,13 +67,127 @@ export interface CoverLadderResult {
   rung_reports: CoverLadderRungReport[];
 }
 
-const DEFAULT_RUNGS: CoverRungLabel[] = [
+export const DEFAULT_COVER_RUNGS: CoverRungLabel[] = [
   "ideogram_v3_a",
   "ideogram_v3_b",
   "recraft_v3_ref",
   "gemini_refs",
   "svg_synthetic_fallback",
 ];
+
+const DEFAULT_RUNGS = DEFAULT_COVER_RUNGS;
+
+export interface SingleRungResult {
+  status: "ok" | "dead" | "error" | "fallback";
+  bytes: Uint8Array | null;
+  report: CoverLadderRungReport;
+  title_treatment_metadata?: Record<string, unknown> | null;
+  used_svg_fallback?: boolean;
+}
+
+/**
+ * Run EXACTLY ONE cover-ladder rung. Extracted so callers can spread rung
+ * execution across multiple edge-function invocations (per-rung state
+ * machine) without hitting per-invocation CPU limits.
+ *
+ * For the SVG synthetic fallback rung, bytes are the final composited
+ * cover (background + title treatment). For all other rungs, callers must
+ * still composite the title treatment on top of the returned bytes.
+ */
+export async function runSingleCoverRung(
+  input: CoverLadderInput,
+  rung: CoverRungLabel,
+): Promise<SingleRungResult> {
+  const refUrls = input.refUrls.filter(Boolean);
+  const report: CoverLadderRungReport = {
+    rung,
+    attempted: true,
+    produced_bytes: false,
+    luminance: null,
+    reason: null,
+  };
+
+  if (rung === "svg_synthetic_fallback") {
+    const bgBytes = await renderSyntheticCoverBackground(1600, 1600, input.palette);
+    const treatment = await renderKidsTitleTreatment({
+      coverBg: bgBytes,
+      title: input.title,
+      subtitle: input.subtitle ?? null,
+      palette: input.palette,
+      description: input.description ?? null,
+    });
+    report.produced_bytes = true;
+    report.reason = "svg_fallback_used";
+    report.meta = { synthesized_background: true };
+    return {
+      status: "fallback",
+      bytes: treatment.png,
+      report,
+      title_treatment_metadata: treatment.metadata as unknown as Record<string, unknown>,
+      used_svg_fallback: true,
+    };
+  }
+
+  try {
+    let bytes: Uint8Array | null = null;
+    let meta: unknown = null;
+    const seed = 1000 + Math.abs(hashSeed(input.ebookId + rung));
+
+    if (rung === "ideogram_v3_a" || rung === "ideogram_v3_b") {
+      const jitter = rung === "ideogram_v3_b"
+        ? " Slight variation: warmer lighting, higher pose energy, fresh camera angle."
+        : "";
+      bytes = await falIdeogramV3({
+        prompt: buildIdeogramPrompt(input) + jitter,
+        image_size: "square_hd",
+        style: "DESIGN",
+        rendering_speed: "QUALITY",
+        seed,
+        negative_prompt: `${input.negativePrompt}, text, letters, numbers, words, title, typography, watermark, logo, book mockup, ui, caption, subtitle, spine, black canvas, near-black image, empty image, blank image`,
+        ebook_id: input.ebookId,
+        step: `kids_cover_${rung}`,
+      });
+    } else if (rung === "recraft_v3_ref") {
+      bytes = await falRecraftV3({
+        prompt: buildRefConditionedPrompt(input),
+        image_url: refUrls[0],
+        strength: 0.6,
+        image_size: "portrait_4_3",
+        negative_prompt: `${input.negativePrompt}, black canvas, near-black image, empty image, blank image, text, letters, numbers, words, title, typography, watermark, logo, book mockup, ui, caption, subtitle, spine, gradient on white, glossy 3d blob, stock photo, six fingers, deformed hands, generic ai look`,
+        ebook_id: input.ebookId,
+        step: `kids_cover_${rung}`,
+      });
+      meta = { provider: "fal", model: "recraft-v3" };
+    } else if (rung === "gemini_refs") {
+      const g = await geminiDirectImageWithMeta({
+        prompt: buildGeminiPrompt(input),
+        referenceUrls: refUrls,
+        model: "google/gemini-3.1-flash-image",
+        seed,
+      });
+      bytes = g.bytes;
+      meta = g.meta;
+    }
+
+    if (!bytes || bytes.length < 1024) {
+      report.reason = "no_bytes";
+      return { status: "error", bytes: null, report };
+    }
+    report.produced_bytes = true;
+    const lum = await computeLuminance(bytes);
+    report.luminance = lum;
+    report.meta = meta;
+    if (lum.dead) {
+      report.reason = `dead:${lum.reason}(mean=${lum.mean.toFixed(1)},var=${lum.variance.toFixed(0)})`;
+      return { status: "dead", bytes: null, report };
+    }
+    report.reason = "ok";
+    return { status: "ok", bytes, report };
+  } catch (e) {
+    report.reason = `gen_error:${String((e as Error).message ?? e).slice(0, 220)}`;
+    return { status: "error", bytes: null, report };
+  }
+}
 
 function buildIdeogramPrompt(i: CoverLadderInput): string {
   if (i.ideogramCompositionOverride) return i.ideogramCompositionOverride;

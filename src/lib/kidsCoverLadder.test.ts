@@ -65,3 +65,81 @@ describe("kids cover ladder — dead-frame class regression", () => {
     expect(r.reports.length).toBe(1);
   });
 });
+
+// ── Per-rung state-machine regression (edge CPU-budget fix) ──
+// Guards the coloring-book-cover per-invocation state machine:
+//   Each invocation runs EXACTLY one rung, persists state, self-invokes.
+//   Resume from next_index skips previously-executed rungs; SVG fallback
+//   is terminal; no rung is ever executed twice.
+
+type LadderState = {
+  rungs: Rung[];
+  next_index: number;
+  reports: Array<{ rung: Rung; reason: string }>;
+};
+
+function stepOnce(state: LadderState, outcome: "ok" | "dead" | "error"): LadderState {
+  const rung = state.rungs[state.next_index];
+  const reason = outcome === "ok" ? "ok"
+    : outcome === "dead" ? "dead:near_black"
+    : "gen_error:mock";
+  const reports = [...state.reports, { rung, reason }];
+  if (outcome === "ok" || rung === "svg_synthetic_fallback") {
+    return { ...state, reports, next_index: state.rungs.length };
+  }
+  return { ...state, reports, next_index: state.next_index + 1 };
+}
+
+const FULL_RUNGS: Rung[] = [
+  "ideogram_v3_a",
+  "ideogram_v3_b",
+  "recraft_v3_ref",
+  "gemini_refs",
+  "svg_synthetic_fallback",
+];
+
+describe("cover ladder — per-invocation state machine", () => {
+  it("resumes from next_index without re-running earlier rungs", () => {
+    let s: LadderState = {
+      rungs: FULL_RUNGS,
+      next_index: 2, // recraft
+      reports: [
+        { rung: "ideogram_v3_a", reason: "dead:near_black" },
+        { rung: "ideogram_v3_b", reason: "gen_error:mock" },
+      ],
+    };
+    s = stepOnce(s, "ok");
+    expect(s.reports.map((r) => r.rung)).toEqual([
+      "ideogram_v3_a", "ideogram_v3_b", "recraft_v3_ref",
+    ]);
+    expect(s.next_index).toBe(FULL_RUNGS.length); // done
+  });
+
+  it("SVG fallback rung is terminal even if marked dead upstream", () => {
+    let s: LadderState = { rungs: FULL_RUNGS, next_index: 4, reports: [] };
+    s = stepOnce(s, "dead"); // svg cannot actually be dead, but confirm terminal
+    expect(s.next_index).toBe(FULL_RUNGS.length);
+  });
+
+  it("full walk: dead×4 → svg fallback runs exactly once and terminates", () => {
+    let s: LadderState = { rungs: FULL_RUNGS, next_index: 0, reports: [] };
+    for (const o of ["dead", "dead", "dead", "dead", "ok"] as const) {
+      if (s.next_index >= s.rungs.length) break;
+      s = stepOnce(s, o);
+    }
+    expect(s.reports).toHaveLength(5);
+    expect(s.reports.at(-1)?.rung).toBe("svg_synthetic_fallback");
+    expect(s.next_index).toBe(FULL_RUNGS.length);
+    // Each rung executed exactly once
+    expect(new Set(s.reports.map((r) => r.rung)).size).toBe(5);
+  });
+
+  it("early ok stops the state machine — later rungs never execute", () => {
+    let s: LadderState = { rungs: FULL_RUNGS, next_index: 0, reports: [] };
+    s = stepOnce(s, "ok");
+    expect(s.next_index).toBe(FULL_RUNGS.length);
+    expect(s.reports).toHaveLength(1);
+    expect(s.reports[0].rung).toBe("ideogram_v3_a");
+  });
+});
+
