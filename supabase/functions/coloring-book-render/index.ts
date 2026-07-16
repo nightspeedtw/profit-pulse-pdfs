@@ -536,7 +536,9 @@ Deno.serve(async (req: Request) => {
         continue;
       }
       if (v.pass) {
-        (rec as any).anatomy_verdict = v;
+        // Stamp storage_path onto verdict so assemble's incremental sweep
+        // can prove the verdict belongs to THIS specific asset version.
+        (rec as any).anatomy_verdict = { ...v, storage_path: rec.storage_path };
         keptRecords.push(rec);
         continue;
       }
