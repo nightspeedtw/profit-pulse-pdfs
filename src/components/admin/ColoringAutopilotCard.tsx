@@ -205,20 +205,42 @@ export function ColoringAutopilotCard() {
       </p>
 
       {status && (
-        <div className="mb-4 rounded border border-foreground/20 bg-muted/30 p-3">
+        <div className="mb-4 rounded border border-foreground/20 bg-muted/30 p-3 space-y-2">
           <div className="flex flex-wrap gap-6 text-sm font-mono">
+            <div>
+              <span className="text-muted-foreground uppercase text-xs">Engine: </span>
+              <b className={status.paused ? "text-amber-600" : "text-emerald-600"}>
+                {status.paused ? "paused" : "running"}
+              </b>
+            </div>
             <div><span className="text-muted-foreground uppercase text-xs">Queued: </span><b>{status.queued}</b></div>
+            <div><span className="text-muted-foreground uppercase text-xs">Generating: </span><b>{status.generating}</b></div>
+            <div><span className="text-muted-foreground uppercase text-xs">Cancelled: </span><b>{status.cancelled}</b></div>
             <div><span className="text-muted-foreground uppercase text-xs">Created today: </span><b>{status.created_today}</b></div>
             <div><span className="text-muted-foreground uppercase text-xs">Published today: </span><b>{status.published_today}</b></div>
-            <div><span className="text-muted-foreground uppercase text-xs">Daily cap: </span><b>{cfg.daily_cap}</b></div>
+            <div><span className="text-muted-foreground uppercase text-xs">Cap: </span><b>{cfg.daily_cap}/day · {cfg.max_parallel} parallel</b></div>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Last worker tick: {status.last_worker_tick_at ? new Date(status.last_worker_tick_at).toLocaleString() : "never"}
           </div>
           {status.recent.length > 0 && (
-            <ul className="mt-2 space-y-1 text-xs">
+            <ul className="space-y-1 text-xs pt-1 border-t border-foreground/10">
               {status.recent.map((r) => (
-                <li key={r.id} className="flex justify-between gap-3">
+                <li key={r.id} className="flex items-center justify-between gap-3">
                   <span className="truncate">{r.title}</span>
-                  <span className="text-muted-foreground shrink-0">
-                    {r.listing_status === "live" ? "live" : r.pipeline_status}
+                  <span className="flex items-center gap-2 shrink-0">
+                    <span className="text-muted-foreground">
+                      {r.listing_status === "live" ? "live" : r.pipeline_status}
+                    </span>
+                    {r.pipeline_status === "queued" && (
+                      <button
+                        onClick={() => cancelOne(r.id)}
+                        className="text-red-600 hover:text-red-800"
+                        title="Cancel this queued book"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    )}
                   </span>
                 </li>
               ))}
@@ -226,6 +248,18 @@ export function ColoringAutopilotCard() {
           )}
         </div>
       )}
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        <Button size="sm" variant={cfg.paused ? "default" : "outline"} onClick={togglePause} disabled={loading || saving}>
+          {cfg.paused ? <><PlayCircle className="size-4" /> Resume engine</> : <><Pause className="size-4" /> Pause engine</>}
+        </Button>
+        <Button size="sm" variant="outline" onClick={processQueue} disabled={loading}>
+          <Cog className="size-4" /> Process queue now
+        </Button>
+        <Button size="sm" variant="outline" onClick={cancelAll} disabled={loading || !status?.queued}>
+          <XCircle className="size-4" /> Cancel all queued
+        </Button>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div>
