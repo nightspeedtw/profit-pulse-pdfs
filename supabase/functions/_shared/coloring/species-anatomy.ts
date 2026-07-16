@@ -72,7 +72,7 @@ export const SPECIES_ANATOMY: SpeciesAnatomy[] = [
       "vertical mermaid-style tail fin",
       "split Y-shaped tail",
       "extra dorsal fins or fins on belly",
-      "human-like face or expression with eyelashes",
+      "grotesque proportions that read as injured or disabled",
     ],
   }),
   s({
