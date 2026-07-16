@@ -207,6 +207,39 @@ export async function runSingleCoverRung(
       report.reason = `dead:${lum.reason}(mean=${lum.mean.toFixed(1)},var=${lum.variance.toFixed(0)})`;
       return { status: "dead", bytes: null, report };
     }
+
+    // ── Vision guards (Defect Class 1: no baked text, correct hero subject) ──
+    if (!input.skipVisionGuards) {
+      try {
+        const glyph = await transcribeGlyphs(bytes);
+        report.glyph_verdict = glyph;
+        if (glyph.has_glyphs && !glyph.degraded) {
+          report.reason = `dead-equivalent:baked_text:${(glyph.detected_text ?? "").slice(0, 80)}`;
+          console.warn(`[cover-ladder] rung=${rung} BAKED_TEXT — advancing (${report.reason})`);
+          return { status: "dead-equivalent", bytes: null, report };
+        }
+      } catch (e) {
+        console.warn(`[cover-ladder] glyph guard error rung=${rung}: ${(e as Error).message}`);
+      }
+      if ((input.allowedSubjects?.length ?? 0) > 0) {
+        try {
+          const hero = await verifyCategoryHero(bytes, {
+            category_name: input.categoryName ?? "children's book",
+            allowed_subjects: input.allowedSubjects ?? [],
+            forbidden_subjects: input.forbiddenSubjects ?? [],
+          });
+          report.hero_verdict = hero;
+          if (!hero.matches && !hero.degraded) {
+            report.reason = `dead-equivalent:${hero.reason}`;
+            console.warn(`[cover-ladder] rung=${rung} WRONG_SUBJECT — advancing (${report.reason})`);
+            return { status: "dead-equivalent", bytes: null, report };
+          }
+        } catch (e) {
+          console.warn(`[cover-ladder] hero guard error rung=${rung}: ${(e as Error).message}`);
+        }
+      }
+    }
+
     report.reason = "ok";
     return { status: "ok", bytes, report };
   } catch (e) {
