@@ -20,11 +20,16 @@ const OCEAN_FRIENDS_REGEN_FAILS = [11.28, 10.24];      // p19/p31 after replan
 
 const OWNER_VISIBLE_BLUR_FIXTURE = {
   sea: {
-    blurry: { pages: [7, 16, 23, 25, 29, 34, 35], scores: [5.66, 5.9, 6.1, 4.92, 5.8, 5.7, 5.6] },
+    // Owner list is PDF pages; coloring interiors begin at PDF page 5.
+    blurryPdfPages: [7, 16, 23, 25, 29, 34, 35],
+    blurryInteriorPages: [3, 12, 19, 21, 25, 30, 31],
+    blurry: { scores: [3.42, 3.8, 3.76, 4.37, 4.92, 3.8, 3.7] },
     crisp: { pages: [1, 4, 5, 10, 11, 17, 28], scores: [12.28, 11.63, 15.87, 11.01, 16.1, 11.93, 15.05] },
   },
   ocean: {
-    blurry: { pages: [7, 16, 23, 34, 35], scores: [5.53, 5.9, 6.2, 5.7, 5.6] },
+    blurryPdfPages: [7, 16, 23, 34, 35],
+    blurryInteriorPages: [3, 12, 19, 30, 31],
+    blurry: { scores: [3.53, 4.38, 3.79, 4.53, 3.35] },
     crisp: { pages: [1, 4, 5, 10, 17, 28, 29], scores: [8.94, 12.74, 12.85, 13.1, 14.24, 16.6, 14.33] },
   },
 };
@@ -58,6 +63,7 @@ describe("visible-blur boundary fixture (owner external render audit)", () => {
 
   it("fails the owner-listed blurry pages for both sea-animal books", () => {
     for (const book of [OWNER_VISIBLE_BLUR_FIXTURE.sea, OWNER_VISIBLE_BLUR_FIXTURE.ocean]) {
+      expect(book.blurryInteriorPages).toEqual(book.blurryPdfPages.map((p) => p - 4));
       for (const score of book.blurry.scores) expect(passesVisibleBlurBoundary(score)).toBe(false);
     }
   });
