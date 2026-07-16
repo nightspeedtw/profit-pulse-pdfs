@@ -3,6 +3,7 @@ import {
   decideRepair,
   replanEscalatedPage,
   sanitizeSceneForColorability,
+  classifyFailure,
 } from "../../supabase/functions/_shared/coloring/repair-ladder.ts";
 
 const basePage = {
