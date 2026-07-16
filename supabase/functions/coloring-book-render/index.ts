@@ -49,6 +49,7 @@ interface StoredPage {
   signed_url: string;
   storage_path: string;
   bytes: number;
+  mime: string;
   rendered_at: string;
   prompt_hash: string;
   primary_subject: string;
@@ -62,25 +63,14 @@ function json(x: unknown, status = 200) {
   });
 }
 
-function verifyPngAtBirth(bytes: Uint8Array, page: number): void {
-  if (bytes.length < MIN_PNG_BYTES) {
-    throw new Error(`verify_at_birth: page ${page} bytes=${bytes.length} < min ${MIN_PNG_BYTES}`);
-  }
-  for (let i = 0; i < 4; i++) {
-    if (bytes[i] !== PNG_MAGIC[i]) {
-      throw new Error(`verify_at_birth: page ${page} not a PNG (magic mismatch)`);
-    }
-  }
-}
-
 async function sha256Hex(s: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
 }
 
-function coloringPath(ebookId: string, page: number, version: string): string {
+function coloringPath(ebookId: string, page: number, version: string, ext: string): string {
   const p = String(page).padStart(2, "0");
-  return `kids/${ebookId}/coloring/interior/page-${p}-${version}.png`;
+  return `kids/${ebookId}/coloring/interior/page-${p}-${version}.${ext}`;
 }
 
 async function patchMeta(db: any, ebookId: string, patch: Record<string, unknown>) {
