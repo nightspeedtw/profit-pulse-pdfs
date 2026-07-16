@@ -143,14 +143,14 @@ export async function computeSharpness(
     const score = combineScore(sm, lv);
     const visible = meanNeighborDiffTelemetry(luma, w, h);
     const boundary = boundaryEdgeStrength(luma, w, h);
-    const boundaryPass = passesBoundaryEdgeGate(boundary.boundary_pixels, boundary.score, boundaryMin);
+    const boundaryPass = passesBoundaryEdgeGate(boundary.boundary_pixels, boundary.score, boundaryMin, boundary.ink_pixels);
     const combinedPass = score >= min;
     const pass = combinedPass && boundaryPass;
     const reason = pass
       ? "ok"
       : !combinedPass
         ? `sharpness_below_floor:score=${score.toFixed(2)}_min=${min}`
-        : `boundary_blur_below_floor:score=${boundary.score.toFixed(2)}_min=${boundaryMin}_pixels=${boundary.boundary_pixels}`;
+        : `boundary_blur_below_floor:score=${boundary.score.toFixed(2)}_min=${boundaryMin}_boundary_pixels=${boundary.boundary_pixels}_ink_pixels=${boundary.ink_pixels}`;
     return {
       score: Number(score.toFixed(2)),
       sobel_mean: Number(sm.toFixed(2)),
