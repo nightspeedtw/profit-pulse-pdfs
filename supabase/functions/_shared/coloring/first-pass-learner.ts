@@ -97,6 +97,7 @@ export function normalizeDefect(
 ): DefectHit | null {
   if (!raw) return null;
   if (TECHNICAL_MATCH.test(raw)) return null;
+  if (STYLIZATION_MATCH.test(raw)) return null;
   const text = raw.toLowerCase();
   const speciesLc = (species_key ?? "").toLowerCase();
   const sceneLc = (scene ?? "").toLowerCase();
