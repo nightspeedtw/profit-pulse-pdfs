@@ -48,9 +48,30 @@ Deno.serve(async (req: Request) => {
       const { data: cats } = await admin
         .from("coloring_categories").select("category_key, category_name, target_age_min, target_age_max")
         .order("category_key");
+      // Status snapshot for the coloring queue only (independent engine).
+      const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
+      const [queuedRes, publishedTodayRes, todayTotalRes, recentRes] = await Promise.all([
+        admin.from("ebooks_kids").select("id", { count: "exact", head: true })
+          .eq("book_type", "coloring_book").eq("pipeline_status", "queued"),
+        admin.from("ebooks_kids").select("id", { count: "exact", head: true })
+          .eq("book_type", "coloring_book").eq("listing_status", "live")
+          .gte("created_at", dayStart.toISOString()),
+        admin.from("ebooks_kids").select("id", { count: "exact", head: true })
+          .eq("book_type", "coloring_book").gte("created_at", dayStart.toISOString()),
+        admin.from("ebooks_kids")
+          .select("id,title,pipeline_status,listing_status,created_at")
+          .eq("book_type", "coloring_book")
+          .order("created_at", { ascending: false }).limit(5),
+      ]);
       return json({
         config: { ...DEFAULTS, ...(data?.coloring_autopilot ?? {}) },
         categories: cats ?? [],
+        status: {
+          queued: queuedRes.count ?? 0,
+          published_today: publishedTodayRes.count ?? 0,
+          created_today: todayTotalRes.count ?? 0,
+          recent: recentRes.data ?? [],
+        },
       });
     }
 
