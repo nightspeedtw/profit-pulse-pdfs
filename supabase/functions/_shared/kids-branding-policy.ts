@@ -1,3 +1,4 @@
+// NOTE: keep in sync with src/lib/kidsBranding.ts (owner: kids_branding v1).
 // Kids-book branding policy — pure, runtime-neutral module.
 //
 // Owner order 2026-07-16: every kids interior page carries the SecretPDF Kids
