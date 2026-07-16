@@ -25,7 +25,7 @@ describe("ColoringPreviewLightbox — conversion core", () => {
   });
 
   it("renders cover + every watermarked preview URL", () => {
-    render(
+    const { container } = render(
       <ColoringPreviewLightbox
         ebookId="book-1"
         title="Ocean Friends"
@@ -35,13 +35,13 @@ describe("ColoringPreviewLightbox — conversion core", () => {
         onClose={() => {}}
       />
     );
-    const imgs = screen.getAllByRole("img", { hidden: true });
-    const srcs = imgs.map((i) => (i as HTMLImageElement).src);
+    const srcs = Array.from(container.querySelectorAll("img")).map((i) => i.getAttribute("src") ?? "");
     const joined = srcs.join(" ");
     expect(joined).toContain("cover.png");
-    for (const p of PREVIEW) expect(joined).toContain(p.split("/").pop()!);
+    for (const p of PREVIEW) expect(joined).toContain(p);
     // Sold PDF URL must NEVER appear anywhere in the lightbox output.
     expect(joined).not.toContain(PDF_URL);
+  });
   });
 
   it("emits preview_page_turn once per unique page index on nav", () => {
