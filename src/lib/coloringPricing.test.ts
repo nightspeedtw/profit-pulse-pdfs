@@ -9,26 +9,26 @@ import {
   canReprice,
 } from "../../supabase/functions/_shared/coloring/pricing";
 
-describe("coloring pricing — RULE 1 page count → base", () => {
+describe("coloring pricing — RULE 1 page count → base (owner table v2)", () => {
   it("maps anchor page counts exactly", () => {
-    expect(basePriceCents(24)).toBe(399);
-    expect(basePriceCents(32)).toBe(499);
-    expect(basePriceCents(48)).toBe(699);
-    expect(basePriceCents(64)).toBe(899);
+    expect(basePriceCents(16)).toBe(599);
+    expect(basePriceCents(24)).toBe(799);
+    expect(basePriceCents(32)).toBe(999);
+    expect(basePriceCents(48)).toBe(1299);
   });
 
   it("clamps below the smallest anchor and above the largest", () => {
-    expect(basePriceCents(8)).toBe(399);
-    expect(basePriceCents(120)).toBe(899);
+    expect(basePriceCents(8)).toBe(599);
+    expect(basePriceCents(120)).toBe(1299);
   });
 
   it("linearly interpolates between anchors", () => {
-    // midpoint 24↔32 = 28 pages → (399+499)/2 = 449
-    expect(basePriceCents(28)).toBe(449);
-    // 40 pages between 32 and 48 → (499+699)/2 = 599
-    expect(basePriceCents(40)).toBe(599);
-    // 56 pages between 48 and 64 → (699+899)/2 = 799
-    expect(basePriceCents(56)).toBe(799);
+    // midpoint 16↔24 = 20 pages → (599+799)/2 = 699
+    expect(basePriceCents(20)).toBe(699);
+    // midpoint 24↔32 = 28 pages → (799+999)/2 = 899
+    expect(basePriceCents(28)).toBe(899);
+    // midpoint 32↔48 = 40 pages → (999+1299)/2 = 1149
+    expect(basePriceCents(40)).toBe(1149);
   });
 });
 
@@ -37,24 +37,23 @@ describe("coloring pricing — RULE 2 popularity tiers + ceiling/floor", () => {
     const p10 = computePrice({ pageCount: 32, tier: "top10" });
     const p25 = computePrice({ pageCount: 32, tier: "top25" });
     const pB = computePrice({ pageCount: 32, tier: "base" });
-    expect(p10.price_cents).toBe(Math.round(499 * 1.4));
-    expect(p25.price_cents).toBe(Math.round(499 * 1.2));
-    expect(pB.price_cents).toBe(499);
+    expect(p10.price_cents).toBe(Math.round(999 * 1.4));
+    expect(p25.price_cents).toBe(Math.round(999 * 1.2));
+    expect(pB.price_cents).toBe(999);
   });
 
-  it("enforces ceiling $12.99 and floor = base", () => {
-    // 64pp base=899, top10 → round(899*1.4)=1259 (below ceiling)
-    expect(computePrice({ pageCount: 64, tier: "top10" }).price_cents).toBe(1259);
+  it("enforces ceiling $16.99 and floor = base", () => {
+    // 48pp base=1299, top10 → round(1299*1.4)=1819 → capped at 1699
+    expect(computePrice({ pageCount: 48, tier: "top10" }).price_cents).toBe(1699);
     // custom config with lower ceiling
-    const cfg = { ...DEFAULT_PRICING_CONFIG, ceiling_cents: 1000 };
-    expect(computePrice({ pageCount: 64, tier: "top10", cfg }).price_cents).toBe(1000);
-    // multiplier <1 would never apply (base=1.0), but if someone forced a tier with <1, floor kicks in
+    const cfg = { ...DEFAULT_PRICING_CONFIG, ceiling_cents: 1400 };
+    expect(computePrice({ pageCount: 48, tier: "top10", cfg }).price_cents).toBe(1400);
+    // floor = base so price never drops below base even with sub-1 multiplier
     const oddCfg = {
       ...DEFAULT_PRICING_CONFIG,
       popularity: { ...DEFAULT_PRICING_CONFIG.popularity, top10_multiplier: 0.5 },
     };
-    // floor = base so price stays 499 even with 0.5 mult
-    expect(computePrice({ pageCount: 32, tier: "top10", cfg: oddCfg }).price_cents).toBe(499);
+    expect(computePrice({ pageCount: 32, tier: "top10", cfg: oddCfg }).price_cents).toBe(999);
   });
 
   it("popularityTier honors 10% / 25% cutoffs", () => {
