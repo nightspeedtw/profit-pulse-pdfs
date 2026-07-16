@@ -200,20 +200,14 @@ export async function renderKidsCoverWithLadder(
         });
         meta = { provider: "fal", model: "recraft-v3" };
       } else if (rung === "gemini_refs") {
-        try {
-          const g = await geminiDirectImageWithMeta({
-            prompt: buildGeminiPrompt(input),
-            referenceUrls: refUrls,
-            model: "google/gemini-3.1-flash-image",
-            seed,
-          });
-          bytes = g.bytes;
-          meta = g.meta;
-        } catch (direct) {
-          console.warn(`[cover-ladder] gemini-direct failed (${(direct as Error).message?.slice(0, 120)}) — gateway fallback`);
-          bytes = await gatewayImageWithRefs({ prompt: buildGeminiPrompt(input), referenceUrls: refUrls });
-          meta = { provider: "gateway_fallback" };
-        }
+        const g = await geminiDirectImageWithMeta({
+          prompt: buildGeminiPrompt(input),
+          referenceUrls: refUrls,
+          model: "google/gemini-3.1-flash-image",
+          seed,
+        });
+        bytes = g.bytes;
+        meta = g.meta;
       }
 
       if (!bytes || bytes.length < 1024) {
