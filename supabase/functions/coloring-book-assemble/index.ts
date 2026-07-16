@@ -90,18 +90,24 @@ function drawColoringFooter(page: any, logoImg: any, font: any) {
     width: logoW, height: logoH,
     opacity: 0.85,
   });
-  // Copyright bottom-left.
-  const text = KIDS_BRAND_LAYOUT.copyright_text;
-  const size = KIDS_BRAND_LAYOUT.copyright_pt;
-  page.drawText(text, {
+  // Copyright bottom-left — shrink-to-fit, never clips into the logo.
+  drawFitText(page, {
+    text: KIDS_BRAND_LAYOUT.copyright_text,
     x: SAFE_MARGIN, y: SAFE_MARGIN + 2,
-    size, font, color: rgb(0.35, 0.28, 0.22),
+    maxWidth: PAGE_W - 2 * SAFE_MARGIN - logoW - 12,
+    font,
+    size: KIDS_BRAND_LAYOUT.copyright_pt,
+    minSize: 6,
+    color: rgb(0.35, 0.28, 0.22),
   });
 }
 
-function centerText(page: any, text: string, y: number, size: number, font: any, color = rgb(0.15, 0.10, 0.05)) {
-  const w = font.widthOfTextAtSize(text, size);
-  page.drawText(text, { x: (PAGE_W - w) / 2, y, size, font, color });
+function centerFit(page: any, text: string, y: number, size: number, font: any, color = rgb(0.15, 0.10, 0.05), minSize = 10) {
+  drawFitText(page, {
+    text, x: PAGE_W / 2, y, size, minSize,
+    maxWidth: PAGE_W - 2 * SAFE_MARGIN,
+    font, color, align: "center",
+  });
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
