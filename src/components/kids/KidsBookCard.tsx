@@ -55,7 +55,9 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
             src={book.cover_url}
             alt={book.title}
             loading="lazy"
-            className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500"
+            // object-contain: the WHOLE cover (title + art) is visible inside
+            // the thumbnail frame — never crops the top of a portrait cover.
+            className="w-full h-full object-contain group-hover:scale-[1.03] transition-transform duration-500"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
