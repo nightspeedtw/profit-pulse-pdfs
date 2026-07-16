@@ -46,7 +46,10 @@ describe("coloring page plan", () => {
     const distinct = counts.size;
     const cap = Math.ceil(32 / distinct) + 1;
     for (const n of counts.values()) expect(n).toBeLessThanOrEqual(cap);
+  });
+
   it("produces no DUPLICATE_CONCEPT with 32 pages / 6 subjects (lcm bucket collision regression)", () => {
+
     const smallCat = {
       category_key: "mini",
       allowed_subjects: ["cat","dog","fox","bear","owl","rabbit"],
