@@ -60,6 +60,11 @@ export interface CoverLadderInput {
   forbiddenSubjects?: string[];
   // Feature flag for callers that want to skip vision gates (tests, unit runs).
   skipVisionGuards?: boolean;
+  // Per-invocation Ideogram rendering-speed override. Class 2 fix: the
+  // cover state machine tries QUALITY → BALANCED → TURBO on the ideogram
+  // rungs before falling to the next rung, so wall-clock timeouts on
+  // slow QUALITY calls do not silently loop.
+  ideogramRenderingSpeed?: "TURBO" | "BALANCED" | "QUALITY";
 }
 
 export interface CoverLadderRungReport {
