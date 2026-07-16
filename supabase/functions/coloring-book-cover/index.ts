@@ -209,8 +209,9 @@ async function markCoverBlocked(db: any, ebookId: string, patch: Record<string, 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    const { ebook_id, force } = await req.json();
+    const { ebook_id, force, mode } = await req.json();
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
+    const isUpgradeMode = mode === "upgrade";
     const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
     const { data: row, error } = await db.from("ebooks_kids")
@@ -222,9 +223,10 @@ Deno.serve(async (req: Request) => {
 
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
 
-    // Already have a cover? Advance.
+    // Already have a cover? Advance — UNLESS we're in explicit upgrade mode
+    // (which retries rung 1 to replace an existing rung-2 fallback cover).
     const existingGateVersion = (meta.coloring_cover_gate as any)?.scorecard?.version ?? (meta.coloring_cover as any)?.measured_gate?.scorecard?.version;
-    if (!force && meta.coloring_cover && row.cover_url && existingGateVersion === MEASURED_COVER_GATE_VERSION) {
+    if (!force && !isUpgradeMode && meta.coloring_cover && row.cover_url && existingGateVersion === MEASURED_COVER_GATE_VERSION) {
       fireAndForget("coloring-book-assemble", { ebook_id });
       return json({ ok: true, skipped: "cover_exists", chained: "assemble" });
     }
