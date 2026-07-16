@@ -44,7 +44,7 @@ export interface HeroVerdict {
   reason: string;
 }
 
-const VISION_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash"];
+const VISION_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
 
 function b64FromBytes(bytes: Uint8Array): string {
   let s = "";
@@ -108,7 +108,7 @@ export async function transcribeGlyphs(bytes: Uint8Array): Promise<GlyphVerdict>
     "signage, book titles, subtitles, badges with text, watermarks, logos with letters,",
     "handwriting, typography, or calligraphy. Even a single legible character counts.",
     "Ignore purely decorative marks that are NOT recognizable letters or digits.",
-    "detected_text = verbatim transcription (or empty string if none).",
+    "detected_text = verbatim transcription of EVERY visible glyph, including repeated titles, badges, logos, footers, watermarks, and stray partial words (or empty string if none). Separate distinct text clusters with |.",
     "confidence = 0..1 of the has_glyphs judgment.",
   ].join(" ");
   try {

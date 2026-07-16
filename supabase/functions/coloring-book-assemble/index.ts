@@ -22,7 +22,7 @@ import {
 } from "../_shared/kids-branding.ts";
 import { KIDS_BRAND_LAYOUT, KIDS_BRAND_FOOTER_DIMS } from "../_shared/kids-branding-policy.ts";
 import { coloringBookWeightedGate, coloringCoverGate, coloringReleaseGate } from "../_shared/coloring/gates.ts";
-import { computeSharpness, DEFAULT_SHARPNESS_MIN_SCORE } from "../_shared/coloring/sharpness-gate.ts";
+import { computeSharpness, DEFAULT_SHARPNESS_MIN_SCORE, SHARPNESS_GATE_VERSION } from "../_shared/coloring/sharpness-gate.ts";
 import { decideAssemblySharpnessPreflight } from "../_shared/coloring/assembly-sharpness.ts";
 import { drawFitText, drawFitParagraph } from "../_shared/pdf/shrink-to-fit.ts";
 
@@ -133,14 +133,17 @@ Deno.serve(async (req: Request) => {
     if (row.book_type !== "coloring_book") return json({ error: "wrong_lane" }, 400);
 
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
-    // NOTE: legacy `coloring_hold_publish` flag is IGNORED — the pipeline
-    // no longer waits on human re-verification. Weighted acceptance + the
-    // release gates in coloring-book-publish are the sole authority.
-    const publishHold = false;
+    // Owner-side audit is release-blocking for coloring books after repeated
+    // external render failures. Assembly may produce a PDF, but never flips a
+    // book live until the owner explicitly clears this hold.
+    const publishHold = true;
 
     if (!force && meta.coloring_assembly && row.pdf_url) {
-      chain("coloring-book-publish", { ebook_id });
-      return json({ ok: true, skipped: "pdf_exists", chained: "publish" });
+      await patchMeta(db, ebook_id, {
+        coloring_current_step_label: "PDF already assembled — publish HELD for owner render audit",
+        awaiting: "owner_final_verification",
+      });
+      return json({ ok: true, skipped: "pdf_exists", chained: "held", pdf_url: row.pdf_url });
     }
 
     const plan = ((meta.coloring_page_plan as any)?.plan ?? []) as any[];
@@ -170,7 +173,9 @@ Deno.serve(async (req: Request) => {
       ?? DEFAULT_SHARPNESS_MIN_SCORE;
     const priorSharpnessTable = (((meta as any).coloring_assembly?.sharpness_table as any[] | undefined) ?? []);
     const sharpnessByPage = new Map<number, any>();
-    for (const r of priorSharpnessTable) if (r?.page && typeof r.score === "number") sharpnessByPage.set(Number(r.page), r);
+    for (const r of priorSharpnessTable) {
+      if (r?.page && typeof r.score === "number" && r.gate_version === SHARPNESS_GATE_VERSION) sharpnessByPage.set(Number(r.page), r);
+    }
     for (const pageRec of pages) {
       if (sharpnessByPage.has(pageRec.page)) continue;
       const bytes = await fetchBytes(pageRec.signed_url);
@@ -181,9 +186,12 @@ Deno.serve(async (req: Request) => {
         score: sharp.score,
         sobel_mean: sharp.sobel_mean,
         laplacian_var: sharp.laplacian_var,
+        visible_edge_score: sharp.visible_edge_score,
+        visible_edge_min_required: sharp.visible_edge_min_required,
         min_required: sharp.min_required,
         pass: sharp.pass && !unmeasured,
         reason: unmeasured ? `unmeasured:${sharp.reason}` : sharp.reason,
+        gate_version: SHARPNESS_GATE_VERSION,
         storage_path: pageRec.storage_path,
       });
       if (sharpnessByPage.size % 4 === 0 || sharpnessByPage.size === pages.length) {

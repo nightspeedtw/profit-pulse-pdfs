@@ -20,9 +20,9 @@
 
 // @ts-nocheck  Deno edge runtime
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
-import { DEFAULT_SHARPNESS_MIN_SCORE, combineScore } from "./sharpness-scoring.ts";
+import { DEFAULT_SHARPNESS_MIN_SCORE, DEFAULT_VISIBLE_EDGE_MIN_SCORE, SHARPNESS_GATE_VERSION, combineScore, passesVisibleBlurBoundary } from "./sharpness-scoring.ts";
 
-export { DEFAULT_SHARPNESS_MIN_SCORE, combineScore };
+export { DEFAULT_SHARPNESS_MIN_SCORE, DEFAULT_VISIBLE_EDGE_MIN_SCORE, SHARPNESS_GATE_VERSION, combineScore, passesVisibleBlurBoundary };
 
 export interface SharpnessReport {
   score: number;
@@ -31,6 +31,8 @@ export interface SharpnessReport {
   width: number;
   height: number;
   min_required: number;
+  visible_edge_score: number;
+  visible_edge_min_required: number;
   pass: boolean;
   reason: string;
 }
@@ -95,6 +97,24 @@ function laplacianVariance(luma: Float32Array, w: number, h: number): number {
   return v / vals.length;
 }
 
+function meanNeighborDiff(luma: Float32Array, w: number, h: number): number {
+  let sum = 0;
+  let count = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 1; x < w; x++) {
+      sum += Math.abs(luma[y * w + x] - luma[y * w + x - 1]);
+      count++;
+    }
+  }
+  for (let y = 1; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      sum += Math.abs(luma[y * w + x] - luma[(y - 1) * w + x]);
+      count++;
+    }
+  }
+  return count ? sum / count : 0;
+}
+
 // combineScore + DEFAULT_SHARPNESS_MIN_SCORE are re-exported at the top
 // from ./sharpness-scoring.ts (pure math, importable by vitest).
 
@@ -110,21 +130,29 @@ export async function computeSharpness(
     const sm = sobelMean(luma, w, h);
     const lv = laplacianVariance(luma, w, h);
     const score = combineScore(sm, lv);
-    const pass = score >= min;
+    const visible = meanNeighborDiff(luma, w, h);
+    const visiblePass = passesVisibleBlurBoundary(visible);
+    const pass = score >= min && visiblePass;
     return {
       score: Number(score.toFixed(2)),
       sobel_mean: Number(sm.toFixed(2)),
       laplacian_var: Number(lv.toFixed(2)),
       width: w, height: h,
       min_required: min,
+      visible_edge_score: Number(visible.toFixed(2)),
+      visible_edge_min_required: DEFAULT_VISIBLE_EDGE_MIN_SCORE,
       pass,
-      reason: pass ? "ok" : `sharpness_below_floor:score=${score.toFixed(2)}_min=${min}`,
+      reason: pass
+        ? "ok"
+        : (!visiblePass
+            ? `visible_blur_below_floor:score=${visible.toFixed(2)}_min=${DEFAULT_VISIBLE_EDGE_MIN_SCORE}`
+            : `sharpness_below_floor:score=${score.toFixed(2)}_min=${min}`),
     };
   } catch (e) {
-    // Fail SAFE (do not block on decode error) — luminance/solid-black gates run first.
+    // Fail closed: an unmeasured page cannot be treated as crisp/sellable.
     return {
       score: 0, sobel_mean: 0, laplacian_var: 0, width: 0, height: 0,
-      min_required: min, pass: true,
+      min_required: min, visible_edge_score: 0, visible_edge_min_required: DEFAULT_VISIBLE_EDGE_MIN_SCORE, pass: false,
       reason: `sharpness_decode_error:${(e as Error).message.slice(0, 120)}`,
     };
   }

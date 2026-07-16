@@ -520,11 +520,12 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
   // Safe-zone placement — scale pill to canvas so it never clips off-canvas.
   // (Owner defect: 280×90 pill anchored at translate(W-340, H-150) clipped
   // off the composited portrait 4:3 canvas.)
-  const safe = Math.max(48, Math.round(W * 0.04));
+  const safe = Math.max(72, Math.round(W * 0.05));
   const pillW = Math.min(Math.max(180, Math.round(W * 0.19)), W - 2 * safe);
   const pillH = Math.max(60, Math.round(pillW * 0.32));
-  const pillX = Math.max(safe, W - safe - pillW);
-  const pillY = Math.max(safe, H - safe - pillH);
+  const pillStroke = 5;
+  const pillX = Math.max(safe + pillStroke, W - safe - pillW - pillStroke);
+  const pillY = Math.max(safe + pillStroke, H - safe - pillH - pillStroke);
   const pillTextY = Math.round(pillH * 0.68);
   const pillFont = Math.max(24, Math.round(pillH * 0.46));
   const ageBadgeEl = ageBadge
@@ -542,13 +543,15 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
   // SecretPDF Kids logo on cover: deterministic uploaded asset, never AI.
   // 12% width, inside safe margin, bottom-left away from the title/badge.
   const logoB64 = await loadCoverLogoB64();
+  const logoPanelPadX = 14;
+  const logoPanelPadY = 10;
   const logoW = Math.round(W * 0.12);
   const logoH = Math.round(logoW * (KIDS_BRAND_FOOTER_DIMS.h / KIDS_BRAND_FOOTER_DIMS.w));
-  const logoX = safe;
-  const logoY = H - safe - logoH;
+  const logoX = safe + logoPanelPadX;
+  const logoY = H - safe - logoH - logoPanelPadY;
   const logoEl = logoB64
     ? `<g transform="translate(${logoX}, ${logoY})">
-        <rect x="-14" y="-10" width="${logoW + 28}" height="${logoH + 20}" rx="18" ry="18" fill="#FFFFFF" opacity="0.74"/>
+        <rect x="-${logoPanelPadX}" y="-${logoPanelPadY}" width="${logoW + logoPanelPadX * 2}" height="${logoH + logoPanelPadY * 2}" rx="18" ry="18" fill="#FFFFFF" opacity="0.74"/>
         <image href="data:image/png;base64,${logoB64}" x="0" y="0" width="${logoW}" height="${logoH}" preserveAspectRatio="xMidYMid meet" opacity="0.96"/>
       </g>`
     : "";
@@ -556,8 +559,8 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
   const overlayElements = [
     { name: "title_cluster", x: titleBounds.x - 40, y: titleBounds.y - 20, w: titleBounds.w + 80, h: titleBounds.h + 40 },
     ...(showSubtitle ? [{ name: "subtitle", x: Math.round(W * 0.16), y: Math.round(subtitleY - 58), w: Math.round(W * 0.68), h: 72 }] : []),
-    ...(ageBadge ? [{ name: "age_badge", x: pillX, y: pillY, w: pillW, h: pillH }] : []),
-    ...(logoB64 ? [{ name: "secretpdf_kids_logo", x: logoX, y: logoY, w: logoW, h: logoH }] : []),
+    ...(ageBadge ? [{ name: "age_badge", x: pillX - pillStroke, y: pillY - pillStroke, w: pillW + pillStroke * 2, h: pillH + pillStroke * 2 }] : []),
+    ...(logoB64 ? [{ name: "secretpdf_kids_logo", x: logoX - logoPanelPadX, y: logoY - logoPanelPadY, w: logoW + logoPanelPadX * 2, h: logoH + logoPanelPadY * 2 }] : []),
   ];
 
   const bgB64 = toB64(input.coverBg);

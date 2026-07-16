@@ -22,6 +22,8 @@
  * Do not lower without owner sign-off + fresh calibration data.
  */
 export const DEFAULT_SHARPNESS_MIN_SCORE = 13.0;
+export const DEFAULT_VISIBLE_EDGE_MIN_SCORE = 6.5;
+export const SHARPNESS_GATE_VERSION = "v4:visible-edge-boundary-mnd6_5";
 
 /**
  * Combine Sobel-magnitude mean and Laplacian variance into a monotonic
@@ -30,4 +32,8 @@ export const DEFAULT_SHARPNESS_MIN_SCORE = 13.0;
  */
 export function combineScore(sobel_mean: number, laplacian_var: number): number {
   return sobel_mean / 4 + Math.sqrt(Math.max(0, laplacian_var)) / 10;
+}
+
+export function passesVisibleBlurBoundary(visible_edge_score: number, min = DEFAULT_VISIBLE_EDGE_MIN_SCORE): boolean {
+  return visible_edge_score >= min;
 }
