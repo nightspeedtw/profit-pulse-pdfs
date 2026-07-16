@@ -2,7 +2,10 @@
 // Categories live in public.coloring_categories; this module is the ONLY
 // place callers should reach them from — never inline subject lists.
 
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+// deno-lint-ignore-file no-explicit-any
+// @ts-nocheck  Edge-runtime module; Deno + npm: specifiers not typed by app tsconfig.
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
+declare const Deno: any;
 
 export interface ColoringCategory {
   id: string;
