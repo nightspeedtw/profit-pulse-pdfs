@@ -77,7 +77,7 @@ export default function Kids() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const q: any = supabase.from("ebooks_kids");
       const r = await q
-        .select("id,title,cover_url,price_cents,age_group_id,theme_ids,created_at,audience:storefront_meta->audience,preview_urls:storefront_meta->preview_urls")
+        .select("id,title,cover_url,price_cents,age_group_id,age_band,age_min,age_max,theme_ids,created_at,audience:storefront_meta->audience,preview_urls:storefront_meta->preview_urls")
         .eq("listing_status", "live")
         .eq("sellable", true)
         .order("created_at", { ascending: false })
@@ -89,6 +89,9 @@ export default function Kids() {
         cover_url: (b.cover_url as string | null) ?? null,
         price_cents: (b.price_cents as number) ?? 0,
         age_group_id: (b.age_group_id as string | null) ?? null,
+        age_band: (b.age_band as string | null) ?? null,
+        age_min: (b.age_min as number | null) ?? null,
+        age_max: (b.age_max as number | null) ?? null,
         theme_ids: (b.theme_ids as string[] | null) ?? null,
         storefront_meta: {
           audience: b.audience ?? undefined,
