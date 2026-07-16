@@ -131,6 +131,17 @@ Deno.serve(async (req: Request) => {
 
     const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
+    // Lane-level guard: don't burn a single FAL call while billing/quota
+    // is blocked or today's budget cap is reached. Keeps the row parked in
+    // queued so worker-tick can resume it once the block clears.
+    try { await assertLaneCanDispatch(db); } catch (e: any) {
+      if (e instanceof FalBillingLockedError || e instanceof FalBudgetCapReachedError) {
+        await db.from("ebooks_kids").update({ pipeline_status: "queued" }).eq("id", ebook_id);
+        return json({ ok: false, halted: true, reason: e.kind, detail: e.message });
+      }
+      throw e;
+    }
+
     const { data: row, error } = await db.from("ebooks_kids")
       .select("id, book_type, pipeline_status, metadata, title")
       .eq("id", ebook_id).maybeSingle();
