@@ -152,8 +152,8 @@ Deno.serve(async (req: Request) => {
       let target = "coloring-book-render";
       if (awaiting === "cover_pdf_publish") {
         target = row.cover_url ? (row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble") : "coloring-book-cover";
-      } else if (awaiting === "publish" || awaiting === "owner_final_verification") {
-        // owner_final_verification is a legacy human-hold pin — treat as ready-to-publish.
+      } else if (awaiting === "publish" || awaiting === "publish_candidate" || awaiting === "owner_final_verification") {
+        // owner_final_verification is a legacy human-hold pin — route to candidate.
         target = row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble";
       }
       // 'owner_calibration_review' legacy pin: fall through to coloring-book-render;
@@ -165,7 +165,7 @@ Deno.serve(async (req: Request) => {
           Authorization: `Bearer ${service}`,
           apikey: service,
         },
-        body: JSON.stringify({ ebook_id: row.id }),
+        body: JSON.stringify({ ebook_id: row.id, ...(awaiting === "publish_candidate" || awaiting === "owner_final_verification" ? { mode: "candidate" } : {}) }),
       });
       const j = await r.json().catch(() => ({}));
       (result.dispatched as unknown[]).push({

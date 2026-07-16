@@ -141,17 +141,17 @@ Deno.serve(async (req: Request) => {
     if (row.book_type !== "coloring_book") return json({ error: "wrong_lane" }, 400);
 
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
-    // Owner-side audit is release-blocking for coloring books after repeated
-    // external render failures. Assembly may produce a PDF, but never flips a
-    // book live until the owner explicitly clears this hold.
-    const publishHold = true;
+    // Owner-side audit is release-blocking: assembly hands off to a
+    // publish-candidate record, never live storefront, until owner flips live.
+    const publishMode = "candidate";
 
     if (!force && meta.coloring_assembly && row.pdf_url) {
       await patchMeta(db, ebook_id, {
-        coloring_current_step_label: "PDF already assembled — publish HELD for owner render audit",
-        awaiting: "owner_final_verification",
+        coloring_current_step_label: "PDF already assembled — creating publish candidate",
+        awaiting: "publish_candidate",
       });
-      return json({ ok: true, skipped: "pdf_exists", chained: "held", pdf_url: row.pdf_url });
+      chain("coloring-book-publish", { ebook_id, mode: publishMode });
+      return json({ ok: true, skipped: "pdf_exists", chained: "publish_candidate", pdf_url: row.pdf_url });
     }
 
     const plan = ((meta.coloring_page_plan as any)?.plan ?? []) as any[];
@@ -571,18 +571,12 @@ Deno.serve(async (req: Request) => {
     await patchMeta(db, ebook_id, {
       coloring_assembly: assembly,
       coloring_progress_percent: 97,
-      coloring_current_step_label: publishHold
-        ? "PDF assembled — publish HELD for owner re-verification"
-        : "PDF assembled — publishing to storefront",
-      awaiting: publishHold ? "owner_final_verification" : "publish",
+      coloring_current_step_label: "PDF assembled — creating publish candidate",
+      awaiting: "publish_candidate",
     });
 
-    if (publishHold) {
-      console.log(`[coloring-assemble] ${ebook_id} publish HELD (coloring_hold_publish=true)`);
-      return json({ ok: true, assembly, chained: "held", pdf_url: signed?.signedUrl });
-    }
-    chain("coloring-book-publish", { ebook_id });
-    return json({ ok: true, assembly, chained: "publish" });
+    chain("coloring-book-publish", { ebook_id, mode: publishMode });
+    return json({ ok: true, assembly, chained: "publish_candidate", pdf_url: signed?.signedUrl });
   } catch (e: any) {
     console.error("[coloring-assemble] fatal", e?.message, e?.stack);
     return json({ error: e?.message ?? String(e) }, 500);

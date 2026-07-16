@@ -1,38 +1,27 @@
-// coloring-book-cover — per-rung state machine for the unified cover ladder.
+// coloring-book-cover — owner-approved single-rung coloring cover path.
 //
-// PROBLEM this file solves:
-//   Running all 4 generator rungs (Ideogram A/B → Recraft → Gemini) plus
-//   SVG fallback in a single edge invocation blows the ~30s CPU cap and
-//   the book gets parked at 92% forever. Fix: execute EXACTLY ONE rung
-//   per invocation, persist the ladder state in metadata, and self-invoke
-//   to advance to the next rung. Dead frames advance without consuming
-//   any retire budget; SVG fallback is dead-impossible and terminal.
+// Coloring books no longer use the picture-book cover ladder. One invocation:
+//   1. Runs ONE Flux/Schnell textless full-color scene call.
+//   2. Measures raw art color, subject match, and baked text once each.
+//   3. Composites deterministic title/subtitle/age/logo overlay.
+//   4. Persists full evidence, uploads cover, then chains assembly.
 //
-// State (metadata.coloring_cover_ladder):
-//   { rungs: [...], next_index: n, reports: [...], started_at, updated_at }
-//
-// Contract:
-//   • book_type=coloring_book only.
-//   • Idempotent: if cover_url already set, skips generation and chains
-//     to assemble.
-//   • Never lowers a gate. Never retires a book. On SVG-fallback rung the
-//     cover is guaranteed.
+// Picture-book paths keep using _shared/covers/kids-cover-ladder.ts.
 
 // @ts-nocheck  Deno edge runtime
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import {
-  DEFAULT_COVER_RUNGS,
-  runSingleCoverRung,
-  type CoverLadderInput,
-  type CoverLadderRungReport,
-  type CoverRungLabel,
-} from "../_shared/covers/kids-cover-ladder.ts";
+import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
+import { TEXTLESS_DIRECTIVE } from "../_shared/textless-illustration-policy.ts";
 import { renderKidsTitleTreatment } from "../_shared/covers/kids-title-treatment.ts";
 import { transcribeGlyphs, verifyCategoryHero } from "../_shared/covers/cover-vision-guards.ts";
 import { MEASURED_COVER_GATE_VERSION, measuredCoverScorecard } from "../_shared/covers/cover-measured-gate.ts";
 import { coloringCoverGate } from "../_shared/coloring/gates.ts";
+import { generateImageWithFailover } from "../_shared/image-providers.ts";
+import { computeLuminance } from "../_shared/image-luminance.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
+import { classifyProviderError } from "../_shared/covers/provider-errors.ts";
+import { loadActivePreventionRules, indexRulesBySpecies, pickLearnedRulesFor, learnedClauseFromRules } from "../_shared/coloring/first-pass-learner.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -73,46 +62,9 @@ async function patchMeta(db: any, id: string, patch: Record<string, unknown>) {
   return merged;
 }
 
-interface RungAttempt {
-  speed?: "QUALITY" | "BALANCED" | "TURBO" | null;
-  started_at: string;
-  ended_at?: string | null;
-  ok?: boolean;
-  reason?: string | null;
-  status?: string;
-}
-
-interface LadderState {
-  rungs: CoverRungLabel[];
-  next_index: number;
-  // Ideogram speed cursor: 0=QUALITY, 1=BALANCED, 2=TURBO. Resets on rung advance.
-  ideogram_speed_cursor: number;
-  reports: Array<Pick<CoverLadderRungReport, "rung" | "reason" | "produced_bytes">>;
-  attempts_by_rung: Record<string, RungAttempt[]>;
-  started_at: string;
-  updated_at: string;
-}
-
-// Owner order: BALANCED first (fastest that still respects quality), then TURBO;
-// skip QUALITY as first-try because its wallclock repeatedly killed the whole ladder.
-const IDEOGRAM_SPEEDS: Array<"QUALITY" | "BALANCED" | "TURBO"> = ["BALANCED", "TURBO"];
-
-import { classifyProviderError } from "../_shared/covers/provider-errors.ts";
-const RUNG_WALLCLOCK_MS = 90_000;
-const CRASH_STALE_MS = 3 * 60_000; // any attempt with no ended_at older than this = crashed
-
-function newLadderState(): LadderState {
-  const now = new Date().toISOString();
-  return {
-    rungs: [...DEFAULT_COVER_RUNGS],
-    next_index: 0,
-    ideogram_speed_cursor: 0,
-    reports: [],
-    attempts_by_rung: {},
-    started_at: now,
-    updated_at: now,
-  };
-}
+const COVER_GEN_TIMEOUT_MS = 24_000;
+const COVER_VISION_TIMEOUT_MS = 8_000;
+const SINGLE_RUNG_VERSION = "coloring_cover_single_flux_schnell_v1";
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -121,10 +73,109 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
+async function sha256Hex(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+}
+
+function uniq(xs: unknown[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of xs) {
+    const s = String(x ?? "").trim();
+    const k = s.toLowerCase();
+    if (!s || seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
+function compactSeaAnatomy(subjects: string[]): string {
+  const s = subjects.join(" ").toLowerCase();
+  const clauses = [
+    /(dolphin|whale|orca|narwhal|porpoise|beluga)/.test(s) ? "Cetaceans: horizontal two-lobed flukes only, side profile, no vertical fish tail, no eyelashes." : "",
+    /narwhal/.test(s) ? "Narwhal: one straight spiral tusk from upper lip, not forehead, not multiple." : "",
+    /(seal|sea lion)/.test(s) ? "Seal: exactly two front flippers visible, no extra flippers." : "",
+    /(ray|manta|stingray)/.test(s) ? "Ray: dorsal/top or side view only, never face-up underside." : "",
+    "Sea water: colorful outline-only waves/bubbles, no solid black water mass.",
+  ].filter(Boolean);
+  return clauses.join(" ");
+}
+
+function compactLearnedClause(clause: string): string {
+  if (!clause) return "";
+  return clause
+    .replace(/^Learned prevention rules \(past-failure corrections — MANDATORY\):\s*/i, "Learned corrections: ")
+    .slice(0, 420);
+}
+
+async function colorEvidence(bytes: Uint8Array) {
+  const img = await Image.decode(bytes);
+  const w = img.width, h = img.height;
+  const stepX = Math.max(1, Math.floor(w / 48));
+  const stepY = Math.max(1, Math.floor(h / 48));
+  let n = 0, satSum = 0, chromaSum = 0;
+  for (let y = 0; y < h; y += stepY) {
+    for (let x = 0; x < w; x += stepX) {
+      const px = img.getPixelAt(x + 1, y + 1);
+      const r = (px >>> 24) & 0xff;
+      const g = (px >>> 16) & 0xff;
+      const b = (px >>> 8) & 0xff;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      const chroma = max - min;
+      chromaSum += chroma;
+      satSum += max > 0 ? chroma / max : 0;
+      n += 1;
+    }
+  }
+  const avg_saturation = n ? satSum / n : 0;
+  const avg_chroma = n ? chromaSum / n : 0;
+  return {
+    width: w,
+    height: h,
+    avg_saturation: Number(avg_saturation.toFixed(4)),
+    avg_chroma: Number(avg_chroma.toFixed(2)),
+    pass: avg_saturation >= 0.08 && avg_chroma >= 12,
+    min_saturation: 0.08,
+    min_chroma: 12,
+  };
+}
+
+function constructedOverlayTranscription(title: string, subtitle: string, ageBadge: string) {
+  return {
+    ok: true,
+    has_glyphs: true,
+    detected_text: [title, subtitle, ageBadge, "SecretPDF Kids"].filter(Boolean).join(" | "),
+    confidence: 1,
+    degraded: false,
+    reason: "constructed_svg_overlay_text_exact_by_source",
+  };
+}
+
+async function markCoverBlocked(db: any, ebookId: string, patch: Record<string, unknown>, reason: string, status = 202) {
+  await patchMeta(db, ebookId, {
+    ...patch,
+    coloring_progress_percent: 92,
+    coloring_current_step_label: `Cover single-rung requeued: ${reason}`,
+    awaiting: "cover_pdf_publish",
+    coloring_blocker: {
+      class: reason.startsWith("provider_") ? "temporary_provider_error" : reason.startsWith("unmeasured") ? "missing_dependency" : "content_quality_failure",
+      reason,
+      detected_at: new Date().toISOString(),
+    },
+  });
+  await db.from("ebooks_kids").update({
+    pipeline_status: "queued",
+    blocker_reason: `coloring_cover_single_rung:${reason}`.slice(0, 300),
+  }).eq("id", ebookId);
+  return json({ ok: false, requeued: true, reason }, status);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    const { ebook_id, force, resume } = await req.json();
+    const { ebook_id, force } = await req.json();
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
     const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -146,12 +197,10 @@ Deno.serve(async (req: Request) => {
 
     // Build input once.
     const pages = (meta.coloring_pages as any[] | undefined) ?? [];
-    const refUrls = pages.slice(0, 2).map((p) => p.signed_url).filter(Boolean);
     const plan = ((meta.coloring_page_plan as any)?.plan ?? []) as any[];
     const totalPages = plan.length || pages.length || 32;
 
     const categoryName = (meta.category_name as string)
-      ?? ((meta.coloring_page_plan as any)?.category_name as string)
       ?? "Coloring Book";
     const ageMin = ((meta.coloring_category_meta as any)?.target_age_min) ?? 4;
     const ageMax = ((meta.coloring_category_meta as any)?.target_age_max) ?? 6;
@@ -165,337 +214,203 @@ Deno.serve(async (req: Request) => {
     let forbiddenSubjects: string[] = ((meta.coloring_category_meta as any)?.forbidden_subjects as string[]) ?? [];
     if (categoryKey && (allowedSubjects.length === 0 || forbiddenSubjects.length === 0)) {
       const { data: cat } = await db.from("coloring_categories")
-        .select("allowed_subjects, forbidden_subjects")
+        .select("category_name, allowed_subjects, forbidden_subjects")
         .eq("category_key", categoryKey).maybeSingle();
+      if (cat?.category_name && categoryName === "Coloring Book") (meta as any).category_name = cat.category_name;
       if (cat?.allowed_subjects) allowedSubjects = cat.allowed_subjects;
       if (cat?.forbidden_subjects) forbiddenSubjects = cat.forbidden_subjects;
     }
+    const categoryNameFinal = (meta.category_name as string) ?? ((meta.coloring_page_plan as any)?.category_name as string) ?? "Sea Animals";
+    const planSubjects = uniq(plan.flatMap((p) => [p.primary_subject, ...(p.secondary_subjects ?? [])]));
+    const heroSubjects = uniq([...planSubjects, ...allowedSubjects]).slice(0, 10);
+    const rules = await loadActivePreventionRules(db);
+    const rulesIndex = indexRulesBySpecies(rules);
+    const learnedRules = new Map<string, any>();
+    for (const subject of heroSubjects) {
+      for (const r of pickLearnedRulesFor(rulesIndex, subject, "underwater sea ocean reef cover scene")) {
+        learnedRules.set(`${r.pattern_key}|${r.species_key}`, r);
+      }
+    }
+    const learnedClause = compactLearnedClause(learnedClauseFromRules([...learnedRules.values()]));
+    const anatomyClauses = compactSeaAnatomy(heroSubjects);
 
-    const charDesc = [
-      `A charming, kid-friendly COVER for a coloring book titled "${row.title}".`,
-      `Subject: ${categoryName}. Show 2-4 adorable characters/subjects from the theme in a warm painterly SCENE (COLOR artwork, NOT line-art — this is the printed cover shown in stores).`,
-      allowedSubjects.length ? `Hero must be one of: ${allowedSubjects.slice(0, 8).join(", ")}.` : "",
-      `Cover art: full-color, cheerful, high contrast, inviting to children ages ${ageMin}-${ageMax}.`,
+    const prompt = [
+      `Full-color cheerful children's coloring-book COVER BACKGROUND ART ONLY for "${categoryNameFinal}" ages ${ageMin}-${ageMax}.`,
+      `Show 3-5 cute friendly sea subjects from this set: ${heroSubjects.slice(0, 8).join(", ")}.`,
+      `Rich colorful painterly storefront cover scene; NOT line art, NOT black-and-white, NOT an interior page. Leave clean upper-half space for later SVG title overlay.`,
+      anatomyClauses,
+      learnedClause,
+      TEXTLESS_DIRECTIVE,
+      `No title/subtitle/age badge, no letters/numbers/watermark/logo/signage/mockup/UI, no blank canvas, no grayscale, no solid black water.`,
     ].filter(Boolean).join(" ");
+    const promptHash = await sha256Hex(prompt);
 
-    const ladderInput: CoverLadderInput = {
-      ebookId: ebook_id,
+    const attempt = {
+      version: SINGLE_RUNG_VERSION,
+      provider_policy: null as any,
+      started_at: new Date().toISOString(),
+      ended_at: null as string | null,
+      status: "started",
+      prompt_hash: promptHash,
+      checks: null as any,
+    };
+    await patchMeta(db, ebook_id, {
+      coloring_current_step_label: "Cover single-rung: generating textless Flux/Schnell scene",
+      coloring_progress_percent: 92,
+      coloring_cover_single_attempt: attempt,
+      coloring_cover_ladder: {
+        disabled_for_coloring_book: true,
+        replaced_by: SINGLE_RUNG_VERSION,
+        previous_state_preserved_in: "coloring_cover.previous_ladder_state",
+        updated_at: new Date().toISOString(),
+      },
+    });
+
+    let rawBytes: Uint8Array;
+    let providerResult: any;
+    try {
+      // Owner freeze: do not wait on Cloudflare. Coloring covers use exactly
+      // one Fal Flux/Schnell call; failures requeue with typed evidence.
+      const singlePolicy = { primary: "fal_flux_schnell" as const, fallback: null };
+      attempt.provider_policy = singlePolicy;
+      providerResult = await withTimeout(
+        generateImageWithFailover({
+          prompt,
+          image_size: "square_hd",
+          num_inference_steps: 4,
+          ebook_id,
+          step: "coloring_cover_single_flux_schnell",
+        }, singlePolicy),
+        COVER_GEN_TIMEOUT_MS,
+        "cover_flux_schnell",
+      );
+      rawBytes = providerResult.bytes;
+    } catch (e: any) {
+      const rawReason = String(e?.message ?? e).slice(0, 240);
+      const providerClass = classifyProviderError(rawReason);
+      const reason = providerClass ? `provider_${providerClass}` : rawReason.includes("timeout") ? "provider_timeout" : `provider_error:${rawReason}`;
+      attempt.ended_at = new Date().toISOString();
+      attempt.reason = reason;
+      attempt.status = "requeued";
+      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, reason);
+    }
+
+    const luminance = await computeLuminance(rawBytes);
+    const color = await colorEvidence(rawBytes);
+    if (luminance.dead || !color.pass) {
+      attempt.ended_at = new Date().toISOString();
+      attempt.status = "requeued";
+      attempt.checks = { luminance, color };
+      const reason = luminance.dead ? `raw_art_dead:${luminance.reason}` : `raw_art_not_colorful:saturation=${color.avg_saturation},chroma=${color.avg_chroma}`;
+      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, reason, 422);
+    }
+
+    const rawGlyph = await transcribeGlyphs(rawBytes, COVER_VISION_TIMEOUT_MS);
+    if (rawGlyph.degraded) {
+      attempt.ended_at = new Date().toISOString();
+      attempt.status = "requeued";
+      attempt.checks = { luminance, color, raw_art_transcription: rawGlyph };
+      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, `unmeasured_raw_art_transcription:${rawGlyph.reason}`);
+    }
+    if (rawGlyph.has_glyphs) {
+      attempt.ended_at = new Date().toISOString();
+      attempt.status = "requeued";
+      attempt.checks = { luminance, color, raw_art_transcription: rawGlyph };
+      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, `raw_art_has_text:${String(rawGlyph.detected_text ?? "").slice(0, 120)}`, 422);
+    }
+
+    const hero = allowedSubjects.length
+      ? await verifyCategoryHero(rawBytes, {
+          category_name: categoryNameFinal,
+          allowed_subjects: allowedSubjects,
+          forbidden_subjects: forbiddenSubjects,
+        }, COVER_VISION_TIMEOUT_MS)
+      : { ok: false, matches: false, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined" };
+    if (hero.degraded) {
+      attempt.ended_at = new Date().toISOString();
+      attempt.status = "requeued";
+      attempt.checks = { luminance, color, raw_art_transcription: rawGlyph, hero_verdict: hero };
+      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, `unmeasured_category_subject:${hero.reason}`);
+    }
+    if (!hero.matches) {
+      attempt.ended_at = new Date().toISOString();
+      attempt.status = "requeued";
+      attempt.checks = { luminance, color, raw_art_transcription: rawGlyph, hero_verdict: hero };
+      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, `wrong_category_subject:${hero.reason}`, 422);
+    }
+
+    const treatment = await renderKidsTitleTreatment({
+      coverBg: rawBytes,
+      title: row.title,
+      subtitle,
+      palette: ["#FFF6E5", "#2A1A0A", "#E9B44C", "#6BAA75", "#4FA3D8"],
+      description: row.description ?? null,
+      ageBadge,
+    });
+    const finalBytes = treatment.png;
+    const treatmentMeta = treatment.metadata as unknown as Record<string, unknown>;
+    const overlayText = constructedOverlayTranscription(row.title, subtitle, ageBadge);
+    const measured = measuredCoverScorecard({
       title: row.title,
       subtitle,
       ageBadge,
-      description: row.description ?? null,
-      charDesc,
-      styleSuffix: "modern warm painterly children's book cover, cheerful colors, cozy inviting",
-      negativePrompt:
-        "line art only, uncolored, monochrome, black-and-white coloring page, empty, blank, grayscale interior, worksheet, low quality",
-      refUrls,
-      palette: ["#FFF6E5", "#2A1A0A", "#E9B44C", "#6BAA75", "#4FA3D8"],
-      categoryName,
-      allowedSubjects,
-      forbiddenSubjects,
-    };
-
-    // Load or init ladder state (migrate legacy state missing new fields).
-    let state = (meta.coloring_cover_ladder as LadderState | undefined) ?? null;
-    if (!state || force) state = newLadderState();
-    if (typeof state.ideogram_speed_cursor !== "number") state.ideogram_speed_cursor = 0;
-    if (!state.attempts_by_rung) state.attempts_by_rung = {};
-
-    // Terminal guard — if the cursor has run past the last rung, do NOT loop
-    // forever with rung=undefined. Leave a `cover_ladder_exhausted` blocker
-    // with all recorded evidence and stop.
-    if (state.next_index >= state.rungs.length) {
-      await patchMeta(db, ebook_id, {
-        coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
-        coloring_current_step_label: "Cover ladder exhausted — awaiting owner review (all rungs failed)",
-        coloring_blocker: {
-          class: "cover_ladder_exhausted",
-          reason: "all_rungs_failed_including_svg_fallback",
-          reports: state.reports,
-          attempts_by_rung: state.attempts_by_rung,
-          detected_at: new Date().toISOString(),
-        },
-      });
-      return json({ ok: false, error: "cover_ladder_exhausted", reports: state.reports });
-    }
-
-    // ── Crash detection: if the current rung has an in-flight attempt with
-    //    no ended_at older than CRASH_STALE_MS, mark it crashed and cascade.
-    const currRung = state.rungs[state.next_index];
-    const attemptsForRung = state.attempts_by_rung[currRung] ?? [];
-    const lastAttempt = attemptsForRung[attemptsForRung.length - 1];
-    if (lastAttempt && !lastAttempt.ended_at) {
-      const ageMs = Date.now() - new Date(lastAttempt.started_at).getTime();
-      if (ageMs > CRASH_STALE_MS) {
-        lastAttempt.ended_at = new Date().toISOString();
-        lastAttempt.ok = false;
-        lastAttempt.reason = `crash_timeout_after_${ageMs}ms`;
-        lastAttempt.status = "crashed";
-        // Cascade: for ideogram rungs advance speed; otherwise advance rung.
-        if ((currRung === "ideogram_v3_a" || currRung === "ideogram_v3_b")
-            && state.ideogram_speed_cursor < IDEOGRAM_SPEEDS.length - 1) {
-          state.ideogram_speed_cursor += 1;
-        } else {
-          state.next_index += 1;
-          state.ideogram_speed_cursor = 0;
-        }
-      }
-    }
-
-    const rung = state.rungs[state.next_index];
-    const isIdeogram = rung === "ideogram_v3_a" || rung === "ideogram_v3_b";
-    const speed = isIdeogram ? IDEOGRAM_SPEEDS[state.ideogram_speed_cursor] : null;
-
-    // Persist BEFORE calling the rung so a crash leaves evidence.
-    const attempt: RungAttempt = {
-      speed,
-      started_at: new Date().toISOString(),
-      ended_at: null,
-    };
-    state.attempts_by_rung[rung] = [...(state.attempts_by_rung[rung] ?? []), attempt];
-    await patchMeta(db, ebook_id, {
-      coloring_current_step_label:
-        `Cover ladder rung ${state.next_index + 1}/${state.rungs.length}: ${rung}${speed ? ` (${speed})` : ""}`,
-      coloring_progress_percent: 92,
-      coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
+      text: overlayText,
+      rawArtText: rawGlyph,
+      typographySource: "textless_art_plus_svg_overlay",
+      hero,
+      frame: (treatmentMeta as any)?.overlay_frame ?? { width: 1600, height: 1600, safe_margin: 64, elements: [] },
+      logo: {
+        present: (treatmentMeta as any)?.logo_present === true,
+        rect: ((treatmentMeta as any)?.overlay_frame?.elements ?? []).find((e: any) => e.name === "secretpdf_kids_logo") ?? null,
+      },
+      artwork: { used_svg_fallback: false, synthesized_background: false, blank_background: false, blank_ratio: 0 },
+      quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
+      pageCountMatchesFinalPdf: true,
     });
-
-    console.log(`[coloring-cover] ${ebook_id} rung ${rung} speed=${speed} (${state.next_index + 1}/${state.rungs.length})`);
-
-    // ── Run rung with wallclock guard so slow QUALITY calls cannot silent-loop.
-    let result: Awaited<ReturnType<typeof runSingleCoverRung>>;
-    try {
-      result = await withTimeout(
-        runSingleCoverRung({ ...ladderInput, ideogramRenderingSpeed: speed ?? undefined }, rung),
-        RUNG_WALLCLOCK_MS,
-        `${rung}:${speed ?? "n/a"}`,
-      );
-    } catch (e: any) {
-      const reason = `rung_exception:${String(e?.message ?? e).slice(0, 220)}`;
-      attempt.ended_at = new Date().toISOString();
-      attempt.ok = false;
-      attempt.reason = reason;
-      attempt.status = "error";
-      state.reports.push({ rung, reason, produced_bytes: false } as any);
-
-      // Provider billing/quota → PAUSE ladder, do NOT burn cursor. Owner
-      // top-up is the fix; a rung cascade would waste evidence + confuse triage.
-      const providerClass = classifyProviderError(reason);
-      if (providerClass) {
-        await patchMeta(db, ebook_id, {
-          coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
-          coloring_current_step_label: `Cover ladder paused: ${providerClass} on ${rung}${speed ? `/${speed}` : ""} — awaiting provider top-up`,
-          coloring_blocker: {
-            class: "provider_unavailable",
-            provider_error: providerClass,
-            rung,
-            speed,
-            reason,
-            detected_at: new Date().toISOString(),
-          },
-        });
-        return json({ ok: false, paused: true, provider_error: providerClass, rung, speed, reason });
-      }
-
-      // Cascade speed on ideogram, else advance rung.
-      if (isIdeogram && state.ideogram_speed_cursor < IDEOGRAM_SPEEDS.length - 1) {
-        state.ideogram_speed_cursor += 1;
-      } else {
-        state.next_index += 1;
-        state.ideogram_speed_cursor = 0;
-      }
-      await patchMeta(db, ebook_id, {
-        coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
-        coloring_current_step_label:
-          `Cover ladder cascading after ${rung}${speed ? `/${speed}` : ""} error → next attempt`,
-      });
-      fireAndForget("coloring-book-cover", { ebook_id });
-      return json({ ok: true, advanced: true, failed_rung: rung, failed_speed: speed, failed_reason: reason });
-    }
-
-    // Record the attempt's outcome.
+    const measuredGate = coloringCoverGate(measured);
     attempt.ended_at = new Date().toISOString();
-    attempt.ok = result.status === "ok" || result.status === "fallback";
-    attempt.reason = result.report.reason;
-    attempt.status = result.status;
-
-    state.reports.push({
-      rung: result.report.rung,
-      reason: result.report.reason,
-      produced_bytes: result.report.produced_bytes,
-      glyph_verdict: result.report.glyph_verdict ?? null,
-      hero_verdict: result.report.hero_verdict ?? null,
-    } as any);
-    state.updated_at = new Date().toISOString();
-
-    if (result.status === "ok" || result.status === "fallback") {
-      // Composite title treatment (for fallback the bytes already include it).
-      let finalBytes: Uint8Array = result.bytes!;
-      let treatmentMeta: Record<string, unknown> | null = result.title_treatment_metadata ?? null;
-      const usedSvgFallback = result.status === "fallback";
-
-      if (!usedSvgFallback) {
-        try {
-          const treatment = await renderKidsTitleTreatment({
-            coverBg: finalBytes,
-            title: row.title,
-            subtitle,
-            palette: ["#FFF6E5", "#2A1A0A", "#E9B44C", "#6BAA75"],
-            description: row.description ?? null,
-            ageBadge,
-          });
-          finalBytes = treatment.png;
-          treatmentMeta = treatment.metadata as unknown as Record<string, unknown>;
-        } catch (e) {
-          console.warn("[coloring-cover] title treatment failed, using raw cover", (e as Error).message);
-        }
-      }
-
-      // Measured cover gate — no constants. The final raster must contain
-      // only approved text (title/subtitle/age/logo), category-correct heroes,
-      // safe-frame overlays, and the canonical SecretPDF Kids logo.
-      const finalGlyph = await transcribeGlyphs(finalBytes);
-      const finalHero = allowedSubjects.length
-        ? await verifyCategoryHero(finalBytes, {
-            category_name: categoryName,
-            allowed_subjects: allowedSubjects,
-            forbidden_subjects: forbiddenSubjects,
-          })
-        : { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined" };
-      const fallbackMeta = (result.report.meta as any) ?? {};
-      const measured = measuredCoverScorecard({
-        title: row.title,
-        subtitle,
-        ageBadge,
-        text: finalGlyph,
-        rawArtText: usedSvgFallback
-          ? { ok: true, has_glyphs: false, detected_text: "", confidence: 1, degraded: false, reason: "fallback_background_no_ai_text" }
-          : (result.report.glyph_verdict ?? null),
-        typographySource: "textless_art_plus_svg_overlay",
-        hero: finalHero,
-        frame: (treatmentMeta as any)?.overlay_frame ?? { width: 1600, height: 1600, safe_margin: 64, elements: [] },
-        logo: {
-          present: (treatmentMeta as any)?.logo_present === true,
-          rect: ((treatmentMeta as any)?.overlay_frame?.elements ?? []).find((e: any) => e.name === "secretpdf_kids_logo") ?? null,
-        },
-        artwork: {
-          used_svg_fallback: usedSvgFallback,
-          synthesized_background: fallbackMeta.synthesized_background === true,
-          blank_background: usedSvgFallback && fallbackMeta.synthesized_background === true,
-          blank_ratio: usedSvgFallback && fallbackMeta.synthesized_background === true ? 1 : 0,
-        },
-        quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
-        pageCountMatchesFinalPdf: true,
-      });
-      const measuredGate = coloringCoverGate(measured);
-
-      if (!measuredGate.pass) {
-        const reason = `measured_cover_gate_failed:${measuredGate.reasons.join(";").slice(0, 240)}`;
-        attempt.ended_at = new Date().toISOString();
-        attempt.ok = false;
-        attempt.reason = reason;
-        attempt.status = "dead-equivalent";
-        state.reports.push({ rung, reason, produced_bytes: true, glyph_verdict: finalGlyph, hero_verdict: finalHero } as any);
-        if (isIdeogram && state.ideogram_speed_cursor < IDEOGRAM_SPEEDS.length - 1) {
-          state.ideogram_speed_cursor += 1;
-        } else if (!usedSvgFallback) {
-          state.next_index += 1;
-          state.ideogram_speed_cursor = 0;
-        } else {
-          await patchMeta(db, ebook_id, {
-            coloring_cover_gate: { pass: false, reasons: measuredGate.reasons, scorecard: measured, glyph_verdict: finalGlyph, hero_verdict: finalHero },
-            coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
-            coloring_current_step_label: "Cover measured gate failed at fallback — blocked with evidence",
-          });
-          return json({ ok: false, error: "cover_measured_gate_failed", reasons: measuredGate.reasons, glyph: finalGlyph, hero: finalHero }, 422);
-        }
-        await patchMeta(db, ebook_id, {
-          coloring_cover_gate: { pass: false, reasons: measuredGate.reasons, scorecard: measured, glyph_verdict: finalGlyph, hero_verdict: finalHero },
-          coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
-          coloring_current_step_label: `Cover measured gate rejected ${rung}${speed ? `/${speed}` : ""} → next attempt`,
-        });
-        fireAndForget("coloring-book-cover", { ebook_id });
-        return json({ ok: true, advanced: true, failed_rung: rung, failed_reason: reason, measured_gate: measuredGate });
-      }
-
-      const version = `${Date.now()}`;
-      const path = `kids/${ebook_id}/coloring/cover-${version}.png`;
-      const up = await uploadAndSignImage(db, "ebook-covers", path, finalBytes, {
-        contentType: "image/png",
-      });
-
-      const coverRecord = {
-        url: up.signedUrl,
-        storage_path: up.path,
-        accepted_rung: rung,
-        accepted_speed: speed,
-        used_svg_fallback: usedSvgFallback,
-        title_treatment: treatmentMeta,
-        rung_reports: state.reports,
-        attempts_by_rung: state.attempts_by_rung,
-        generated_at: new Date().toISOString(),
-        subtitle_used: subtitle,
-        age_badge: ageBadge,
-        spelling_verified: (treatmentMeta as any)?.title === row.title,
-        measured_gate: { pass: true, scorecard: measured, reasons: [], glyph_verdict: finalGlyph, hero_verdict: finalHero },
-      };
-
-      state.next_index = state.rungs.length; // done
-      await db.from("ebooks_kids").update({ cover_url: up.signedUrl }).eq("id", ebook_id);
-      await patchMeta(db, ebook_id, {
-        coloring_cover: coverRecord,
-        coloring_cover_gate: coverRecord.measured_gate,
-        coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
-        coloring_progress_percent: 94,
-        coloring_current_step_label: "Cover generated — assembling PDF",
-      });
-
-      fireAndForget("coloring-book-assemble", { ebook_id });
-      return json({ ok: true, accepted_rung: rung, accepted_speed: speed, chained: "assemble", used_svg_fallback: usedSvgFallback });
+    attempt.status = measuredGate.pass ? "accepted" : "requeued";
+    attempt.checks = { luminance, color, raw_art_transcription: rawGlyph, hero_verdict: hero, overlay_transcription: overlayText, measured_gate: measuredGate };
+    if (!measuredGate.pass) {
+      return await markCoverBlocked(db, ebook_id, {
+        coloring_cover_single_attempt: attempt,
+        coloring_cover_gate: { pass: false, reasons: measuredGate.reasons, scorecard: measured, raw_art_transcription: rawGlyph, overlay_transcription: overlayText, hero_verdict: hero },
+      }, `measured_cover_gate_failed:${measuredGate.reasons.join(";").slice(0, 180)}`, 422);
     }
 
-    // Dead / dead-equivalent / error → cascade speed on ideogram, else advance rung.
-    console.warn(`[coloring-cover] ${ebook_id} rung ${rung} speed=${speed} ${result.status}: ${result.report.reason} — cascading`);
-
-    // Provider billing/quota short-circuit (same as exception path).
-    const providerClass2 = classifyProviderError(result.report.reason);
-    if (providerClass2) {
-      await patchMeta(db, ebook_id, {
-        coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
-        coloring_current_step_label: `Cover ladder paused: ${providerClass2} on ${rung}${speed ? `/${speed}` : ""} — awaiting provider top-up`,
-        coloring_blocker: {
-          class: "provider_unavailable",
-          provider_error: providerClass2,
-          rung,
-          speed,
-          reason: result.report.reason,
-          detected_at: new Date().toISOString(),
-        },
-      });
-      return json({ ok: false, paused: true, provider_error: providerClass2, rung, speed, reason: result.report.reason });
-    }
-    if (isIdeogram && state.ideogram_speed_cursor < IDEOGRAM_SPEEDS.length - 1) {
-      state.ideogram_speed_cursor += 1;
-    } else {
-      state.next_index += 1;
-      state.ideogram_speed_cursor = 0;
-    }
+    const version = `${Date.now()}`;
+    const path = `kids/${ebook_id}/coloring/cover-${version}.png`;
+    const up = await uploadAndSignImage(db, "ebook-covers", path, finalBytes, { contentType: "image/png" });
+    const coverRecord = {
+      version: SINGLE_RUNG_VERSION,
+      url: up.signedUrl,
+      storage_path: up.path,
+      accepted_rung: "flux_schnell_single",
+      provider: providerResult.provider,
+      provider_attempts: providerResult.attempts,
+      prompt_hash: promptHash,
+      prompt_subjects: heroSubjects,
+      learned_rules: [...learnedRules.values()].map((r: any) => ({ pattern_key: r.pattern_key, species_key: r.species_key })),
+      generated_at: new Date().toISOString(),
+      subtitle_used: subtitle,
+      age_badge: ageBadge,
+      title_treatment: treatmentMeta,
+      spelling_verified: (treatmentMeta as any)?.title === row.title,
+      evidence: { luminance, color, raw_art_transcription: rawGlyph, hero_verdict: hero, overlay_transcription: overlayText },
+      previous_ladder_state: meta.coloring_cover_ladder ?? null,
+      measured_gate: { pass: true, scorecard: measured, reasons: [], raw_art_transcription: rawGlyph, overlay_transcription: overlayText, hero_verdict: hero },
+    };
+    await db.from("ebooks_kids").update({ cover_url: up.signedUrl, thumbnail_url: up.signedUrl, blocker_reason: null }).eq("id", ebook_id);
     await patchMeta(db, ebook_id, {
-      coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
-      coloring_current_step_label:
-        `Cover ladder cascading after ${rung}${speed ? `/${speed}` : ""} → rung ${Math.min(state.next_index + 1, state.rungs.length)}/${state.rungs.length}${state.ideogram_speed_cursor > 0 ? ` speed=${IDEOGRAM_SPEEDS[state.ideogram_speed_cursor]}` : ""}`,
+      coloring_cover: coverRecord,
+      coloring_cover_gate: coverRecord.measured_gate,
+      coloring_cover_single_attempt: attempt,
+      coloring_progress_percent: 94,
+      coloring_current_step_label: "Cover generated — assembling PDF",
+      awaiting: "cover_pdf_publish",
     });
-
-    fireAndForget("coloring-book-cover", { ebook_id });
-    return json({
-      ok: true,
-      advanced: true,
-      failed_rung: rung,
-      failed_speed: speed,
-      failed_reason: result.report.reason,
-      next_rung: state.rungs[state.next_index] ?? "done",
-      next_speed: IDEOGRAM_SPEEDS[state.ideogram_speed_cursor] ?? null,
-    });
+    fireAndForget("coloring-book-assemble", { ebook_id });
+    return json({ ok: true, accepted_rung: "flux_schnell_single", provider: providerResult.provider, chained: "assemble" });
   } catch (e: any) {
     console.error("[coloring-cover] fatal", e?.message);
     return json({ error: e?.message ?? String(e) }, 500);

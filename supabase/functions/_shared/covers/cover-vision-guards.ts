@@ -25,6 +25,8 @@
 // @ts-nocheck  Deno edge runtime
 
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY");
+const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 export interface GlyphVerdict {
   ok: boolean;                 // true = no glyphs (or degraded)
@@ -45,6 +47,7 @@ export interface HeroVerdict {
 }
 
 const VISION_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
+const GATEWAY_VISION_MODELS = ["google/gemini-3-flash-preview", "google/gemini-3.1-flash-lite"];
 
 function b64FromBytes(bytes: Uint8Array): string {
   let s = "";
@@ -55,18 +58,26 @@ function b64FromBytes(bytes: Uint8Array): string {
   return btoa(s);
 }
 
+function mimeFromBytes(bytes: Uint8Array): string {
+  if (bytes?.[0] === 0xff && bytes?.[1] === 0xd8) return "image/jpeg";
+  if (bytes?.[0] === 0x89 && bytes?.[1] === 0x50 && bytes?.[2] === 0x4e && bytes?.[3] === 0x47) return "image/png";
+  return "image/png";
+}
+
 async function geminiVisionJson<T>(
   bytes: Uint8Array,
   prompt: string,
+  timeoutMs = 15_000,
 ): Promise<T | null> {
   if (!GEMINI_KEY || GEMINI_KEY.length < 10) return null;
   if (!bytes || bytes.length < 1024) return null;
+  const deadline = Date.now() + timeoutMs;
   const body = {
     contents: [{
       role: "user",
       parts: [
         { text: prompt },
-        { inlineData: { mimeType: "image/png", data: b64FromBytes(bytes) } },
+        { inlineData: { mimeType: mimeFromBytes(bytes), data: b64FromBytes(bytes) } },
       ],
     }],
     generationConfig: { responseMimeType: "application/json", temperature: 0 },
@@ -74,10 +85,14 @@ async function geminiVisionJson<T>(
   let r: Response | null = null;
   let lastErr = "";
   for (const model of VISION_MODELS) {
+    const remaining = Math.max(1, deadline - Date.now());
+    if (remaining <= 50) throw new Error(`vision_timeout_${timeoutMs}ms`);
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(`vision_timeout_${timeoutMs}ms`), remaining);
     r = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
-    );
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal },
+    ).finally(() => clearTimeout(timer));
     if (r.ok) break;
     lastErr = `vision ${model} ${r.status}: ${(await r.text()).slice(0, 180)}`;
     r = null;
@@ -95,12 +110,78 @@ async function geminiVisionJson<T>(
   }
 }
 
+async function gatewayVisionJson<T>(
+  bytes: Uint8Array,
+  prompt: string,
+  timeoutMs = 15_000,
+): Promise<T | null> {
+  if (!LOVABLE_API_KEY || LOVABLE_API_KEY.length < 10) return null;
+  if (!bytes || bytes.length < 1024) return null;
+  const dataUrl = `data:${mimeFromBytes(bytes)};base64,${b64FromBytes(bytes)}`;
+  let lastErr = "";
+  for (const model of GATEWAY_VISION_MODELS) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(`gateway_vision_timeout_${timeoutMs}ms`), timeoutMs);
+    let r: Response;
+    try {
+      r = await fetch(GATEWAY, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: dataUrl } },
+            ],
+          }],
+          response_format: { type: "json_object" },
+        }),
+        signal: ac.signal,
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      lastErr = `${model}:fetch_error:${String((e as Error)?.message ?? e).slice(0, 120)}`;
+      continue;
+    }
+    clearTimeout(timer);
+    if (!r.ok) {
+      lastErr = `${model}:http_${r.status}:${(await r.text()).slice(0, 180)}`;
+      continue;
+    }
+    const j = await r.json().catch(() => null) as any;
+    const text = j?.choices?.[0]?.message?.content ?? "";
+    if (!text) { lastErr = `${model}:empty_content`; continue; }
+    try { return JSON.parse(text) as T; }
+    catch {
+      const stripped = String(text).replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+      try { return JSON.parse(stripped) as T; }
+      catch { lastErr = `${model}:json_parse_fail`; }
+    }
+  }
+  throw new Error(lastErr || "gateway_vision_models_unavailable");
+}
+
+async function visionJson<T>(bytes: Uint8Array, prompt: string, timeoutMs: number): Promise<T | null> {
+  try {
+    const viaGateway = await gatewayVisionJson<T>(bytes, prompt, timeoutMs);
+    if (viaGateway) return viaGateway;
+  } catch (e) {
+    console.warn(`[cover-vision] gateway vision failed: ${(e as Error).message}`);
+  }
+  return await geminiVisionJson<T>(bytes, prompt, timeoutMs);
+}
+
 /**
  * Read the cover raster and detect ANY letters/words/numbers/typography.
  * Any glyph = ladder rung failure (art must be textless — typography is
  * added as a separate SVG layer downstream).
  */
-export async function transcribeGlyphs(bytes: Uint8Array): Promise<GlyphVerdict> {
+export async function transcribeGlyphs(bytes: Uint8Array, timeoutMs = 15_000): Promise<GlyphVerdict> {
   const prompt = [
     "You are a strict OCR verifier for a children's book cover.",
     "Output STRICT JSON: {\"has_glyphs\": boolean, \"detected_text\": string, \"confidence\": number}.",
@@ -112,7 +193,7 @@ export async function transcribeGlyphs(bytes: Uint8Array): Promise<GlyphVerdict>
     "confidence = 0..1 of the has_glyphs judgment.",
   ].join(" ");
   try {
-    const j = await geminiVisionJson<{ has_glyphs: boolean; detected_text: string; confidence: number }>(bytes, prompt);
+    const j = await visionJson<{ has_glyphs: boolean; detected_text: string; confidence: number }>(bytes, prompt, timeoutMs);
     if (!j) {
       return { ok: true, has_glyphs: false, detected_text: null, confidence: 0, degraded: true, reason: "no_gemini_key_or_empty_response" };
     }
@@ -141,6 +222,7 @@ export async function verifyCategoryHero(
     allowed_subjects: string[];
     forbidden_subjects?: string[];
   },
+  timeoutMs = 15_000,
 ): Promise<HeroVerdict> {
   const allowed = (opts.allowed_subjects ?? []).filter(Boolean);
   const forbidden = (opts.forbidden_subjects ?? []).filter(Boolean);
@@ -158,7 +240,7 @@ export async function verifyCategoryHero(
     "forbidden_hit = the first forbidden subject you actually see, or null.",
   ].filter(Boolean).join(" ");
   try {
-    const j = await geminiVisionJson<{ detected_subjects: string[]; matches_allowed: boolean; forbidden_hit: string | null; reason: string }>(bytes, prompt);
+    const j = await visionJson<{ detected_subjects: string[]; matches_allowed: boolean; forbidden_hit: string | null; reason: string }>(bytes, prompt, timeoutMs);
     if (!j) {
       return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_gemini_key_or_empty_response" };
     }

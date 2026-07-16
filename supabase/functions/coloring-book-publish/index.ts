@@ -1,7 +1,6 @@
-// coloring-book-publish — flips a fully-assembled coloring book LIVE on
-// the storefront. Generates watermarked preview images, writes storefront
-// copy (title, subtitle, benefit blurbs), runs the coloring release gate,
-// and only then sets listing_status='live' + sellable=true.
+// coloring-book-publish — validates a fully-assembled coloring book and writes
+// either a publish-candidate for owner audit or (when explicitly requested)
+// a LIVE storefront row. Candidate mode is the default for coloring books.
 //
 // Never lowers thresholds. Never bypasses the release gate.
 
@@ -105,8 +104,9 @@ function escapeHtml(s: string) {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    const { ebook_id } = await req.json();
+    const { ebook_id, mode } = await req.json();
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
+    const publishLive = mode === "live";
     const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
     const { data: row, error } = await db.from("ebooks_kids")
@@ -226,10 +226,10 @@ Deno.serve(async (req: Request) => {
     };
 
     await db.from("ebooks_kids").update({
-      listing_status: "live",
-      status: "live",
-      pipeline_status: "published",
-      sellable: true,
+      listing_status: publishLive ? "live" : "published_candidate",
+      status: publishLive ? "live" : "ready_to_publish",
+      pipeline_status: publishLive ? "published" : "published_candidate",
+      sellable: publishLive,
       price_cents: priceBreakdown.price_cents,
       thumbnail_url,
       preview_page_urls: previewUrls,
@@ -243,15 +243,17 @@ Deno.serve(async (req: Request) => {
 
     await patchMeta(db, ebook_id, {
       coloring_progress_percent: 100,
-      coloring_current_step_label: "Live on storefront",
+      coloring_current_step_label: publishLive ? "Live on storefront" : "Publish candidate ready for owner audit",
       awaiting: null,
       coloring_release_gate: gate,
-      coloring_published_at: new Date().toISOString(),
+      coloring_published_at: publishLive ? new Date().toISOString() : null,
+      coloring_publish_candidate_at: publishLive ? (meta.coloring_publish_candidate_at ?? null) : new Date().toISOString(),
     });
 
     return json({
       ok: true,
-      published: true,
+      published: publishLive,
+      published_candidate: !publishLive,
       pdf_url: row.pdf_url,
       preview_page_urls: previewUrls,
       gate,
