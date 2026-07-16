@@ -14,10 +14,18 @@
 // sequential-safe lock. This function only inserts ebooks_kids rows.
 
 // @ts-nocheck
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { corsHeaders as baseCors } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 declare const Deno: any;
+
+const corsHeaders = {
+  ...baseCors,
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-admin-passcode",
+};
+
+const PASSCODE = Deno.env.get("ADMIN_PASSCODE") ?? "453451";
 
 const DEFAULTS = {
   enabled: false,
@@ -60,19 +68,10 @@ Deno.serve(async (req: Request) => {
     try { body = await req.json(); } catch { /* cron call */ }
     const manual = !!body.manual;
 
-    // If manual invocation, require an admin caller.
+    // If manual invocation, require admin passcode.
     if (manual) {
-      const anon = Deno.env.get("SUPABASE_ANON_KEY")!;
-      const asUser = createClient(url, anon, {
-        global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
-        auth: { persistSession: false },
-      });
-      const { data: userData } = await asUser.auth.getUser();
-      const uid = userData?.user?.id;
-      if (!uid) return json({ error: "unauthenticated" }, 401);
-      const { data: roleRow } = await db
-        .from("user_roles").select("role").eq("user_id", uid).eq("role", "admin").maybeSingle();
-      if (!roleRow) return json({ error: "forbidden" }, 403);
+      const supplied = req.headers.get("x-admin-passcode") ?? body?.passcode ?? "";
+      if (supplied !== PASSCODE) return json({ error: "unauthenticated" }, 401);
     }
 
     const { data: gs } = await db
