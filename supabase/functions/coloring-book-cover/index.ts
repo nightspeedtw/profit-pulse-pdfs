@@ -357,7 +357,11 @@ Deno.serve(async (req: Request) => {
       attempt.ended_at = new Date().toISOString();
       attempt.status = "requeued";
       attempt.checks = { luminance, color };
-      const reason = luminance.dead ? `raw_art_dead:${luminance.reason}` : `raw_art_not_colorful:saturation=${color.avg_saturation},chroma=${color.avg_chroma}`;
+      const reason = luminance.dead
+        ? `raw_art_dead:${luminance.reason}`
+        : color.blank_background
+          ? `raw_art_blank_background:blank_ratio=${color.blank_ratio}:region_stats=${JSON.stringify(color.region_stats)}`
+          : `raw_art_not_colorful:saturation=${color.avg_saturation},chroma=${color.avg_chroma}`;
       return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, reason, 422);
     }
 
