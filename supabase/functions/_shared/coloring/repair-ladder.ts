@@ -21,6 +21,7 @@ export type FailureClass =
   | "composition_off"
   | "off_category"
   | "text_or_watermark"
+  | "sharpness_below_floor"
   | "unknown";
 
 export interface RepairDecision {
