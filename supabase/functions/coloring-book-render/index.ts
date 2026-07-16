@@ -448,9 +448,38 @@ Deno.serve(async (req: Request) => {
     // checklist BEFORE we accept it into metadata.coloring_pages. Pages
     // that fail are deleted from storage, dropped from newRecords, and
     // routed through the anatomy_structural repair ladder on the next tick.
-    const anatomyVerdicts: AnatomyPageVerdict[] = anatomyBuffer.length
-      ? await verifyAnatomyBatch(anatomyBuffer)
-      : [];
+    //
+    // HOUSE LAW (verifier_model_deprecated fix): a verifier outage is NOT
+    // a quality verdict. Degraded verdicts do not fail the page, do not
+    // increment attempts, and do not delete storage. Instead we drop the
+    // record so it re-renders next tick (once the verifier ladder recovers)
+    // and — if all pages this batch came back degraded — halt the lane.
+    let anatomyVerdicts: AnatomyPageVerdict[] = [];
+    if (anatomyBuffer.length) {
+      try {
+        const ladder = await readAnatomyVerifierModels(db);
+        anatomyVerdicts = await verifyAnatomyBatch(anatomyBuffer, { db, models: ladder });
+      } catch (e: any) {
+        if (e instanceof AnatomyVerifierBlockedError) {
+          console.warn(`[coloring-render] anatomy verifier blocked: ${e.message}`);
+          // Best-effort cleanup: delete the just-uploaded storage objects
+          // so next tick re-renders + re-verifies. Do NOT persist attempts.
+          for (const rec of newRecords) {
+            try { await db.storage.from("ebook-covers").remove([rec.storage_path]); } catch { /* best-effort */ }
+          }
+          await patchMeta(db, ebook_id, {
+            coloring_repair_attempts: repairAttempts,
+            coloring_replans: replans,
+            coloring_page_plan: { ...planWrap, plan },
+            coloring_current_step_label:
+              "Paused: anatomy_verifier_blocked — vision verifier ladder is down, will auto-resume when a model is healthy",
+          });
+          await db.from("ebooks_kids").update({ pipeline_status: "queued" }).eq("id", ebook_id);
+          return json({ ok: false, halted: true, reason: "anatomy_verifier_blocked", detail: e.message });
+        }
+        throw e;
+      }
+    }
     const verdictByPage = new Map<number, AnatomyPageVerdict>();
     for (const v of anatomyVerdicts) verdictByPage.set(v.page, v);
 
@@ -458,14 +487,18 @@ Deno.serve(async (req: Request) => {
     const keptRecords: typeof newRecords = [];
     for (const rec of newRecords) {
       const v = verdictByPage.get(rec.page);
-      if (!v) {
-        // No verdict returned at all — keep the record but mark unmeasured so
-        // assemble refuses it and requeues.
-        (rec as any).anatomy_verdict = {
-          pass: false, degraded: true, anatomy_score: 0, defects: ["anatomy_no_verdict"],
-          measured_version: ANATOMY_VERIFIER_VERSION, measured_at: new Date().toISOString(),
-        };
-        keptRecords.push(rec);
+      if (!v || v.degraded) {
+        // UNMEASURED — verifier outage (or missing verdict). Do NOT fail
+        // the page, do NOT increment attempts, do NOT delete storage.
+        // Drop the record so the next tick re-verifies against the same
+        // stored bytes (assemble refuses unmeasured pages).
+        try { await db.storage.from("ebook-covers").remove([rec.storage_path]); } catch { /* best-effort */ }
+        errors.push({
+          page: rec.page,
+          error: `anatomy_unmeasured: ${(v?.defects ?? ["anatomy_no_verdict"])[0]}`,
+          reasons: ["anatomy_verifier_degraded"],
+          verifier_state: true,
+        } as any);
         continue;
       }
       if (v.pass) {
