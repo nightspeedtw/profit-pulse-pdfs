@@ -1983,6 +1983,7 @@ export type Database = {
           listing_status: string
           locked: boolean
           manuscript_md: string | null
+          metadata: Json
           overall_qc_score: number | null
           page_count: number | null
           pdf_byte_size: number | null
@@ -2036,6 +2037,7 @@ export type Database = {
           listing_status?: string
           locked?: boolean
           manuscript_md?: string | null
+          metadata?: Json
           overall_qc_score?: number | null
           page_count?: number | null
           pdf_byte_size?: number | null
@@ -2089,6 +2091,7 @@ export type Database = {
           listing_status?: string
           locked?: boolean
           manuscript_md?: string | null
+          metadata?: Json
           overall_qc_score?: number | null
           page_count?: number | null
           pdf_byte_size?: number | null
