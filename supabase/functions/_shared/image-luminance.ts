@@ -1,3 +1,4 @@
+// @ts-nocheck  Deno edge runtime (https:// imports)
 // Deterministic dead-page detector (Gate 2).
 //
 // Decodes an image (PNG/JPEG) with ImageScript, downsamples to a small grid,
