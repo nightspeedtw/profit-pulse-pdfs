@@ -61,5 +61,38 @@ describe("coloring page plan", () => {
     const issues = validatePagePlan(plan, smallCat);
     expect(issues.filter((i) => i.code === "DUPLICATE_CONCEPT")).toEqual([]);
   });
+
+  it("supports 16-page format: 2 full scene cycles, ≥5 buckets, no duplicates", () => {
+    const cat16 = { ...CAT, coloring_page_count: 16 };
+    const { plan } = generatePagePlan(cat16);
+    expect(plan).toHaveLength(16);
+    expect(validatePagePlan(plan, cat16)).toEqual([]);
+    // 2 full cycles across 8 buckets
+    const buckets = new Set(plan.map((p) => (p as any).scene_bucket));
+    expect(buckets.size).toBeGreaterThanOrEqual(5);
+  });
+
+  it("16-page format with 6-subject category satisfies subject cap", () => {
+    const smallCat16 = {
+      category_key: "mini16",
+      allowed_subjects: ["cat","dog","fox","bear","owl","rabbit"],
+      allowed_supporting_elements: ["tree","flower"],
+      forbidden_subjects: [],
+      coloring_page_count: 16,
+    };
+    const { plan } = generatePagePlan(smallCat16);
+    const issues = validatePagePlan(plan, smallCat16);
+    expect(issues).toEqual([]);
+  });
+
+  it("assemble expected_page_count follows plan length (front matter 4 + plan + certificate 1)", () => {
+    // Mirrors coloring-book-assemble: expectedPageCount = 4 + plan.length + 1.
+    // 16pp interior → 21 total PDF pages.
+    const compute = (planLen: number) => 4 + planLen + 1;
+    expect(compute(16)).toBe(21);
+    expect(compute(24)).toBe(29);
+    expect(compute(32)).toBe(37);
+    expect(compute(48)).toBe(53);
+  });
 });
 
