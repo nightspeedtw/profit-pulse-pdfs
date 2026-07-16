@@ -42,6 +42,19 @@ const DEFAULTS: ColoringConfig = {
   daily_cost_cap_usd_coloring: 5,
 };
 
+interface RecentRow {
+  id: string;
+  title: string;
+  pipeline_status: string;
+  listing_status: string | null;
+  created_at: string;
+  angle: string | null;
+  variant_number: number | null;
+  progress_percent: number;
+  current_step_label: string | null;
+  awaiting: string | null;
+}
+
 interface ColoringStatus {
   queued: number;
   generating: number;
@@ -49,9 +62,10 @@ interface ColoringStatus {
   published_today: number;
   created_today: number;
   paused: boolean;
+  engine_awaiting_p0?: boolean;
   last_worker_tick_at: string | null;
   last_worker_tick_result: unknown;
-  recent: Array<{ id: string; title: string; pipeline_status: string; listing_status: string | null; created_at: string }>;
+  recent: RecentRow[];
 }
 
 export function ColoringAutopilotCard() {
