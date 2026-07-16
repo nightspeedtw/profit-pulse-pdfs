@@ -42,6 +42,11 @@ import { decideRepair, replanEscalatedPage, sanitizeSceneForColorability } from 
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 import { verifyAnatomyBatch, ANATOMY_VERIFIER_VERSION, type AnatomyPageVerdict } from "../_shared/coloring/anatomy-verify.ts";
 import { speciesAnatomyRepairClause } from "../_shared/coloring/species-anatomy.ts";
+import {
+  AnatomyVerifierBlockedError,
+  assertAnatomyVerifierAvailable,
+  readAnatomyVerifierModels,
+} from "../_shared/coloring/anatomy-verifier-guard.ts";
 
 // Canonical interior generation params — enforced identically for every page.
 // Owner defect: mixed sizes/steps produced 2.6–20.3 edge-density variance.
