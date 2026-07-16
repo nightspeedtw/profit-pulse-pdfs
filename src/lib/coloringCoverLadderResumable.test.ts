@@ -5,7 +5,7 @@
 //   3. Ideogram speed order is BALANCED-first, TURBO fallback (no QUALITY
 //      first-try wallclock deaths).
 import { describe, it, expect } from "vitest";
-import { classifyProviderError } from "../../supabase/functions/coloring-book-cover/index.ts";
+import { classifyProviderError } from "../../supabase/functions/_shared/covers/provider-errors.ts";
 
 describe("classifyProviderError", () => {
   it("detects fal balance exhaustion (a05a5086 evidence)", () => {
