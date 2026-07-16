@@ -7,10 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { Palette, Play, Save } from "lucide-react";
+import { Palette, Play, Save, Pause, PlayCircle, Cog, XCircle, X } from "lucide-react";
 
 interface ColoringConfig {
   enabled: boolean;
+  paused: boolean;
   topic_mode: "random" | "specific";
   specific_category_key: string | null;
   age_band: "3-5" | "4-6" | "6-8";
@@ -18,6 +19,8 @@ interface ColoringConfig {
   batch_size: number;
   daily_cap: number;
   daily_stop_utc: string;
+  max_parallel: number;
+  daily_cost_cap_usd_coloring: number;
 }
 
 interface Category {
@@ -27,6 +30,7 @@ interface Category {
 
 const DEFAULTS: ColoringConfig = {
   enabled: false,
+  paused: false,
   topic_mode: "random",
   specific_category_key: null,
   age_band: "4-6",
@@ -34,12 +38,19 @@ const DEFAULTS: ColoringConfig = {
   batch_size: 1,
   daily_cap: 3,
   daily_stop_utc: "22:00",
+  max_parallel: 1,
+  daily_cost_cap_usd_coloring: 5,
 };
 
 interface ColoringStatus {
   queued: number;
+  generating: number;
+  cancelled: number;
   published_today: number;
   created_today: number;
+  paused: boolean;
+  last_worker_tick_at: string | null;
+  last_worker_tick_result: unknown;
   recent: Array<{ id: string; title: string; pipeline_status: string; listing_status: string | null; created_at: string }>;
 }
 
