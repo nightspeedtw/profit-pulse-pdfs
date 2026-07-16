@@ -330,6 +330,145 @@ export const SPECIES_ANATOMY: SpeciesAnatomy[] = [
     ],
     fantasy: true,
   }),
+  // ── MYTHICAL / DIVINE BEINGS (owner law anatomy_deformity_only_v2) ─
+  // Judged by canonical imaginative form. Multi-heads/arms/tails/wings
+  // are CANONICAL for these — never a deformity.
+  s({
+    species_key: "phoenix",
+    aliases: ["phoenix", "firebird"],
+    body_parts: {
+      body: "one bird body, one head, two legs",
+      wings: "TWO large flaming/feathered wings",
+      tail: "one long ornate tail plume (may be split into flame-like streamers)",
+      head: "one head with two eyes and a beak",
+    },
+    proportion_rules: ["one body, one head, two wings, two legs — flames/plumage may be elaborate"],
+    common_ai_failure_modes: ["extra heads on a phoenix (that would be a different creature)", "one wing only"],
+    fantasy: true,
+  }),
+  s({
+    species_key: "naga",
+    aliases: ["naga", "nak", "serpent deity"],
+    body_parts: {
+      head: "one or multiple hooded serpent heads (1, 3, 5, 7, or 9 heads are ALL canonical)",
+      body: "one long serpent body, coiled or extended",
+      hood: "cobra-like hood behind each head",
+    },
+    proportion_rules: [
+      "multi-headed forms are CANONICAL — do not flag as deformity",
+      "one continuous serpent body per naga",
+    ],
+    common_ai_failure_modes: ["severed or floating heads", "broken body segments"],
+    fantasy: true,
+  }),
+  s({
+    species_key: "garuda",
+    aliases: ["garuda", "krut"],
+    body_parts: {
+      upper_body: "human-like torso with two arms",
+      wings: "TWO large bird wings",
+      head: "eagle/bird head with beak (or human head with bird features)",
+      lower_body: "bird legs with talons, feathered tail",
+    },
+    proportion_rules: ["hybrid human-bird form is canonical"],
+    common_ai_failure_modes: ["extra arms unless invoked as a specific canonical variant", "one wing only"],
+    fantasy: true,
+  }),
+  s({
+    species_key: "kinnari",
+    aliases: ["kinnari", "kinnara", "kinnaree"],
+    body_parts: {
+      upper_body: "human upper body (head, two arms with five fingers each)",
+      lower_body: "bird lower body with legs, feathered tail",
+      wings: "TWO wings",
+    },
+    proportion_rules: ["half-human upper + half-bird lower is canonical"],
+    common_ai_failure_modes: ["one wing only", "extra arms"],
+    fantasy: true,
+  }),
+  s({
+    species_key: "erawan",
+    aliases: ["erawan", "airavata", "three-headed elephant", "multi-headed elephant"],
+    body_parts: {
+      heads: "MULTIPLE elephant heads (1, 3, 5, 7, 9, up to 33 are all canonical)",
+      body: "one elephant body",
+      legs: "four legs total (canonical — extra legs would be a deformity)",
+      trunk: "one trunk per head, two tusks per head",
+    },
+    proportion_rules: ["many heads on one body is canonical — never a defect"],
+    common_ai_failure_modes: ["extra legs beyond four", "severed heads floating off the body"],
+    fantasy: true,
+  }),
+  s({
+    species_key: "nine_tailed_fox",
+    aliases: ["nine-tailed fox", "nine tailed fox", "kitsune", "kumiho", "huli jing"],
+    body_parts: {
+      body: "one fox body with four legs",
+      head: "one head with two eyes and two ears",
+      tails: "MULTIPLE fluffy tails (1 through 9 are ALL canonical — nine tails is the classic form)",
+    },
+    proportion_rules: ["4 legs; tail count 1-9 is canonical"],
+    common_ai_failure_modes: ["five legs on a fox body", "floating disembodied tails"],
+    fantasy: true,
+  }),
+  s({
+    species_key: "kirin",
+    aliases: ["kirin", "qilin"],
+    body_parts: {
+      body: "one deer/horse-like body with four legs and one tail",
+      horn: "one or two horns (canonical variants exist for both)",
+      scales: "dragon-like scales optional",
+    },
+    proportion_rules: ["four legs; 1-2 horns"],
+    common_ai_failure_modes: ["five legs", "extra tails"],
+    fantasy: true,
+  }),
+  s({
+    species_key: "deity",
+    aliases: [
+      "deity","god","goddess","divine being","hindu deity","buddhist deity",
+      "multi-armed deity","four-armed deity","six-armed deity","eight-armed deity",
+      "shiva","vishnu","ganesha","durga","kali","avalokiteshvara",
+    ],
+    body_parts: {
+      head: "ONE or MULTIPLE heads (1, 3, 4, 5, 10, or 11 heads are all canonical for various deities)",
+      arms: "MULTIPLE arms in iconographic multiples (2, 4, 6, 8, 10, 1000 are ALL canonical) — each arm ends in ONE hand with FIVE fingers",
+      body: "one central torso and (usually) two legs",
+      attributes: "may hold canonical attributes (lotus, discus, trident, mudra)",
+    },
+    proportion_rules: [
+      "multi-armed and multi-headed forms are CANONICAL iconography — never a deformity",
+      "each hand still has five fingers; each arm is intact and attached to a shoulder",
+    ],
+    common_ai_failure_modes: [
+      "hands with 6+ fingers or fused fingers",
+      "severed or floating arms",
+      "broken / crushed body",
+    ],
+    fantasy: true,
+  }),
+  s({
+    species_key: "human",
+    aliases: ["human", "child", "boy", "girl", "person", "kid", "baby", "toddler"],
+    body_parts: {
+      head: "one head with two eyes, one nose, one mouth, two ears",
+      arms: "TWO arms, each ending in ONE hand with FIVE fingers",
+      legs: "TWO legs, each ending in ONE foot with FIVE toes",
+      torso: "one torso",
+    },
+    proportion_rules: [
+      "exactly 2 arms + 2 legs; 5 fingers per hand; 5 toes per foot",
+      "cartoon-stylized proportions welcome (big head, short body, chibi) — that is NOT deformity",
+    ],
+    common_ai_failure_modes: [
+      "third arm on a human",
+      "6+ fingers on one hand",
+      "fused fingers",
+      "extra leg / missing leg",
+      "severed / floating limb",
+    ],
+    fantasy: false,
+  }),
 ];
 
 const GENERIC_ANATOMY: SpeciesAnatomy = {
