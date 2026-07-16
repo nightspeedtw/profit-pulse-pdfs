@@ -2,8 +2,14 @@
 // Kept in a separate module from the Deno-only decoder in sharpness-gate.ts
 // so the calibrated threshold is import-safe from Node tests.
 
-/** Calibrated from owner-cited scores. Do not lower without owner sign-off. */
-export const DEFAULT_SHARPNESS_MIN_SCORE = 8.0;
+/**
+ * Calibrated from measured Ocean Friends draft interiors at 512px
+ * downsample (owner-flagged blurry pages: interiors 3, 19, 21, 31 →
+ * scored 11.63, 11.17, 14.84, 10.86; adjacent crisp pages ≥ 15.62).
+ * Floor at 15.0 catches the flagged set exactly. Do not lower without
+ * owner sign-off + fresh calibration data.
+ */
+export const DEFAULT_SHARPNESS_MIN_SCORE = 15.0;
 
 /**
  * Combine Sobel-magnitude mean and Laplacian variance into a monotonic
