@@ -9,6 +9,7 @@ export interface KidsBookCardData {
   price_cents: number;
   theme_ids: string[];
   storefront_meta: Record<string, unknown> | null;
+  book_type?: string | null;
 }
 
 interface Props {
