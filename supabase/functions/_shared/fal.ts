@@ -17,6 +17,8 @@ type FalImageOpts = {
   ebook_id?: string;
   step?: string;
   output_format?: "png" | "jpeg";
+  /** Override schnell inference steps (default 4). Repair renders bump to 8 for crisper lines. */
+  num_inference_steps?: number;
 };
 
 async function callFal(endpoint: string, body: Record<string, unknown>, meta?: { ebook_id?: string; step?: string; model: string }): Promise<Uint8Array> {
