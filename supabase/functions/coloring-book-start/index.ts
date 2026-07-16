@@ -14,7 +14,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadColoringCategory } from "../_shared/coloring/category.ts";
 import { DEFAULT_KIDS_4_6_STYLE } from "../_shared/coloring/style-contract.ts";
-import { generatePagePlan } from "../_shared/coloring/page-plan.ts";
+import { generatePagePlan, validatePagePlan } from "../_shared/coloring/page-plan.ts";
 
 declare const Deno: any;
 
@@ -38,6 +38,13 @@ Deno.serve(async (req: Request) => {
     );
     const category = await loadColoringCategory(sb, category_key);
     const pagePlan = generatePagePlan({ ...category, coloring_page_count: page_count });
+    const planIssues = validatePagePlan(pagePlan.plan, category);
+    const blocking = planIssues.filter((i) =>
+      i.code === "DUPLICATE_CONCEPT" || i.code === "OUT_OF_CATEGORY" || i.code === "FORBIDDEN_SUBJECT"
+    );
+    if (blocking.length > 0) {
+      return json({ error: "page_plan_invalid", issues: blocking }, 422);
+    }
     const styleContract = DEFAULT_KIDS_4_6_STYLE;
 
     const { data, error } = await sb

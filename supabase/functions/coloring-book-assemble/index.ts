@@ -329,7 +329,17 @@ Deno.serve(async (req: Request) => {
       style_consistency: 96,
       per_page_scores: perPageScores,
       hard_fails_total: 0,
-      duplicate_scene_rate: 0,
+      duplicate_scene_rate: (() => {
+        if (!plan.length) return 0;
+        const seen = new Set<string>();
+        let dup = 0;
+        for (const p of plan) {
+          const k = `${String(p.primary_subject ?? "").toLowerCase()}|${String(p.scene ?? "").toLowerCase()}|${p.composition_type ?? ""}`;
+          if (seen.has(k)) dup++;
+          else seen.add(k);
+        }
+        return dup / plan.length;
+      })(),
       spelling_ok: (meta.coloring_cover as any)?.spelling_verified !== false,
     });
 

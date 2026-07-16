@@ -95,10 +95,19 @@ export function generatePagePlan(
   const subjects = [...category.allowed_subjects];
   const supporting = [...category.allowed_supporting_elements];
   const plan: PagePlanEntry[] = [];
+  const seen = new Set<string>();
   for (let i = 0; i < count; i++) {
     const primary = subjects[i % subjects.length];
-    const bucket: SceneBucket = SCENE_TAXONOMY[i % SCENE_TAXONOMY.length];
-    const composition = COMPOSITIONS_BY_BUCKET[bucket];
+    let bucket: SceneBucket = SCENE_TAXONOMY[i % SCENE_TAXONOMY.length];
+    let composition = COMPOSITIONS_BY_BUCKET[bucket];
+    let scene = SCENE_TEMPLATES[bucket](primary);
+    // Rotate bucket offset until (subject, scene, composition) is unique
+    for (let offset = 1; offset < SCENE_TAXONOMY.length && seen.has(`${primary.toLowerCase()}|${scene.toLowerCase()}|${composition}`); offset++) {
+      bucket = SCENE_TAXONOMY[(i + offset) % SCENE_TAXONOMY.length];
+      composition = COMPOSITIONS_BY_BUCKET[bucket];
+      scene = SCENE_TEMPLATES[bucket](primary);
+    }
+    seen.add(`${primary.toLowerCase()}|${scene.toLowerCase()}|${composition}`);
     const secondary = supporting.length && (bucket === "learning" || bucket === "celebration" || bucket === "relationship")
       ? [supporting[Math.floor(rand() * supporting.length)]]
       : [];
@@ -106,7 +115,7 @@ export function generatePagePlan(
       canonical_page_number: i + 1,
       primary_subject: primary,
       secondary_subjects: secondary,
-      scene: SCENE_TEMPLATES[bucket](primary),
+      scene,
       complexity: bucket === "portrait" || bucket === "quiet" ? "simple" : "medium",
       required_elements: [primary],
       forbidden_elements: [],
@@ -114,6 +123,7 @@ export function generatePagePlan(
       scene_bucket: bucket,
     } as PagePlanEntry);
   }
+
   return {
     plan,
     category_key: category.category_key,
