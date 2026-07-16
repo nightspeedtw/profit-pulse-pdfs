@@ -322,12 +322,21 @@ Deno.serve(async (req) => {
     let newPagesDone = pos.pages_done;
     let finalized = false;
 
+    // Kids-branding: load logo once, then configure per stage so pages carry
+    // corner branding per the "kids_branding" pipeline_skills row. Any error
+    // fetching the asset must NOT block PDF assembly — fall back to no logo.
+    let brandingLogoBytes: Uint8Array | null = null;
+    try { brandingLogoBytes = await loadKidsFooterLogoBytes(); }
+    catch (e) { console.warn('kids_branding_logo_load_failed', (e as Error).message); }
+    const runBrandingReports: BrandingReport[] = [];
+
     if (pos.lane === 'prepare') {
       // Gate 2: cover must be a real image, not a dead / near-monochrome tile.
       const coverLum = await computeLuminance(currentCoverBytes);
       if (coverLum.dead) {
         throw new Error(`cover_dead_image_gate: cover is ${coverLum.reason} (mean=${coverLum.mean.toFixed(1)}, var=${coverLum.variance.toFixed(0)}). Regenerate cover before assembly.`);
       }
+      configureKidsBranding({ logoBytes: brandingLogoBytes, startingPageIndex: 0 });
       const bytes = await startPicturePdf({
         title: String(ebook.title ?? ''),
         subtitle: (ebook.subtitle as string | null) ?? null,
