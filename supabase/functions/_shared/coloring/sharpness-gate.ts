@@ -22,6 +22,7 @@ import {
   combineScore,
   boundaryEdgeStrength,
   passesBoundaryEdgeGate,
+  passesSharpnessGate,
   passesVisibleBlurBoundary,
 } from "./sharpness-scoring.ts";
 
@@ -34,6 +35,7 @@ export {
   combineScore,
   boundaryEdgeStrength,
   passesBoundaryEdgeGate,
+  passesSharpnessGate,
   passesVisibleBlurBoundary,
 };
 
@@ -143,7 +145,14 @@ export async function computeSharpness(
     const score = combineScore(sm, lv);
     const visible = meanNeighborDiffTelemetry(luma, w, h);
     const boundary = boundaryEdgeStrength(luma, w, h);
-    const boundaryPass = passesBoundaryEdgeGate(boundary.boundary_pixels, boundary.score, boundaryMin, boundary.ink_pixels);
+    const boundaryPass = passesSharpnessGate({
+      legacy_score: score,
+      legacy_min: min,
+      boundary_pixels: boundary.boundary_pixels,
+      boundary_score: boundary.score,
+      boundary_min: boundaryMin,
+      ink_pixels: boundary.ink_pixels,
+    });
     // v5 authority: boundary edge strength only. `score` (Sobel+Laplacian)
     // remains persisted telemetry/trend data and MUST NOT veto sparse pages.
     const pass = boundaryPass;

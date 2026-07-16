@@ -27,6 +27,7 @@ import {
   combineScore,
   boundaryEdgeStrength,
   passesBoundaryEdgeGate,
+  passesSharpnessGate,
 } from "../../supabase/functions/_shared/coloring/sharpness-scoring.ts";
 
 // ---------- fixture builders ----------
@@ -121,7 +122,14 @@ describe("boundary-edge gate — crisp-sparse fixture (toddler/senior contract)"
     const legacyScore = combineScore(12, 0); // 3.0 — below legacy floor 13
     expect(legacyScore).toBeLessThan(DEFAULT_SHARPNESS_MIN_SCORE);
     expect(score).toBeGreaterThanOrEqual(DEFAULT_BOUNDARY_EDGE_MIN_SCORE);
-    expect(passesBoundaryEdgeGate(boundary_pixels, score, DEFAULT_BOUNDARY_EDGE_MIN_SCORE, ink_pixels)).toBe(true);
+    expect(passesSharpnessGate({
+      legacy_score: legacyScore,
+      legacy_min: DEFAULT_SHARPNESS_MIN_SCORE,
+      boundary_pixels,
+      boundary_score: score,
+      boundary_min: DEFAULT_BOUNDARY_EDGE_MIN_SCORE,
+      ink_pixels,
+    })).toBe(true);
   });
 });
 
@@ -190,7 +198,7 @@ describe("sharpness gate — versioned constants", () => {
   it("boundary floor is 140 (fixture calibration, do not lower silently)", () => {
     expect(DEFAULT_BOUNDARY_EDGE_MIN_SCORE).toBe(140);
   });
-  it("legacy combined floor still exported at 13.0 for secondary safety", () => {
+  it("legacy combined floor still exported at 13.0 for telemetry compatibility", () => {
     expect(DEFAULT_SHARPNESS_MIN_SCORE).toBe(13.0);
   });
   it("ink/paper thresholds bracket a clear white-gap band", () => {
