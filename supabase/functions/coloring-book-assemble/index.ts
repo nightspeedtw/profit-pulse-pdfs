@@ -130,10 +130,14 @@ Deno.serve(async (req: Request) => {
     if (row.book_type !== "coloring_book") return json({ error: "wrong_lane" }, 400);
 
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    // Publish-hold flag: owner-managed. When true, assemble runs weighted
+    // acceptance but never chains to coloring-book-publish. Used for
+    // external re-verification of a rebuilt book (Ocean Friends recovery).
+    const publishHold = meta.coloring_hold_publish === true;
 
     if (!force && meta.coloring_assembly && row.pdf_url) {
-      chain("coloring-book-publish", { ebook_id });
-      return json({ ok: true, skipped: "pdf_exists", chained: "publish" });
+      if (!publishHold) chain("coloring-book-publish", { ebook_id });
+      return json({ ok: true, skipped: "pdf_exists", chained: publishHold ? "held" : "publish" });
     }
 
     const plan = ((meta.coloring_page_plan as any)?.plan ?? []) as any[];
