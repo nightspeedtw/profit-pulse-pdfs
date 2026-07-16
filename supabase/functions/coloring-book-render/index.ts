@@ -367,18 +367,24 @@ Deno.serve(async (req: Request) => {
       .length;
 
     if (stageLabel === "calibration" && !stillCalibrationRemaining) {
+      // AUTO-APPROVE style lock: every stored calibration page already
+      // passed solid-black + sharpness + white-bg + prompt-compliance.
+      // Reviewer note = 'auto_gates'. No human wait — self-invoke into production.
       await patchMeta(db, ebook_id, {
         coloring_progress_percent: Math.max(25, percent),
         coloring_current_step_label:
-          `Calibration complete (pages 1-${CALIBRATION_COUNT}) — awaiting owner style-lock approval`,
-        awaiting: "owner_calibration_review",
+          `Calibration complete (pages 1-${CALIBRATION_COUNT}) — auto-approved by gates; starting production`,
+        coloring_calibration_approved: true,
+        coloring_calibration_reviewer: "auto_gates",
+        coloring_calibration_approved_at: new Date().toISOString(),
         coloring_calibration_completed_at: new Date().toISOString(),
       });
       await db.from("ebooks_kids").update({ pipeline_status: "queued", blocker_reason: null }).eq("id", ebook_id);
+      selfInvoke(ebook_id);
       return json({
         ok: true,
-        stage: "calibration_complete",
-        awaiting: "owner_calibration_review",
+        stage: "calibration_auto_approved",
+        chained: true,
         calibration_pages: pages.filter((p) => p.stage === "calibration").map((p) => ({ page: p.page, url: p.signed_url })),
       });
     }
