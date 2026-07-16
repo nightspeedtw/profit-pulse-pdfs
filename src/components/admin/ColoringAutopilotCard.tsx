@@ -136,9 +136,32 @@ export function ColoringAutopilotCard() {
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground mb-4">
-        Queues coloring books via the canonical pipeline. Rows are created immediately and generation begins after the P0 sequential-safe lock releases. Manual "Run now" ignores the daily cap and stop time.
+      <p className="text-xs text-muted-foreground mb-3">
+        Independent engine + queue for coloring books — not shared with the picture-book autopilot pause/cost cap. Rows are created immediately; generation begins after the P0 sequential-safe lock releases. Manual "Run now" ignores the daily cap and stop time.
       </p>
+
+      {status && (
+        <div className="mb-4 rounded border border-foreground/20 bg-muted/30 p-3">
+          <div className="flex flex-wrap gap-6 text-sm font-mono">
+            <div><span className="text-muted-foreground uppercase text-xs">Queued: </span><b>{status.queued}</b></div>
+            <div><span className="text-muted-foreground uppercase text-xs">Created today: </span><b>{status.created_today}</b></div>
+            <div><span className="text-muted-foreground uppercase text-xs">Published today: </span><b>{status.published_today}</b></div>
+            <div><span className="text-muted-foreground uppercase text-xs">Daily cap: </span><b>{cfg.daily_cap}</b></div>
+          </div>
+          {status.recent.length > 0 && (
+            <ul className="mt-2 space-y-1 text-xs">
+              {status.recent.map((r) => (
+                <li key={r.id} className="flex justify-between gap-3">
+                  <span className="truncate">{r.title}</span>
+                  <span className="text-muted-foreground shrink-0">
+                    {r.listing_status === "live" ? "live" : r.pipeline_status}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div>
