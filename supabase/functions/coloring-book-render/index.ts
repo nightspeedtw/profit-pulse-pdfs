@@ -338,11 +338,13 @@ Deno.serve(async (req: Request) => {
 
 
       const page = decision.revised_page;
+      const learnedRules = pickLearnedRulesFor(rulesIndex, page.primary_subject, page.scene);
+      const learnedClause = learnedClauseFromRules(learnedRules);
       const basePrompt = buildInteriorPrompt(page, styleContract, {
         category_name: category.category_name,
         target_age_min: category.target_age_min ?? 4,
         target_age_max: category.target_age_max ?? 6,
-      });
+      }, { learned_prevention_clause: learnedClause });
       const prompt = decision.prompt_additions.length
         ? `${basePrompt} ${decision.prompt_additions.map((c) => c + ".").join(" ")}`
         : basePrompt;
