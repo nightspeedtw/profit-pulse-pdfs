@@ -17,4 +17,10 @@
 // v1: original schnell steps=4 + basic clauses
 // v2: schnell steps=8 for repair renders + crisp-line clauses (2026-07-16)
 // v3: sharpness floor lowered to 13.0 (accepted-set consistency)
-export const CURRENT_COLORING_REPAIR_REGIME = "v3:schnell-steps8-crisp-clauses-floor13";
+// v4: sharpness metric replaced with sparsity-invariant boundary-edge
+//     strength (SHARPNESS_GATE_VERSION v5). Root-cause fix: prior whole-
+//     image mean-neighbor-diff false-failed replanned sparse portraits
+//     (Ocean Friends p3) because the simplify ladder deliberately makes
+//     pages sparser. Watchdog auto-requeues rows behind this version so
+//     dead pages under the old metric get re-measured under the new one.
+export const CURRENT_COLORING_REPAIR_REGIME = "v4:boundary-edge-strength-min140";
