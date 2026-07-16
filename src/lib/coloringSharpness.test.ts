@@ -11,25 +11,22 @@ import {
 } from "../../supabase/functions/_shared/coloring/sharpness-scoring.ts";
 
 describe("sharpness gate — calibrated threshold", () => {
-  it("DEFAULT_SHARPNESS_MIN_SCORE matches owner calibration (8.0)", () => {
-    // Ocean Friends owner-cited crisp pages ≥9, blurry ≤6. Floor at 8.0
-    // leaves 1.0 headroom for JPEG variance. Do not lower silently.
-    expect(DEFAULT_SHARPNESS_MIN_SCORE).toBe(8.0);
+  it("DEFAULT_SHARPNESS_MIN_SCORE matches Ocean Friends calibration (15.0)", () => {
+    // Measured on the Ocean Friends draft at 512px downsample:
+    //   owner-flagged blurry interiors 3, 19, 21, 31 scored 11.63, 11.17, 14.84, 10.86
+    //   adjacent crisp pages all scored ≥ 15.62
+    // Floor at 15.0 catches the flagged set exactly. Do not lower silently.
+    expect(DEFAULT_SHARPNESS_MIN_SCORE).toBe(15.0);
   });
 
-  it("crisp page proxy (Sobel≈36, Laplacian≈0) passes the floor", () => {
-    // Sobel mean 36 dominates: 36/4 = 9.0 ≥ 8.0.
-    expect(combineScore(36, 0)).toBeGreaterThanOrEqual(DEFAULT_SHARPNESS_MIN_SCORE);
+  it("crisp page proxy (Sobel≈70, Laplacian≈2000) passes the floor", () => {
+    // 70/4 + sqrt(2000)/10 = 17.5 + 4.47 ≈ 22.0
+    expect(combineScore(70, 2000)).toBeGreaterThanOrEqual(DEFAULT_SHARPNESS_MIN_SCORE);
   });
 
-  it("blurry page proxy (Sobel≈16, Laplacian≈0) falls below the floor", () => {
-    // 16/4 = 4.0 < 8.0.
-    expect(combineScore(16, 0)).toBeLessThan(DEFAULT_SHARPNESS_MIN_SCORE);
-  });
-
-  it("high-detail page (moderate Sobel + high Laplacian variance) passes", () => {
-    // Sobel 20 → 5.0; sqrt(1600)/10 = 4.0; sum = 9.0 ≥ 8.0.
-    expect(combineScore(20, 1600)).toBeGreaterThanOrEqual(DEFAULT_SHARPNESS_MIN_SCORE);
+  it("owner-flagged blurry proxy (Sobel≈30, Laplacian≈1200) falls below the floor", () => {
+    // 30/4 + sqrt(1200)/10 = 7.5 + 3.46 ≈ 10.96 < 15.0
+    expect(combineScore(30, 1200)).toBeLessThan(DEFAULT_SHARPNESS_MIN_SCORE);
   });
 
   it("dead-flat page (Sobel≈2, Laplacian≈0) fails", () => {
@@ -37,7 +34,7 @@ describe("sharpness gate — calibrated threshold", () => {
   });
 
   it("threshold cannot be silently rounded down by float precision", () => {
-    expect(DEFAULT_SHARPNESS_MIN_SCORE).toBeGreaterThanOrEqual(8);
+    expect(DEFAULT_SHARPNESS_MIN_SCORE).toBeGreaterThanOrEqual(15);
   });
 });
 
