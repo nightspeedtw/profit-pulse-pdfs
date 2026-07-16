@@ -489,7 +489,7 @@ Deno.serve(async (req) => {
       const id = (body as any).ebook_kids_id as string | undefined;
       if (!id) return json({ error: "ebook_kids_id required" }, 400);
       const patch = resource === "kids_publish"
-        ? { listing_status: "live", status: "live", pipeline_status: "published", sellable: true, ever_live: true, published_at: new Date().toISOString() }
+        ? { listing_status: "live", status: "live", pipeline_status: "published", sellable: true, ever_live: true }
         : { listing_status: "draft", sellable: false };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await (supabase.from("ebooks_kids") as any).update(patch).eq("id", id);
