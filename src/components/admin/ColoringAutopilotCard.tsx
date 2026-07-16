@@ -65,12 +65,19 @@ export function ColoringAutopilotCard() {
       setCfg({ ...DEFAULTS, ...(data?.config ?? {}) });
       setCats(data?.categories ?? []);
       setStatus(data?.status ?? null);
-      } catch (e) {
-        toast({ title: "Failed to load coloring autopilot config", description: String(e), variant: "destructive" });
-      } finally {
-        setLoading(false);
-      }
-    })();
+    } catch (e) {
+      toast({ title: "Failed to load coloring autopilot config", description: String(e), variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setLoading(true);
+    loadStatus();
+    const t = setInterval(loadStatus, 15000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const save = async (next: ColoringConfig) => {
