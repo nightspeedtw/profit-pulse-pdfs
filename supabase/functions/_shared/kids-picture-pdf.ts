@@ -506,6 +506,7 @@ async function addTalkAboutStoryPage(doc: PDFDocument, questions: string[], hook
       y -= hf.size * LINE_HEIGHT_RATIO;
     }
   }
+  await stampBranding(doc, page, "talk_about_story", null);
 }
 
 // ── One-shot builder (kept for legacy repair callers) ────────────────────
