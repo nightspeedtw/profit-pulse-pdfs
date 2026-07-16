@@ -301,11 +301,18 @@ Deno.serve(async (req: Request) => {
             `param_uniformity_violation: recorded=${JSON.stringify(recordedParams)} vs canonical=${JSON.stringify(INTERIOR_GEN_PARAMS)}`,
           );
         }
+        // Repair renders (attempt ≥ 1) bump schnell steps 4→8 for crisper
+        // lines. Calibration evidence: Ocean Friends accepted-set scored
+        // 15.6–48.0 (median 27.8) at steps=4; regens of p19/p31 hovered at
+        // 10–13 even after portrait replan — a per-page render-quality
+        // deficit, not a floor bug. Bumping steps is the calibrated repair.
+        const repairSteps = attempt >= 1 ? 8 : 4;
         const bytes = await falFluxSchnell({
           prompt,
           image_size: INTERIOR_GEN_PARAMS.image_size,
+          num_inference_steps: repairSteps,
           ebook_id: ebook_id,
-          step: `coloring_${stageLabel}_page_${page.canonical_page_number}`,
+          step: `coloring_${stageLabel}_page_${page.canonical_page_number}${attempt >= 1 ? "_repair" : ""}`,
         });
         const verified = verifyImageAtBirth(bytes, page.canonical_page_number, MIN_IMAGE_BYTES);
 

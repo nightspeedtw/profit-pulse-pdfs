@@ -21,6 +21,7 @@ export type FailureClass =
   | "composition_off"
   | "off_category"
   | "text_or_watermark"
+  | "sharpness_below_floor"
   | "unknown";
 
 export interface RepairDecision {
@@ -33,6 +34,7 @@ export interface RepairDecision {
 
 export function classifyFailure(reasons: string[]): FailureClass {
   const s = reasons.join(" | ").toLowerCase();
+  if (/sharpness_below_floor|sharpness_gate/.test(s)) return "sharpness_below_floor";
   if (/watermark|signature|random_text|letters/.test(s)) return "text_or_watermark";
   if (/anatom|limb|finger|paw|horn|wing|tail|face|eyes|malformed|fused|extra/.test(s)) return "anatomy_structural";
   if (/solid.?black|black_pixel_ratio|black_cluster/.test(s)) return "solid_black_fill";
@@ -68,6 +70,11 @@ const CORRECTIVE_CLAUSES: Record<FailureClass, string[]> = {
   ],
   text_or_watermark: [
     "Absolutely NO text, letters, numbers, signatures, watermarks or logos anywhere",
+  ],
+  sharpness_below_floor: [
+    "Crisp clean vector-like thick black outlines, high contrast, sharp edges, no blur, no soft haze",
+    "Uniform bold contour weight, no faint or sketchy strokes",
+    "Print-ready coloring page line art, well-defined shapes with clearly closed regions",
   ],
   unknown: [
     "Follow the frozen style contract exactly; keep the page printable and colorable",

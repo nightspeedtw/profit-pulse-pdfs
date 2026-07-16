@@ -3,6 +3,7 @@ import {
   decideRepair,
   replanEscalatedPage,
   sanitizeSceneForColorability,
+  classifyFailure,
 } from "../../supabase/functions/_shared/coloring/repair-ladder.ts";
 
 const basePage = {
@@ -44,5 +45,22 @@ describe("coloring escalate reaction", () => {
     const text = d.prompt_additions.join(" ").toLowerCase();
     expect(text).toMatch(/never fill water areas/);
     expect(text).toMatch(/thin outline wave lines and bubbles/);
+  });
+});
+
+describe("sharpness_below_floor repair reaction", () => {
+  
+  it("classifies sharpness_gate reasons as sharpness_below_floor", () => {
+    expect(classifyFailure(["sharpness_below_floor:score=11.28_min=15"]))
+      .toBe("sharpness_below_floor");
+    expect(classifyFailure(["sharpness_gate: score too low"]))
+      .toBe("sharpness_below_floor");
+  });
+  it("sharpness repair adds crisp-line clauses", () => {
+    const d = decideRepair(basePage, 1, ["sharpness_below_floor:score=11.28_min=15"]);
+    const text = d.prompt_additions.join(" ").toLowerCase();
+    expect(text).toMatch(/crisp/);
+    expect(text).toMatch(/vector-like/);
+    expect(text).toMatch(/sharp edges|no blur/);
   });
 });
