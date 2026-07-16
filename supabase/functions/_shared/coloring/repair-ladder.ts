@@ -71,6 +71,11 @@ const CORRECTIVE_CLAUSES: Record<FailureClass, string[]> = {
   text_or_watermark: [
     "Absolutely NO text, letters, numbers, signatures, watermarks or logos anywhere",
   ],
+  sharpness_below_floor: [
+    "Crisp clean vector-like thick black outlines, high contrast, sharp edges, no blur, no soft haze",
+    "Uniform bold contour weight, no faint or sketchy strokes",
+    "Print-ready coloring page line art, well-defined shapes with clearly closed regions",
+  ],
   unknown: [
     "Follow the frozen style contract exactly; keep the page printable and colorable",
   ],
