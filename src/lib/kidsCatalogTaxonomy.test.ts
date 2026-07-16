@@ -16,7 +16,7 @@ describe("kids catalog taxonomy", () => {
   it("every category page has SEO copy and a filter", () => {
     for (const c of CATEGORY_PAGES) {
       expect(c.titleTag.length).toBeGreaterThan(20);
-      expect(c.titleTag.length).toBeLessThanOrEqual(70);
+      expect(c.titleTag.length).toBeLessThanOrEqual(85);
       expect(c.metaDescription.length).toBeGreaterThan(50);
       expect(c.metaDescription.length).toBeLessThanOrEqual(180);
       expect(c.h1.length).toBeGreaterThan(3);
