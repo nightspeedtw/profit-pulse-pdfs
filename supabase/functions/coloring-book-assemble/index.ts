@@ -24,6 +24,7 @@ import { KIDS_BRAND_LAYOUT, KIDS_BRAND_FOOTER_DIMS } from "../_shared/kids-brand
 import { coloringBookWeightedGate, coloringCoverGate, coloringReleaseGate } from "../_shared/coloring/gates.ts";
 import { computeSharpness, DEFAULT_SHARPNESS_MIN_SCORE, SHARPNESS_GATE_VERSION } from "../_shared/coloring/sharpness-gate.ts";
 import { decideAssemblySharpnessPreflight } from "../_shared/coloring/assembly-sharpness.ts";
+import { verifyAnatomyBatch, ANATOMY_VERIFIER_VERSION, summarizeBookAnatomy, type AnatomyPageVerdict } from "../_shared/coloring/anatomy-verify.ts";
 import { drawFitText, drawFitParagraph } from "../_shared/pdf/shrink-to-fit.ts";
 
 declare const Deno: any;
