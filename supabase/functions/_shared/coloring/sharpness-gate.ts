@@ -1,28 +1,41 @@
 // Sharpness gate for coloring-book interior line-art.
 //
-// Owner-verified defect (Ocean Friends draft): per-page edge-density at
-// 60dpi ranged 2.6–20.3. Crisp pages scored ≥9, blurry ones ≤6 (e.g.
-// p7=4.0, p23=4.2, p25=5.5, p35=3.8 vs p32=20.3).
+// v5 root-cause fix (2026-07-16): replaced the whole-image
+// `visible_edge_score` mean-neighbor-diff (which confounded SPARSITY with
+// BLUR and false-failed replanned portrait pages like Ocean Friends p3)
+// with `boundary_edge_strength`: mean ink→paper luma delta measured ONLY
+// on ink-boundary pixels. See ./sharpness-scoring.ts header for the full
+// evidence trail. This is a metric correction, NOT a threshold reduction.
 //
-// This module computes a deterministic sharpness score per raster and
-// exposes a shared threshold so the render loop can regenerate any page
-// that falls below the floor. The scorer combines:
-//   • Sobel edge-magnitude mean (proxy for line contrast).
-//   • Laplacian variance (proxy for high-frequency detail).
-// Both are computed on a 512-px downsample of the luminance channel.
-//
-// The reported `score` is a monotonic combination on a 0..~30 scale,
-// tuned so that Ocean Friends' crisp interior pages score ≥9 and its
-// blurry pages score ≤6, matching the owner's calibration numbers.
-//
-// NEVER LOWER this threshold silently. If a book class needs a stricter
-// floor, raise `metadata.coloring_style_contract.sharpness_min_score`.
+// The combined Sobel+Laplacian floor (DEFAULT_SHARPNESS_MIN_SCORE=13.0)
+// is preserved as a secondary safety check against decode/degenerate
+// failures.
 
 // @ts-nocheck  Deno edge runtime
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
-import { DEFAULT_SHARPNESS_MIN_SCORE, DEFAULT_VISIBLE_EDGE_MIN_SCORE, SHARPNESS_GATE_VERSION, combineScore, passesVisibleBlurBoundary } from "./sharpness-scoring.ts";
+import {
+  DEFAULT_SHARPNESS_MIN_SCORE,
+  DEFAULT_VISIBLE_EDGE_MIN_SCORE,
+  DEFAULT_BOUNDARY_EDGE_MIN_SCORE,
+  MIN_BOUNDARY_PIXELS,
+  SHARPNESS_GATE_VERSION,
+  combineScore,
+  boundaryEdgeStrength,
+  passesBoundaryEdgeGate,
+  passesVisibleBlurBoundary,
+} from "./sharpness-scoring.ts";
 
-export { DEFAULT_SHARPNESS_MIN_SCORE, DEFAULT_VISIBLE_EDGE_MIN_SCORE, SHARPNESS_GATE_VERSION, combineScore, passesVisibleBlurBoundary };
+export {
+  DEFAULT_SHARPNESS_MIN_SCORE,
+  DEFAULT_VISIBLE_EDGE_MIN_SCORE,
+  DEFAULT_BOUNDARY_EDGE_MIN_SCORE,
+  MIN_BOUNDARY_PIXELS,
+  SHARPNESS_GATE_VERSION,
+  combineScore,
+  boundaryEdgeStrength,
+  passesBoundaryEdgeGate,
+  passesVisibleBlurBoundary,
+};
 
 export interface SharpnessReport {
   score: number;
@@ -31,8 +44,13 @@ export interface SharpnessReport {
   width: number;
   height: number;
   min_required: number;
+  // Historical whole-image density (kept for telemetry; not gated).
   visible_edge_score: number;
   visible_edge_min_required: number;
+  // v5 gate: sparsity-invariant ink-boundary contrast.
+  boundary_edge_strength: number;
+  boundary_edge_min_required: number;
+  boundary_pixel_count: number;
   pass: boolean;
   reason: string;
 }
@@ -53,7 +71,6 @@ async function decodeToLumaGrid(bytes: Uint8Array, maxSide = 512): Promise<{
       const r = (px >>> 24) & 0xff;
       const g = (px >>> 16) & 0xff;
       const b = (px >>> 8) & 0xff;
-      // Rec.709 luma
       luma[y * w + x] = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     }
   }
@@ -61,8 +78,7 @@ async function decodeToLumaGrid(bytes: Uint8Array, maxSide = 512): Promise<{
 }
 
 function sobelMean(luma: Float32Array, w: number, h: number): number {
-  let sum = 0;
-  let count = 0;
+  let sum = 0, count = 0;
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
       const i = y * w + x;
@@ -97,9 +113,8 @@ function laplacianVariance(luma: Float32Array, w: number, h: number): number {
   return v / vals.length;
 }
 
-function meanNeighborDiff(luma: Float32Array, w: number, h: number): number {
-  let sum = 0;
-  let count = 0;
+function meanNeighborDiffTelemetry(luma: Float32Array, w: number, h: number): number {
+  let sum = 0, count = 0;
   for (let y = 0; y < h; y++) {
     for (let x = 1; x < w; x++) {
       sum += Math.abs(luma[y * w + x] - luma[y * w + x - 1]);
@@ -115,24 +130,27 @@ function meanNeighborDiff(luma: Float32Array, w: number, h: number): number {
   return count ? sum / count : 0;
 }
 
-// combineScore + DEFAULT_SHARPNESS_MIN_SCORE are re-exported at the top
-// from ./sharpness-scoring.ts (pure math, importable by vitest).
-
-
-
 export async function computeSharpness(
   bytes: Uint8Array,
-  opts: { minRequired?: number } = {},
+  opts: { minRequired?: number; boundaryMinRequired?: number } = {},
 ): Promise<SharpnessReport> {
   const min = opts.minRequired ?? DEFAULT_SHARPNESS_MIN_SCORE;
+  const boundaryMin = opts.boundaryMinRequired ?? DEFAULT_BOUNDARY_EDGE_MIN_SCORE;
   try {
     const { luma, w, h } = await decodeToLumaGrid(bytes);
     const sm = sobelMean(luma, w, h);
     const lv = laplacianVariance(luma, w, h);
     const score = combineScore(sm, lv);
-    const visible = meanNeighborDiff(luma, w, h);
-    const visiblePass = passesVisibleBlurBoundary(visible);
-    const pass = score >= min && visiblePass;
+    const visible = meanNeighborDiffTelemetry(luma, w, h);
+    const boundary = boundaryEdgeStrength(luma, w, h);
+    const boundaryPass = passesBoundaryEdgeGate(boundary.boundary_pixels, boundary.score, boundaryMin);
+    const combinedPass = score >= min;
+    const pass = combinedPass && boundaryPass;
+    const reason = pass
+      ? "ok"
+      : !combinedPass
+        ? `sharpness_below_floor:score=${score.toFixed(2)}_min=${min}`
+        : `boundary_blur_below_floor:score=${boundary.score.toFixed(2)}_min=${boundaryMin}_pixels=${boundary.boundary_pixels}`;
     return {
       score: Number(score.toFixed(2)),
       sobel_mean: Number(sm.toFixed(2)),
@@ -141,18 +159,20 @@ export async function computeSharpness(
       min_required: min,
       visible_edge_score: Number(visible.toFixed(2)),
       visible_edge_min_required: DEFAULT_VISIBLE_EDGE_MIN_SCORE,
+      boundary_edge_strength: Number(boundary.score.toFixed(2)),
+      boundary_edge_min_required: boundaryMin,
+      boundary_pixel_count: boundary.boundary_pixels,
       pass,
-      reason: pass
-        ? "ok"
-        : (!visiblePass
-            ? `visible_blur_below_floor:score=${visible.toFixed(2)}_min=${DEFAULT_VISIBLE_EDGE_MIN_SCORE}`
-            : `sharpness_below_floor:score=${score.toFixed(2)}_min=${min}`),
+      reason,
     };
   } catch (e) {
-    // Fail closed: an unmeasured page cannot be treated as crisp/sellable.
+    // Fail closed on decode error.
     return {
       score: 0, sobel_mean: 0, laplacian_var: 0, width: 0, height: 0,
-      min_required: min, visible_edge_score: 0, visible_edge_min_required: DEFAULT_VISIBLE_EDGE_MIN_SCORE, pass: false,
+      min_required: min,
+      visible_edge_score: 0, visible_edge_min_required: DEFAULT_VISIBLE_EDGE_MIN_SCORE,
+      boundary_edge_strength: 0, boundary_edge_min_required: boundaryMin, boundary_pixel_count: 0,
+      pass: false,
       reason: `sharpness_decode_error:${(e as Error).message.slice(0, 120)}`,
     };
   }
