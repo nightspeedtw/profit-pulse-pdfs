@@ -357,6 +357,7 @@ export function ColoringAutopilotCard() {
           <Select value={String(cfg.page_count)} onValueChange={(v) => update("page_count", Number(v) as ColoringConfig["page_count"])}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
+              <SelectItem value="4">4 (test)</SelectItem>
               <SelectItem value="16">16 pages</SelectItem>
               <SelectItem value="24">24 pages</SelectItem>
               <SelectItem value="32">32 pages</SelectItem>
