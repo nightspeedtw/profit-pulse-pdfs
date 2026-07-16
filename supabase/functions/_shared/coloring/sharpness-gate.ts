@@ -20,9 +20,9 @@
 
 // @ts-nocheck  Deno edge runtime
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
+import { DEFAULT_SHARPNESS_MIN_SCORE, combineScore } from "./sharpness-scoring.ts";
 
-/** Calibrated from owner-cited scores. Do not lower without owner sign-off. */
-export const DEFAULT_SHARPNESS_MIN_SCORE = 8.0;
+export { DEFAULT_SHARPNESS_MIN_SCORE, combineScore };
 
 export interface SharpnessReport {
   score: number;
