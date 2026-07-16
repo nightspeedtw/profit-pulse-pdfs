@@ -1,11 +1,17 @@
-// coloring-book-cover — owner-approved single-rung coloring cover path.
+// coloring-book-cover — owner-approved TWO-rung coloring cover path.
 //
-// Coloring books no longer use the picture-book cover ladder. One invocation:
-//   1. Runs ONE Flux/Schnell textless full-color scene call.
-//   2. Measures raw art color, subject match, and baked text once each.
-//   3. Composites deterministic title/subtitle/age/logo overlay.
-//   4. Persists full evidence, uploads cover, then chains assembly.
+// Skill: 'coloring_cover_forever' / owner law 'cover_can_never_fail'.
+//   Rung 1 (nice-to-have): up to 3 Flux/Schnell textless full-color scene
+//     attempts, each measured for luminance/colorfulness/text/subject.
+//     Fastest path to a bespoke cover when the provider cooperates.
+//   Rung 2 (guaranteed): DETERMINISTIC SELF-ART cover built from the book's
+//     own gate-passed interior pages via programmatic flood-fill
+//     colorization + palette compose. No AI. Always succeeds. Cannot be
+//     blank, off-category, or text-contaminated because it comes from art
+//     that already passed the anatomy/colorability/textless gates.
 //
+// The old "mark blocked → self-advance → hope the next tick works" path
+// and the SVG synthetic gradient fallback are permanently removed.
 // Picture-book paths keep using _shared/covers/kids-cover-ladder.ts.
 
 // @ts-nocheck  Deno edge runtime
@@ -25,6 +31,7 @@ import { classifyProviderError } from "../_shared/covers/provider-errors.ts";
 import { loadActivePreventionRules, indexRulesBySpecies, pickLearnedRulesFor, learnedClauseFromRules } from "../_shared/coloring/first-pass-learner.ts";
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
 import { detectBlankRegions } from "../_shared/covers/blank-detect.ts";
+import { renderColoringSelfArtCover, SELF_ART_COVER_VERSION } from "../_shared/coloring/self-art-cover.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
