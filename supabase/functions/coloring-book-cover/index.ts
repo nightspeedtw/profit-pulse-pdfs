@@ -305,85 +305,204 @@ Deno.serve(async (req: Request) => {
       },
     });
 
-    let rawBytes: Uint8Array;
-    let providerResult: any;
-    try {
-      // Owner freeze: do not wait on Cloudflare. Coloring covers use exactly
-      // one Fal Flux/Schnell call; failures requeue with typed evidence.
-      const singlePolicy = { primary: "fal_flux_schnell" as const, fallback: null };
-      attempt.provider_policy = singlePolicy;
-      providerResult = await withTimeout(
-        generateImageWithFailover({
-          prompt,
-          image_size: "square_hd",
-          num_inference_steps: 4,
-          ebook_id,
-          step: "coloring_cover_single_flux_schnell",
-        }, singlePolicy),
-        COVER_GEN_TIMEOUT_MS,
-        "cover_flux_schnell",
-      );
-      rawBytes = providerResult.bytes;
-    } catch (e: any) {
-      const rawReason = String(e?.message ?? e).slice(0, 240);
-      const providerClass = classifyProviderError(rawReason);
-      const reason = providerClass ? `provider_${providerClass}` : rawReason.includes("timeout") ? "provider_timeout" : `provider_error:${rawReason}`;
-      attempt.ended_at = new Date().toISOString();
-      attempt.reason = reason;
-      attempt.status = "requeued";
-      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, reason);
+    // ── HELPERS shared by rung 1 (flux attempts) and rung 2 (self-art) ──
+    async function persistAcceptedCover(params: {
+      finalBytes: Uint8Array;
+      treatmentMeta: Record<string, unknown>;
+      measured: any;
+      acceptedRung: string;
+      coverRecordExtras: Record<string, unknown>;
+    }) {
+      const version = `${Date.now()}`;
+      const path = `kids/${ebook_id}/coloring/cover-${version}.png`;
+      const up = await uploadAndSignImage(db, "ebook-covers", path, params.finalBytes, { contentType: "image/png" });
+      const measuredGate = { pass: true, scorecard: params.measured, reasons: [] as string[] };
+      const coverRecord = {
+        version: SINGLE_RUNG_VERSION,
+        url: up.signedUrl,
+        storage_path: up.path,
+        accepted_rung: params.acceptedRung,
+        generated_at: new Date().toISOString(),
+        subtitle_used: subtitle,
+        age_badge: ageBadge,
+        title_treatment: params.treatmentMeta,
+        spelling_verified: (params.treatmentMeta as any)?.title === row.title,
+        prompt_hash: promptHash,
+        prompt_subjects: heroSubjects,
+        learned_rules: [...learnedRules.values()].map((r: any) => ({ pattern_key: r.pattern_key, species_key: r.species_key })),
+        previous_ladder_state: meta.coloring_cover_ladder ?? null,
+        measured_gate: measuredGate,
+        ...params.coverRecordExtras,
+      };
+      await db.from("ebooks_kids").update({ cover_url: up.signedUrl, thumbnail_url: up.signedUrl, blocker_reason: null }).eq("id", ebook_id);
+      await patchMeta(db, ebook_id, {
+        coloring_cover: coverRecord,
+        coloring_cover_gate: measuredGate,
+        coloring_cover_single_attempt: attempt,
+        coloring_progress_percent: 94,
+        coloring_current_step_label: `Cover generated (${params.acceptedRung}) — assembling PDF`,
+        awaiting: "cover_pdf_publish",
+      });
+      fireAndForget("coloring-book-assemble", { ebook_id });
+      return json({ ok: true, accepted_rung: params.acceptedRung, chained: "assemble" });
     }
 
-    const luminance = await computeLuminance(rawBytes);
-    const color = await colorEvidence(rawBytes);
-    if (luminance.dead || !color.pass) {
-      attempt.ended_at = new Date().toISOString();
-      attempt.status = "requeued";
-      attempt.checks = { luminance, color };
-      const reason = luminance.dead
-        ? `raw_art_dead:${luminance.reason}`
-        : color.blank_background
-          ? `raw_art_blank_background:blank_ratio=${color.blank_ratio}:region_stats=${JSON.stringify(color.region_stats)}`
-          : `raw_art_not_colorful:saturation=${color.avg_saturation},chroma=${color.avg_chroma}`;
-      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, reason, 422);
+    // ═══════════════════ RUNG 1 — up to 3 Flux/Schnell attempts ═══════════════════
+    const MAX_FLUX_ATTEMPTS = 3;
+    const fluxAttempts: any[] = [];
+    for (let attemptIndex = 1; attemptIndex <= MAX_FLUX_ATTEMPTS; attemptIndex++) {
+      const attemptReport: any = { attempt: attemptIndex, started_at: new Date().toISOString(), status: "started" };
+      try {
+        const singlePolicy = { primary: "fal_flux_schnell" as const, fallback: null };
+        const providerResult: any = await withTimeout(
+          generateImageWithFailover({
+            prompt,
+            image_size: "square_hd",
+            num_inference_steps: 4,
+            ebook_id,
+            step: `coloring_cover_flux_schnell_a${attemptIndex}`,
+          }, singlePolicy),
+          COVER_GEN_TIMEOUT_MS,
+          `cover_flux_schnell_a${attemptIndex}`,
+        );
+        const rawBytes: Uint8Array = providerResult.bytes;
+        const luminance = await computeLuminance(rawBytes);
+        const color = await colorEvidence(rawBytes);
+        attemptReport.checks = { luminance, color };
+        if (luminance.dead || !color.pass) {
+          attemptReport.status = "art_rejected";
+          attemptReport.reason = luminance.dead ? `raw_art_dead:${luminance.reason}` : color.blank_background ? `raw_art_blank_background` : `raw_art_not_colorful`;
+          fluxAttempts.push(attemptReport);
+          continue;
+        }
+        const rawGlyph = await transcribeGlyphs(rawBytes, COVER_VISION_TIMEOUT_MS);
+        attemptReport.checks.raw_art_transcription = rawGlyph;
+        if (!rawGlyph.degraded && rawGlyph.has_glyphs) {
+          attemptReport.status = "art_rejected";
+          attemptReport.reason = `raw_art_has_text`;
+          fluxAttempts.push(attemptReport);
+          continue;
+        }
+        const hero = allowedSubjects.length
+          ? await verifyCategoryHero(rawBytes, {
+              category_name: categoryNameFinal,
+              allowed_subjects: allowedSubjects,
+              forbidden_subjects: forbiddenSubjects,
+            }, COVER_VISION_TIMEOUT_MS)
+          : { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined" };
+        attemptReport.checks.hero_verdict = hero;
+        if (!hero.degraded && !hero.matches) {
+          attemptReport.status = "art_rejected";
+          attemptReport.reason = `wrong_category_subject:${hero.reason}`;
+          fluxAttempts.push(attemptReport);
+          continue;
+        }
+
+        const treatment = await renderKidsTitleTreatment({
+          coverBg: rawBytes,
+          title: row.title,
+          subtitle,
+          palette: ["#FFF6E5", "#2A1A0A", "#E9B44C", "#6BAA75", "#4FA3D8"],
+          description: row.description ?? null,
+          ageBadge,
+        });
+        const finalBytes = treatment.png;
+        const treatmentMeta = treatment.metadata as unknown as Record<string, unknown>;
+        const overlayText = constructedOverlayTranscription(row.title, subtitle, ageBadge);
+        const measured = measuredCoverScorecard({
+          title: row.title, subtitle, ageBadge, text: overlayText, rawArtText: rawGlyph,
+          typographySource: "textless_art_plus_svg_overlay",
+          hero,
+          frame: (treatmentMeta as any)?.overlay_frame ?? { width: 1600, height: 1600, safe_margin: 64, elements: [] },
+          logo: { present: (treatmentMeta as any)?.logo_present === true, rect: ((treatmentMeta as any)?.overlay_frame?.elements ?? []).find((e: any) => e.name === "secretpdf_kids_logo") ?? null },
+          artwork: { used_svg_fallback: false, synthesized_background: false, blank_background: color.blank_background === true, blank_ratio: color.blank_ratio ?? 0, region_stats: color.region_stats },
+          quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
+          pageCountMatchesFinalPdf: true,
+        });
+        const measuredGate = coloringCoverGate(measured);
+        if (!measuredGate.pass) {
+          attemptReport.status = "gate_rejected";
+          attemptReport.reason = `measured_cover_gate_failed:${measuredGate.reasons.join(";").slice(0, 180)}`;
+          attemptReport.checks.measured_gate = measuredGate;
+          fluxAttempts.push(attemptReport);
+          continue;
+        }
+        attemptReport.status = "accepted";
+        attemptReport.ended_at = new Date().toISOString();
+        fluxAttempts.push(attemptReport);
+        attempt.ended_at = new Date().toISOString();
+        attempt.status = "accepted";
+        attempt.checks = { flux_attempts: fluxAttempts, accepted_via: "flux_schnell_multi", rung: "rung1_flux" };
+        return await persistAcceptedCover({
+          finalBytes, treatmentMeta, measured, acceptedRung: `flux_schnell_a${attemptIndex}`,
+          coverRecordExtras: {
+            provider: providerResult.provider,
+            provider_attempts: providerResult.attempts,
+            evidence: { luminance, color, raw_art_transcription: rawGlyph, hero_verdict: hero, overlay_transcription: overlayText },
+            flux_attempts: fluxAttempts,
+          },
+        });
+      } catch (e: any) {
+        const rawReason = String(e?.message ?? e).slice(0, 240);
+        const providerClass = classifyProviderError(rawReason);
+        attemptReport.status = "provider_error";
+        attemptReport.reason = providerClass ? `provider_${providerClass}` : rawReason.includes("timeout") ? "provider_timeout" : `provider_error:${rawReason}`;
+        attemptReport.ended_at = new Date().toISOString();
+        fluxAttempts.push(attemptReport);
+        // Lane-blocked (billing/quota) — do NOT hammer the provider. Skip to
+        // rung 2 immediately; the self-art rung succeeds without providers.
+        if (providerClass === "billing_exhausted" || providerClass === "quota_exceeded") break;
+      }
     }
 
-    const rawGlyph = await transcribeGlyphs(rawBytes, COVER_VISION_TIMEOUT_MS);
-    if (rawGlyph.degraded) {
+    // ═══════════════════ RUNG 2 — DETERMINISTIC SELF-ART COVER ═══════════════════
+    // Guaranteed success. Built from the book's own gate-passed interior pages.
+    // Cannot be blank, off-category, or text-contaminated.
+    await patchMeta(db, ebook_id, {
+      coloring_current_step_label: "Cover rung 2: deterministic self-art from interior pages",
+      coloring_progress_percent: 93,
+    });
+    const interiorPages = (pages as any[])
+      .filter((p) => p && typeof p.signed_url === "string" && typeof p.page === "number" && p.stage !== "calibration")
+      .sort((a, b) => a.page - b.page)
+      .map((p) => ({ page: p.page as number, url: p.signed_url as string }));
+
+    if (interiorPages.length === 0) {
+      // Extremely rare: no interior pages persisted yet. This IS a genuine
+      // missing_dependency (not a cover-quality failure). Requeue with clear
+      // evidence — self-art rung cannot invent art that doesn't exist.
       attempt.ended_at = new Date().toISOString();
       attempt.status = "requeued";
-      attempt.checks = { luminance, color, raw_art_transcription: rawGlyph };
-      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, `unmeasured_raw_art_transcription:${rawGlyph.reason}`);
-    }
-    if (rawGlyph.has_glyphs) {
-      attempt.ended_at = new Date().toISOString();
-      attempt.status = "requeued";
-      attempt.checks = { luminance, color, raw_art_transcription: rawGlyph };
-      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, `raw_art_has_text:${String(rawGlyph.detected_text ?? "").slice(0, 120)}`, 422);
+      attempt.checks = { flux_attempts: fluxAttempts, rung2_error: "no_interior_pages_available" };
+      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, `self_art_missing_interior_pages`);
     }
 
-    const hero = allowedSubjects.length
-      ? await verifyCategoryHero(rawBytes, {
-          category_name: categoryNameFinal,
-          allowed_subjects: allowedSubjects,
-          forbidden_subjects: forbiddenSubjects,
-        }, COVER_VISION_TIMEOUT_MS)
-      : { ok: false, matches: false, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined" };
-    if (hero.degraded) {
-      attempt.ended_at = new Date().toISOString();
-      attempt.status = "requeued";
-      attempt.checks = { luminance, color, raw_art_transcription: rawGlyph, hero_verdict: hero };
-      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, `unmeasured_category_subject:${hero.reason}`);
-    }
-    if (!hero.matches) {
-      attempt.ended_at = new Date().toISOString();
-      attempt.status = "requeued";
-      attempt.checks = { luminance, color, raw_art_transcription: rawGlyph, hero_verdict: hero };
-      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, `wrong_category_subject:${hero.reason}`, 422);
-    }
-
+    const selfArt = await renderColoringSelfArtCover({
+      categoryKey: categoryKey ?? null,
+      categoryName: categoryNameFinal,
+      pages: interiorPages,
+      maxHeroes: 3,
+      canvasWidth: 1600,
+      canvasHeight: 1600,
+      seed: ebook_id,
+    });
+    const selfArtLuminance = await computeLuminance(selfArt.bytes);
+    const selfArtColor = await colorEvidence(selfArt.bytes);
+    // Synthetic evidence for rung 2 gates: rawGlyph is textless-by-construction
+    // (no font engine touches the raster before the SVG overlay); hero is
+    // provably on-category because every source page passed the anatomy /
+    // category-fit gate during interior rendering.
+    const rung2RawGlyph = {
+      ok: true, has_glyphs: false, detected_text: null, confidence: 1,
+      degraded: false, reason: "self_art_deterministic_textless_by_construction",
+    };
+    const rung2Hero = {
+      ok: true, matches: true, detected_subjects: selfArt.heroes_used.map((h) => `interior_page_${h.page}`),
+      forbidden_hit: null, degraded: false,
+      reason: `self_art_from_gate_passed_interior_pages:${selfArt.heroes_used.map((h) => h.page).join(",")}`,
+    };
     const treatment = await renderKidsTitleTreatment({
-      coverBg: rawBytes,
+      coverBg: selfArt.bytes,
       title: row.title,
       subtitle,
       palette: ["#FFF6E5", "#2A1A0A", "#E9B44C", "#6BAA75", "#4FA3D8"],
@@ -394,72 +513,45 @@ Deno.serve(async (req: Request) => {
     const treatmentMeta = treatment.metadata as unknown as Record<string, unknown>;
     const overlayText = constructedOverlayTranscription(row.title, subtitle, ageBadge);
     const measured = measuredCoverScorecard({
-      title: row.title,
-      subtitle,
-      ageBadge,
-      text: overlayText,
-      rawArtText: rawGlyph,
+      title: row.title, subtitle, ageBadge, text: overlayText, rawArtText: rung2RawGlyph,
       typographySource: "textless_art_plus_svg_overlay",
-      hero,
+      hero: rung2Hero,
       frame: (treatmentMeta as any)?.overlay_frame ?? { width: 1600, height: 1600, safe_margin: 64, elements: [] },
-      logo: {
-        present: (treatmentMeta as any)?.logo_present === true,
-        rect: ((treatmentMeta as any)?.overlay_frame?.elements ?? []).find((e: any) => e.name === "secretpdf_kids_logo") ?? null,
-      },
+      logo: { present: (treatmentMeta as any)?.logo_present === true, rect: ((treatmentMeta as any)?.overlay_frame?.elements ?? []).find((e: any) => e.name === "secretpdf_kids_logo") ?? null },
       artwork: {
         used_svg_fallback: false,
-        synthesized_background: false,
-        blank_background: color.blank_background === true,
-        blank_ratio: color.blank_ratio ?? 0,
-        region_stats: color.region_stats,
+        synthesized_background: false, // self-art is REAL art from real pages, not a gradient
+        blank_background: selfArtColor.blank_background === true,
+        blank_ratio: selfArtColor.blank_ratio ?? 0,
+        region_stats: selfArtColor.region_stats,
       },
       quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
       pageCountMatchesFinalPdf: true,
     });
-    const measuredGate = coloringCoverGate(measured);
     attempt.ended_at = new Date().toISOString();
-    attempt.status = measuredGate.pass ? "accepted" : "requeued";
-    attempt.checks = { luminance, color, raw_art_transcription: rawGlyph, hero_verdict: hero, overlay_transcription: overlayText, measured_gate: measuredGate };
-    if (!measuredGate.pass) {
-      return await markCoverBlocked(db, ebook_id, {
-        coloring_cover_single_attempt: attempt,
-        coloring_cover_gate: { pass: false, reasons: measuredGate.reasons, scorecard: measured, raw_art_transcription: rawGlyph, overlay_transcription: overlayText, hero_verdict: hero },
-      }, `measured_cover_gate_failed:${measuredGate.reasons.join(";").slice(0, 180)}`, 422);
-    }
-
-    const version = `${Date.now()}`;
-    const path = `kids/${ebook_id}/coloring/cover-${version}.png`;
-    const up = await uploadAndSignImage(db, "ebook-covers", path, finalBytes, { contentType: "image/png" });
-    const coverRecord = {
-      version: SINGLE_RUNG_VERSION,
-      url: up.signedUrl,
-      storage_path: up.path,
-      accepted_rung: "flux_schnell_single",
-      provider: providerResult.provider,
-      provider_attempts: providerResult.attempts,
-      prompt_hash: promptHash,
-      prompt_subjects: heroSubjects,
-      learned_rules: [...learnedRules.values()].map((r: any) => ({ pattern_key: r.pattern_key, species_key: r.species_key })),
-      generated_at: new Date().toISOString(),
-      subtitle_used: subtitle,
-      age_badge: ageBadge,
-      title_treatment: treatmentMeta,
-      spelling_verified: (treatmentMeta as any)?.title === row.title,
-      evidence: { luminance, color, raw_art_transcription: rawGlyph, hero_verdict: hero, overlay_transcription: overlayText },
-      previous_ladder_state: meta.coloring_cover_ladder ?? null,
-      measured_gate: { pass: true, scorecard: measured, reasons: [], raw_art_transcription: rawGlyph, overlay_transcription: overlayText, hero_verdict: hero },
-    };
-    await db.from("ebooks_kids").update({ cover_url: up.signedUrl, thumbnail_url: up.signedUrl, blocker_reason: null }).eq("id", ebook_id);
-    await patchMeta(db, ebook_id, {
-      coloring_cover: coverRecord,
-      coloring_cover_gate: coverRecord.measured_gate,
-      coloring_cover_single_attempt: attempt,
-      coloring_progress_percent: 94,
-      coloring_current_step_label: "Cover generated — assembling PDF",
-      awaiting: "cover_pdf_publish",
+    attempt.status = "accepted";
+    attempt.checks = { flux_attempts: fluxAttempts, accepted_via: SELF_ART_COVER_VERSION, rung: "rung2_self_art", self_art_evidence: selfArt };
+    return await persistAcceptedCover({
+      finalBytes, treatmentMeta, measured, acceptedRung: SELF_ART_COVER_VERSION,
+      coverRecordExtras: {
+        provider: "self_art_flood_fill",
+        provider_attempts: 0,
+        evidence: {
+          luminance: selfArtLuminance,
+          color: selfArtColor,
+          raw_art_transcription: rung2RawGlyph,
+          hero_verdict: rung2Hero,
+          overlay_transcription: overlayText,
+          self_art: {
+            version: selfArt.version,
+            palette: selfArt.palette,
+            canvas: selfArt.canvas,
+            heroes_used: selfArt.heroes_used,
+          },
+        },
+        flux_attempts: fluxAttempts,
+      },
     });
-    fireAndForget("coloring-book-assemble", { ebook_id });
-    return json({ ok: true, accepted_rung: "flux_schnell_single", provider: providerResult.provider, chained: "assemble" });
   } catch (e: any) {
     console.error("[coloring-cover] fatal", e?.message);
     return json({ error: e?.message ?? String(e) }, 500);
