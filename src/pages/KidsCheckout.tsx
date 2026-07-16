@@ -22,9 +22,6 @@ export default function KidsCheckout() {
   const { id } = useParams<{ id: string }>();
   const [book, setBook] = useState<Book | null>(null);
   const [loading, setLoading] = useState(true);
-  const [email, setEmail] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [joined, setJoined] = useState(false);
 
   useEffect(() => {
     document.title = "Checkout · Kids Books | SecretPDF";
@@ -42,27 +39,6 @@ export default function KidsCheckout() {
     return () => { cancelled = true; };
   }, [id]);
 
-  const joinWaitlist = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      toast.error("อีเมลไม่ถูกต้อง");
-      return;
-    }
-    setSubmitting(true);
-    const { error } = await supabase.from("kids_launch_leads").insert({
-      email,
-      ebook_id: book?.id ?? null,
-      source: "kids_checkout_waitlist",
-      metadata: { title: book?.title ?? null },
-    });
-    setSubmitting(false);
-    if (error) {
-      toast.error("บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง");
-      return;
-    }
-    setJoined(true);
-    toast.success("บันทึกอีเมลเรียบร้อย เราจะแจ้งเมื่อเปิดให้ซื้อ");
-  };
 
   if (loading) {
     return <div className="py-24 flex justify-center"><Loader2 className="h-8 w-8 animate-spin text-accent" /></div>;
