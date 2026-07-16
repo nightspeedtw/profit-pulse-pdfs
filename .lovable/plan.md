@@ -1,68 +1,60 @@
+## Goal
+Drive "Ocean Friends Coloring Adventure" from its current stuck state all the way to `listing_status=live` without you clicking anything else — fixing each failure class permanently as it surfaces.
 
-# Coloring Book Autopilot — Visibility, Progress %, Unique Topics
+## Current stuck point (evidence)
+- Row `a05a5086…` — `pipeline_status=queued`, `blocker_reason=generate_interior:coloring_calibration_batch_failed: verify_at_birth: page 1 not a PNG (magic mismatch)`.
+- My previous fix added `output_format: "png"` to the FAL call, but the second dispatch failed with the identical error. Conclusion: `fal-ai/flux/schnell` ignores that param and always returns JPEG. Attacking the symptom (forcing PNG) is the wrong class fix.
 
-## What the user is seeing today (root cause)
+## Class fix (not row fix)
+Stop pretending the bytes must be PNG. Detect the real format from magic bytes, store with the correct extension + content-type, and only fail when the bytes are neither a valid PNG, JPEG, nor WebP.
 
-1. **"Run now" ดูเหมือนไม่มีอะไรเกิดขึ้น"** — `coloring-book-start` inserts an `ebooks_kids` row in `pipeline_status='queued'`, but `coloring-book-render` is a **stub** (frozen behind P0). It flips `queued → generating → queued` with `awaiting: "post_p0_coloring_render_engine"` and returns. Nothing visible actually renders.
-2. **No % progress / no "what is the system doing"** — the status strip only shows counts (queued / generating / cancelled). There is no per-book progress bar, no current-step label, no last-action reason.
-3. **Duplicate titles** — `titleFor(cat, ageBand)` picks from 5 openers × category name × age band only (e.g. "Dinosaurs Coloring Adventures (Ages 4–6)"). Same category = high collision. No angle, no subtitle, no uniqueness check.
+### Step 1 — Format-agnostic verify-at-birth
+`supabase/functions/coloring-book-render/index.ts`
+- Replace `verifyPngAtBirth` with `detectImageKind(bytes)` returning `"png" | "jpeg" | "webp"` or throwing.
+- Keep the min-bytes guard (rejects blank/1-pixel outputs).
+- Store extension + content-type from the detected kind (path becomes `page-01-<ver>.jpg` when JPEG).
+- Persist `mime` in each `StoredPage` record so the PDF assembler picks the right decoder later.
 
-## Proposed changes (frontend + status only — no P0 code touched)
+### Step 2 — Storage upload uses detected mime
+`supabase/functions/_shared/versioned-assets.ts` (call site only — no signature change if it already accepts contentType; otherwise pass through).
+- Confirm `uploadAndSignImage` sets `contentType` from the detected kind, not hard-coded `image/png`.
 
-### 1. Unique topics per category (angle system)
+### Step 3 — Regression test (defect class lock)
+`src/lib/coloringGates.test.ts`
+- Add cases: PNG magic passes, JPEG magic passes, WebP magic passes, random bytes throw, undersized bytes throw. Test fails on today's code, passes after Step 1.
 
-- Add an **angle library** per category in `supabase/functions/_shared/coloring/angles.ts`:
-  - Generic angles: `Cute`, `Fierce`, `Baby`, `Giant`, `Magical`, `Underwater`, `Space`, `Winter`, `Party`, `Jungle`, `Rainbow`, `Superhero`.
-  - Category-scoped overrides (e.g. dinosaurs → `Cute Dinosaurs`, `Fierce Dinosaurs`, `Baby Dinos`, `Dinos in Space`; vehicles → `Race Cars`, `Monster Trucks`, `Fire & Rescue`).
-- `titleFor(cat, ageBand, angle)` produces English titles like:
-  - `Cute Dinosaurs Coloring Book — 32 Fun Pages (Ages 4–6)`
-  - `Fierce Dinosaurs Coloring Adventures (Ages 4–6)`
-- **Duplicate guard** in `coloring-autopilot-tick`: before inserting, query `ebooks_kids` for `book_type='coloring_book'` in the same category and pick the first unused angle. If all angles used, append `V2`, `V3`, … suffix. Never insert two rows with identical `title`.
-- Persist chosen `angle` + `variant_number` into `metadata.coloring_angle` / `metadata.coloring_variant` for downstream diversity.
+### Step 4 — Re-dispatch stuck row + sibling
+- Clear `blocker_reason` on `a05a5086…` and `19ca7a86…`, drop the legacy `awaiting: p0_close_before_generation` flag on both (already patched in `coloring-book-start` for new rows; these two predate the patch).
+- Invoke `coloring-worker-tick` manually to dispatch.
 
-### 2. Live progress % + current-step label
+### Step 5 — Auto-fix loop until calibration approved
+Poll every ~60s and, for each new failure class that appears, apply the standing doctrine (evidence → class fix + regression test → resume). Concretely I will watch for and be ready to fix:
+- `generate_interior:*` — image-provider issues (rate limit, safety flag, empty url).
+- `persistence_contract:*` — missing plan/style-contract fields.
+- `upload_failed:*` — storage bucket / signing errors.
+- `stall_no_progress` — self-invocation loop broken; add explicit re-tick.
 
-- Extend `ebooks_kids.metadata` with two observability fields (no schema change; JSON keys):
-  - `coloring_progress_percent` (0–100)
-  - `coloring_current_step_label` (e.g. "Planned 32 pages", "Awaiting P0 close — render engine paused", "Cancelled by admin")
-- `coloring-book-start` seeds `{ progress: 5, label: "Queued — waiting for engine" }`.
-- `coloring-book-render` (stub) truthfully sets `{ progress: 10, label: "Awaiting post-P0 coloring render engine" }` — no fake progression.
-- `coloring-cancel-queued` sets `{ progress: 0, label: "Cancelled by admin" }`.
-- When the real render engine ships post-P0, each of its steps writes its own `%` + label (plan → cover → interior batch → PDF assemble → done).
+When all 4 calibration pages land, the engine parks at `awaiting: owner_calibration_review` (25%). I will assemble those 4 pages into an 8.5×11 portrait PDF and post it here for your visual sign-off. **This is the one mandatory human gate** — the reference-style match must be verified by you before 28 more pages burn budget.
 
-### 3. Status panel upgrade (`ColoringAutopilotCard`)
+### Step 6 — After you approve calibration
+Set `metadata.coloring_calibration_approved=true`, worker resumes automatically, remaining 28 pages render in batches of 6 with self-invocation.
 
-- Add a **"Engine status" banner** at the top of the status strip that reads the truth from config:
-  - `Engine paused` (amber) if `cfg.paused`
-  - `Awaiting P0 — render blocked` (amber) if the stub is still active (detected via the most recent `awaiting` metadata flag)
-  - `Running` (emerald) otherwise
-- Add **per-row progress row** in the "recent" list:
-  - Title · angle badge · progress bar (`<div class="h-1 bg-…">`) · % · current step label · cancel button (if queued/generating)
-- Extend `coloring-autopilot-config` snapshot to return, for each recent row: `progress_percent`, `current_step_label`, `angle`, `variant_number`, `awaiting`. Poll every 10s (down from 15s) while any row is `generating`.
-- Add a **"Last action" line** under the tick timestamp: renders the last dispatched or cancelled event with its label.
+### Step 7 — Cover + PDF + publish (post-calibration, still auto)
+Currently the engine parks at `awaiting: cover_pdf_publish` (90%) because that chain hasn't shipped yet. I will build it in this same auto-fix loop:
+- `coloring-cover-render` — textless cover art (FAL Ideogram v3 for title-safe area), SVG typography overlay for title + "Ages 4-6" badge (deterministic, not model-drawn text).
+- `coloring-build-pdf` — assemble 32 pages (cover + 28 interior + 3 front/back matter) into 8.5×11 portrait via existing `kids-picture-pdf` helpers, adapted for line-art (no bleed, safe margin lock).
+- `coloring-publish` — price $4.99, generate storefront thumbnail, flip `listing_status=live`, `sellable=true`. Reuses existing `kids-publish-if-qc-passed` gate contract.
 
-### 4. Real coloring render engine (out of scope for this task)
+### Step 8 — Live proof
+Report back with: PDF URL, cover URL, storefront URL, and the release-manifest validator result. Only then do I use the word "live".
 
-Not touched here. The stub is P0-frozen. Once P0 closes we'll wire the real page/cover/PDF pipeline into `coloring-book-render` and it will drive the same `progress_percent` / `current_step_label` fields — the UI ships now and lights up automatically when the engine comes online.
+## Guardrails
+- No QC threshold lowered. No gate bypassed.
+- Every fix ships with a failing-then-passing regression test.
+- Same-class failure ×2 → I pause and re-diagnose instead of blind retry.
+- Cover/PDF chain runs sequentially inside the coloring lane; does not touch picture-book lane.
 
-## Files touched
-
-- **New**: `supabase/functions/_shared/coloring/angles.ts`
-- **Edit**: `supabase/functions/coloring-autopilot-tick/index.ts` — angle+dup guard, title composer
-- **Edit**: `supabase/functions/coloring-book-start/index.ts` — accept `angle`, seed progress metadata
-- **Edit**: `supabase/functions/coloring-book-render/index.ts` — honest progress label
-- **Edit**: `supabase/functions/coloring-cancel-queued/index.ts` — cancel label
-- **Edit**: `supabase/functions/coloring-autopilot-config/index.ts` — return angle + progress in `status.recent`
-- **Edit**: `src/components/admin/ColoringAutopilotCard.tsx` — engine banner, per-row progress bar, current-step label, angle badge, 10s poll while generating
-
-## Verification
-
-- Run "Run now" three times on same category → three rows with distinct English angles (`Cute … / Fierce … / Baby …`), no title duplicates.
-- Recent list shows each row with a progress bar (currently pinned at 10% "Awaiting post-P0 …") and a clear engine banner explaining why no generation is happening yet — solving the "ไม่เห็นอะไรเกิดขึ้น" confusion truthfully instead of faking work.
-
-## Explicit non-goals
-
-- Does **not** unfreeze P0.
-- Does **not** build the real coloring render engine.
-- Does **not** fabricate progress %; the stub reports its real state (10% / awaiting).
-- Does **not** touch picture-book workers, QC gates, or thresholds.
+## What you'll see
+1. Ping when calibration PDF (4 pages) is ready for your review — **you approve or reject here**.
+2. Ping when full 32-page PDF is assembled.
+3. Ping when the book is live with URLs.

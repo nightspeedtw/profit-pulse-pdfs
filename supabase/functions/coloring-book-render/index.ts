@@ -32,6 +32,7 @@ import {
   type LineArtStyleContract,
   type PagePlanEntry,
 } from "../_shared/coloring/style-contract.ts";
+import { verifyImageAtBirth, type ImageKind } from "../_shared/coloring/image-kind.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 
 declare const Deno: any;
@@ -41,14 +42,14 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const CALIBRATION_COUNT = 4;   // pages rendered before owner style-lock review
 const BATCH_SIZE = 6;          // pages rendered per invocation post-calibration
-const MIN_PNG_BYTES = 8_000;   // verify-at-birth: real line-art is well above this
-const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47];
+const MIN_IMAGE_BYTES = 8_000; // verify-at-birth: real line-art is well above this
 
 interface StoredPage {
   page: number;
   signed_url: string;
   storage_path: string;
   bytes: number;
+  mime: string;
   rendered_at: string;
   prompt_hash: string;
   primary_subject: string;
@@ -62,25 +63,14 @@ function json(x: unknown, status = 200) {
   });
 }
 
-function verifyPngAtBirth(bytes: Uint8Array, page: number): void {
-  if (bytes.length < MIN_PNG_BYTES) {
-    throw new Error(`verify_at_birth: page ${page} bytes=${bytes.length} < min ${MIN_PNG_BYTES}`);
-  }
-  for (let i = 0; i < 4; i++) {
-    if (bytes[i] !== PNG_MAGIC[i]) {
-      throw new Error(`verify_at_birth: page ${page} not a PNG (magic mismatch)`);
-    }
-  }
-}
-
 async function sha256Hex(s: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
 }
 
-function coloringPath(ebookId: string, page: number, version: string): string {
+function coloringPath(ebookId: string, page: number, version: string, ext: string): string {
   const p = String(page).padStart(2, "0");
-  return `kids/${ebookId}/coloring/interior/page-${p}-${version}.png`;
+  return `kids/${ebookId}/coloring/interior/page-${p}-${version}.${ext}`;
 }
 
 async function patchMeta(db: any, ebookId: string, patch: Record<string, unknown>) {
@@ -246,19 +236,19 @@ Deno.serve(async (req: Request) => {
         const bytes = await falFluxSchnell({
           prompt,
           image_size: "portrait_4_3",
-          output_format: "png",
           ebook_id: ebook_id,
           step: `coloring_${stageLabel}_page_${page.canonical_page_number}`,
         });
-        verifyPngAtBirth(bytes, page.canonical_page_number);
+        const verified = verifyImageAtBirth(bytes, page.canonical_page_number, MIN_IMAGE_BYTES);
         const version = `${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
-        const path = coloringPath(ebook_id, page.canonical_page_number, version);
-        const up = await uploadAndSignImage(db, "ebook-covers", path, bytes);
+        const path = coloringPath(ebook_id, page.canonical_page_number, version, verified.ext);
+        const up = await uploadAndSignImage(db, "ebook-covers", path, bytes, { contentType: verified.mime });
         newRecords.push({
           page: page.canonical_page_number,
           signed_url: up.signedUrl,
           storage_path: up.path,
           bytes: bytes.length,
+          mime: verified.mime,
           rendered_at: new Date().toISOString(),
           prompt_hash: promptHash,
           primary_subject: page.primary_subject,
