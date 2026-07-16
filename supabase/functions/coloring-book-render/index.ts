@@ -652,7 +652,9 @@ Deno.serve(async (req: Request) => {
         coloring_current_step_label: `Batch failed at ${stageLabel}; will retry (${errors.length} pages)`,
         coloring_last_errors: perPageTrimmed,
       });
-      return json({ ok: false, stage: stageLabel, errors: perPageTrimmed }, 200);
+      // Self-advance with backoff — do not wait for the next cron tick.
+      await scheduleSelfAdvance(db, ebook_id, { delayMs: SELF_ADVANCE_DELAY_BACKOFF_MS, reason: `batch_failed:${stageLabel}` });
+      return json({ ok: false, stage: stageLabel, errors: perPageTrimmed, self_advance: true }, 200);
     }
 
     // On any partial success, still update the rolling error log.
