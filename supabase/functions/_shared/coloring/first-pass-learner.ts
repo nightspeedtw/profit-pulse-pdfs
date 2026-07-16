@@ -213,6 +213,11 @@ export function pickLearnedRulesFor(
   const subj = NORM(subject);
   const out: LearnedRule[] = [];
   for (const [key, rules] of index) {
+    if (key === "__all_scenes__") {
+      // Universal sentinel — applies to EVERY subject in EVERY category.
+      out.push(...rules);
+      continue;
+    }
     if (key === "__sea_scene__") {
       const isSea = /(sea|ocean|underwater|reef|lagoon|beach|coral)/i.test(scene ?? "") ||
         CETACEANS.has(subj) || RAYS.has(subj) || SEALS.has(subj);
