@@ -185,17 +185,16 @@ Deno.serve(async (req: Request) => {
     {
       const p = doc.addPage([PAGE_W, PAGE_H]);
       p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.996, 0.973, 0.910) });
-      centerText(p, row.title, PAGE_H - 180, 32, helvBold);
-      centerText(p, subtitle, PAGE_H - 220, 14, helv, rgb(0.35, 0.25, 0.15));
-      centerText(p, "A SecretPDF Kids coloring book", 220, 12, helv, rgb(0.4, 0.3, 0.2));
+      centerFit(p, row.title, PAGE_H - 180, 32, helvBold, undefined, 14);
+      centerFit(p, subtitle, PAGE_H - 220, 14, helv, rgb(0.35, 0.25, 0.15), 9);
+      centerFit(p, "A SecretPDF Kids coloring book", 220, 12, helv, rgb(0.4, 0.3, 0.2), 8);
       drawColoringFooter(p, logoImg, helv);
     }
 
     // ── 3. Copyright page ─────────────────────────────────────────────
     {
       const p = doc.addPage([PAGE_W, PAGE_H]);
-      const y = PAGE_H - 120;
-      const lines = [
+      const paragraph = [
         `© ${new Date().getFullYear()} secretpdf.co. All rights reserved.`,
         "",
         "This coloring book is licensed for personal, non-commercial use.",
@@ -203,9 +202,15 @@ Deno.serve(async (req: Request) => {
         "Not for resale, redistribution, or commercial reproduction.",
         "",
         "Visit secretpdf.co for more coloring books and kids' printables.",
-      ];
-      lines.forEach((line, i) => {
-        p.drawText(line, { x: SAFE_MARGIN + 40, y: y - i * 18, size: 11, font: helv, color: rgb(0.2, 0.15, 0.1) });
+      ].join("\n");
+      drawFitParagraph(p, {
+        text: paragraph,
+        x: SAFE_MARGIN + 40, y: PAGE_H - 120,
+        maxWidth: PAGE_W - 2 * SAFE_MARGIN - 80,
+        maxHeight: PAGE_H - 220,
+        font: helv, size: 11, minSize: 7,
+        color: rgb(0.2, 0.15, 0.1),
+        lineHeightFactor: 1.5,
       });
       drawColoringFooter(p, logoImg, helv);
     }
@@ -213,7 +218,7 @@ Deno.serve(async (req: Request) => {
     // ── 4. How to color tips ──────────────────────────────────────────
     {
       const p = doc.addPage([PAGE_W, PAGE_H]);
-      centerText(p, "How to Use This Book", PAGE_H - 140, 22, helvBold);
+      centerFit(p, "How to Use This Book", PAGE_H - 140, 22, helvBold, undefined, 12);
       const tips = [
         `1. Pick your favorite coloring tools — crayons, markers, or colored pencils.`,
         `2. Start with the outlines, then fill each shape with color.`,
@@ -221,12 +226,19 @@ Deno.serve(async (req: Request) => {
         `4. Take a break between pages. Rest your hand.`,
         `5. When you finish a page, show a grown-up your masterpiece.`,
         `6. Complete all ${totalPages} pages to earn your certificate at the end.`,
-      ];
-      tips.forEach((t, i) => {
-        p.drawText(t, { x: SAFE_MARGIN + 20, y: PAGE_H - 200 - i * 30, size: 13, font: helv, color: rgb(0.2, 0.15, 0.1) });
+      ].join("\n");
+      drawFitParagraph(p, {
+        text: tips,
+        x: SAFE_MARGIN + 20, y: PAGE_H - 200,
+        maxWidth: PAGE_W - 2 * SAFE_MARGIN - 40,
+        maxHeight: PAGE_H - 300,
+        font: helv, size: 13, minSize: 8,
+        color: rgb(0.2, 0.15, 0.1),
+        lineHeightFactor: 1.6,
       });
       drawColoringFooter(p, logoImg, helv);
     }
+
 
     // ── 5. Interior coloring pages ────────────────────────────────────
     const interiorReports: any[] = [];
