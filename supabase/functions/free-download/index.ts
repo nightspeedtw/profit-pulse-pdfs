@@ -31,7 +31,11 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (ke) throw ke;
       if (!k) throw new Error("Ebook not found");
-      e = { id: k.id, title: k.title, pdf_url: k.pdf_url, listed_at: k.listing_status === "live" ? new Date().toISOString() : null } as any;
+      // PAYMENT BYPASS (owner directive during batch-learning rounds):
+      // any kids book with a pdf_url is downloadable for testing, regardless
+      // of listing_status. Commerce floor unchanged — a missing PDF still
+      // returns "PDF not available".
+      e = { id: k.id, title: k.title, pdf_url: k.pdf_url, listed_at: k.pdf_url ? new Date().toISOString() : null } as any;
     }
     if (!e.listed_at) throw new Error("Ebook not available");
     if (!e.pdf_url) throw new Error("PDF not available");
