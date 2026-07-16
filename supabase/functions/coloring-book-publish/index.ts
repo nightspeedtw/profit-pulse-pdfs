@@ -108,13 +108,6 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const { ebook_id, mode, owner_flip } = body ?? {};
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
-    // OWNER LAW: publish-candidate is the terminal state for the automated
-    // pipeline. Only an explicit owner flip (owner_flip === true) may promote
-    // a book to listing_status='live'/sellable=true. Any automated caller
-    // passing mode:'live' without owner_flip is silently downgraded to
-    // candidate — the pipeline never puts a book on the storefront without
-    // the owner's re-audit verdict.
-    const publishLive = mode === "live" && owner_flip === true;
 
     const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -134,6 +127,19 @@ Deno.serve(async (req: Request) => {
     if (!row.pdf_url || !assembly?.pdf_sha256) return json({ error: "pdf_missing" }, 422);
     if (!row.cover_url) return json({ error: "cover_missing" }, 422);
     if (pages.length !== plan.length) return json({ error: "interior_incomplete" }, 422);
+
+    // OWNER LAW: publish-candidate is the terminal automated state UNLESS
+    // (a) the owner explicitly flips (`owner_flip === true`), OR
+    // (b) batch-learning `clean_auto_flip` is on AND `defect_ledger` is
+    //     empty (clean book — owner has pre-delegated the flip).
+    const { data: gsPreview } = await db.from("generation_settings")
+      .select("coloring_autopilot").eq("id", 1).maybeSingle();
+    const autopilotCfg = (gsPreview?.coloring_autopilot ?? {}) as Record<string, unknown>;
+    const ledger = Array.isArray(meta.defect_ledger) ? (meta.defect_ledger as any[]) : [];
+    const cleanLedger = ledger.length === 0;
+    const autoFlipEnabled = autopilotCfg.clean_auto_flip === true;
+    const publishLive = (mode === "live" && owner_flip === true) || (cleanLedger && autoFlipEnabled);
+
 
     await patchMeta(db, ebook_id, {
       coloring_current_step_label: "Publishing to storefront",
