@@ -230,6 +230,7 @@ Deno.serve(async (req: Request) => {
     });
 
     const newRecords: StoredPage[] = [];
+    const anatomyBuffer: { page: number; subject: string; bytes: Uint8Array; mime: string }[] = [];
     const errors: { page: number; error: string }[] = [];
 
     // Track per-page repair attempts on metadata for the repair ladder.
