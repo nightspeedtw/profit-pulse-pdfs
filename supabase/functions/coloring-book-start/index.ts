@@ -24,6 +24,8 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const category_key: string = body.category_key;
     const title: string = body.title;
+    const angle: string | null = body.angle ?? null;
+    const variant_number: number = Number(body.variant_number ?? 1) || 1;
     const age_band: string = body.age_band ?? "4-6";
     const page_count: number = Number(body.page_count ?? 32);
     if (!category_key || !title) {
@@ -48,6 +50,10 @@ Deno.serve(async (req: Request) => {
           coloring_category_key: category.category_key,
           coloring_age_band: age_band,
           coloring_page_count: page_count,
+          coloring_angle: angle,
+          coloring_variant: variant_number,
+          coloring_progress_percent: 5,
+          coloring_current_step_label: "Queued — waiting for coloring engine",
           coloring_theme_bible: {
             category_key: category.category_key,
             category_name: category.category_name,

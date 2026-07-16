@@ -30,16 +30,30 @@ Deno.serve(async (req: Request) => {
       { auth: { persistSession: false } },
     );
 
-    let q = db.from("ebooks_kids")
-      .update({ pipeline_status: "cancelled" })
+    // Fetch rows first so we can merge metadata (cancel label + 0% progress).
+    let sel = db.from("ebooks_kids")
+      .select("id, metadata")
       .eq("book_type", "coloring_book")
       .eq("pipeline_status", "queued");
-    if (body.ebook_id) q = q.eq("id", body.ebook_id);
+    if (body.ebook_id) sel = sel.eq("id", body.ebook_id);
     else if (!body.all) return json({ error: "ebook_id or all=true required" }, 400);
+    const { data: rows, error: selErr } = await sel;
+    if (selErr) throw selErr;
 
-    const { data, error } = await q.select("id");
-    if (error) throw error;
-    return json({ ok: true, cancelled: data?.length ?? 0, ids: (data ?? []).map((r: any) => r.id) });
+    const cancelledIds: string[] = [];
+    for (const row of rows ?? []) {
+      const meta = {
+        ...(row.metadata ?? {}),
+        coloring_progress_percent: 0,
+        coloring_current_step_label: "Cancelled by admin",
+        coloring_cancelled_at: new Date().toISOString(),
+      };
+      const { error: uErr } = await db.from("ebooks_kids")
+        .update({ pipeline_status: "cancelled", metadata: meta })
+        .eq("id", row.id);
+      if (!uErr) cancelledIds.push(row.id);
+    }
+    return json({ ok: true, cancelled: cancelledIds.length, ids: cancelledIds });
   } catch (e: any) {
     return json({ error: e?.message ?? String(e) }, 500);
   }
