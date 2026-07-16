@@ -60,6 +60,46 @@ Deno.serve(async (req: Request) => {
       return json(result);
     }
 
+    // ── WATCHDOG: auto-requeue failed rows under a newer repair regime ──
+    // Class fix: when learn-then-retry stamps a new regime, dead rows must
+    // be requeued exactly once per regime version — never rest silently in
+    // 'failed'. Reset attempts for dead pages, stamp the version, flip to
+    // 'queued', clear blocker. The queued scan below then dispatches them.
+    const { data: failedRows } = await db
+      .from("ebooks_kids")
+      .select("id, title, metadata")
+      .eq("book_type", "coloring_book")
+      .eq("pipeline_status", "failed")
+      .limit(20);
+    const requeued: unknown[] = [];
+    for (const row of failedRows ?? []) {
+      const meta = (row.metadata ?? {}) as Record<string, unknown>;
+      const lastVer = meta.coloring_last_requeued_regime_version as string | undefined;
+      if (lastVer === CURRENT_COLORING_REPAIR_REGIME) continue;
+      const deadPages = (meta.coloring_dead_pages as number[] | undefined) ?? [];
+      const attempts = ((meta.coloring_repair_attempts as Record<string, number> | undefined) ?? {});
+      for (const p of deadPages) attempts[String(p)] = 0;
+      const mergedMeta = {
+        ...meta,
+        coloring_repair_attempts: attempts,
+        coloring_last_requeued_regime_version: CURRENT_COLORING_REPAIR_REGIME,
+        coloring_regime_version: CURRENT_COLORING_REPAIR_REGIME,
+        coloring_last_requeued_at: new Date().toISOString(),
+        coloring_current_step_label:
+          `Auto-requeue under regime ${CURRENT_COLORING_REPAIR_REGIME} (dead: ${deadPages.join(", ") || "none"})`,
+        awaiting: meta.awaiting === "cover_pdf_publish" || meta.awaiting === "publish"
+          ? meta.awaiting
+          : "render",
+      };
+      await db.from("ebooks_kids").update({
+        pipeline_status: "queued",
+        blocker_reason: null,
+        metadata: mergedMeta,
+      }).eq("id", row.id);
+      requeued.push({ ebook_id: row.id, title: row.title, dead_pages: deadPages, regime: CURRENT_COLORING_REPAIR_REGIME });
+    }
+    result.watchdog_requeued = requeued;
+
     const { data: queued } = await db
       .from("ebooks_kids")
       .select("id, title, metadata, pdf_url, cover_url")
