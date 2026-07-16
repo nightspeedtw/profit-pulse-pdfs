@@ -20,8 +20,10 @@ import { Image } from 'https://deno.land/x/imagescript@1.2.17/mod.ts';
 import {
   startPicturePdf, appendSpreadsToPdf, appendUniqueSpreads, finalizePicturePdf,
   splitManuscriptForSpreads, assertLedgerContiguous,
-  type PageLedger,
+  configureKidsBranding, consumeKidsBrandingReports,
+  type PageLedger, type BrandingReport,
 } from '../_shared/kids-picture-pdf.ts';
+import { loadKidsFooterLogoBytes } from '../_shared/kids-branding.ts';
 import { PdfAssemblyMismatchError } from '../_shared/page-ledger.ts';
 import { KIDS_BOOK_FORMAT } from '../_shared/kids-book-format.ts';
 import { computeLuminance } from '../_shared/image-luminance.ts';
