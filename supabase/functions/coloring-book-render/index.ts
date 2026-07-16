@@ -380,6 +380,8 @@ Deno.serve(async (req: Request) => {
           primary_subject: page.primary_subject,
           stage: stageLabel,
           render_params: { ...INTERIOR_GEN_PARAMS },
+          image_provider: providerUsed,
+          image_provider_attempts: gen.attempts,
           sharpness: { score: sharp.score, sobel_mean: sharp.sobel_mean, laplacian_var: sharp.laplacian_var, min_required: sharp.min_required },
         } as any);
         // Buffer raw bytes for batch anatomy verification below.
