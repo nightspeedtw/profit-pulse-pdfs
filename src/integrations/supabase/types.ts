@@ -3926,6 +3926,68 @@ export type Database = {
         }
         Relationships: []
       }
+      stall_events: {
+        Row: {
+          awaiting: string | null
+          blocker_class: string
+          book_type: string
+          created_at: string
+          detected_at: string
+          ebook_id: string
+          evidence: Json
+          id: string
+          pipeline_status: string
+          reaction: string
+          regime_version: string | null
+          repeat_after_fix: boolean
+          resolved_at: string | null
+          stall_age_seconds: number
+          step_label: string | null
+        }
+        Insert: {
+          awaiting?: string | null
+          blocker_class: string
+          book_type: string
+          created_at?: string
+          detected_at?: string
+          ebook_id: string
+          evidence?: Json
+          id?: string
+          pipeline_status: string
+          reaction: string
+          regime_version?: string | null
+          repeat_after_fix?: boolean
+          resolved_at?: string | null
+          stall_age_seconds: number
+          step_label?: string | null
+        }
+        Update: {
+          awaiting?: string | null
+          blocker_class?: string
+          book_type?: string
+          created_at?: string
+          detected_at?: string
+          ebook_id?: string
+          evidence?: Json
+          id?: string
+          pipeline_status?: string
+          reaction?: string
+          regime_version?: string | null
+          repeat_after_fix?: boolean
+          resolved_at?: string | null
+          stall_age_seconds?: number
+          step_label?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stall_events_ebook_id_fkey"
+            columns: ["ebook_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks_kids"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       system_fix_instructions: {
         Row: {
           acceptance_test: string | null
