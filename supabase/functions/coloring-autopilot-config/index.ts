@@ -27,6 +27,24 @@ const DEFAULTS = {
   daily_stop_utc: "22:00",
   max_parallel: 1,
   daily_cost_cap_usd_coloring: 5,
+  // Owner pricing law (see supabase/functions/_shared/coloring/pricing.ts).
+  // Data-only config; edit here or via generation_settings.coloring_autopilot.pricing.
+  pricing: {
+    anchors: [
+      { pages: 24, price_cents: 399 },
+      { pages: 32, price_cents: 499 },
+      { pages: 48, price_cents: 699 },
+      { pages: 64, price_cents: 899 },
+    ],
+    ceiling_cents: 1299,
+    popularity: {
+      top10_multiplier: 1.40,
+      top25_multiplier: 1.20,
+      weights: { view: 1, preview: 3, purchase: 10 },
+      lookback_days: 30,
+      reprice_cooldown_hours: 24,
+    },
+  },
 };
 
 Deno.serve(async (req: Request) => {
