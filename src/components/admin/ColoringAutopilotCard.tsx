@@ -221,11 +221,18 @@ export function ColoringAutopilotCard() {
 
       {status && (
         <div className="mb-4 rounded border border-foreground/20 bg-muted/30 p-3 space-y-2">
+          {status.engine_awaiting_p0 && !status.paused && (
+            <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs">
+              <b className="text-amber-700">Render engine offline (awaiting P0 close).</b>{" "}
+              Rows are being queued with unique English topics + angles, but no page/PDF generation runs yet.
+              Progress stays at 10% until the post-P0 coloring render engine ships.
+            </div>
+          )}
           <div className="flex flex-wrap gap-6 text-sm font-mono">
             <div>
               <span className="text-muted-foreground uppercase text-xs">Engine: </span>
-              <b className={status.paused ? "text-amber-600" : "text-emerald-600"}>
-                {status.paused ? "paused" : "running"}
+              <b className={status.paused ? "text-amber-600" : status.engine_awaiting_p0 ? "text-amber-600" : "text-emerald-600"}>
+                {status.paused ? "paused" : status.engine_awaiting_p0 ? "awaiting P0" : "running"}
               </b>
             </div>
             <div><span className="text-muted-foreground uppercase text-xs">Queued: </span><b>{status.queued}</b></div>
@@ -239,26 +246,54 @@ export function ColoringAutopilotCard() {
             Last worker tick: {status.last_worker_tick_at ? new Date(status.last_worker_tick_at).toLocaleString() : "never"}
           </div>
           {status.recent.length > 0 && (
-            <ul className="space-y-1 text-xs pt-1 border-t border-foreground/10">
-              {status.recent.map((r) => (
-                <li key={r.id} className="flex items-center justify-between gap-3">
-                  <span className="truncate">{r.title}</span>
-                  <span className="flex items-center gap-2 shrink-0">
-                    <span className="text-muted-foreground">
-                      {r.listing_status === "live" ? "live" : r.pipeline_status}
-                    </span>
-                    {r.pipeline_status === "queued" && (
-                      <button
-                        onClick={() => cancelOne(r.id)}
-                        className="text-red-600 hover:text-red-800"
-                        title="Cancel this queued book"
-                      >
-                        <X className="size-3" />
-                      </button>
+            <ul className="space-y-2 text-xs pt-2 border-t border-foreground/10">
+              {status.recent.map((r) => {
+                const isLive = r.listing_status === "live";
+                const stateLabel = isLive ? "live" : r.pipeline_status;
+                const pct = Math.max(0, Math.min(100, Number(r.progress_percent) || 0));
+                const barColor = r.pipeline_status === "cancelled"
+                  ? "bg-red-500"
+                  : isLive
+                    ? "bg-emerald-500"
+                    : r.pipeline_status === "generating"
+                      ? "bg-blue-500"
+                      : "bg-amber-500";
+                return (
+                  <li key={r.id} className="space-y-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {r.angle && (
+                          <span className="px-1.5 py-0.5 rounded bg-foreground/10 text-foreground text-[10px] uppercase font-mono shrink-0">
+                            {r.angle}{r.variant_number && r.variant_number > 1 ? ` V${r.variant_number}` : ""}
+                          </span>
+                        )}
+                        <span className="truncate">{r.title}</span>
+                      </div>
+                      <span className="flex items-center gap-2 shrink-0">
+                        <span className="text-muted-foreground">{stateLabel}</span>
+                        <span className="font-mono text-[10px] text-muted-foreground">{pct}%</span>
+                        {(r.pipeline_status === "queued" || r.pipeline_status === "generating") && (
+                          <button
+                            onClick={() => cancelOne(r.id)}
+                            className="text-red-600 hover:text-red-800"
+                            title="Cancel this book"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                    <div className="h-1 w-full rounded bg-foreground/10 overflow-hidden">
+                      <div className={`h-full ${barColor} transition-all`} style={{ width: `${pct}%` }} />
+                    </div>
+                    {r.current_step_label && (
+                      <div className="text-[11px] text-muted-foreground italic pl-1">
+                        {r.current_step_label}
+                      </div>
                     )}
-                  </span>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
