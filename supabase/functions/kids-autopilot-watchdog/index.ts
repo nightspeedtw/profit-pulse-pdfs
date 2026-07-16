@@ -87,6 +87,7 @@ async function scanAndDispatch() {
     const { data: stuckSlow, error } = await db
       .from('ebooks_kids')
       .select('id, title, pipeline_status, listing_status, updated_at')
+      .neq('book_type', 'coloring_book') // coloring runs on its own engine
       .not('pipeline_status', 'in', `(${TERMINAL.map(t => `"${t}"`).join(',')})`)
       .not('pipeline_status', 'in', `(${IN_PROGRESS_BUILD.map(t => `"${t}"`).join(',')})`)
       .neq('listing_status', 'live')
@@ -97,6 +98,7 @@ async function scanAndDispatch() {
     const { data: stuckFast, error: fastErr } = await db
       .from('ebooks_kids')
       .select('id, title, pipeline_status, listing_status, updated_at')
+      .neq('book_type', 'coloring_book')
       .in('pipeline_status', IN_PROGRESS_BUILD)
       .neq('listing_status', 'live')
       .lt('updated_at', eightMinAgo)

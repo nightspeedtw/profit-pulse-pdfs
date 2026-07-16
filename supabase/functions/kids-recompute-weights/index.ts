@@ -18,7 +18,7 @@ Deno.serve(async (req) => {
       .gte('created_at', cutoff);
 
     const kidsIds = new Set<string>();
-    const { data: kidsBooks } = await supabase.from('ebooks_kids').select('id, age_group_id, theme_ids');
+    const { data: kidsBooks } = await supabase.from('ebooks_kids').select('id, age_group_id, theme_ids').neq('book_type', 'coloring_book');
     (kidsBooks ?? []).forEach(b => kidsIds.add(b.id as string));
     const bookMap = new Map((kidsBooks ?? []).map(b => [b.id, b] as const));
 
