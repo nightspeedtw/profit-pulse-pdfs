@@ -17,6 +17,7 @@
 
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { armsRegressionPause, classifyBlocker } from '../_shared/blocker-taxonomy.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -81,8 +82,11 @@ async function tick() {
   if (!order) return { skipped: 'no_active_order' };
 
   // --- P0 REGRESSION GUARD (one_shot_fix_never_repeat, rule 3) ---
-  // If the same blocker_reason class hits 2 distinct books in the last 24h,
-  // pause new launches. In-flight runs continue.
+  // Trigger ONLY on code/infrastructure classes that recur (a true regression:
+  // something that was fixed and came back). Content-quality verdicts like
+  // story_gate are honest gate outputs — normal attrition that routes to the
+  // learn-then-retry cadence, NOT a reason to halt production.
+  // See supabase/functions/_shared/blocker-taxonomy.ts.
   const { data: recentFails } = await db.from('autopilot_kids_runs')
     .select('ebook_kids_id, blocker_reason')
     .eq('status', 'failed')
@@ -90,22 +94,29 @@ async function tick() {
     .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
     .limit(200);
   const classCounts = new Map<string, Set<string>>();
+  const contentCounts = new Map<string, Set<string>>();
   for (const r of (recentFails ?? []) as Array<{ ebook_kids_id: string | null; blocker_reason: string }>) {
     if (!r.ebook_kids_id) continue;
-    const cls = (r.blocker_reason.split(':')[0] || 'unknown').trim().slice(0, 80);
-    const set = classCounts.get(cls) ?? new Set<string>();
+    const { klass } = classifyBlocker(r.blocker_reason);
+    const bucket = armsRegressionPause(r.blocker_reason) ? classCounts : contentCounts;
+    const set = bucket.get(klass) ?? new Set<string>();
     set.add(r.ebook_kids_id);
-    classCounts.set(cls, set);
+    bucket.set(klass, set);
   }
   const regression = [...classCounts.entries()].find(([, s]) => s.size >= 2);
   if (regression) {
     const [cls, books] = regression;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (db.from('kids_batch_orders') as any)
-      .update({ status: 'paused', notes: `P0 regression pause: blocker class "${cls}" hit ${books.size} books in 24h. Fix regression before resume.` })
+      .update({ status: 'paused', notes: `P0 regression pause: CODE-class blocker "${cls}" hit ${books.size} books in 24h. Fix regression before resume.` })
       .eq('id', (order as { id: string }).id);
-    console.warn('[batch-producer] P0 REGRESSION PAUSE', cls, [...books]);
+    console.warn('[batch-producer] P0 REGRESSION PAUSE (code class)', cls, [...books]);
     return { paused: true, reason: 'p0_regression', blocker_class: cls, affected_books: [...books] };
+  }
+  if (contentCounts.size > 0) {
+    // Content attrition is expected. Log for observability; do not pause.
+    const summary = [...contentCounts.entries()].map(([k, s]) => `${k}:${s.size}`).join(', ');
+    console.log('[batch-producer] content attrition in 24h (no pause):', summary);
   }
 
   const rec = await reconcile(db, order as {
