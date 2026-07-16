@@ -66,11 +66,24 @@ Deno.serve(async (req: Request) => {
         admin.from("ebooks_kids").select("id", { count: "exact", head: true })
           .eq("book_type", "coloring_book").gte("created_at", dayStart.toISOString()),
         admin.from("ebooks_kids")
-          .select("id,title,pipeline_status,listing_status,created_at")
+          .select("id,title,pipeline_status,listing_status,created_at,metadata")
           .eq("book_type", "coloring_book")
           .order("created_at", { ascending: false }).limit(8),
       ]);
       const cfg = { ...DEFAULTS, ...(data?.coloring_autopilot ?? {}) };
+      const recent = (recentRes.data ?? []).map((r: any) => ({
+        id: r.id,
+        title: r.title,
+        pipeline_status: r.pipeline_status,
+        listing_status: r.listing_status,
+        created_at: r.created_at,
+        angle: r.metadata?.coloring_angle ?? null,
+        variant_number: r.metadata?.coloring_variant ?? null,
+        progress_percent: Number(r.metadata?.coloring_progress_percent ?? 0),
+        current_step_label: r.metadata?.coloring_current_step_label ?? null,
+        awaiting: r.metadata?.awaiting ?? null,
+      }));
+      const engineAwaitingP0 = recent.some((r) => r.awaiting === "post_p0_coloring_render_engine" || r.awaiting === "p0_close_before_generation");
       return json({
         config: cfg,
         categories: cats ?? [],
@@ -81,9 +94,10 @@ Deno.serve(async (req: Request) => {
           published_today: publishedTodayRes.count ?? 0,
           created_today: todayTotalRes.count ?? 0,
           paused: !!cfg.paused,
+          engine_awaiting_p0: engineAwaitingP0,
           last_worker_tick_at: cfg.last_worker_tick_at ?? null,
           last_worker_tick_result: cfg.last_worker_tick_result ?? null,
-          recent: recentRes.data ?? [],
+          recent,
         },
       });
     }
