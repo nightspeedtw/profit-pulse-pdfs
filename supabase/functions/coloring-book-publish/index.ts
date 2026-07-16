@@ -105,9 +105,17 @@ function escapeHtml(s: string) {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    const { ebook_id, mode } = await req.json();
+    const body = await req.json();
+    const { ebook_id, mode, owner_flip } = body ?? {};
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
-    const publishLive = mode === "live";
+    // OWNER LAW: publish-candidate is the terminal state for the automated
+    // pipeline. Only an explicit owner flip (owner_flip === true) may promote
+    // a book to listing_status='live'/sellable=true. Any automated caller
+    // passing mode:'live' without owner_flip is silently downgraded to
+    // candidate — the pipeline never puts a book on the storefront without
+    // the owner's re-audit verdict.
+    const publishLive = mode === "live" && owner_flip === true;
+
     const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
     const { data: row, error } = await db.from("ebooks_kids")
