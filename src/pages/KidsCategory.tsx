@@ -45,7 +45,7 @@ export default function KidsCategory() {
       const [{ data }, th] = await Promise.all([
         supabase
           .from("ebooks_kids")
-          .select("id,title,cover_url,price_cents,age_band,book_type,theme_ids,theme_slugs,buyer_job_tags,storefront_meta")
+          .select("id,title,cover_url,price_cents,age_band,age_min,age_max,book_type,theme_ids,theme_slugs,buyer_job_tags,storefront_meta")
           .eq("listing_status", "live")
           .eq("sellable", true)
           .order("created_at", { ascending: false })
@@ -65,11 +65,14 @@ export default function KidsCategory() {
   const filtered = useMemo(() => {
     const merged = {
       ...category.filter,
-      age_band:  (urlFilter.age  as AgeBandSlug | null | undefined)  ?? category.filter.age_band,
       theme:     urlFilter.theme ?? category.filter.theme,
       book_type: (urlFilter.type as BookTypeSlug | null | undefined) ?? category.filter.book_type,
     };
-    return rows.filter((r) => bookMatchesFilter(r, merged));
+    const chip = resolveAgeChip(urlFilter.age);
+    return rows
+      .filter((r) => bookIsForKids(r))
+      .filter((r) => bookMatchesFilter(r, merged))
+      .filter((r) => (chip ? bookMatchesAgeChip(r, chip) : true));
   }, [rows, urlFilter, category]);
 
   const canonical = `https://secretpdf.co/kids/${category.slug}`;
