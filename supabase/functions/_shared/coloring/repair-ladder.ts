@@ -34,6 +34,7 @@ export interface RepairDecision {
 
 export function classifyFailure(reasons: string[]): FailureClass {
   const s = reasons.join(" | ").toLowerCase();
+  if (/sharpness_below_floor|sharpness_gate/.test(s)) return "sharpness_below_floor";
   if (/watermark|signature|random_text|letters/.test(s)) return "text_or_watermark";
   if (/anatom|limb|finger|paw|horn|wing|tail|face|eyes|malformed|fused|extra/.test(s)) return "anatomy_structural";
   if (/solid.?black|black_pixel_ratio|black_cluster/.test(s)) return "solid_black_fill";
