@@ -5,23 +5,41 @@
 import type { ColoringCategory } from "./category.ts";
 import type { PagePlanEntry } from "./style-contract.ts";
 
-const COMPOSITIONS = [
-  "single_subject_centered",
-  "subject_with_props",
-  "two_subject_interaction",
-  "subject_in_environment",
-  "action_pose",
-  "group_scene_small",
+// Scene taxonomy — every book distributes across these buckets so pages
+// feel like a real book, not eight rotations of the same subject.
+export const SCENE_TAXONOMY = [
+  "portrait",
+  "full_body",
+  "environment",
+  "action",
+  "relationship",
+  "celebration",
+  "learning",
+  "quiet",
 ] as const;
+export type SceneBucket = typeof SCENE_TAXONOMY[number];
 
-const SCENES_TEMPLATE = [
-  (s: string) => `${s} swimming through open water`,
-  (s: string) => `${s} resting near coral`,
-  (s: string) => `${s} playing with bubbles`,
-  (s: string) => `${s} exploring a shipwreck`,
-  (s: string) => `${s} hiding among seaweed`,
-  (s: string) => `${s} peeking from behind a rock`,
-];
+const COMPOSITIONS_BY_BUCKET: Record<SceneBucket, string> = {
+  portrait: "single_subject_centered",
+  full_body: "single_subject_centered",
+  environment: "subject_in_environment",
+  action: "action_pose",
+  relationship: "two_subject_interaction",
+  celebration: "group_scene_small",
+  learning: "subject_with_props",
+  quiet: "single_subject_centered",
+};
+
+const SCENE_TEMPLATES: Record<SceneBucket, (s: string) => string> = {
+  portrait: (s) => `${s} friendly portrait, head and shoulders, warm expression`,
+  full_body: (s) => `${s} standing full-body pose, whole body visible`,
+  environment: (s) => `${s} exploring its natural habitat, simple background elements`,
+  action: (s) => `${s} in a playful action pose, mid-movement`,
+  relationship: (s) => `${s} interacting warmly with a friend of the same kind`,
+  celebration: (s) => `${s} at a small celebration with festive props`,
+  learning: (s) => `${s} discovering something new with a simple prop`,
+  quiet: (s) => `${s} resting quietly in a calm moment`,
+};
 
 export interface PagePlanValidationIssue {
   page: number;
@@ -30,7 +48,8 @@ export interface PagePlanValidationIssue {
     | "FORBIDDEN_SUBJECT"
     | "DUPLICATE_CONCEPT"
     | "OVERUSED_SUBJECT"
-    | "MISSING_FIELD";
+    | "MISSING_FIELD"
+    | "SCENE_TAXONOMY_UNDERCOVERED";
   message: string;
 }
 
@@ -44,7 +63,6 @@ export interface GeneratePlanOptions {
   seed?: number;
 }
 
-// Simple deterministic pseudo-random from seed (mulberry32)
 function rng(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -58,9 +76,9 @@ function rng(seed: number): () => number {
 }
 
 /**
- * Deterministic distribution: cycle through allowed_subjects so no subject
- * is used more than ceil(count/allowed) times. Vary composition + scene so
- * pages are meaningfully different even when a subject repeats.
+ * Deterministic distribution across SCENE_TAXONOMY.
+ * Cycles subjects so none repeats more than ceil(count/allowed) times,
+ * and every scene bucket appears at least floor(count/8) times.
  */
 export function generatePagePlan(
   category: Pick<
@@ -79,22 +97,22 @@ export function generatePagePlan(
   const plan: PagePlanEntry[] = [];
   for (let i = 0; i < count; i++) {
     const primary = subjects[i % subjects.length];
-    const secondaryCount = supporting.length ? (i % 3 === 0 ? 1 : 0) : 0;
-    const secondary = supporting.length && secondaryCount
+    const bucket: SceneBucket = SCENE_TAXONOMY[i % SCENE_TAXONOMY.length];
+    const composition = COMPOSITIONS_BY_BUCKET[bucket];
+    const secondary = supporting.length && (bucket === "learning" || bucket === "celebration" || bucket === "relationship")
       ? [supporting[Math.floor(rand() * supporting.length)]]
       : [];
-    const composition = COMPOSITIONS[i % COMPOSITIONS.length];
-    const sceneMaker = SCENES_TEMPLATE[i % SCENES_TEMPLATE.length];
     plan.push({
       canonical_page_number: i + 1,
       primary_subject: primary,
       secondary_subjects: secondary,
-      scene: sceneMaker(primary),
-      complexity: i < 4 ? "simple" : i < count - 4 ? "medium" : "medium",
+      scene: SCENE_TEMPLATES[bucket](primary),
+      complexity: bucket === "portrait" || bucket === "quiet" ? "simple" : "medium",
       required_elements: [primary],
       forbidden_elements: [],
       composition_type: composition,
-    });
+      scene_bucket: bucket,
+    } as PagePlanEntry);
   }
   return {
     plan,
@@ -110,6 +128,8 @@ export function generatePagePlan(
  *   - No primary_subject may match any forbidden_subjects entry
  *   - No two pages may share (primary_subject, scene, composition_type)
  *   - No single subject may exceed ceil(count / distinct_subjects) + 1
+ *   - Scene taxonomy: at least 5 of 8 buckets must be represented, and
+ *     no single bucket may hold > 35% of pages.
  */
 export function validatePagePlan(
   plan: PagePlanEntry[],
@@ -120,6 +140,7 @@ export function validatePagePlan(
   const forbidden = category.forbidden_subjects.map((s) => s.toLowerCase());
   const seen = new Set<string>();
   const subjectCounts = new Map<string, number>();
+  const bucketCounts = new Map<string, number>();
 
   for (const p of plan) {
     if (!p.primary_subject || !p.scene || !p.composition_type) {
@@ -139,6 +160,8 @@ export function validatePagePlan(
     }
     seen.add(key);
     subjectCounts.set(s, (subjectCounts.get(s) ?? 0) + 1);
+    const bucket = (p as any).scene_bucket as string | undefined;
+    if (bucket) bucketCounts.set(bucket, (bucketCounts.get(bucket) ?? 0) + 1);
   }
 
   const distinct = Math.max(1, new Set(plan.map((p) => p.primary_subject.toLowerCase())).size);
@@ -149,6 +172,25 @@ export function validatePagePlan(
         page: 0,
         code: "OVERUSED_SUBJECT",
         message: `'${subj}' used ${n}× exceeds cap of ${maxAllowed}`,
+      });
+    }
+  }
+
+  const distinctBuckets = bucketCounts.size;
+  if (distinctBuckets > 0 && distinctBuckets < 5) {
+    issues.push({
+      page: 0,
+      code: "SCENE_TAXONOMY_UNDERCOVERED",
+      message: `only ${distinctBuckets}/8 scene buckets used; require ≥5`,
+    });
+  }
+  const maxBucketShare = plan.length * 0.35;
+  for (const [b, n] of bucketCounts) {
+    if (n > maxBucketShare) {
+      issues.push({
+        page: 0,
+        code: "SCENE_TAXONOMY_UNDERCOVERED",
+        message: `scene bucket '${b}' has ${n} pages (>${Math.floor(maxBucketShare)} max = 35%)`,
       });
     }
   }
