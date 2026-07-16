@@ -178,13 +178,22 @@ Deno.serve(async (req: Request) => {
     // Assembly-time sharpness sweep: every legacy/stored interior page must be
     // measured before embedding. Below-floor or decode-unmeasured pages are
     // removed from metadata and regenerated under the crisp repair regime.
+    //
+    // INCREMENTAL SWEEP (permanent class fix, owner order #1): cache is keyed
+    // by the page's `storage_path` — a versioned identity token that changes
+    // on every regen. A stored verdict is trusted ONLY when both the page
+    // number AND the storage_path match; a regenerated page (new path) is
+    // ALWAYS re-measured, and pages whose bytes did not change cost 0.
     const priorSharpnessTable = (((meta as any).coloring_assembly?.sharpness_table as any[] | undefined) ?? []);
     const sharpnessByPage = new Map<number, any>();
     for (const r of priorSharpnessTable) {
       if (r?.page && typeof r.score === "number" && r.gate_version === SHARPNESS_GATE_VERSION) sharpnessByPage.set(Number(r.page), r);
     }
     for (const pageRec of pages) {
-      if (sharpnessByPage.has(pageRec.page)) continue;
+      const cached = sharpnessByPage.get(pageRec.page);
+      // Only trust cache when the exact same storage_path was measured — a
+      // regenerated page (new versioned path) MUST be re-measured.
+      if (cached && cached.storage_path && cached.storage_path === pageRec.storage_path) continue;
       const bytes = await fetchBytes(pageRec.signed_url);
       const sharp = await computeSharpness(bytes);
       const unmeasured = String(sharp.reason ?? "").startsWith("sharpness_decode_error");
