@@ -34,7 +34,15 @@ async function callFal(endpoint: string, body: Record<string, unknown>, meta?: {
     },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`fal ${endpoint} ${res.status}: ${(await res.text()).slice(0, 400)}`);
+  if (!res.ok) {
+    const bodyText = (await res.text()).slice(0, 800);
+    if (isFalBillingLocked(res.status, bodyText)) {
+      const err = new FalBillingLockedError(res.status, bodyText);
+      try { await markBillingBlocked(costDb(), err); } catch (_e) { /* best-effort */ }
+      throw err;
+    }
+    throw new Error(`fal ${endpoint} ${res.status}: ${bodyText.slice(0, 400)}`);
+  }
   const j = await res.json();
   const url: string | undefined = j?.images?.[0]?.url ?? j?.image?.url;
   if (!url) throw new Error(`fal ${endpoint} returned no image url: ${JSON.stringify(j).slice(0, 300)}`);
@@ -50,6 +58,8 @@ async function callFal(endpoint: string, body: Record<string, unknown>, meta?: {
       provider: "fal_direct",
     });
   }
+  // Auto-resume: a successful call means the account is live again.
+  try { await clearBillingBlocked(costDb()); } catch (_e) { /* best-effort */ }
   return bytes;
 }
 
