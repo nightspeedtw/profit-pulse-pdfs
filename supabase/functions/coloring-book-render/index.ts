@@ -372,7 +372,7 @@ Deno.serve(async (req: Request) => {
           num_inference_steps: repairSteps,
           ebook_id: ebook_id,
           step: `coloring_${stageLabel}_page_${page.canonical_page_number}${attempt >= 1 ? "_repair" : ""}`,
-        }, imagePolicy);
+        }, imagePolicy, db);
         const bytes = gen.bytes;
         const providerUsed = gen.provider;
         const verified = verifyImageAtBirth(bytes, page.canonical_page_number, MIN_IMAGE_BYTES);
