@@ -25,9 +25,9 @@ describe("SPECIES_ANATOMY_SKILL", () => {
   });
 
   it("falls back to __generic__ for unknown subjects without crashing", () => {
-    expect(getSpeciesAnatomy("dragon-unicorn-thing").species_key).toBe("__generic__");
+    expect(getSpeciesAnatomy("zzz-nonexistent-creature").species_key).toBe("__generic__");
     expect(hasSpeciesAnatomy("dolphin")).toBe(true);
-    expect(hasSpeciesAnatomy("dragon-unicorn-thing")).toBe(false);
+    expect(hasSpeciesAnatomy("zzz-nonexistent-creature")).toBe(false);
   });
 
   it("dolphin checklist names the exact owner-observed defect class (horizontal flukes)", () => {
