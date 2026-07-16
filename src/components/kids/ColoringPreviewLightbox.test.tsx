@@ -42,7 +42,7 @@ describe("ColoringPreviewLightbox — conversion core", () => {
     // Sold PDF URL must NEVER appear anywhere in the lightbox output.
     expect(joined).not.toContain(PDF_URL);
   });
-  });
+
 
   it("emits preview_page_turn once per unique page index on nav", () => {
     render(
