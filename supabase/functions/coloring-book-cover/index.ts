@@ -70,23 +70,48 @@ async function patchMeta(db: any, id: string, patch: Record<string, unknown>) {
   return merged;
 }
 
+interface RungAttempt {
+  speed?: "QUALITY" | "BALANCED" | "TURBO" | null;
+  started_at: string;
+  ended_at?: string | null;
+  ok?: boolean;
+  reason?: string | null;
+  status?: string;
+}
+
 interface LadderState {
   rungs: CoverRungLabel[];
   next_index: number;
+  // Ideogram speed cursor: 0=QUALITY, 1=BALANCED, 2=TURBO. Resets on rung advance.
+  ideogram_speed_cursor: number;
   reports: Array<Pick<CoverLadderRungReport, "rung" | "reason" | "produced_bytes">>;
+  attempts_by_rung: Record<string, RungAttempt[]>;
   started_at: string;
   updated_at: string;
 }
+
+const IDEOGRAM_SPEEDS: Array<"QUALITY" | "BALANCED" | "TURBO"> = ["QUALITY", "BALANCED", "TURBO"];
+const RUNG_WALLCLOCK_MS = 90_000;
+const CRASH_STALE_MS = 3 * 60_000; // any attempt with no ended_at older than this = crashed
 
 function newLadderState(): LadderState {
   const now = new Date().toISOString();
   return {
     rungs: [...DEFAULT_COVER_RUNGS],
     next_index: 0,
+    ideogram_speed_cursor: 0,
     reports: [],
+    attempts_by_rung: {},
     started_at: now,
     updated_at: now,
   };
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`wallclock_timeout:${label}:${ms}ms`)), ms);
+    p.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+  });
 }
 
 Deno.serve(async (req: Request) => {
