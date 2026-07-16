@@ -362,11 +362,13 @@ Deno.serve(async (req: Request) => {
           render_params: { ...INTERIOR_GEN_PARAMS },
           sharpness: { score: sharp.score, sobel_mean: sharp.sobel_mean, laplacian_var: sharp.laplacian_var, min_required: sharp.min_required },
         } as any);
+        // Buffer raw bytes for batch anatomy verification below.
+        anatomyBuffer.push({ page: page.canonical_page_number, subject: page.primary_subject, bytes, mime: verified.mime });
         // First-page params lock.
         if (!recordedParams) {
           await patchMeta(db, ebook_id, { coloring_generation_params: { ...INTERIOR_GEN_PARAMS } });
         }
-        // clear repair counter on success
+        // clear repair counter on success (may be re-bumped by anatomy verifier below)
         delete repairAttempts[String(page.canonical_page_number)];
       } catch (e: any) {
         console.error(`[coloring-render] page ${page.canonical_page_number} failed`, e?.message);
@@ -374,6 +376,52 @@ Deno.serve(async (req: Request) => {
         errors.push({ page: page.canonical_page_number, error: e?.message ?? String(e) });
       }
     }
+
+    // ── ANATOMY VISION GATE (measured, not constants) ─────────────────
+    // Owner mandate: every rendered page is judged against its species
+    // checklist BEFORE we accept it into metadata.coloring_pages. Pages
+    // that fail are deleted from storage, dropped from newRecords, and
+    // routed through the anatomy_structural repair ladder on the next tick.
+    const anatomyVerdicts: AnatomyPageVerdict[] = anatomyBuffer.length
+      ? await verifyAnatomyBatch(anatomyBuffer)
+      : [];
+    const verdictByPage = new Map<number, AnatomyPageVerdict>();
+    for (const v of anatomyVerdicts) verdictByPage.set(v.page, v);
+
+    // Attach verdict to the corresponding newRecords entry, or drop it.
+    const keptRecords: typeof newRecords = [];
+    for (const rec of newRecords) {
+      const v = verdictByPage.get(rec.page);
+      if (!v) {
+        // No verdict returned at all — keep the record but mark unmeasured so
+        // assemble refuses it and requeues.
+        (rec as any).anatomy_verdict = {
+          pass: false, degraded: true, anatomy_score: 0, defects: ["anatomy_no_verdict"],
+          measured_version: ANATOMY_VERIFIER_VERSION, measured_at: new Date().toISOString(),
+        };
+        keptRecords.push(rec);
+        continue;
+      }
+      if (v.pass) {
+        (rec as any).anatomy_verdict = v;
+        keptRecords.push(rec);
+        continue;
+      }
+      // Failed anatomy — remove uploaded object + requeue via repair ladder.
+      try { await db.storage.from("ebook-covers").remove([rec.storage_path]); } catch (_e) { /* best-effort */ }
+      const prior = repairAttempts[String(rec.page)] ?? 0;
+      repairAttempts[String(rec.page)] = prior + 1;
+      const clause = speciesAnatomyRepairClause(rec.primary_subject, v.defects);
+      errors.push({
+        page: rec.page,
+        error: `anatomy_gate: ${v.defects.slice(0, 4).join("; ") || "anatomy_defect"}`,
+        reasons: ["anatomy_structural", ...v.defects, clause],
+        anatomy: { species_key: v.species_key, score: v.anatomy_score, defects: v.defects, degraded: v.degraded },
+      } as any);
+    }
+    // Replace newRecords with anatomy-approved records only.
+    newRecords.length = 0;
+    for (const r of keptRecords) newRecords.push(r);
 
     // Persist rolling per-page error history (last 5 per page), not overwrite.
     const priorErrorLog = ((meta.coloring_last_errors as any[] | undefined) ?? []);
