@@ -27,6 +27,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { falFluxSchnell } from "../_shared/fal.ts";
 import { FalBillingLockedError, FalBudgetCapReachedError, assertLaneCanDispatch } from "../_shared/fal-billing.ts";
+import { generateImageWithFailover, readImageProviderPolicy, DEFAULT_IMAGE_PROVIDER_POLICY } from "../_shared/image-providers.ts";
 import {
   assertPromptCompliant,
   buildInteriorPrompt,
