@@ -55,6 +55,7 @@ export function falFluxSchnell(opts: FalImageOpts): Promise<Uint8Array> {
     num_inference_steps: 4,
     num_images: 1,
     enable_safety_checker: true,
+    output_format: opts.output_format ?? "jpeg",
   };
   return callFal("fal-ai/flux/schnell", body, { ebook_id: opts.ebook_id, step: opts.step, model: "fal-ai/flux/schnell" });
 }
