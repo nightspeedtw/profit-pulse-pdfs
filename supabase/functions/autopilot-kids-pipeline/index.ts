@@ -796,7 +796,7 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     cover_url: coverUrl,
     thumbnail_url: coverUrl,
     status: 'rendering', pipeline_status: 'rendering',
-    storefront_meta: { ...existingMeta, title_treatment: treatment.metadata, cover_luminance: { master: { note: 'live_verified_at_birth' }, final: finalLum } },
+    storefront_meta: { ...existingMeta, title_treatment: treatmentMetadata, cover_source: coverLadderResult.accepted_rung, cover_ladder_reports: coverLadderResult.rung_reports, cover_luminance: { master: { note: 'live_verified_at_birth' }, final: finalLum } },
     story_bible_id: bibleRowId,
     character_bible_id: bibleRowId,
     character_reference_id: characterReferenceId,
