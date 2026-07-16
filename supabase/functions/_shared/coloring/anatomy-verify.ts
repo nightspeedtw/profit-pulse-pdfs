@@ -44,6 +44,12 @@ export interface AnatomyPageVerdict {
   named_subject?: string | null;
   recognizable?: boolean;
   category_match?: boolean;
+  // Owner order #2 (2026-07-16, interior_text_contamination): every anatomy
+  // call also answers "does this page contain any letters/words/glyphs?".
+  // When true the page is regenerated via the existing repair ladder
+  // (text_or_watermark class → "absolutely no letters/words/numbers" clause).
+  has_text?: boolean;
+  text_seen?: string | null;
 }
 
 // v5 — anatomy_deformity_only_v2 + subject_recognizability. Two questions,
