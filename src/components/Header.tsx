@@ -18,6 +18,8 @@ const NAV = [
 
 export const Header = () => {
   const [open, setOpen] = useState(false);
+  const location = useLocation();
+  const isKidsRoute = location.pathname.startsWith("/kids");
 
   return (
     <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-md border-b border-border">
@@ -44,11 +46,15 @@ export const Header = () => {
       </div>
 
       <div className="container flex items-center justify-between h-20 gap-4">
-        <Link to="/" className="flex items-center group" aria-label="SecretPDF home">
+        <Link to={isKidsRoute ? "/kids" : "/"} className="flex items-center group" aria-label={isKidsRoute ? "SecretPDF Kids home" : "SecretPDF home"}>
           <img
-            src={logoHorizontal}
-            alt="SecretPDF"
-            className="h-9 sm:h-10 w-auto transition-transform group-hover:scale-[1.02]"
+            src={isKidsRoute ? KIDS_BRAND_URLS.full : logoHorizontal}
+            alt={isKidsRoute ? "SecretPDF Kids" : "SecretPDF"}
+            className={
+              isKidsRoute
+                ? "h-11 sm:h-12 w-auto transition-transform group-hover:scale-[1.02]"
+                : "h-9 sm:h-10 w-auto transition-transform group-hover:scale-[1.02]"
+            }
           />
         </Link>
 
