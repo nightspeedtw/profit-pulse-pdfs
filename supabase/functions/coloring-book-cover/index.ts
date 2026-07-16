@@ -20,7 +20,6 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import { TEXTLESS_DIRECTIVE } from "../_shared/textless-illustration-policy.ts";
 import { buildColoringCoverArtPrompt } from "../_shared/coloring/cover-prompt.ts";
-import { renderKidsTitleTreatment } from "../_shared/covers/kids-title-treatment.ts";
 import { transcribeGlyphs, verifyCategoryHero } from "../_shared/covers/cover-vision-guards.ts";
 import { MEASURED_COVER_GATE_VERSION, measuredCoverScorecard } from "../_shared/covers/cover-measured-gate.ts";
 import { coloringCoverGate } from "../_shared/coloring/gates.ts";
@@ -32,6 +31,7 @@ import { loadActivePreventionRules, indexRulesBySpecies, pickLearnedRulesFor, le
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
 import { detectBlankRegions } from "../_shared/covers/blank-detect.ts";
 import { renderColoringSelfArtCover, SELF_ART_COVER_VERSION } from "../_shared/coloring/self-art-cover.ts";
+import { composeColoringCover, COLORING_COVER_COMPOSITOR_VERSION, COLORING_COVER_HEIGHT, COLORING_COVER_WIDTH } from "../_shared/coloring/coloring-cover-compositor.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -310,20 +310,30 @@ Deno.serve(async (req: Request) => {
     // ── HELPERS shared by rung 1 (flux attempts) and rung 2 (self-art) ──
     async function persistAcceptedCover(params: {
       finalBytes: Uint8Array;
+      artOnlyBytes: Uint8Array;
       treatmentMeta: Record<string, unknown>;
       measured: any;
+      renderedProof: any;
       acceptedRung: string;
       coverRecordExtras: Record<string, unknown>;
     }) {
       const version = `${Date.now()}`;
-      const path = `kids/${ebook_id}/coloring/cover-${version}.png`;
-      const up = await uploadAndSignImage(db, "ebook-covers", path, params.finalBytes, { contentType: "image/png" });
+      const artPath = `kids/${ebook_id}/coloring/cover-art-only-${version}.png`;
+      const finalPath = `kids/${ebook_id}/coloring/cover-final-${version}.png`;
+      const artUp = await uploadAndSignImage(db, "ebook-covers", artPath, params.artOnlyBytes, { contentType: "image/png" });
+      const up = await uploadAndSignImage(db, "ebook-covers", finalPath, params.finalBytes, { contentType: "image/png" });
       const measuredGate = { pass: true, scorecard: params.measured, reasons: [] as string[] };
       const isRung2Fallback = params.acceptedRung.startsWith("coloring_self_art_cover");
       const coverRecord = {
         version: SINGLE_RUNG_VERSION,
+        compositor_version: COLORING_COVER_COMPOSITOR_VERSION,
         url: up.signedUrl,
         storage_path: up.path,
+        final_composed_url: up.signedUrl,
+        final_composed_storage_path: up.path,
+        art_only_url: artUp.signedUrl,
+        art_only_storage_path: artUp.path,
+        art_canvas: { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, aspect: "8.5x11_portrait" },
         accepted_rung: params.acceptedRung,
         generated_at: new Date().toISOString(),
         subtitle_used: subtitle,
@@ -335,6 +345,7 @@ Deno.serve(async (req: Request) => {
         learned_rules: [...learnedRules.values()].map((r: any) => ({ pattern_key: r.pattern_key, species_key: r.species_key })),
         previous_ladder_state: meta.coloring_cover_ladder ?? null,
         measured_gate: measuredGate,
+        rendered_proof: params.renderedProof,
         is_fallback_rung: isRung2Fallback,
         upgraded_from_rung: isUpgradeMode
           ? ((meta.coloring_cover as any)?.accepted_rung ?? null)
@@ -375,7 +386,7 @@ Deno.serve(async (req: Request) => {
       // In upgrade mode we do NOT re-run assembly (sale continuity: price and
       // listing unchanged, only the cover art + thumbnail change). Normal
       // (first-generation) flow continues to the assembly step as before.
-      if (!isUpgradeMode) fireAndForget("coloring-book-assemble", { ebook_id });
+      if (!isUpgradeMode) fireAndForget("coloring-book-assemble", { ebook_id, force: true });
       return json({
         ok: true,
         accepted_rung: params.acceptedRung,
@@ -396,7 +407,7 @@ Deno.serve(async (req: Request) => {
         const providerResult: any = await withTimeout(
           generateImageWithFailover({
             prompt,
-            image_size: "square_hd",
+            image_size: "portrait_4_3",
             num_inference_steps: 4,
             ebook_id,
             step: `coloring_cover_flux_schnell_a${attemptIndex}`,
@@ -437,24 +448,31 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        const treatment = await renderKidsTitleTreatment({
-          coverBg: rawBytes,
+        const composed = await composeColoringCover({
+          artBytes: rawBytes,
           title: row.title,
           subtitle,
           palette: ["#FFF6E5", "#2A1A0A", "#E9B44C", "#6BAA75", "#4FA3D8"],
           description: row.description ?? null,
           ageBadge,
         });
-        const finalBytes = treatment.png;
-        const treatmentMeta = treatment.metadata as unknown as Record<string, unknown>;
+        if (!composed.renderedProof.pass) {
+          attemptReport.status = "gate_rejected";
+          attemptReport.reason = `rendered_proof_failed:${composed.renderedProof.reasons.join(";").slice(0, 180)}`;
+          attemptReport.checks.rendered_proof = composed.renderedProof;
+          fluxAttempts.push(attemptReport);
+          continue;
+        }
+        const finalBytes = composed.finalBytes;
+        const treatmentMeta = composed.treatmentMeta as unknown as Record<string, unknown>;
         const overlayText = constructedOverlayTranscription(row.title, subtitle, ageBadge);
         const measured = measuredCoverScorecard({
           title: row.title, subtitle, ageBadge, text: overlayText, rawArtText: rawGlyph,
           typographySource: "textless_art_plus_svg_overlay",
           hero,
-          frame: (treatmentMeta as any)?.overlay_frame ?? { width: 1600, height: 1600, safe_margin: 64, elements: [] },
+          frame: (treatmentMeta as any)?.overlay_frame ?? { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, safe_margin: 80, elements: [] },
           logo: { present: (treatmentMeta as any)?.logo_present === true, rect: ((treatmentMeta as any)?.overlay_frame?.elements ?? []).find((e: any) => e.name === "secretpdf_kids_logo") ?? null },
-          artwork: { used_svg_fallback: false, synthesized_background: false, blank_background: color.blank_background === true, blank_ratio: color.blank_ratio ?? 0, region_stats: color.region_stats },
+          artwork: { used_svg_fallback: false, synthesized_background: false, blank_background: composed.renderedProof.art_region.pass !== true, blank_ratio: composed.renderedProof.art_region.pass ? 0 : 1, region_stats: color.region_stats },
           quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
           pageCountMatchesFinalPdf: true,
         });
@@ -473,11 +491,11 @@ Deno.serve(async (req: Request) => {
         attempt.status = "accepted";
         attempt.checks = { flux_attempts: fluxAttempts, accepted_via: "flux_schnell_multi", rung: "rung1_flux" };
         return await persistAcceptedCover({
-          finalBytes, treatmentMeta, measured, acceptedRung: `flux_schnell_a${attemptIndex}`,
+          finalBytes, artOnlyBytes: composed.artOnlyBytes, treatmentMeta, measured, renderedProof: composed.renderedProof, acceptedRung: `flux_schnell_a${attemptIndex}`,
           coverRecordExtras: {
             provider: providerResult.provider,
             provider_attempts: providerResult.attempts,
-            evidence: { luminance, color, raw_art_transcription: rawGlyph, hero_verdict: hero, overlay_transcription: overlayText },
+            evidence: { luminance, color, raw_art_transcription: rawGlyph, hero_verdict: hero, overlay_transcription: overlayText, rendered_proof: composed.renderedProof },
             flux_attempts: fluxAttempts,
           },
         });
@@ -540,8 +558,8 @@ Deno.serve(async (req: Request) => {
       categoryName: categoryNameFinal,
       pages: interiorPages,
       maxHeroes: 3,
-      canvasWidth: 1600,
-      canvasHeight: 1600,
+      canvasWidth: COLORING_COVER_WIDTH,
+      canvasHeight: COLORING_COVER_HEIGHT,
       seed: ebook_id,
     });
     const selfArtLuminance = await computeLuminance(selfArt.bytes);
@@ -559,28 +577,34 @@ Deno.serve(async (req: Request) => {
       forbidden_hit: null, degraded: false,
       reason: `self_art_from_gate_passed_interior_pages:${selfArt.heroes_used.map((h) => h.page).join(",")}`,
     };
-    const treatment = await renderKidsTitleTreatment({
-      coverBg: selfArt.bytes,
+    const composed = await composeColoringCover({
+      artBytes: selfArt.bytes,
       title: row.title,
       subtitle,
       palette: ["#FFF6E5", "#2A1A0A", "#E9B44C", "#6BAA75", "#4FA3D8"],
       description: row.description ?? null,
       ageBadge,
     });
-    const finalBytes = treatment.png;
-    const treatmentMeta = treatment.metadata as unknown as Record<string, unknown>;
+    if (!composed.renderedProof.pass) {
+      attempt.ended_at = new Date().toISOString();
+      attempt.status = "requeued";
+      attempt.checks = { flux_attempts: fluxAttempts, accepted_via: SELF_ART_COVER_VERSION, rendered_proof: composed.renderedProof };
+      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, `rendered_proof_failed:${composed.renderedProof.reasons.join(";").slice(0, 180)}`);
+    }
+    const finalBytes = composed.finalBytes;
+    const treatmentMeta = composed.treatmentMeta as unknown as Record<string, unknown>;
     const overlayText = constructedOverlayTranscription(row.title, subtitle, ageBadge);
     const measured = measuredCoverScorecard({
       title: row.title, subtitle, ageBadge, text: overlayText, rawArtText: rung2RawGlyph,
       typographySource: "textless_art_plus_svg_overlay",
       hero: rung2Hero,
-      frame: (treatmentMeta as any)?.overlay_frame ?? { width: 1600, height: 1600, safe_margin: 64, elements: [] },
+      frame: (treatmentMeta as any)?.overlay_frame ?? { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, safe_margin: 80, elements: [] },
       logo: { present: (treatmentMeta as any)?.logo_present === true, rect: ((treatmentMeta as any)?.overlay_frame?.elements ?? []).find((e: any) => e.name === "secretpdf_kids_logo") ?? null },
       artwork: {
         used_svg_fallback: false,
         synthesized_background: false, // self-art is REAL art from real pages, not a gradient
-        blank_background: selfArtColor.blank_background === true,
-        blank_ratio: selfArtColor.blank_ratio ?? 0,
+        blank_background: composed.renderedProof.art_region.pass !== true,
+        blank_ratio: composed.renderedProof.art_region.pass ? 0 : 1,
         region_stats: selfArtColor.region_stats,
       },
       quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
@@ -590,7 +614,7 @@ Deno.serve(async (req: Request) => {
     attempt.status = "accepted";
     attempt.checks = { flux_attempts: fluxAttempts, accepted_via: SELF_ART_COVER_VERSION, rung: "rung2_self_art", self_art_evidence: selfArt };
     return await persistAcceptedCover({
-      finalBytes, treatmentMeta, measured, acceptedRung: SELF_ART_COVER_VERSION,
+      finalBytes, artOnlyBytes: composed.artOnlyBytes, treatmentMeta, measured, renderedProof: composed.renderedProof, acceptedRung: SELF_ART_COVER_VERSION,
       coverRecordExtras: {
         provider: "self_art_flood_fill",
         provider_attempts: 0,
@@ -606,6 +630,7 @@ Deno.serve(async (req: Request) => {
             canvas: selfArt.canvas,
             heroes_used: selfArt.heroes_used,
           },
+          rendered_proof: composed.renderedProof,
         },
         flux_attempts: fluxAttempts,
       },

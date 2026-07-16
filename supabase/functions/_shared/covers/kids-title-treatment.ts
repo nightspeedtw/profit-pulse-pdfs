@@ -417,6 +417,13 @@ export interface TitleTreatmentInput {
   ageBadge?: string | null;
   width?: number;            // final png width, default 1600
   height?: number;           // final png height, default 1600
+  /**
+   * When true, render ONLY the typography/badge/logo overlay on transparent
+   * pixels. The caller must alpha-composite it over a real art canvas.
+   * This prevents the historical bug where the title-treatment PNG was
+   * mistaken for the final cover and the paid art layer disappeared.
+   */
+  transparentBackground?: boolean;
 }
 
 export interface TitleTreatmentMetadata {
@@ -440,6 +447,8 @@ export interface TitleTreatmentMetadata {
     elements: Array<{ name: string; x: number; y: number; w: number; h: number }>;
   };
   renderer: "kids-title-treatment@1";
+  transparent_background?: boolean;
+  art_layer_embedded?: boolean;
   rendered_at: string;
 }
 
@@ -566,7 +575,7 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
     ...(logoB64 ? [{ name: "secretpdf_kids_logo", x: logoX - logoPanelPadX, y: logoY - logoPanelPadY, w: logoW + logoPanelPadX * 2, h: logoH + logoPanelPadY * 2 }] : []),
   ];
 
-  const bgB64 = toB64(input.coverBg);
+  const bgB64 = input.transparentBackground ? null : toB64(input.coverBg);
 
   // Whole title cluster tilt.
   const tiltGroup = `<g transform="rotate(${traits.tilt} ${W / 2} ${titleY0})">${linesSvg}</g>`;
@@ -593,8 +602,8 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
     </filter>
   </defs>
 
-  <!-- Full-bleed textless illustration -->
-  <image href="data:image/png;base64,${bgB64}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="xMidYMid slice"/>
+  ${bgB64 ? `<!-- Full-bleed textless illustration -->
+  <image href="data:image/png;base64,${bgB64}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="xMidYMid slice"/>` : `<!-- Transparent typography overlay only; no art/background pixels. -->`}
 
   <!-- Soft scrim behind top-third title zone -->
   <rect x="0" y="0" width="${W}" height="${Math.floor(H * 0.5)}" fill="url(#kt-scrim)"/>
@@ -647,6 +656,8 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
       elements: overlayElements,
     },
     renderer: "kids-title-treatment@1",
+    transparent_background: input.transparentBackground === true,
+    art_layer_embedded: input.transparentBackground !== true,
     rendered_at: new Date().toISOString(),
   };
 

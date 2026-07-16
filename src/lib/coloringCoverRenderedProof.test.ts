@@ -29,6 +29,13 @@ import {
 } from "../../supabase/functions/_shared/covers/overlay-frame.ts";
 import { measuredCoverScorecard } from "../../supabase/functions/_shared/covers/cover-measured-gate.ts";
 import { coloringCoverGate } from "../../supabase/functions/_shared/coloring/gates.ts";
+import {
+  COLORING_COVER_COMPOSITOR_VERSION,
+  COLORING_COVER_HEIGHT,
+  COLORING_COVER_WIDTH,
+  renderedColoringCoverProof,
+  verifyApprovedTranscription,
+} from "../../supabase/functions/_shared/coloring/coloring-cover-proof.ts";
 
 function makeRgba(w: number, h: number, fn: (x: number, y: number) => [number, number, number]): Uint8Array {
   const buf = new Uint8Array(w * h * 4);
@@ -126,4 +133,73 @@ describe("cover rendered-proof: every overlay element inside safe margins", () =
       expect(logo.y + logo.h).toBeLessThan(H - frame.safe_margin);
     });
   }
+});
+
+describe("cover rendered-proof: FINAL raster contract", () => {
+  const approved = [
+    "Cute Sea Animals Coloring Book (Ages 4-6)",
+    "32 Coloring Pages · Ages 4-6",
+    "Ages 4-6",
+    "SecretPDF Kids",
+  ];
+  const frame = {
+    width: COLORING_COVER_WIDTH,
+    height: COLORING_COVER_HEIGHT,
+    safe_margin: 80,
+    elements: [
+      { name: "title_cluster", x: 260, y: 120, w: 1080, h: 420 },
+      { name: "subtitle", x: 256, y: 640, w: 1088, h: 72 },
+      { name: "age_badge", x: 1200, y: 1840, w: 320, h: 110 },
+      { name: "secretpdf_kids_logo", x: 100, y: 1880, w: 220, h: 80 },
+    ],
+  };
+
+  it("rejects the exact historical final bug: square typography-on-gradient with empty art region", () => {
+    const rgba = makeRgba(1600, 1600, (_x, y) => {
+      if (y < 520) return [230 - Math.floor(y / 20), 218 - Math.floor(y / 30), 200];
+      return [202, 202, 202];
+    });
+    const proof = renderedColoringCoverProof({
+      rgba,
+      width: 1600,
+      height: 1600,
+      frame: { ...frame, height: 1600 },
+      approvedStrings: approved,
+      detectedText: approved.join(" | "),
+    });
+    expect(proof.pass).toBe(false);
+    expect(proof.reasons.join("|")).toMatch(/not_letter_portrait/);
+    expect(proof.reasons.join("|")).toMatch(/final_art_region_low_variance/);
+  });
+
+  it("passes a portrait final cover with strong middle/bottom art variance and approved typography only", () => {
+    const rgba = makeRgba(COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT, (x, y) => {
+      if (y < COLORING_COVER_HEIGHT * 0.34) return [70 + (x % 80), 130 + (y % 70), 190 - (x % 60)];
+      return [(x * 5 + y) % 255, (y * 3 + 40) % 255, ((x + y) * 2) % 255];
+    });
+    const proof = renderedColoringCoverProof({
+      rgba,
+      width: COLORING_COVER_WIDTH,
+      height: COLORING_COVER_HEIGHT,
+      frame,
+      approvedStrings: approved,
+      detectedText: approved.join(" | "),
+    });
+    expect(proof.pass, proof.reasons.join("; ")).toBe(true);
+    expect(proof.portrait_aspect_pass).toBe(true);
+    expect(proof.art_region.pass).toBe(true);
+    expect(proof.overlays_in_frame.pass).toBe(true);
+    expect(proof.transcription.pass).toBe(true);
+  });
+
+  it("rejects extra/unapproved transcribed text", () => {
+    const tx = verifyApprovedTranscription(approved, `${approved.join(" | ")} | SALE 50% OFF | random AI letters`);
+    expect(tx.pass).toBe(false);
+    expect(tx.extra_unapproved.length).toBeGreaterThan(0);
+  });
+
+  it("locks the new compositor version so old treatment-as-final outputs cannot masquerade as current", () => {
+    expect(COLORING_COVER_COMPOSITOR_VERSION).toBe("coloring_cover_compositor_v2_art_plus_transparent_overlay_portrait");
+    expect(COLORING_COVER_WIDTH / COLORING_COVER_HEIGHT).toBeCloseTo(8.5 / 11, 2);
+  });
 });
