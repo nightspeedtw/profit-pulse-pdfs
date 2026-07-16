@@ -3,6 +3,33 @@
 // buyer-job personas, and SEO landing-page configuration.
 // Mirrored to supabase/functions/_shared/kids-catalog-taxonomy.ts
 
+// Owner-canonical AGE CHIPS shown on /kids. These are DISPLAY BUCKETS
+// (data-driven, not hardcoded strings in components). Products match a
+// chip via age-range overlap so a 3–5 book appears under both 2–4 (overlap
+// at 4) and 4–6. `all_ages` matches only products with band=all_ages.
+// The backend keeps its finer 9-band taxonomy (coloring_age_bands) intact.
+export type AgeChipSlug = "all" | "2-4" | "4-6" | "6-8" | "8-12" | "13-17" | "all_ages";
+
+export interface AgeChip {
+  slug: AgeChipSlug;
+  label: string;      // full label
+  short: string;      // chip label
+  min: number | null; // inclusive; null = ALL (no filter)
+  max: number | null; // inclusive; null = ALL
+  kind: "range" | "all" | "all_ages";
+}
+
+export const AGE_CHIPS: AgeChip[] = [
+  { slug: "all",      label: "All",        short: "All",      min: null, max: null, kind: "all" },
+  { slug: "2-4",      label: "Ages 2–4",   short: "2–4",      min: 2,  max: 4,  kind: "range" },
+  { slug: "4-6",      label: "Ages 4–6",   short: "4–6",      min: 4,  max: 6,  kind: "range" },
+  { slug: "6-8",      label: "Ages 6–8",   short: "6–8",      min: 6,  max: 8,  kind: "range" },
+  { slug: "8-12",     label: "Ages 8–12",  short: "8–12",     min: 8,  max: 12, kind: "range" },
+  { slug: "13-17",    label: "Ages 13–17", short: "13–17",    min: 13, max: 17, kind: "range" },
+  { slug: "all_ages", label: "All Ages",   short: "All Ages", min: null, max: null, kind: "all_ages" },
+];
+
+// Legacy AgeBandSlug retained for SEO landing pages (CATEGORY_PAGES filter).
 export type AgeBandSlug = "0-3" | "3-5" | "4-6" | "6-8";
 export type BookTypeSlug = "illustrated_storybook" | "coloring_book";
 export type ThemeSlug =
@@ -27,6 +54,36 @@ export const AGE_BANDS: AgeBand[] = [
   { slug: "4-6", label: "4–6 · Picture Books",   short: "4–6", minAge: 4, maxAge: 6 },
   { slug: "6-8", label: "6–8 · Early Readers",   short: "6–8", minAge: 6, maxAge: 8 },
 ];
+
+// KIDS ceiling — anything with age_min > this is an adult product and is
+// hidden from /kids entirely (adults/seniors get their own storefront).
+export const KIDS_AGE_CEILING = 17;
+
+/** True if the book (age_min..age_max) matches the given chip via overlap. */
+export function bookMatchesAgeChip(
+  book: { age_min?: number | null; age_max?: number | null; age_band?: string | null },
+  chip: AgeChip,
+): boolean {
+  if (chip.kind === "all") return true;
+  const isAllAgesBand = (book.age_band ?? "").toLowerCase() === "all_ages"
+    || (book.age_min === 2 && book.age_max === 99);
+  if (chip.kind === "all_ages") return isAllAgesBand;
+  // Explicit range chip: all_ages products stay in the All Ages bucket only.
+  if (isAllAgesBand) return false;
+  if (book.age_min == null || book.age_max == null) return false;
+  if (chip.min == null || chip.max == null) return false;
+  // Range overlap (inclusive): a<=D && C<=b
+  return book.age_min <= chip.max && chip.min <= book.age_max;
+}
+
+/** True if the book belongs on the /kids storefront (age_max <= ceiling or all_ages). */
+export function bookIsForKids(book: { age_min?: number | null; age_max?: number | null; age_band?: string | null }): boolean {
+  const band = (book.age_band ?? "").toLowerCase();
+  if (band === "all_ages") return true;
+  if (book.age_max == null) return true; // unknown → surface, don't drop
+  return book.age_max <= KIDS_AGE_CEILING;
+}
+
 
 export const BOOK_TYPES: BookType[] = [
   { slug: "illustrated_storybook", label: "Illustrated Storybook", short: "Storybook" },
@@ -226,7 +283,7 @@ export function bookMatchesFilter(book: FilterableBook, filter: CategoryFilter):
 }
 
 export interface KidsUrlParams {
-  age?: AgeBandSlug | null;
+  age?: AgeChipSlug | AgeBandSlug | null;
   theme?: ThemeSlug | null;
   type?: BookTypeSlug | null;
 }
@@ -242,10 +299,15 @@ export function buildKidsUrl(params: KidsUrlParams, base = "/kids"): string {
 
 export function parseKidsUrl(search: URLSearchParams): KidsUrlParams {
   return {
-    age:   (search.get("age")   as AgeBandSlug | null)  ?? null,
+    age:   (search.get("age")   as AgeChipSlug | AgeBandSlug | null)  ?? null,
     theme: (search.get("theme") as ThemeSlug   | null)  ?? null,
     type:  (search.get("type")  as BookTypeSlug | null) ?? null,
   };
+}
+
+export function resolveAgeChip(slug: string | null | undefined): AgeChip | null {
+  if (!slug) return null;
+  return AGE_CHIPS.find((c) => c.slug === slug) ?? null;
 }
 
 export const CATEGORY_SLUGS = CATEGORY_PAGES.map((c) => c.slug);

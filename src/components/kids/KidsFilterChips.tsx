@@ -1,5 +1,8 @@
 import { Link, useSearchParams } from "react-router-dom";
-import { AGE_BANDS, THEMES, BOOK_TYPES, buildKidsUrl, parseKidsUrl, type AgeBandSlug, type ThemeSlug, type BookTypeSlug } from "@/lib/kidsCatalogTaxonomy";
+import {
+  AGE_CHIPS, THEMES, BOOK_TYPES, parseKidsUrl,
+  type AgeChipSlug, type ThemeSlug, type BookTypeSlug,
+} from "@/lib/kidsCatalogTaxonomy";
 import { X } from "lucide-react";
 
 interface Props {
@@ -9,6 +12,9 @@ interface Props {
 /**
  * Horizontal chip filter row: Age · Theme · Type.
  * URL-param backed so /kids?age=4-6&theme=bedtime is deep-linkable.
+ * Age chips render from the AGE_CHIPS config (single source of truth)
+ * — do NOT re-add hardcoded age strings here; the regression test greps
+ * this file for stray age literals.
  */
 export function KidsFilterChips({ hidden }: Props) {
   const [params, setParams] = useSearchParams();
@@ -30,21 +36,32 @@ export function KidsFilterChips({ hidden }: Props) {
         : "bg-background text-foreground border-border hover:border-foreground"
     }`;
 
+  // The "All" chip is chip.kind==="all" (null slug in URL). Every other chip
+  // (including all_ages) is a real filter with its slug in the URL.
+  const ageAllChip = AGE_CHIPS.find((c) => c.kind === "all")!;
+  const ageOtherChips = AGE_CHIPS.filter((c) => c.kind !== "all");
+
   return (
     <div className="w-full border-y border-border bg-muted/30 py-4">
       <div className="max-w-6xl mx-auto px-4 space-y-3">
         {!hidden?.age && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground w-16 shrink-0">Age</span>
-            <button type="button" onClick={() => setParam("age", null)} className={chipClass(!current.age)}>All</button>
-            {AGE_BANDS.map((a) => (
+            <button
+              type="button"
+              onClick={() => setParam("age", null)}
+              className={chipClass(!current.age)}
+            >
+              {ageAllChip.short}
+            </button>
+            {ageOtherChips.map((c) => (
               <button
-                key={a.slug}
+                key={c.slug}
                 type="button"
-                onClick={() => setParam("age", current.age === a.slug ? null : a.slug)}
-                className={chipClass(current.age === a.slug)}
+                onClick={() => setParam("age", current.age === c.slug ? null : c.slug)}
+                className={chipClass(current.age === c.slug)}
               >
-                {a.short}
+                {c.short}
               </button>
             ))}
           </div>
@@ -96,5 +113,6 @@ export function KidsFilterChips({ hidden }: Props) {
   );
 }
 
-export { AGE_BANDS as _AGE_BANDS, THEMES as _THEMES, BOOK_TYPES as _BOOK_TYPES };
-export type { AgeBandSlug, ThemeSlug, BookTypeSlug };
+export { AGE_CHIPS as _AGE_CHIPS, THEMES as _THEMES, BOOK_TYPES as _BOOK_TYPES };
+export type { AgeChipSlug, ThemeSlug, BookTypeSlug };
+

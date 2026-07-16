@@ -10,6 +10,9 @@ import { PreviewLightbox } from "@/components/kids/PreviewLightbox";
 import { KidsFilterChips } from "@/components/kids/KidsFilterChips";
 import { KidsSectionNav } from "@/components/kids/KidsSectionNav";
 import { Loader2 } from "lucide-react";
+import {
+  resolveAgeChip, bookMatchesAgeChip, bookIsForKids,
+} from "@/lib/kidsCatalogTaxonomy";
 
 interface RawBook {
   id: string;
@@ -17,6 +20,9 @@ interface RawBook {
   cover_url: string | null;
   price_cents: number;
   age_group_id: string | null;
+  age_band: string | null;
+  age_min: number | null;
+  age_max: number | null;
   theme_ids: string[] | null;
   storefront_meta: Record<string, unknown> | null;
   created_at: string;
@@ -71,7 +77,7 @@ export default function Kids() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const q: any = supabase.from("ebooks_kids");
       const r = await q
-        .select("id,title,cover_url,price_cents,age_group_id,theme_ids,created_at,audience:storefront_meta->audience,preview_urls:storefront_meta->preview_urls")
+        .select("id,title,cover_url,price_cents,age_group_id,age_band,age_min,age_max,theme_ids,created_at,audience:storefront_meta->audience,preview_urls:storefront_meta->preview_urls")
         .eq("listing_status", "live")
         .eq("sellable", true)
         .order("created_at", { ascending: false })
@@ -83,6 +89,9 @@ export default function Kids() {
         cover_url: (b.cover_url as string | null) ?? null,
         price_cents: (b.price_cents as number) ?? 0,
         age_group_id: (b.age_group_id as string | null) ?? null,
+        age_band: (b.age_band as string | null) ?? null,
+        age_min: (b.age_min as number | null) ?? null,
+        age_max: (b.age_max as number | null) ?? null,
         theme_ids: (b.theme_ids as string[] | null) ?? null,
         storefront_meta: {
           audience: b.audience ?? undefined,
@@ -122,13 +131,19 @@ export default function Kids() {
 
   const matched: MatchedBook[] = useMemo(() => {
     if (allBooks.length === 0) return [];
+    // Kids-only: exclude adult/senior products, then apply chip overlap.
+    const chip = resolveAgeChip(wizardValue.age);
+    const eligible = allBooks
+      .filter((b) => bookIsForKids(b))
+      .filter((b) => (chip ? bookMatchesAgeChip(b, chip) : true));
+
     const themeObj = themes.find((t) => t.slug === wizardValue.theme);
     const ageObj = ageGroups.find((g) => g.slug === wizardValue.age);
     const wantTheme = wizardValue.theme && wizardValue.theme !== "any" ? themeObj?.id ?? null : null;
     const wantAge   = wizardValue.age   && wizardValue.age   !== "any" ? ageObj?.id   ?? null : null;
     const wantAud   = wizardValue.audience && wizardValue.audience !== "any" ? wizardValue.audience : null;
 
-    const scored = allBooks.map((b): MatchedBook => {
+    const scored = eligible.map((b): MatchedBook => {
       let s = 0;
       if (wantTheme && b.theme_ids?.includes(wantTheme)) s += 2;
       if (wantAge && b.age_group_id === wantAge) s += 2;
@@ -150,9 +165,7 @@ export default function Kids() {
     });
 
     scored.sort((a, b) => b._matchScore - a._matchScore);
-    // If no filters selected show all; if any filter show top ~24
-    const cap = (wantTheme || wantAge || wantAud) ? 24 : 24;
-    // If filters exist and everything scored 0, fall back to newest so we never dead-end.
+    const cap = 24;
     const anyMatch = scored.some((s) => s._matchScore >= 1);
     return (anyMatch ? scored : scored.map((b) => ({ ...b, _matchScore: 0 }))).slice(0, cap);
   }, [allBooks, ageGroups, themes, wizardValue]);

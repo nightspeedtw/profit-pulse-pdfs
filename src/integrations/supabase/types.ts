@@ -2046,6 +2046,8 @@ export type Database = {
         Row: {
           age_band: string | null
           age_group_id: string | null
+          age_max: number | null
+          age_min: number | null
           blocker_reason: string | null
           book_type: Database["public"]["Enums"]["kids_book_type"]
           buyer_job_tags: string[]
@@ -2100,6 +2102,8 @@ export type Database = {
         Insert: {
           age_band?: string | null
           age_group_id?: string | null
+          age_max?: number | null
+          age_min?: number | null
           blocker_reason?: string | null
           book_type?: Database["public"]["Enums"]["kids_book_type"]
           buyer_job_tags?: string[]
@@ -2154,6 +2158,8 @@ export type Database = {
         Update: {
           age_band?: string | null
           age_group_id?: string | null
+          age_max?: number | null
+          age_min?: number | null
           blocker_reason?: string | null
           book_type?: Database["public"]["Enums"]["kids_book_type"]
           buyer_job_tags?: string[]
