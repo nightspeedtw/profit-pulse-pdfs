@@ -327,13 +327,15 @@ Deno.serve(async (req: Request) => {
         // 10–13 even after portrait replan — a per-page render-quality
         // deficit, not a floor bug. Bumping steps is the calibrated repair.
         const repairSteps = attempt >= 1 ? 8 : 4;
-        const bytes = await falFluxSchnell({
+        const gen = await generateImageWithFailover({
           prompt,
           image_size: INTERIOR_GEN_PARAMS.image_size,
           num_inference_steps: repairSteps,
           ebook_id: ebook_id,
           step: `coloring_${stageLabel}_page_${page.canonical_page_number}${attempt >= 1 ? "_repair" : ""}`,
-        });
+        }, imagePolicy);
+        const bytes = gen.bytes;
+        const providerUsed = gen.provider;
         const verified = verifyImageAtBirth(bytes, page.canonical_page_number, MIN_IMAGE_BYTES);
 
         // Deterministic solid-black + white-bg check BEFORE upload.
