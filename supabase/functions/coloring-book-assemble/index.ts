@@ -251,10 +251,16 @@ Deno.serve(async (req: Request) => {
     // Legacy pages predate the anatomy verifier — sweep them in batches of 6.
     // Any anatomy_defect page is removed from metadata + requeued for regen.
     // A page without a fresh verdict is treated as UNMEASURED (block release).
+    //
+    // INCREMENTAL SWEEP (permanent class fix, owner order #1): trust a stored
+    // verdict only when it was measured against the same asset — verdicts
+    // carry `storage_path`, and a regenerated page ships a new versioned
+    // path so its old verdict is discarded automatically.
     const anatomyByPage = new Map<number, AnatomyPageVerdict>();
     for (const p of pages) {
       const v = (p as any).anatomy_verdict;
-      if (v && v.measured_version === ANATOMY_VERIFIER_VERSION && !v.degraded) {
+      const samePath = v && (!v.storage_path || v.storage_path === p.storage_path);
+      if (v && v.measured_version === ANATOMY_VERIFIER_VERSION && !v.degraded && samePath) {
         anatomyByPage.set(p.page, v as AnatomyPageVerdict);
       }
     }
@@ -271,10 +277,26 @@ Deno.serve(async (req: Request) => {
         mime: p.mime || "image/png",
         category_key: assembleCategoryKey,
         scene: (p as any).scene_setting ?? (p as any).scene,
+        storage_path: p.storage_path,
       })));
       const verdicts = await verifyAnatomyBatch(inputs, { db });
+      // Stamp storage_path into each verdict so future sweeps can prove
+      // the verdict belongs to THIS specific asset version.
+      for (let j = 0; j < verdicts.length; j++) {
+        (verdicts[j] as any).storage_path = inputs[j].storage_path;
+      }
       for (const v of verdicts) anatomyByPage.set(v.page, v);
+      // Persist verdicts back onto the page record too, so a future
+      // assemble entry sees them without re-measuring the same bytes.
+      const verdictByPage = new Map<number, AnatomyPageVerdict>();
+      for (const v of verdicts) verdictByPage.set(v.page, v);
+      const updatedPages = pages.map((pp) => {
+        const nv = verdictByPage.get(pp.page);
+        return nv ? { ...pp, anatomy_verdict: nv } : pp;
+      });
+      for (let k = 0; k < pages.length; k++) pages[k] = updatedPages[k];
       await patchMeta(db, ebook_id, {
+        coloring_pages: pages,
         coloring_assembly: {
           ...((meta as any).coloring_assembly ?? {}),
           anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
