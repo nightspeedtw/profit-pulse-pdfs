@@ -143,6 +143,10 @@ Deno.serve(async (req: Request) => {
       throw e;
     }
 
+    // Multi-provider policy (data-driven; A/B pilot may flip primary via
+    // generation_settings.coloring_autopilot.image_provider_policy).
+    const imagePolicy = (await readImageProviderPolicy(db)).interiors;
+
     const { data: row, error } = await db.from("ebooks_kids")
       .select("id, book_type, pipeline_status, metadata, title")
       .eq("id", ebook_id).maybeSingle();
