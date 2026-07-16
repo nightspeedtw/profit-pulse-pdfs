@@ -117,7 +117,16 @@ async function colorEvidence(bytes: Uint8Array) {
   const w = img.width, h = img.height;
   const stepX = Math.max(1, Math.floor(w / 48));
   const stepY = Math.max(1, Math.floor(h / 48));
+  // Sample the full image AND split into vertical thirds so a "gray gradient
+  // + typography with bottom 60% empty" synthetic fallback is caught here
+  // rather than downstream. Owner defect: a near-uniform bottom region
+  // shipped as a "cover" because color evidence only measured global means.
   let n = 0, satSum = 0, chromaSum = 0;
+  const bins = [
+    { yStart: 0,               yEnd: Math.floor(h / 3),      n: 0, lumSum: 0, lumSq: 0, chromaSum: 0 },
+    { yStart: Math.floor(h/3), yEnd: Math.floor((2 * h)/3),  n: 0, lumSum: 0, lumSq: 0, chromaSum: 0 },
+    { yStart: Math.floor((2*h)/3), yEnd: h,                  n: 0, lumSum: 0, lumSq: 0, chromaSum: 0 },
+  ];
   for (let y = 0; y < h; y += stepY) {
     for (let x = 0; x < w; x += stepX) {
       const px = img.getPixelAt(x + 1, y + 1);
@@ -126,19 +135,54 @@ async function colorEvidence(bytes: Uint8Array) {
       const b = (px >>> 8) & 0xff;
       const max = Math.max(r, g, b), min = Math.min(r, g, b);
       const chroma = max - min;
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
       chromaSum += chroma;
       satSum += max > 0 ? chroma / max : 0;
       n += 1;
+      for (const bin of bins) {
+        if (y >= bin.yStart && y < bin.yEnd) {
+          bin.n += 1;
+          bin.lumSum += lum;
+          bin.lumSq += lum * lum;
+          bin.chromaSum += chroma;
+          break;
+        }
+      }
     }
   }
   const avg_saturation = n ? satSum / n : 0;
   const avg_chroma = n ? chromaSum / n : 0;
+  const regionStats = bins.map((bin, i) => {
+    const bn = Math.max(1, bin.n);
+    const mean = bin.lumSum / bn;
+    const variance = bin.lumSq / bn - mean * mean;
+    const avgChroma = bin.chromaSum / bn;
+    // "Blank" region := very low luminance variance AND near-zero chroma.
+    // Empirical thresholds from the shipped-blank fallback: stdev < 4 luma
+    // units and chroma < 4 on 0..255 scale.
+    const stdev = Math.sqrt(Math.max(0, variance));
+    return {
+      band: ["top", "middle", "bottom"][i],
+      pixels: bn,
+      luminance_mean: Number(mean.toFixed(2)),
+      luminance_stdev: Number(stdev.toFixed(2)),
+      avg_chroma: Number(avgChroma.toFixed(2)),
+      blank: stdev < 4 && avgChroma < 4,
+    };
+  });
+  const blankBands = regionStats.filter((r) => r.blank).length;
+  // Any two-of-three empty regions OR bottom+middle empty = shipped fallback.
+  const blank_background = blankBands >= 2 || (regionStats[1].blank && regionStats[2].blank);
+  const blank_ratio = blankBands / 3;
   return {
     width: w,
     height: h,
     avg_saturation: Number(avg_saturation.toFixed(4)),
     avg_chroma: Number(avg_chroma.toFixed(2)),
-    pass: avg_saturation >= 0.08 && avg_chroma >= 12,
+    region_stats: regionStats,
+    blank_background,
+    blank_ratio: Number(blank_ratio.toFixed(3)),
+    pass: avg_saturation >= 0.08 && avg_chroma >= 12 && !blank_background,
     min_saturation: 0.08,
     min_chroma: 12,
   };
