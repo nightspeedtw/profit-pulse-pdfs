@@ -395,10 +395,13 @@ export default function ColoringProduct() {
         <button
           type="button"
           onClick={clickBuy}
-          className="flex-1 h-12 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2"
+          disabled={downloading}
+          className="flex-1 h-12 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
         >
-          <Download className="h-4 w-4" /> Download
+          {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          {downloading ? "Preparing…" : "Download"}
         </button>
+
       </div>
 
       <ColoringPreviewLightbox
