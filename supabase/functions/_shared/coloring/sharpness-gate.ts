@@ -1,5 +1,7 @@
 // Sharpness gate for coloring-book interior line-art.
 //
+// v6 root-cause completion (2026-07-16): boundary_edge_strength is the ONLY
+// sharpness decision authority; Sobel/Laplacian/global scores are telemetry.
 // v5 root-cause fix (2026-07-16): replaced the whole-image
 // `visible_edge_score` mean-neighbor-diff (which confounded SPARSITY with
 // BLUR and false-failed replanned portrait pages like Ocean Friends p3)

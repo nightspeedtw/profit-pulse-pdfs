@@ -192,8 +192,8 @@ describe("boundary-edge gate — inapplicability contract", () => {
 // ---------- version + threshold constants ----------
 
 describe("sharpness gate — versioned constants", () => {
-  it("exports v5 gate version", () => {
-    expect(SHARPNESS_GATE_VERSION.startsWith("v5:")).toBe(true);
+  it("exports v6 boundary-authority gate version", () => {
+    expect(SHARPNESS_GATE_VERSION.startsWith("v6:")).toBe(true);
   });
   it("boundary floor is 140 (fixture calibration, do not lower silently)", () => {
     expect(DEFAULT_BOUNDARY_EDGE_MIN_SCORE).toBe(140);

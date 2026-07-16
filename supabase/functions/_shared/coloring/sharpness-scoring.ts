@@ -77,7 +77,7 @@ export const MIN_BOUNDARY_PIXELS = 24;
  */
 export const DEFAULT_BOUNDARY_EDGE_MIN_SCORE = 140;
 
-export const SHARPNESS_GATE_VERSION = "v5:boundary-edge-strength-min140";
+export const SHARPNESS_GATE_VERSION = "v6:boundary-edge-authority-min140";
 
 /**
  * Combine Sobel-magnitude mean and Laplacian variance into a monotonic
