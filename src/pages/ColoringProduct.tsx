@@ -263,11 +263,13 @@ export default function ColoringProduct() {
           <button
             type="button"
             onClick={clickBuy}
-            className="w-full h-14 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-base hover:bg-accent hover:text-accent-foreground transition-colors inline-flex items-center justify-center gap-2"
+            disabled={downloading}
+            className="w-full h-14 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-base hover:bg-accent hover:text-accent-foreground transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
           >
-            <Download className="h-5 w-5" />
-            Download instantly — print at home
+            {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
+            {downloading ? "Preparing your PDF…" : "Download instantly — print at home"}
           </button>
+
 
           <ul className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs md:text-sm text-muted-foreground">
             <li className="inline-flex items-center gap-2"><Download className="h-3.5 w-3.5" /> Instant PDF</li>
