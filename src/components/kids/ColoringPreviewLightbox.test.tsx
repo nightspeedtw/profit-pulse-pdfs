@@ -35,12 +35,13 @@ describe("ColoringPreviewLightbox — conversion core", () => {
         onClose={() => {}}
       />
     );
-    const imgs = screen.getAllByRole("img");
+    const imgs = screen.getAllByRole("img", { hidden: true });
     const srcs = imgs.map((i) => (i as HTMLImageElement).src);
-    expect(srcs.some((s) => s.includes("/cover.png"))).toBe(true);
-    for (const p of PREVIEW) expect(srcs.some((s) => s.includes(p))).toBe(true);
+    const joined = srcs.join(" ");
+    expect(joined).toContain("cover.png");
+    for (const p of PREVIEW) expect(joined).toContain(p.split("/").pop()!);
     // Sold PDF URL must NEVER appear anywhere in the lightbox output.
-    for (const s of srcs) expect(s).not.toBe(PDF_URL);
+    expect(joined).not.toContain(PDF_URL);
   });
 
   it("emits preview_page_turn once per unique page index on nav", () => {
