@@ -29,6 +29,13 @@ export interface CoveringCoverPromptInput {
   ageMin: number;
   ageMax: number;
   heroSubjects: string[];
+  /**
+   * Category-level forbidden subjects (e.g. Farm & Woodland must exclude
+   * exotic species like tigers, lions, elephants, dolphins). Surfaced as
+   * an explicit negative clause so the image model doesn't wander into
+   * off-category creatures and get rejected by the hero-verification gate.
+   */
+  forbiddenSubjects?: string[];
   extraClauses?: (string | undefined | null)[];
   /**
    * The book title. NEVER injected into the prompt. Accepted only so the
@@ -38,11 +45,18 @@ export interface CoveringCoverPromptInput {
 }
 
 export function buildColoringCoverArtPrompt(input: CoveringCoverPromptInput): string {
-  const { categoryName, ageMin, ageMax, heroSubjects, extraClauses = [] } = input;
+  const { categoryName, ageMin, ageMax, heroSubjects, extraClauses = [], forbiddenSubjects = [] } = input;
+  const forbiddenList = forbiddenSubjects
+    .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    .slice(0, 12);
+  const forbiddenClause = forbiddenList.length > 0
+    ? `STRICT CATEGORY FIT for "${categoryName}": every visible creature must belong to this category. Do NOT include any of these off-category subjects: ${forbiddenList.join(", ")}. If unsure, choose one of the allowed subjects listed above.`
+    : null;
   const clauses = [
     `Full-color cheerful children's coloring-book COVER BACKGROUND ART ONLY for "${categoryName}" ages ${ageMin}-${ageMax}.`,
-    `Show 3-5 cute friendly subjects from this set: ${heroSubjects.slice(0, 8).join(", ")}.`,
+    `Show 3-5 cute friendly subjects drawn ONLY from this on-category set: ${heroSubjects.slice(0, 8).join(", ")}.`,
     `Rich colorful painterly storefront cover scene; NOT line art, NOT black-and-white, NOT an interior page. Leave clean upper-half space for later SVG title overlay.`,
+    forbiddenClause,
     ...extraClauses.filter((c): c is string => typeof c === "string" && c.length > 0),
     TEXTLESS_DIRECTIVE,
     `No title/subtitle/age badge, no letters/numbers/watermark/logo/signage/mockup/UI, no blank canvas, no grayscale, no solid black water.`,

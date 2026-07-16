@@ -235,27 +235,36 @@ export async function verifyCategoryHero(
     `The cover hero MUST be one of these subjects: ${JSON.stringify(allowed)}.`,
     forbidden.length ? `The cover MUST NOT show any of: ${JSON.stringify(forbidden)}.` : "",
     "Output STRICT JSON: {\"detected_subjects\": string[], \"matches_allowed\": boolean, \"forbidden_hit\": string|null, \"reason\": string}.",
-    "detected_subjects = short noun phrases for the primary characters/subjects you actually see (max 6).",
+    "detected_subjects = short concrete noun phrases for the primary characters/subjects you actually see (e.g. 'red fox', 'cow', 'oak tree'). Max 6.",
     "matches_allowed = true if at least one detected subject is semantically covered by the allowed list.",
-    "forbidden_hit = the first forbidden subject you actually see, or null.",
+    "forbidden_hit = a CONCRETE creature/object you literally see (e.g. 'tiger', 'skyscraper') that clearly belongs to the forbidden list. NEVER echo an abstract category label like 'exotic species' or 'modern city' verbatim — return null unless you can name the specific offending thing.",
   ].filter(Boolean).join(" ");
   try {
     const j = await visionJson<{ detected_subjects: string[]; matches_allowed: boolean; forbidden_hit: string | null; reason: string }>(bytes, prompt, timeoutMs);
     if (!j) {
       return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_gemini_key_or_empty_response" };
     }
-    const matches = !!j.matches_allowed && !j.forbidden_hit;
+    // Deformity-only doctrine + false-positive guard: `forbidden_hit` alone
+    // does NOT fail the cover. We only fail when the hero is genuinely off
+    // category (matches_allowed=false). Additionally, an abstract forbidden
+    // label (e.g. "exotic species", "modern city") echoed back verbatim is
+    // discarded — those are category buckets, not concrete detections.
+    const detected = Array.isArray(j.detected_subjects) ? j.detected_subjects.slice(0, 6) : [];
+    const rawHit = (j.forbidden_hit ?? "").trim();
+    const isAbstractHit = rawHit.length > 0 && forbidden.some((f) => f.trim().toLowerCase() === rawHit.toLowerCase());
+    const concreteHit = rawHit.length > 0 && !isAbstractHit ? rawHit : null;
+    const matches = !!j.matches_allowed; // primary signal
     return {
       ok: matches,
       matches,
-      detected_subjects: Array.isArray(j.detected_subjects) ? j.detected_subjects.slice(0, 6) : [],
-      forbidden_hit: j.forbidden_hit ?? null,
+      detected_subjects: detected,
+      forbidden_hit: concreteHit,
       degraded: false,
       reason: matches
-        ? `hero_ok:${(j.detected_subjects ?? []).join("|").slice(0, 80)}`
-        : (j.forbidden_hit
-            ? `forbidden_hit:${j.forbidden_hit}`
-            : `wrong_subject:detected=${(j.detected_subjects ?? []).join("|").slice(0, 80)}`),
+        ? `hero_ok:${detected.join("|").slice(0, 80)}${concreteHit ? `;non_blocking_forbidden=${concreteHit}` : ""}`
+        : (concreteHit
+            ? `forbidden_hit:${concreteHit}`
+            : `wrong_subject:detected=${detected.join("|").slice(0, 80)}`),
     };
   } catch (e) {
     return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: `guard_error:${(e as Error).message.slice(0, 120)}` };
