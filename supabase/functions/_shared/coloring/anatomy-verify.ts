@@ -205,12 +205,20 @@ export async function verifyAnatomyBatch(
     ? opts.models
     : [...ANATOMY_VERIFIER_MODEL_LADDER_DEFAULT];
 
-  const checklists = batch.map((p, i) => ({
-    index: i,
-    page: p.page,
-    subject: p.subject,
-    checklist: speciesAnatomyChecklistJson(p.subject),
-  }));
+  const checklists = batch.map((p, i) => {
+    const spec = getSpeciesAnatomy(p.subject);
+    const fantasyOk = !!spec.fantasy || isFantasyCategoryKey(p.category_key);
+    return {
+      index: i,
+      page: p.page,
+      subject: p.subject,
+      category_key: p.category_key ?? null,
+      scene: p.scene ?? null,
+      fantasy: !!spec.fantasy,
+      fantasy_ok: fantasyOk,
+      checklist: speciesAnatomyChecklistJson(p.subject),
+    };
+  });
 
   let lastReason = "no_models_tried";
   let winner: OneModelResult | null = null;
