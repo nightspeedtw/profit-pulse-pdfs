@@ -343,6 +343,7 @@ Deno.serve(async (req) => {
         coverPng: currentCoverBytes,
       });
       await writeInprogress(db, ebook_id, bytes);
+      runBrandingReports.push(...consumeKidsBrandingReports());
       stageResult = { pdf_size: bytes.length, pages_added: 3, format: 'square_612', cover_bytes_hash: currentCoverHash, cover_luminance: coverLum };
     } else if (pos.lane === 'finalize') {
       const existing = await readInprogress(db, ebook_id);
