@@ -495,7 +495,7 @@ Deno.serve(async (req: Request) => {
     const { data: signed } = await db.storage.from("ebook-pdfs").createSignedUrl(pdfPath, 60 * 60 * 24 * 365);
 
     const pageCount = doc.getPageCount();
-    const expectedPageCount = 4 + totalPages + 1; // front matter (4) + interior + certificate
+    const expectedPageCount = isMiniTest ? (totalPages + 2) : (4 + totalPages + 1); // mini: cover+N+back; std: 4 front + N + certificate
 
     // ── Weighted acceptance gate ──────────────────────────────────────
     // Build a book scorecard from what we know (all pages passed per-page
