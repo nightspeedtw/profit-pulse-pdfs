@@ -97,7 +97,7 @@ async function tick() {
   const contentCounts = new Map<string, Set<string>>();
   for (const r of (recentFails ?? []) as Array<{ ebook_kids_id: string | null; blocker_reason: string }>) {
     if (!r.ebook_kids_id) continue;
-    const { klass } = classifyBlocker(r.bookker_reason ?? r.blocker_reason);
+    const { klass } = classifyBlocker(r.blocker_reason);
     const bucket = armsRegressionPause(r.blocker_reason) ? classCounts : contentCounts;
     const set = bucket.get(klass) ?? new Set<string>();
     set.add(r.ebook_kids_id);
