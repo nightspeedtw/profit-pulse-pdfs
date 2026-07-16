@@ -101,10 +101,86 @@ async function rasterAndDownscale(
   return { rgba, width: w, height: h };
 }
 
+function shadePixel(rgb: number, factor: number): number {
+  const r = Math.max(0, Math.min(255, Math.round(((rgb >> 16) & 0xff) * factor)));
+  const g = Math.max(0, Math.min(255, Math.round(((rgb >> 8) & 0xff) * factor)));
+  const b = Math.max(0, Math.min(255, Math.round((rgb & 0xff) * factor)));
+  return (r << 16) | (g << 8) | b;
+}
+
+function paintCanvasWithVerticalWash(canvas: any, W: number, H: number, base: number) {
+  // Soft two-tone vertical background wash for a Crayola-style card feel.
+  const light = shadePixel(base, 1.08);
+  const dark = shadePixel(base, 0.94);
+  for (let y = 0; y < H; y++) {
+    const t = y / Math.max(1, H - 1);
+    const r = Math.round(((light >> 16) & 0xff) * (1 - t) + ((dark >> 16) & 0xff) * t);
+    const g = Math.round(((light >> 8) & 0xff) * (1 - t) + ((dark >> 8) & 0xff) * t);
+    const b = Math.round((light & 0xff) * (1 - t) + (dark & 0xff) * t);
+    const px = (((r & 0xff) << 24) | ((g & 0xff) << 16) | ((b & 0xff) << 8) | 0xff) >>> 0;
+    for (let x = 0; x < W; x++) canvas.setPixelAt(x + 1, y + 1, px);
+  }
+}
+
+function drawRoundedFrame(canvas: any, W: number, H: number, base: number) {
+  // Decorative rounded frame ~inset by 4% with a darker palette accent.
+  const inset = Math.round(Math.min(W, H) * 0.04);
+  const thickness = Math.max(4, Math.round(Math.min(W, H) * 0.008));
+  const radius = Math.round(Math.min(W, H) * 0.05);
+  const frameCol = shadePixel(base, 0.65);
+  const px = (((frameCol >> 16) & 0xff) << 24 | ((frameCol >> 8) & 0xff) << 16 | (frameCol & 0xff) << 8 | 0xff) >>> 0;
+  const inCorner = (x: number, y: number, cx: number, cy: number) => {
+    const dx = x - cx, dy = y - cy;
+    return dx * dx + dy * dy <= radius * radius;
+  };
+  for (let y = inset; y < H - inset; y++) {
+    for (let x = inset; x < W - inset; x++) {
+      const onEdge =
+        x < inset + thickness || x >= W - inset - thickness ||
+        y < inset + thickness || y >= H - inset - thickness;
+      if (!onEdge) continue;
+      // Rounded corners: skip pixels outside corner arcs
+      if (x < inset + radius && y < inset + radius && !inCorner(x, y, inset + radius, inset + radius)) continue;
+      if (x >= W - inset - radius && y < inset + radius && !inCorner(x, y, W - inset - radius - 1, inset + radius)) continue;
+      if (x < inset + radius && y >= H - inset - radius && !inCorner(x, y, inset + radius, H - inset - radius - 1)) continue;
+      if (x >= W - inset - radius && y >= H - inset - radius && !inCorner(x, y, W - inset - radius - 1, H - inset - radius - 1)) continue;
+      canvas.setPixelAt(x + 1, y + 1, px);
+    }
+  }
+}
+
+function drawDropShadow(canvas: any, cx: number, cy: number, w: number, h: number, W: number, H: number) {
+  // Elliptical soft shadow beneath a hero region.
+  const shadowY = cy + h * 0.5;
+  const rx = w * 0.42;
+  const ry = Math.max(6, h * 0.06);
+  const y0 = Math.max(0, Math.floor(shadowY - ry * 1.4));
+  const y1 = Math.min(H, Math.ceil(shadowY + ry * 1.6));
+  const x0 = Math.max(0, Math.floor(cx - rx * 1.2));
+  const x1 = Math.min(W, Math.ceil(cx + rx * 1.2));
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const dx = (x - cx) / rx;
+      const dy = (y - shadowY) / ry;
+      const d = dx * dx + dy * dy;
+      if (d > 1.4) continue;
+      const strength = Math.max(0, 0.35 * (1 - d / 1.4));
+      const cur = canvas.getPixelAt(x + 1, y + 1);
+      const r = Math.round(((cur >>> 24) & 0xff) * (1 - strength));
+      const g = Math.round(((cur >>> 16) & 0xff) * (1 - strength));
+      const b = Math.round(((cur >>> 8) & 0xff) * (1 - strength));
+      canvas.setPixelAt(x + 1, y + 1, (((r & 0xff) << 24) | ((g & 0xff) << 16) | ((b & 0xff) << 8) | 0xff) >>> 0);
+    }
+  }
+}
+
 /**
- * Compose the final self-art cover PNG: palette-tinted background canvas
- * with 1..N colorized hero pages laid out. No AI, no external fonts, no
- * gradient synth. Deterministic given the same inputs.
+ * Compose the final self-art cover PNG. Beautified rung-2 look:
+ *   - vertical two-tone palette wash background
+ *   - soft elliptical drop shadow under each hero
+ *   - colorized hero art (per-region two-tone flood fill)
+ *   - decorative rounded palette-accent frame
+ * Deterministic. No AI, no external fonts.
  */
 export async function renderColoringSelfArtCover(input: SelfArtCoverInput): Promise<SelfArtCoverResult> {
   const W = input.canvasWidth ?? 1600;
@@ -117,19 +193,11 @@ export async function renderColoringSelfArtCover(input: SelfArtCoverInput): Prom
     throw new Error("self_art_cover: no interior pages available");
   }
 
-  // Base canvas painted with palette.background
   const canvas = new Image(W, H);
-  const bgRgba = rgb24ToRgba32(palette.background);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      canvas.setPixelAt(x + 1, y + 1, bgRgba);
-    }
-  }
+  paintCanvasWithVerticalWash(canvas, W, H, palette.background);
 
-  // Layout: single hero centered; 2-3 heroes in a horizontal strip.
   const gutter = Math.round(W * 0.03);
   const zoneW = Math.floor((W - gutter * (chosen.length + 1)) / chosen.length);
-  // Leave top ~18% clean for the title overlay + bottom ~14% clean for badge/logo.
   const zoneTop = Math.round(H * 0.22);
   const zoneBottom = Math.round(H * 0.86);
   const zoneH = zoneBottom - zoneTop;
@@ -145,8 +213,7 @@ export async function renderColoringSelfArtCover(input: SelfArtCoverInput): Prom
       continue;
     }
     const { rgba, width: ww, height: hh } = await rasterAndDownscale(bytes, workingSize);
-    const colored = colorizeLineArt(rgba, ww, hh, palette);
-    // Pack colored back into an Image so we can paste onto canvas at scale.
+    const colored = colorizeLineArt(rgba, ww, hh, palette, { beautify: true });
     const heroImg = new Image(ww, hh);
     for (let y = 0; y < hh; y++) {
       for (let x = 0; x < ww; x++) {
@@ -158,7 +225,6 @@ export async function renderColoringSelfArtCover(input: SelfArtCoverInput): Prom
         );
       }
     }
-    // Fit into zone preserving aspect
     const targetScale = Math.min(zoneW / ww, zoneH / hh);
     const drawW = Math.max(32, Math.round(ww * targetScale));
     const drawH = Math.max(32, Math.round(hh * targetScale));
@@ -166,9 +232,8 @@ export async function renderColoringSelfArtCover(input: SelfArtCoverInput): Prom
     const zoneX = gutter + i * (zoneW + gutter);
     const drawX = zoneX + Math.floor((zoneW - drawW) / 2);
     const drawY = zoneTop + Math.floor((zoneH - drawH) / 2);
-    // Paste: skip near-background pixels so overlapping hero borders blend
-    // softly into the canvas tint. Pure background pixels stay white-ish on
-    // the hero because that's the palette bg anyway.
+    // Drop shadow first, hero over it.
+    drawDropShadow(canvas, drawX + drawW / 2, drawY + drawH / 2, drawW, drawH, W, H);
     for (let y = 0; y < drawH; y++) {
       for (let x = 0; x < drawW; x++) {
         const px = (scaled as any).getPixelAt(x + 1, y + 1);
@@ -190,6 +255,9 @@ export async function renderColoringSelfArtCover(input: SelfArtCoverInput): Prom
     throw new Error("self_art_cover: all hero pages failed to fetch");
   }
 
+  // Decorative frame drawn last so it sits above the wash + heroes.
+  drawRoundedFrame(canvas, W, H, palette.background);
+
   const bytes = await canvas.encode();
   return {
     bytes,
@@ -202,3 +270,4 @@ export async function renderColoringSelfArtCover(input: SelfArtCoverInput): Prom
     canvas: { width: W, height: H },
   };
 }
+
