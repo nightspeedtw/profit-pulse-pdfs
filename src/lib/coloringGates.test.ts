@@ -14,6 +14,8 @@ const PASS_PAGE = {
   safe_margin: 100,
   white_background: 100,
   visual_uniqueness: 92,
+  anatomy_correctness: 98,
+  colorability: 95,
   hard_fail: {},
 };
 
