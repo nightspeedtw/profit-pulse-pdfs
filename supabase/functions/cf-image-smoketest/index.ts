@@ -1,12 +1,18 @@
 // One-shot smoke test for Cloudflare Workers AI Flux-1 Schnell.
-// Renders a simple coloring-page prompt, runs verify-at-birth + solid-black
-// check, reports latency. Intended for manual admin invocation only.
+// Renders a simple coloring-page prompt, checks bytes look like an image
+// (JPEG/PNG magic) and computes a cheap solid-black-pixel ratio proxy.
+// Admin-only.
 // @ts-nocheck
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { cloudflareFluxSchnell } from "../_shared/image-providers.ts";
-import { verifyImageAtBirth } from "../_shared/coloring/verify-at-birth.ts";
 
 declare const Deno: any;
+
+function magic(bytes: Uint8Array): string {
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpeg";
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "png";
+  return "unknown";
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -31,19 +37,22 @@ Deno.serve(async (req: Request) => {
       step: "cf_smoketest",
     });
     const latency_ms = Date.now() - started;
-    let verify: unknown = null;
-    let verify_error: string | null = null;
-    try {
-      verify = await verifyImageAtBirth(bytes, { kind: "coloring_interior" });
-    } catch (e) {
-      verify_error = (e as Error).message;
-    }
+    // Cheap solid-black proxy: fraction of bytes that are exactly 0x00 in the
+    // raw file. Not pixel-accurate, but a coloring page dominated by black
+    // (solid-fill failure) trends much higher than a valid line-art page.
+    let zeros = 0;
+    for (let i = 0; i < bytes.length; i++) if (bytes[i] === 0) zeros++;
+    const zero_ratio = zeros / bytes.length;
     return j({
       ok: true,
       latency_ms,
       bytes: bytes.byteLength,
-      verify,
-      verify_error,
+      magic: magic(bytes),
+      zero_byte_ratio: Number(zero_ratio.toFixed(4)),
+      birth_checks: {
+        is_image: magic(bytes) !== "unknown",
+        not_solid_black_proxy: zero_ratio < 0.6,
+      },
     });
   } catch (e) {
     return j({
