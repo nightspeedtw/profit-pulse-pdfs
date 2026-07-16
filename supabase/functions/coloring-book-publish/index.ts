@@ -183,7 +183,8 @@ Deno.serve(async (req: Request) => {
         coloring_release_gate: gate,
         coloring_current_step_label: `Release blocked: ${gate.reasons.join("; ")}`,
       });
-      return json({ ok: false, release_blocked: true, gate });
+      await scheduleSelfAdvance(db, ebook_id, { delayMs: SELF_ADVANCE_DELAY_BACKOFF_MS, reason: "release_gate_blocked" });
+      return json({ ok: false, release_blocked: true, gate, self_advance: true });
     }
 
     // ── Pricing (RULE 1: page-count → base) ───────────────────────────
