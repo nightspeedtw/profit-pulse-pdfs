@@ -366,12 +366,43 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    await patchMeta(db, ebook_id, { coloring_repair_attempts: repairAttempts });
+    // Persist rolling per-page error history (last 5 per page), not overwrite.
+    const priorErrorLog = ((meta.coloring_last_errors as any[] | undefined) ?? []);
+    const errorLog = [...priorErrorLog, ...errors.map((e) => ({ ...e, at: new Date().toISOString() }))];
+    const perPageTrimmed: any[] = [];
+    const byPageCount = new Map<number, number>();
+    for (let i = errorLog.length - 1; i >= 0; i--) {
+      const p = (errorLog[i] as any).page;
+      const c = byPageCount.get(p) ?? 0;
+      if (c < 5) { perPageTrimmed.unshift(errorLog[i]); byPageCount.set(p, c + 1); }
+    }
+
+    // Persist plan (may have been mutated by replan) + attempts + replans.
+    await patchMeta(db, ebook_id, {
+      coloring_repair_attempts: repairAttempts,
+      coloring_replans: replans,
+      coloring_page_plan: { ...planWrap, plan },
+    });
 
     const pages = await updatePages(db, ebook_id, newRecords);
     const total = plan.length;
     const doneNow = pages.length;
     const percent = Math.round((doneNow / total) * 100);
+
+    if (deadPages.length > 0) {
+      // Learn-then-retry surface: dead page class, don't idle-loop, don't P0-pause.
+      await db.from("ebooks_kids").update({
+        pipeline_status: "failed",
+        blocker_reason: `coloring_page_dead: pages ${deadPages.join(",")} exhausted repair + replan ladder`,
+      }).eq("id", ebook_id);
+      await patchMeta(db, ebook_id, {
+        coloring_progress_percent: percent,
+        coloring_current_step_label: `Dead pages after replan: ${deadPages.join(", ")} — learn-then-retry`,
+        coloring_last_errors: perPageTrimmed,
+        coloring_dead_pages: deadPages,
+      });
+      return json({ ok: false, stage: stageLabel, dead_pages: deadPages, errors: perPageTrimmed }, 200);
+    }
 
     if (errors.length > 0 && newRecords.length === 0) {
       // Whole batch failed — surface as blocker but keep queued for retry.
@@ -382,10 +413,16 @@ Deno.serve(async (req: Request) => {
       await patchMeta(db, ebook_id, {
         coloring_progress_percent: percent,
         coloring_current_step_label: `Batch failed at ${stageLabel}; will retry (${errors.length} pages)`,
-        coloring_last_errors: errors,
+        coloring_last_errors: perPageTrimmed,
       });
-      return json({ ok: false, stage: stageLabel, errors }, 200);
+      return json({ ok: false, stage: stageLabel, errors: perPageTrimmed }, 200);
     }
+
+    // On any partial success, still update the rolling error log.
+    if (errors.length > 0) {
+      await patchMeta(db, ebook_id, { coloring_last_errors: perPageTrimmed });
+    }
+
 
     // Determine follow-up state.
     const stillCalibrationRemaining = plan
