@@ -11,6 +11,8 @@ export const COLORING_TH = {
     safe_margin: 100,
     white_background: 100,
     visual_uniqueness: 90,
+    anatomy_correctness: 95,       // NEW — customer-visible #1 defect class
+    colorability: 92,              // NEW — enclosed regions must be colorable
   },
   cover: {
     cover_category_match: 98,
@@ -19,6 +21,9 @@ export const COLORING_TH = {
   },
   release: {
     final_sellable: 92,
+    book_weighted_avg: 92,
+    per_page_floor: 88,
+    max_duplicate_scene_rate: 0.05,
   },
 } as const;
 
@@ -33,6 +38,9 @@ export const COLORING_HARD_FAIL_ZERO_KEYS = [
   "duplicate_page",
   "duplicate_image_hash",
   "invalid_svg",
+  "anatomy_defect",         // NEW — extra/missing/fused/malformed limbs, fingers, faces, wings, tails
+  "large_solid_black_area", // NEW — filled black regions kill colorable space
+  "copyrighted_ip",         // NEW — recognizable IP / living-artist style imitation
 ] as const;
 
 export type ColoringHardFailKey = (typeof COLORING_HARD_FAIL_ZERO_KEYS)[number];
@@ -46,6 +54,8 @@ export interface ColoringPageScorecard {
   safe_margin: number;
   white_background: number;
   visual_uniqueness: number;
+  anatomy_correctness: number;
+  colorability: number;
   hard_fail: Partial<Record<ColoringHardFailKey, number>>;
 }
 
@@ -68,6 +78,67 @@ export function coloringPageGate(s: Partial<ColoringPageScorecard>): GateResult 
     if (v > 0) reasons.push(`hard_fail:${k}=${v}`);
   }
   return { pass: reasons.length === 0, reasons };
+}
+
+// Book-level weighted acceptance (7 dimensions + book gates).
+// Weights sum to 100. Never lowered without owner-approved policy change.
+export const COLORING_BOOK_WEIGHTS = {
+  theme_fit: 15,
+  age_fit: 15,
+  anatomy_correctness: 15,
+  line_art_cleanliness: 15,
+  colorability: 10,
+  composition_margins: 10,
+  visual_appeal: 10,
+  originality_diversity: 5,
+  style_consistency: 5,
+} as const;
+
+export interface ColoringBookScorecard {
+  theme_fit: number;
+  age_fit: number;
+  anatomy_correctness: number;
+  line_art_cleanliness: number;
+  colorability: number;
+  composition_margins: number;
+  visual_appeal: number;
+  originality_diversity: number;
+  style_consistency: number;
+  per_page_scores: number[];       // final composite per page
+  hard_fails_total: number;
+  duplicate_scene_rate: number;    // 0..1
+  spelling_ok: boolean;            // typography layer — must be 100% clean
+}
+
+export interface WeightedBookGateResult extends GateResult {
+  weighted_avg: number;
+}
+
+export function coloringBookWeightedGate(s: ColoringBookScorecard): WeightedBookGateResult {
+  const w = COLORING_BOOK_WEIGHTS;
+  const weighted_avg =
+    (s.theme_fit * w.theme_fit +
+      s.age_fit * w.age_fit +
+      s.anatomy_correctness * w.anatomy_correctness +
+      s.line_art_cleanliness * w.line_art_cleanliness +
+      s.colorability * w.colorability +
+      s.composition_margins * w.composition_margins +
+      s.visual_appeal * w.visual_appeal +
+      s.originality_diversity * w.originality_diversity +
+      s.style_consistency * w.style_consistency) / 100;
+  const reasons: string[] = [];
+  if (weighted_avg < COLORING_TH.release.book_weighted_avg)
+    reasons.push(`weighted_avg=${weighted_avg.toFixed(1)} < ${COLORING_TH.release.book_weighted_avg}`);
+  const minPage = s.per_page_scores.length ? Math.min(...s.per_page_scores) : 0;
+  if (minPage < COLORING_TH.release.per_page_floor)
+    reasons.push(`min_page_score=${minPage} < ${COLORING_TH.release.per_page_floor}`);
+  if (s.hard_fails_total > 0)
+    reasons.push(`hard_fails_total=${s.hard_fails_total} > 0`);
+  if (s.duplicate_scene_rate > COLORING_TH.release.max_duplicate_scene_rate)
+    reasons.push(`duplicate_scene_rate=${s.duplicate_scene_rate} > ${COLORING_TH.release.max_duplicate_scene_rate}`);
+  if (!s.spelling_ok)
+    reasons.push(`spelling_ok=false (cover/typography must be 100%)`);
+  return { pass: reasons.length === 0, reasons, weighted_avg };
 }
 
 export interface ColoringCoverScorecard {
@@ -107,6 +178,7 @@ export interface ColoringReleaseInput {
   zero_prohibited_artifacts: boolean;
   commercial_rights_pass: boolean;
   final_sellable: number;
+  book_weighted_gate_pass: boolean; // NEW
 }
 
 export function coloringReleaseGate(x: ColoringReleaseInput): GateResult {
@@ -121,6 +193,7 @@ export function coloringReleaseGate(x: ColoringReleaseInput): GateResult {
     ["cover_gate_pass", "cover gate failed"],
     ["zero_prohibited_artifacts", "prohibited artifacts present"],
     ["commercial_rights_pass", "commercial rights manifest failed"],
+    ["book_weighted_gate_pass", "book-level weighted acceptance failed"],
   ];
   for (const [k, msg] of flags) if (!x[k]) reasons.push(msg);
   if (x.final_sellable < COLORING_TH.release.final_sellable) {
