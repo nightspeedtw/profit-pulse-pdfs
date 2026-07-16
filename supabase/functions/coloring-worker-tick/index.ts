@@ -46,6 +46,34 @@ Deno.serve(async (req: Request) => {
       return json(result);
     }
 
+    // Lane-level provider guards — never dispatch into a locked account or
+    // over the daily FAL budget cap. These are class fixes, not per-book.
+    const guards = await readLaneGuards(db);
+    if (guards.billing_blocked.active) {
+      result.skipped = "provider_billing_locked";
+      result.billing_blocked = guards.billing_blocked;
+      await recordTick(db, result);
+      return json(result);
+    }
+    const cap = Number((guards.cfg.fal_daily_budget_usd as number | undefined) ?? DEFAULT_FAL_DAILY_BUDGET_USD);
+    if (cap > 0) {
+      const spent = await sumFalSpendToday(db);
+      result.fal_spent_today_usd = Number(spent.toFixed(4));
+      result.fal_daily_cap_usd = cap;
+      if (spent >= cap) {
+        await patchLaneCfg(db, {
+          fal_budget_cap: {
+            reached: true, spent_usd: spent, cap_usd: cap,
+            day_utc: new Date().toISOString().slice(0, 10),
+            at: new Date().toISOString(),
+          },
+        });
+        result.skipped = "fal_budget_cap_reached";
+        await recordTick(db, result);
+        return json(result);
+      }
+    }
+
     const maxParallel = Math.max(1, Number(cfg.max_parallel ?? 1));
     const { count: inFlight } = await db
       .from("ebooks_kids")
