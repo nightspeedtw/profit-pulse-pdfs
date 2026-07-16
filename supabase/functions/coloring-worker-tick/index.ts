@@ -82,9 +82,12 @@ Deno.serve(async (req: Request) => {
       let target = "coloring-book-render";
       if (awaiting === "cover_pdf_publish") {
         target = row.cover_url ? (row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble") : "coloring-book-cover";
-      } else if (awaiting === "publish") {
-        target = "coloring-book-publish";
+      } else if (awaiting === "publish" || awaiting === "owner_final_verification") {
+        // owner_final_verification is a legacy human-hold pin — treat as ready-to-publish.
+        target = row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble";
       }
+      // 'owner_calibration_review' legacy pin: fall through to coloring-book-render;
+      // the render function will detect calibration-complete and auto-approve.
       const r = await fetch(`${url}/functions/v1/${target}`, {
         method: "POST",
         headers: {
