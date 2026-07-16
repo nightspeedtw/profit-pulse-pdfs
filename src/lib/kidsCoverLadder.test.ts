@@ -140,6 +140,7 @@ describe("cover ladder — per-invocation state machine", () => {
     expect(s.next_index).toBe(FULL_RUNGS.length);
     expect(s.reports).toHaveLength(1);
     expect(s.reports[0].rung).toBe("ideogram_v3_a");
+  });
 });
 
 // ─── Defect Class 1: no-baked-text + hero-subject + badge-clip regressions ───
