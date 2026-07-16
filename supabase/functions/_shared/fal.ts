@@ -5,6 +5,9 @@
 // cost_log accounting per call.
 
 import { logAiCost, costDb } from "./cost-log.ts";
+import { FalBillingLockedError, isFalBillingLocked, clearBillingBlocked, markBillingBlocked } from "./fal-billing.ts";
+
+
 
 const FAL_KEY = Deno.env.get("FAL_API_KEY") ?? Deno.env.get("FAL_KEY");
 
