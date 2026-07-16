@@ -480,7 +480,7 @@ Deno.serve(async (req: Request) => {
     const bookGate = coloringBookWeightedGate({
       theme_fit: 96,
       age_fit: 96,
-      anatomy_correctness: 95,
+      anatomy_correctness: anatomySummary.min_page_score,   // MEASURED (species-checklist vision)
       line_art_cleanliness: 96,
       colorability: 94,
       composition_margins: 96,
