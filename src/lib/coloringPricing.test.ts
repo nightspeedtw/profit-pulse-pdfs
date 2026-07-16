@@ -43,8 +43,8 @@ describe("coloring pricing — RULE 2 popularity tiers + ceiling/floor", () => {
   });
 
   it("enforces ceiling $12.99 and floor = base", () => {
-    // 64pp base=899, top10 → 1258 (below ceiling)
-    expect(computePrice({ pageCount: 64, tier: "top10" }).price_cents).toBe(1258);
+    // 64pp base=899, top10 → round(899*1.4)=1259 (below ceiling)
+    expect(computePrice({ pageCount: 64, tier: "top10" }).price_cents).toBe(1259);
     // custom config with lower ceiling
     const cfg = { ...DEFAULT_PRICING_CONFIG, ceiling_cents: 1000 };
     expect(computePrice({ pageCount: 64, tier: "top10", cfg }).price_cents).toBe(1000);
