@@ -19,10 +19,59 @@ import {
   mergeLedger,
   type PageLedger,
 } from "./page-ledger.ts";
+import {
+  drawKidsBrandingOnPage,
+  embedKidsFooterLogo,
+  type BrandingReport,
+  type KidsPageKind,
+} from "./kids-branding.ts";
 
 // Re-export the finalize-time gate so callers can enforce it before publish.
 export { assertLedgerContiguous } from "./page-ledger.ts";
 export type { PageLedger, PageLedgerEntry } from "./page-ledger.ts";
+export type { BrandingReport } from "./kids-branding.ts";
+
+// ── Kids-branding context ────────────────────────────────────────────────
+// Set by the caller before invoking any of the incremental builders. When
+// `logoBytes` is null branding is disabled (used only by pre-branding
+// legacy callers). The report array is populated as pages are stamped and
+// can be consumed with `consumeKidsBrandingReports()`.
+interface BrandingCtx {
+  logoBytes: Uint8Array | null;
+  startingPageIndex: number;
+  reports: BrandingReport[];
+}
+let BRANDING: BrandingCtx = { logoBytes: null, startingPageIndex: 0, reports: [] };
+
+export function configureKidsBranding(opts: { logoBytes: Uint8Array | null; startingPageIndex?: number }) {
+  BRANDING = {
+    logoBytes: opts.logoBytes ?? null,
+    startingPageIndex: opts.startingPageIndex ?? 0,
+    reports: [],
+  };
+}
+
+export function consumeKidsBrandingReports(): BrandingReport[] {
+  const out = BRANDING.reports;
+  BRANDING.reports = [];
+  return out;
+}
+
+async function stampBranding(
+  doc: PDFDocument,
+  page: ReturnType<PDFDocument["addPage"]>,
+  pageKind: KidsPageKind,
+  underlyingImageBytes: Uint8Array | null,
+) {
+  if (!BRANDING.logoBytes) return;
+  const logoImage = await embedKidsFooterLogo(doc, BRANDING.logoBytes);
+  const pageIndex = BRANDING.startingPageIndex + doc.getPageCount() - 1;
+  const report = await drawKidsBrandingOnPage({
+    doc, page, pageKind, pageIndex, pageW: PAGE_W, pageH: PAGE_H,
+    logoImage, underlyingImageBytes,
+  });
+  BRANDING.reports.push(report);
+}
 
 const PAGE_W = KIDS_BOOK_FORMAT.page_width_pt;   // 612
 const PAGE_H = KIDS_BOOK_FORMAT.page_height_pt;  // 612
@@ -227,6 +276,7 @@ async function addCoverPage(doc: PDFDocument, coverPng: Uint8Array) {
   const img = await embedImageSmart(doc, coverPng);
   const page = doc.addPage([PAGE_W, PAGE_H]);
   drawFullBleed(page, img);
+  await stampBranding(doc, page, "cover", null);
 }
 
 // SKILL A — shrink-to-fit title/subtitle so nothing ever clips the trim.
@@ -277,6 +327,7 @@ async function addTitlePage(doc: PDFDocument, title: string, subtitle: string | 
     assertTextSafe({ x, y, w, h: 12 });
     page.drawText(a, { x, y, size: 12, font: bodyFont, color: WARM_INK_SOFT });
   }
+  await stampBranding(doc, page, "title", null);
 }
 
 async function addCopyrightPage(doc: PDFDocument) {
@@ -298,6 +349,7 @@ async function addCopyrightPage(doc: PDFDocument) {
     page.drawText(safe, { x, y, size: 10, font: bodyFont, color: WARM_INK_SOFT });
     y -= 16;
   }
+  await stampBranding(doc, page, "copyright", null);
 }
 
 async function addStoryPage(
@@ -310,6 +362,7 @@ async function addStoryPage(
   const img = await embedImageSmart(doc, imgBytes);
   drawFullBleed(page, img);
   await drawCaptionOverlay(doc, page, caption, paletteHint);
+  await stampBranding(doc, page, "story", imgBytes);
 }
 
 async function addClosingPage(doc: PDFDocument) {
@@ -322,6 +375,7 @@ async function addClosingPage(doc: PDFDocument) {
   const y = PAGE_H / 2 - 10;
   assertTextSafe({ x, y, w, h: 44 });
   page.drawText(end, { x, y, size: 44, font: titleFont, color: WARM_INK });
+  await stampBranding(doc, page, "the_end", null);
 }
 
 // SKILL F — bonus page 1: "Can You Spot the Clues?"
@@ -394,6 +448,7 @@ async function addSpotTheCluesPage(doc: PDFDocument, clues: string[]) {
     page.drawText(line, { x, y, size: pf.size, font: titleFont, color: WARM_INK });
     y -= pf.size * LINE_HEIGHT_RATIO;
   }
+  await stampBranding(doc, page, "spot_the_clues", null);
 }
 
 // SKILL F — bonus page 2: "Talk About the Story"
@@ -451,6 +506,7 @@ async function addTalkAboutStoryPage(doc: PDFDocument, questions: string[], hook
       y -= hf.size * LINE_HEIGHT_RATIO;
     }
   }
+  await stampBranding(doc, page, "talk_about_story", null);
 }
 
 // ── One-shot builder (kept for legacy repair callers) ────────────────────

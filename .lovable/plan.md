@@ -133,3 +133,15 @@ Category seed (`sea_animals`):
 - Storefront tile visible; no live coloring products yet.
 - Pilot row exists in `queued` state, marked "awaiting P0 close" in metadata.
 - P0 fixture #12 + 3 proofs remain the ONLY active production work.
+
+## 2026-07-16 — kids_branding v1 (dev complete, applies at next build)
+- Uploaded owner logo (2172×724) to CDN + derived footer variant (1832×505, transparent) and square mark (505²).
+- Shared policy: `src/lib/kidsBranding.ts` mirrored at `supabase/functions/_shared/kids-branding-policy.ts` (pure heuristic + layout constants).
+- PDF drawer: `supabase/functions/_shared/kids-branding.ts` — corner sampler, per-doc PDFImage cache, `drawKidsBrandingOnPage`.
+- Wired into `_shared/kids-picture-pdf.ts` via `configureKidsBranding` / `stampBranding` — every add*Page (except cover) stamps.
+- Caller: `kids-build-picture-pdf` loads logo once, configures per stage, persists per-page reports to `qc_scorecard.branding_qc`.
+- Storefront: `KidsBrand` component; `Header` swaps to kids logo on `/kids*`.
+- Seeded `pipeline_skills` row `kids_branding` v1 (asset URLs + heuristic + layout).
+- Coloring PDF assembler (deferred) wired via same shared machinery — noted in coloring README.
+- Tests: `src/lib/kidsBranding.test.ts` (8 tests) covers heuristic decisions, cover exclusion, layout math, asset URL shape. Full suite 138/138 green; tsgo clean.
+- P0 remains untouched; branding applies only at the next build/rebuild of any kids book.

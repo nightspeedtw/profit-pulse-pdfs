@@ -20,8 +20,10 @@ import { Image } from 'https://deno.land/x/imagescript@1.2.17/mod.ts';
 import {
   startPicturePdf, appendSpreadsToPdf, appendUniqueSpreads, finalizePicturePdf,
   splitManuscriptForSpreads, assertLedgerContiguous,
-  type PageLedger,
+  configureKidsBranding, consumeKidsBrandingReports,
+  type PageLedger, type BrandingReport,
 } from '../_shared/kids-picture-pdf.ts';
+import { loadKidsFooterLogoBytes } from '../_shared/kids-branding.ts';
 import { PdfAssemblyMismatchError } from '../_shared/page-ledger.ts';
 import { KIDS_BOOK_FORMAT } from '../_shared/kids-book-format.ts';
 import { computeLuminance } from '../_shared/image-luminance.ts';
@@ -42,6 +44,22 @@ function isPlaceholderCaption(s: string): boolean {
   if (!s || !s.trim()) return true;
   return PLACEHOLDER_RX.test(s.trim());
 }
+
+function summarizeBranding(reports: BrandingReport[]) {
+  const total = reports.length;
+  const logo_present = reports.filter((r) => r.logo).length;
+  const copyright_present = reports.filter((r) => r.copyright).length;
+  const logo_skipped = reports.filter((r) => !r.logo && r.page_kind !== 'cover');
+  const cov_skipped = reports.filter((r) => !r.copyright);
+  return {
+    total_pages: total,
+    logo_present, copyright_present,
+    logo_skipped_pages: logo_skipped.map((r) => ({ page_index: r.page_index, reason: r.reason })),
+    copyright_skipped_pages: cov_skipped.map((r) => ({ page_index: r.page_index, reason: r.reason })),
+  };
+}
+
+
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -320,18 +338,28 @@ Deno.serve(async (req) => {
     let newPagesDone = pos.pages_done;
     let finalized = false;
 
+    // Kids-branding: load logo once, then configure per stage so pages carry
+    // corner branding per the "kids_branding" pipeline_skills row. Any error
+    // fetching the asset must NOT block PDF assembly — fall back to no logo.
+    let brandingLogoBytes: Uint8Array | null = null;
+    try { brandingLogoBytes = await loadKidsFooterLogoBytes(); }
+    catch (e) { console.warn('kids_branding_logo_load_failed', (e as Error).message); }
+    const runBrandingReports: BrandingReport[] = [];
+
     if (pos.lane === 'prepare') {
       // Gate 2: cover must be a real image, not a dead / near-monochrome tile.
       const coverLum = await computeLuminance(currentCoverBytes);
       if (coverLum.dead) {
         throw new Error(`cover_dead_image_gate: cover is ${coverLum.reason} (mean=${coverLum.mean.toFixed(1)}, var=${coverLum.variance.toFixed(0)}). Regenerate cover before assembly.`);
       }
+      configureKidsBranding({ logoBytes: brandingLogoBytes, startingPageIndex: 0 });
       const bytes = await startPicturePdf({
         title: String(ebook.title ?? ''),
         subtitle: (ebook.subtitle as string | null) ?? null,
         coverPng: currentCoverBytes,
       });
       await writeInprogress(db, ebook_id, bytes);
+      runBrandingReports.push(...consumeKidsBrandingReports());
       stageResult = { pdf_size: bytes.length, pages_added: 3, format: 'square_612', cover_bytes_hash: currentCoverHash, cover_luminance: coverLum };
     } else if (pos.lane === 'finalize') {
       const existing = await readInprogress(db, ebook_id);
@@ -372,7 +400,11 @@ Deno.serve(async (req) => {
       } catch (e) {
         console.warn('[build-picture-pdf] bonus content build failed:', (e as Error).message);
       }
+      // Branding on finalize covers bonus + closing pages (indices after
+      // front-matter + all story pages already in the file).
+      configureKidsBranding({ logoBytes: brandingLogoBytes, startingPageIndex: 3 + numStoryPages });
       const bytes = await finalizePicturePdf(existing, bonus);
+      runBrandingReports.push(...consumeKidsBrandingReports());
       if (!(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
         throw new Error('PDF byte validation failed (%PDF- missing)');
       }
@@ -476,6 +508,8 @@ Deno.serve(async (req) => {
       let newLedger: PageLedger = priorLedger;
       let bytes: Uint8Array;
       try {
+        // Interior batch pages start at index (3 front matter + ledger already appended).
+        configureKidsBranding({ logoBytes: brandingLogoBytes, startingPageIndex: 3 + priorLedger.length });
         const out = await appendUniqueSpreads({
           existing,
           frontMatterPages: 3, // cover + title + copyright (see startPicturePdf)
@@ -485,6 +519,7 @@ Deno.serve(async (req) => {
         });
         bytes = out.bytes;
         newLedger = out.ledger;
+        runBrandingReports.push(...consumeKidsBrandingReports());
       } catch (e) {
         if (e instanceof PdfAssemblyMismatchError) {
           console.warn(`[build-picture-pdf] ${e.message} — discarding in-progress PDF and restarting from prepare`);
@@ -521,6 +556,13 @@ Deno.serve(async (req) => {
       : nextLane === 'finalize' ? 'pdf_finalize'
       : `pdf_pages_${Math.floor(newPagesDone / PER_STAGE) + 1}`;
 
+    // Merge branding reports produced this stage into a per-book map.
+    const priorBranding = ((scorecard.branding_qc ?? {}) as Record<string, unknown>);
+    const priorPages = (priorBranding.pages as Record<string, BrandingReport> | undefined) ?? {};
+    const nextBrandingPages: Record<string, BrandingReport> = { ...priorPages };
+    for (const r of runBrandingReports) nextBrandingPages[String(r.page_index)] = r;
+    const brandingSummary = summarizeBranding(Object.values(nextBrandingPages));
+
     await persistJob(db, ebook_id, scorecard, {
       stage: stageLabel,
       last_result: stageResult,
@@ -538,6 +580,21 @@ Deno.serve(async (req) => {
       ...(pos.lane === 'prepare' ? { page_ledger: [] } : {}),
       error: null,
     });
+    try {
+      const { data: fresh } = await db.from('ebooks_kids').select('qc_scorecard').eq('id', ebook_id).single();
+      const base = ((fresh?.qc_scorecard as Record<string, unknown> | null) ?? {}) as Record<string, unknown>;
+      await db.from('ebooks_kids').update({
+        qc_scorecard: {
+          ...base,
+          branding_qc: {
+            pages: nextBrandingPages,
+            summary: brandingSummary,
+            updated_at: new Date().toISOString(),
+            asset_version: 'v1',
+          },
+        },
+      }).eq('id', ebook_id);
+    } catch (e) { console.warn('persist branding_qc failed', (e as Error).message); }
 
     if (nextLane !== 'done') {
       selfChainDoubleTap(db, ebook_id, publish, scorecard);

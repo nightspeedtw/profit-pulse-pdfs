@@ -45,3 +45,15 @@ Row is inserted with `pipeline_status='queued'` and `metadata.awaiting='p0_close
 - Storefront product-page adaptation for `book_type='coloring_book'` (no live products yet).
 
 These land the day P0 closes — the contracts they depend on are already frozen and tested.
+
+## Branding (kids_branding v1)
+
+The coloring-book PDF assembler (deferred; wire alongside picture-book
+finalize) MUST use the shared `configureKidsBranding` / `stampBranding`
+machinery from `_shared/kids-picture-pdf.ts`. Same corner rules apply:
+bottom-right logo, bottom-left `(c) secretpdf.co`, cover-page excluded,
+skip heuristic on busy/dark corners (all four sides of a coloring page
+are effectively white, so the heuristic will almost always allow the
+logo). Load logo bytes via `loadKidsFooterLogoBytes()` and persist the
+per-page report to `qc_scorecard.branding_qc` — identical to
+`kids-build-picture-pdf`.
