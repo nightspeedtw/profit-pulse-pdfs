@@ -22,6 +22,7 @@ import {
 } from "../_shared/kids-branding.ts";
 import { KIDS_BRAND_LAYOUT, KIDS_BRAND_FOOTER_DIMS } from "../_shared/kids-branding-policy.ts";
 import { coloringBookWeightedGate, coloringCoverGate, coloringReleaseGate } from "../_shared/coloring/gates.ts";
+import { drawFitText, drawFitParagraph } from "../_shared/pdf/shrink-to-fit.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -89,18 +90,24 @@ function drawColoringFooter(page: any, logoImg: any, font: any) {
     width: logoW, height: logoH,
     opacity: 0.85,
   });
-  // Copyright bottom-left.
-  const text = KIDS_BRAND_LAYOUT.copyright_text;
-  const size = KIDS_BRAND_LAYOUT.copyright_pt;
-  page.drawText(text, {
+  // Copyright bottom-left — shrink-to-fit, never clips into the logo.
+  drawFitText(page, {
+    text: KIDS_BRAND_LAYOUT.copyright_text,
     x: SAFE_MARGIN, y: SAFE_MARGIN + 2,
-    size, font, color: rgb(0.35, 0.28, 0.22),
+    maxWidth: PAGE_W - 2 * SAFE_MARGIN - logoW - 12,
+    font,
+    size: KIDS_BRAND_LAYOUT.copyright_pt,
+    minSize: 6,
+    color: rgb(0.35, 0.28, 0.22),
   });
 }
 
-function centerText(page: any, text: string, y: number, size: number, font: any, color = rgb(0.15, 0.10, 0.05)) {
-  const w = font.widthOfTextAtSize(text, size);
-  page.drawText(text, { x: (PAGE_W - w) / 2, y, size, font, color });
+function centerFit(page: any, text: string, y: number, size: number, font: any, color = rgb(0.15, 0.10, 0.05), minSize = 10) {
+  drawFitText(page, {
+    text, x: PAGE_W / 2, y, size, minSize,
+    maxWidth: PAGE_W - 2 * SAFE_MARGIN,
+    font, color, align: "center",
+  });
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -123,10 +130,14 @@ Deno.serve(async (req: Request) => {
     if (row.book_type !== "coloring_book") return json({ error: "wrong_lane" }, 400);
 
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    // Publish-hold flag: owner-managed. When true, assemble runs weighted
+    // acceptance but never chains to coloring-book-publish. Used for
+    // external re-verification of a rebuilt book (Ocean Friends recovery).
+    const publishHold = meta.coloring_hold_publish === true;
 
     if (!force && meta.coloring_assembly && row.pdf_url) {
-      chain("coloring-book-publish", { ebook_id });
-      return json({ ok: true, skipped: "pdf_exists", chained: "publish" });
+      if (!publishHold) chain("coloring-book-publish", { ebook_id });
+      return json({ ok: true, skipped: "pdf_exists", chained: publishHold ? "held" : "publish" });
     }
 
     const plan = ((meta.coloring_page_plan as any)?.plan ?? []) as any[];
@@ -178,17 +189,16 @@ Deno.serve(async (req: Request) => {
     {
       const p = doc.addPage([PAGE_W, PAGE_H]);
       p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.996, 0.973, 0.910) });
-      centerText(p, row.title, PAGE_H - 180, 32, helvBold);
-      centerText(p, subtitle, PAGE_H - 220, 14, helv, rgb(0.35, 0.25, 0.15));
-      centerText(p, "A SecretPDF Kids coloring book", 220, 12, helv, rgb(0.4, 0.3, 0.2));
+      centerFit(p, row.title, PAGE_H - 180, 32, helvBold, undefined, 14);
+      centerFit(p, subtitle, PAGE_H - 220, 14, helv, rgb(0.35, 0.25, 0.15), 9);
+      centerFit(p, "A SecretPDF Kids coloring book", 220, 12, helv, rgb(0.4, 0.3, 0.2), 8);
       drawColoringFooter(p, logoImg, helv);
     }
 
     // ── 3. Copyright page ─────────────────────────────────────────────
     {
       const p = doc.addPage([PAGE_W, PAGE_H]);
-      const y = PAGE_H - 120;
-      const lines = [
+      const paragraph = [
         `© ${new Date().getFullYear()} secretpdf.co. All rights reserved.`,
         "",
         "This coloring book is licensed for personal, non-commercial use.",
@@ -196,9 +206,15 @@ Deno.serve(async (req: Request) => {
         "Not for resale, redistribution, or commercial reproduction.",
         "",
         "Visit secretpdf.co for more coloring books and kids' printables.",
-      ];
-      lines.forEach((line, i) => {
-        p.drawText(line, { x: SAFE_MARGIN + 40, y: y - i * 18, size: 11, font: helv, color: rgb(0.2, 0.15, 0.1) });
+      ].join("\n");
+      drawFitParagraph(p, {
+        text: paragraph,
+        x: SAFE_MARGIN + 40, y: PAGE_H - 120,
+        maxWidth: PAGE_W - 2 * SAFE_MARGIN - 80,
+        maxHeight: PAGE_H - 220,
+        font: helv, size: 11, minSize: 7,
+        color: rgb(0.2, 0.15, 0.1),
+        lineHeightFactor: 1.5,
       });
       drawColoringFooter(p, logoImg, helv);
     }
@@ -206,7 +222,7 @@ Deno.serve(async (req: Request) => {
     // ── 4. How to color tips ──────────────────────────────────────────
     {
       const p = doc.addPage([PAGE_W, PAGE_H]);
-      centerText(p, "How to Use This Book", PAGE_H - 140, 22, helvBold);
+      centerFit(p, "How to Use This Book", PAGE_H - 140, 22, helvBold, undefined, 12);
       const tips = [
         `1. Pick your favorite coloring tools — crayons, markers, or colored pencils.`,
         `2. Start with the outlines, then fill each shape with color.`,
@@ -214,12 +230,19 @@ Deno.serve(async (req: Request) => {
         `4. Take a break between pages. Rest your hand.`,
         `5. When you finish a page, show a grown-up your masterpiece.`,
         `6. Complete all ${totalPages} pages to earn your certificate at the end.`,
-      ];
-      tips.forEach((t, i) => {
-        p.drawText(t, { x: SAFE_MARGIN + 20, y: PAGE_H - 200 - i * 30, size: 13, font: helv, color: rgb(0.2, 0.15, 0.1) });
+      ].join("\n");
+      drawFitParagraph(p, {
+        text: tips,
+        x: SAFE_MARGIN + 20, y: PAGE_H - 200,
+        maxWidth: PAGE_W - 2 * SAFE_MARGIN - 40,
+        maxHeight: PAGE_H - 300,
+        font: helv, size: 13, minSize: 8,
+        color: rgb(0.2, 0.15, 0.1),
+        lineHeightFactor: 1.6,
       });
       drawColoringFooter(p, logoImg, helv);
     }
+
 
     // ── 5. Interior coloring pages ────────────────────────────────────
     const interiorReports: any[] = [];
@@ -266,12 +289,12 @@ Deno.serve(async (req: Request) => {
         x: 40, y: 40, width: PAGE_W - 80, height: PAGE_H - 80,
         borderColor: rgb(0.6, 0.45, 0.15), borderWidth: 4,
       });
-      centerText(p, "Certificate of Coloring", PAGE_H - 200, 28, helvBold, rgb(0.35, 0.22, 0.05));
-      centerText(p, "Awarded to", PAGE_H - 260, 14, helv);
-      centerText(p, "_______________________________", PAGE_H - 310, 20, helvBold);
-      centerText(p, `for completing "${row.title}"`, PAGE_H - 370, 14, helv);
-      centerText(p, `${totalPages} coloring pages · ${ageBadge}`, PAGE_H - 400, 12, helv);
-      centerText(p, "Great job, artist!", PAGE_H - 470, 18, helvBold, rgb(0.35, 0.22, 0.05));
+      centerFit(p, "Certificate of Coloring", PAGE_H - 200, 28, helvBold, rgb(0.35, 0.22, 0.05), 14);
+      centerFit(p, "Awarded to", PAGE_H - 260, 14, helv, undefined, 9);
+      centerFit(p, "_______________________________", PAGE_H - 310, 20, helvBold, undefined, 10);
+      centerFit(p, `for completing "${row.title}"`, PAGE_H - 370, 14, helv, undefined, 9);
+      centerFit(p, `${totalPages} coloring pages · ${ageBadge}`, PAGE_H - 400, 12, helv, undefined, 8);
+      centerFit(p, "Great job, artist!", PAGE_H - 470, 18, helvBold, rgb(0.35, 0.22, 0.05), 12);
       drawColoringFooter(p, logoImg, helv);
     }
 
@@ -352,10 +375,16 @@ Deno.serve(async (req: Request) => {
     await patchMeta(db, ebook_id, {
       coloring_assembly: assembly,
       coloring_progress_percent: 97,
-      coloring_current_step_label: "PDF assembled — publishing to storefront",
-      awaiting: "publish",
+      coloring_current_step_label: publishHold
+        ? "PDF assembled — publish HELD for owner re-verification"
+        : "PDF assembled — publishing to storefront",
+      awaiting: publishHold ? "owner_final_verification" : "publish",
     });
 
+    if (publishHold) {
+      console.log(`[coloring-assemble] ${ebook_id} publish HELD (coloring_hold_publish=true)`);
+      return json({ ok: true, assembly, chained: "held", pdf_url: signed?.signedUrl });
+    }
     chain("coloring-book-publish", { ebook_id });
     return json({ ok: true, assembly, chained: "publish" });
   } catch (e: any) {

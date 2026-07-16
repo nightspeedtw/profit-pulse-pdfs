@@ -23,6 +23,12 @@ import { computeLuminance, type LuminanceStats } from "../image-luminance.ts";
 import { falIdeogramV3, falRecraftV3 } from "../fal.ts";
 import { geminiDirectImageWithMeta } from "../gemini-direct.ts";
 import { renderKidsTitleTreatment } from "./kids-title-treatment.ts";
+import {
+  transcribeGlyphs,
+  verifyCategoryHero,
+  type GlyphVerdict,
+  type HeroVerdict,
+} from "./cover-vision-guards.ts";
 
 export type CoverRungLabel =
   | "ideogram_v3_a"
@@ -48,6 +54,23 @@ export interface CoverLadderInput {
   geminiCompositionOverride?: string;
   // Which rungs to run, in order. Defaults to full ladder.
   rungs?: CoverRungLabel[];
+  // Vision-gate config (Defect Class 1 permanent fixes).
+  categoryName?: string;
+  allowedSubjects?: string[];
+  forbiddenSubjects?: string[];
+  // Feature flag for callers that want to skip vision gates (tests, unit runs).
+  skipVisionGuards?: boolean;
+}
+
+export interface CoverLadderRungReport {
+  rung: CoverRungLabel;
+  attempted: boolean;
+  produced_bytes: boolean;
+  luminance: LuminanceStats | null;
+  reason: string | null;   // dead reason, provider error, or 'ok'
+  meta?: unknown;
+  glyph_verdict?: GlyphVerdict | null;
+  hero_verdict?: HeroVerdict | null;
 }
 
 export interface CoverLadderRungReport {
@@ -78,7 +101,10 @@ export const DEFAULT_COVER_RUNGS: CoverRungLabel[] = [
 const DEFAULT_RUNGS = DEFAULT_COVER_RUNGS;
 
 export interface SingleRungResult {
-  status: "ok" | "dead" | "error" | "fallback";
+  // "dead-equivalent" == "dead" but rejected by a vision guard (baked text
+  // or wrong subject) rather than luminance. Callers treat it identically:
+  // silent advance, does NOT consume retire budget.
+  status: "ok" | "dead" | "dead-equivalent" | "error" | "fallback";
   bytes: Uint8Array | null;
   report: CoverLadderRungReport;
   title_treatment_metadata?: Record<string, unknown> | null;
@@ -181,6 +207,39 @@ export async function runSingleCoverRung(
       report.reason = `dead:${lum.reason}(mean=${lum.mean.toFixed(1)},var=${lum.variance.toFixed(0)})`;
       return { status: "dead", bytes: null, report };
     }
+
+    // ── Vision guards (Defect Class 1: no baked text, correct hero subject) ──
+    if (!input.skipVisionGuards) {
+      try {
+        const glyph = await transcribeGlyphs(bytes);
+        report.glyph_verdict = glyph;
+        if (glyph.has_glyphs && !glyph.degraded) {
+          report.reason = `dead-equivalent:baked_text:${(glyph.detected_text ?? "").slice(0, 80)}`;
+          console.warn(`[cover-ladder] rung=${rung} BAKED_TEXT — advancing (${report.reason})`);
+          return { status: "dead-equivalent", bytes: null, report };
+        }
+      } catch (e) {
+        console.warn(`[cover-ladder] glyph guard error rung=${rung}: ${(e as Error).message}`);
+      }
+      if ((input.allowedSubjects?.length ?? 0) > 0) {
+        try {
+          const hero = await verifyCategoryHero(bytes, {
+            category_name: input.categoryName ?? "children's book",
+            allowed_subjects: input.allowedSubjects ?? [],
+            forbidden_subjects: input.forbiddenSubjects ?? [],
+          });
+          report.hero_verdict = hero;
+          if (!hero.matches && !hero.degraded) {
+            report.reason = `dead-equivalent:${hero.reason}`;
+            console.warn(`[cover-ladder] rung=${rung} WRONG_SUBJECT — advancing (${report.reason})`);
+            return { status: "dead-equivalent", bytes: null, report };
+          }
+        } catch (e) {
+          console.warn(`[cover-ladder] hero guard error rung=${rung}: ${(e as Error).message}`);
+        }
+      }
+    }
+
     report.reason = "ok";
     return { status: "ok", bytes, report };
   } catch (e) {

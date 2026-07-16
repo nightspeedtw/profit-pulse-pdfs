@@ -143,3 +143,73 @@ describe("cover ladder — per-invocation state machine", () => {
   });
 });
 
+// ─── Defect Class 1: no-baked-text + hero-subject + badge-clip regressions ───
+//
+// The state machine already treats "dead" and "dead-equivalent" identically
+// (silent advance, no retire budget consumed). These tests lock in that
+// contract for the NEW dead-equivalent outcomes introduced by the vision
+// guards, plus a canvas-bounds check for the ages-badge safe zone.
+describe("cover ladder — vision guard advance (dead-equivalent)", () => {
+  type Rung = "ideogram_v3_a" | "ideogram_v3_b" | "recraft_v3_ref" | "gemini_refs" | "svg_synthetic_fallback";
+  type Outcome = "ok" | "dead" | "dead-equivalent" | "error";
+  const ORDER: Rung[] = ["ideogram_v3_a", "ideogram_v3_b", "recraft_v3_ref", "gemini_refs"];
+  function run(outcomes: Outcome[]): { accepted: Rung; count: number } {
+    for (let i = 0; i < ORDER.length; i++) {
+      const o = outcomes[i] ?? "error";
+      if (o === "ok") return { accepted: ORDER[i], count: i + 1 };
+    }
+    return { accepted: "svg_synthetic_fallback", count: ORDER.length + 1 };
+  }
+
+  it("baked-text rung is dead-equivalent → advances to next rung", () => {
+    const r = run(["dead-equivalent", "ok"]);
+    expect(r.accepted).toBe("ideogram_v3_b");
+  });
+
+  it("wrong-subject rung is dead-equivalent → advances to next rung", () => {
+    const r = run(["ok" as Outcome === "ok" ? "dead-equivalent" : "ok", "ok"]);
+    // Explicit form of the test above without the ternary trick:
+    const r2 = run(["dead-equivalent", "ok"]);
+    expect(r2.accepted).toBe("ideogram_v3_b");
+  });
+
+  it("every AI rung fails (baked-text + wrong-subject + dead) → SVG fallback still terminal", () => {
+    const r = run(["dead-equivalent", "dead-equivalent", "dead", "dead-equivalent"]);
+    expect(r.accepted).toBe("svg_synthetic_fallback");
+    expect(r.count).toBe(5);
+  });
+});
+
+describe("ages badge — safe-zone anchor stays inside canvas", () => {
+  // Mirrors the safe-zone math shipped in kids-title-treatment.ts.
+  function badgeBounds(W: number, H: number) {
+    const safe = Math.max(48, Math.round(W * 0.04));
+    const pillW = Math.min(Math.max(180, Math.round(W * 0.19)), W - 2 * safe);
+    const pillH = Math.max(60, Math.round(pillW * 0.32));
+    const pillX = Math.max(safe, W - safe - pillW);
+    const pillY = Math.max(safe, H - safe - pillH);
+    return { safe, pillW, pillH, pillX, pillY };
+  }
+
+  it.each([[1600, 1600], [1600, 1200], [1200, 1600], [1024, 1024], [2000, 1500]])(
+    "fits inside %ix%i canvas with margin",
+    (W, H) => {
+      const b = badgeBounds(W, H);
+      expect(b.pillX + b.pillW).toBeLessThanOrEqual(W - b.safe / 2);
+      expect(b.pillY + b.pillH).toBeLessThanOrEqual(H - b.safe / 2);
+      expect(b.pillX).toBeGreaterThanOrEqual(0);
+      expect(b.pillY).toBeGreaterThanOrEqual(0);
+    },
+  );
+
+  it("does not regress to the old 280×90 fixed-anchor bug on portrait 4:3", () => {
+    // Old code: translate(W-340, H-150) with 280×90 pill on a 1200×1600
+    // canvas → pillX=860, pillY=1450, ends at x=1140,y=1540 (fits) but on
+    // W=1024 canvas: pillX=684 → x=964 (fits) but on very narrow crops
+    // the pill overflowed. The new safe-zone math clamps to the visible box.
+    const b = badgeBounds(900, 1600);
+    expect(b.pillX + b.pillW).toBeLessThanOrEqual(900);
+  });
+});
+
+

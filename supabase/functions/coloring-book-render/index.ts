@@ -34,8 +34,16 @@ import {
 } from "../_shared/coloring/style-contract.ts";
 import { verifyImageAtBirth, type ImageKind } from "../_shared/coloring/image-kind.ts";
 import { analyzeSolidBlack, DEFAULT_SOLID_BLACK_TH } from "../_shared/coloring/solid-black.ts";
+import { computeSharpness, DEFAULT_SHARPNESS_MIN_SCORE } from "../_shared/coloring/sharpness-gate.ts";
 import { decideRepair } from "../_shared/coloring/repair-ladder.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
+
+// Canonical interior generation params — enforced identically for every page.
+// Owner defect: mixed sizes/steps produced 2.6–20.3 edge-density variance.
+const INTERIOR_GEN_PARAMS = Object.freeze({
+  model: "fal-ai/flux/schnell",
+  image_size: "portrait_4_3" as const,
+});
 
 declare const Deno: any;
 
@@ -259,9 +267,17 @@ Deno.serve(async (req: Request) => {
       assertPromptCompliant(prompt);
       const promptHash = await sha256Hex(prompt);
       try {
+        // Uniform-params enforcement: assert canonical params, log per page.
+        const recordedParams = (meta.coloring_generation_params as { model?: string; image_size?: string } | undefined) ?? null;
+        if (recordedParams && (recordedParams.model !== INTERIOR_GEN_PARAMS.model
+            || recordedParams.image_size !== INTERIOR_GEN_PARAMS.image_size)) {
+          throw new Error(
+            `param_uniformity_violation: recorded=${JSON.stringify(recordedParams)} vs canonical=${JSON.stringify(INTERIOR_GEN_PARAMS)}`,
+          );
+        }
         const bytes = await falFluxSchnell({
           prompt,
-          image_size: "portrait_4_3",
+          image_size: INTERIOR_GEN_PARAMS.image_size,
           ebook_id: ebook_id,
           step: `coloring_${stageLabel}_page_${page.canonical_page_number}`,
         });
@@ -279,6 +295,22 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
+        // Sharpness gate — Ocean Friends defect: per-page edge-density
+        // ranged 2.6–20.3. Floor at DEFAULT_SHARPNESS_MIN_SCORE (8.0).
+        const sharpnessMin = ((meta.coloring_style_contract as any)?.sharpness_min_score as number | undefined)
+          ?? DEFAULT_SHARPNESS_MIN_SCORE;
+        const sharp = await computeSharpness(bytes, { minRequired: sharpnessMin });
+        if (!sharp.pass) {
+          repairAttempts[String(page.canonical_page_number)] = attempt + 1;
+          errors.push({
+            page: page.canonical_page_number,
+            error: `sharpness_gate: ${sharp.reason}`,
+            reasons: [sharp.reason],
+            sharpness: sharp,
+          } as any);
+          continue;
+        }
+
         const version = `${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
         const path = coloringPath(ebook_id, page.canonical_page_number, version, verified.ext);
         const up = await uploadAndSignImage(db, "ebook-covers", path, bytes, { contentType: verified.mime });
@@ -292,7 +324,13 @@ Deno.serve(async (req: Request) => {
           prompt_hash: promptHash,
           primary_subject: page.primary_subject,
           stage: stageLabel,
-        });
+          render_params: { ...INTERIOR_GEN_PARAMS },
+          sharpness: { score: sharp.score, sobel_mean: sharp.sobel_mean, laplacian_var: sharp.laplacian_var, min_required: sharp.min_required },
+        } as any);
+        // First-page params lock.
+        if (!recordedParams) {
+          await patchMeta(db, ebook_id, { coloring_generation_params: { ...INTERIOR_GEN_PARAMS } });
+        }
         // clear repair counter on success
         delete repairAttempts[String(page.canonical_page_number)];
       } catch (e: any) {
