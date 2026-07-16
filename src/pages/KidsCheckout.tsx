@@ -111,14 +111,7 @@ export default function KidsCheckout() {
 
         {/* Payment (stub, Stripe-ready) */}
         <aside className="rounded-2xl border-2 border-border bg-card p-5 h-fit">
-          <PaymentSection
-            book={book}
-            joined={joined}
-            email={email}
-            setEmail={setEmail}
-            submitting={submitting}
-            onJoin={joinWaitlist}
-          />
+          <PaymentSection book={book} />
         </aside>
       </div>
     </div>
@@ -126,20 +119,9 @@ export default function KidsCheckout() {
 }
 
 /**
- * Payment slot — currently placeholder + waitlist capture.
- * When Stripe goes live, render <StripePaymentForm /> above the waitlist
- * and hide the placeholder button. Nothing else on this page needs to change.
+ * Payment slot — payment bypassed during testing; direct free download.
  */
-function PaymentSection({
-  book, joined, email, setEmail, submitting, onJoin,
-}: {
-  book: Book;
-  joined: boolean;
-  email: string;
-  setEmail: (v: string) => void;
-  submitting: boolean;
-  onJoin: (e: React.FormEvent) => void;
-}) {
+function PaymentSection({ book }: { book: Book }) {
   const [downloading, setDownloading] = useState(false);
 
   const handleDownload = async () => {
