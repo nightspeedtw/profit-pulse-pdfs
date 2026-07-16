@@ -14,7 +14,7 @@ const SAFE_FRAME = {
   elements: [
     { name: "title_cluster", x: 260, y: 120, w: 1080, h: 420 },
     { name: "age_badge", x: 1230, y: 64, w: 280, h: 90 },
-    { name: "secretpdf_kids_logo", x: 64, y: 1484, w: 192, h: 53 },
+    { name: "secretpdf_kids_logo", x: 72, y: 1468, w: 220, h: 61 },
   ],
 };
 
@@ -26,7 +26,24 @@ describe("measured coloring cover gate", () => {
       ageBadge: "Ages 4-6",
       text: { has_glyphs: true, detected_text: "Ocean Friends Ocean Friends Ages 4-6 SecretPDF Kids", degraded: false },
     });
-    expect(unapproved).toContain("duplicate_title:Ocean Friends");
+    expect(unapproved.join("|")).toMatch(/duplicate:ocean friends|ocean friends ocean friends/);
+  });
+
+  it("degraded vision transcription hard-fails instead of fabricating deterministic pass", () => {
+    const scorecard = measuredCoverScorecard({
+      title: "Ocean Friends",
+      subtitle: "32 Coloring Pages · Ages 4-6",
+      ageBadge: "Ages 4-6",
+      text: { has_glyphs: false, detected_text: null, degraded: true },
+      rawArtText: { has_glyphs: false, detected_text: "", degraded: false },
+      hero: { matches: true, detected_subjects: ["dolphin"], forbidden_hit: null, degraded: false },
+      frame: SAFE_FRAME,
+      logo: { present: true, rect: SAFE_FRAME.elements[2] },
+      pageCountMatchesFinalPdf: true,
+    });
+    const gate = coloringCoverGate(scorecard);
+    expect(gate.pass).toBe(false);
+    expect(gate.reasons.join("|")).toMatch(/random_text|title_readability/);
   });
 
   it("gibberish text fixture hard-fails random_text", () => {
@@ -35,6 +52,7 @@ describe("measured coloring cover gate", () => {
       subtitle: "32 Coloring Pages · Ages 4-6",
       ageBadge: "Ages 4-6",
       text: { has_glyphs: true, detected_text: "Hofarning Prggiletai Kork", degraded: false },
+      rawArtText: { has_glyphs: false, detected_text: "", degraded: false },
       hero: { matches: true, detected_subjects: ["dolphin"], forbidden_hit: null, degraded: false },
       frame: SAFE_FRAME,
       logo: { present: true, rect: SAFE_FRAME.elements[2] },
@@ -51,6 +69,7 @@ describe("measured coloring cover gate", () => {
       subtitle: "32 Coloring Pages · Ages 4-6",
       ageBadge: "Ages 4-6",
       text: { has_glyphs: true, detected_text: "Cute Sea Animals | 32 Coloring Pages Ages 4-6 | SecretPDF Kids", degraded: false },
+      rawArtText: { has_glyphs: false, detected_text: "", degraded: false },
       hero: { matches: false, detected_subjects: ["human child", "dolphin"], forbidden_hit: "human child", degraded: false },
       frame: SAFE_FRAME,
       logo: { present: true, rect: SAFE_FRAME.elements[2] },
@@ -66,12 +85,31 @@ describe("measured coloring cover gate", () => {
     expect(frameElementsInsideSafeMargin(frame).clipped).toEqual(["age_badge"]);
   });
 
+  it("blank svg fallback cover hard-fails for new books", () => {
+    const scorecard = measuredCoverScorecard({
+      title: "Cute Sea Animals",
+      subtitle: "32 Coloring Pages · Ages 4-6",
+      ageBadge: "Ages 4-6",
+      text: { has_glyphs: true, detected_text: "Cute Sea Animals | 32 Coloring Pages Ages 4-6 | SecretPDF Kids", degraded: false },
+      rawArtText: { has_glyphs: false, detected_text: "", degraded: false },
+      hero: { matches: true, detected_subjects: ["sea turtle"], forbidden_hit: null, degraded: false },
+      frame: SAFE_FRAME,
+      logo: { present: true, rect: SAFE_FRAME.elements[2] },
+      artwork: { used_svg_fallback: true, synthesized_background: true, blank_background: true, blank_ratio: 1 },
+      pageCountMatchesFinalPdf: true,
+    });
+    const gate = coloringCoverGate(scorecard);
+    expect(gate.pass).toBe(false);
+    expect(gate.reasons.join("|")).toMatch(/blank_background/);
+  });
+
   it("cover without the canonical logo fails gate", () => {
     const scorecard = measuredCoverScorecard({
       title: "Ocean Friends",
       subtitle: "32 Coloring Pages · Ages 4-6",
       ageBadge: "Ages 4-6",
       text: { has_glyphs: true, detected_text: "Ocean Friends | 32 Coloring Pages Ages 4-6", degraded: false },
+      rawArtText: { has_glyphs: false, detected_text: "", degraded: false },
       hero: { matches: true, detected_subjects: ["narwhal"], forbidden_hit: null, degraded: false },
       frame: SAFE_FRAME,
       logo: { present: false, rect: null },
