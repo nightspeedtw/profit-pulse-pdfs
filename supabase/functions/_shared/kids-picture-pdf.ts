@@ -349,6 +349,7 @@ async function addCopyrightPage(doc: PDFDocument) {
     page.drawText(safe, { x, y, size: 10, font: bodyFont, color: WARM_INK_SOFT });
     y -= 16;
   }
+  await stampBranding(doc, page, "copyright", null);
 }
 
 async function addStoryPage(
