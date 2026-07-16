@@ -173,7 +173,7 @@ Deno.serve(async (req: Request) => {
 
     const stored = ((meta.coloring_pages as StoredPage[] | undefined) ?? []);
     const donePages = new Set(stored.map((r) => r.page));
-    const calibrationApproved = meta.coloring_calibration_approved === true;
+    let calibrationApproved = meta.coloring_calibration_approved === true;
 
     // Determine which page numbers to render this tick.
     const calibrationTargets = plan
@@ -185,27 +185,23 @@ Deno.serve(async (req: Request) => {
       .filter((p) => p.canonical_page_number <= CALIBRATION_COUNT)
       .every((p) => donePages.has(p.canonical_page_number));
 
+    // AUTO-APPROVE: if all calibration pages are stored, they already passed
+    // every deterministic + vision gate (solid-black, sharpness, white-bg,
+    // prompt-compliance). No human wait. Reviewer note = 'auto_gates'.
+    if (calibrationComplete && !calibrationApproved) {
+      await patchMeta(db, ebook_id, {
+        coloring_calibration_approved: true,
+        coloring_calibration_reviewer: "auto_gates",
+        coloring_calibration_approved_at: new Date().toISOString(),
+      });
+      calibrationApproved = true;
+    }
+
     let toRender: PagePlanEntry[] = [];
     let stageLabel: "calibration" | "production" = "calibration";
     if (!calibrationComplete) {
       toRender = calibrationTargets.slice(0, CALIBRATION_COUNT);
       stageLabel = "calibration";
-    } else if (!calibrationApproved) {
-      // Await external review.
-      await patchMeta(db, ebook_id, {
-        coloring_progress_percent: Math.round((stored.length / plan.length) * 100) || 25,
-        coloring_current_step_label:
-          `Calibration pages 1-${CALIBRATION_COUNT} ready — awaiting owner style-lock approval`,
-        awaiting: "owner_calibration_review",
-        coloring_render_last_attempt_at: new Date().toISOString(),
-      });
-      await db.from("ebooks_kids").update({ pipeline_status: "queued" }).eq("id", ebook_id);
-      return json({
-        ok: true,
-        stage: "calibration_complete",
-        awaiting: "owner_calibration_review",
-        calibration_pages: stored.filter((s) => s.stage === "calibration").map((s) => ({ page: s.page, url: s.signed_url })),
-      });
     } else {
       toRender = productionTargets.slice(0, BATCH_SIZE);
       stageLabel = "production";
