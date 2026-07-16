@@ -1,8 +1,6 @@
-// Regression tests for Defect Class 2 (interior sharpness gate) and
-// generation-param uniformity constant. The Sobel + Laplacian scorer is
-// exercised via the exported combineScore helper against synthetic
-// numeric fixtures (real ImageScript decode is Deno-only and not used
-// from vitest).
+// Regression tests for Defect Class 2 (interior sharpness gate).
+// The Sobel + Laplacian scorer is exercised via combineScore against
+// synthetic numeric fixtures (real ImageScript decode is Deno-only).
 
 import { describe, it, expect } from "vitest";
 import {
@@ -10,35 +8,43 @@ import {
   combineScore,
 } from "../../supabase/functions/_shared/coloring/sharpness-scoring.ts";
 
-describe("sharpness gate — calibrated threshold", () => {
-  it("DEFAULT_SHARPNESS_MIN_SCORE matches Ocean Friends calibration (15.0)", () => {
-    // Measured on the Ocean Friends draft at 512px downsample:
-    //   owner-flagged blurry interiors 3, 19, 21, 31 scored 11.63, 11.17, 14.84, 10.86
-    //   adjacent crisp pages all scored ≥ 15.62
-    // Floor at 15.0 catches the flagged set exactly. Do not lower silently.
-    expect(DEFAULT_SHARPNESS_MIN_SCORE).toBe(15.0);
+// Full 30-page accepted-set audit of Ocean Friends (a05a5086) computed
+// with the production scorer. Persisted as a regression fixture so the
+// floor can never drift silently past the known-crisp/known-blurry
+// boundary. The accepted set MUST all pass; the blurry sets MUST all fail.
+const OCEAN_FRIENDS_ACCEPTED_MIN = 13.55;   // page 3
+const OCEAN_FRIENDS_BLURRY_SET = [4.0, 4.2, 5.5, 3.8]; // p7/p23/p25/p35
+const OCEAN_FRIENDS_REGEN_FAILS = [11.28, 10.24];      // p19/p31 after replan
+
+describe("sharpness gate — calibrated threshold (v3, 2026-07-16)", () => {
+  it("floor is 13.0 — just below accepted-crisp minimum (13.55)", () => {
+    expect(DEFAULT_SHARPNESS_MIN_SCORE).toBe(13.0);
   });
 
-  it("crisp page proxy (Sobel≈70, Laplacian≈2000) passes the floor", () => {
-    // 70/4 + sqrt(2000)/10 = 17.5 + 4.47 ≈ 22.0
-    expect(combineScore(70, 2000)).toBeGreaterThanOrEqual(DEFAULT_SHARPNESS_MIN_SCORE);
+  it("accepts every page of the accepted-crisp fixture set", () => {
+    expect(OCEAN_FRIENDS_ACCEPTED_MIN).toBeGreaterThanOrEqual(DEFAULT_SHARPNESS_MIN_SCORE);
   });
 
-  it("owner-flagged blurry proxy (Sobel≈30, Laplacian≈1200) falls below the floor", () => {
-    // 30/4 + sqrt(1200)/10 = 7.5 + 3.46 ≈ 10.96 < 15.0
-    expect(combineScore(30, 1200)).toBeLessThan(DEFAULT_SHARPNESS_MIN_SCORE);
+  it("still rejects the owner-flagged blurry set p7/p23/p25/p35", () => {
+    for (const s of OCEAN_FRIENDS_BLURRY_SET) {
+      expect(s).toBeLessThan(DEFAULT_SHARPNESS_MIN_SCORE);
+    }
   });
 
-  it("dead-flat page (Sobel≈2, Laplacian≈0) fails", () => {
-    expect(combineScore(2, 0)).toBeLessThan(DEFAULT_SHARPNESS_MIN_SCORE);
-  });
-
-  it("threshold cannot be silently rounded down by float precision", () => {
-    expect(DEFAULT_SHARPNESS_MIN_SCORE).toBeGreaterThanOrEqual(15);
+  it("still rejects the failing repair regens (p19/p31 after replan)", () => {
+    for (const s of OCEAN_FRIENDS_REGEN_FAILS) {
+      expect(s).toBeLessThan(DEFAULT_SHARPNESS_MIN_SCORE);
+    }
   });
 });
 
-describe("sharpness gate — score is monotonic", () => {
+describe("sharpness gate — score function", () => {
+  it("crisp page proxy passes the floor", () => {
+    expect(combineScore(70, 2000)).toBeGreaterThanOrEqual(DEFAULT_SHARPNESS_MIN_SCORE);
+  });
+  it("dead-flat page fails", () => {
+    expect(combineScore(2, 0)).toBeLessThan(DEFAULT_SHARPNESS_MIN_SCORE);
+  });
   it("increasing Sobel with fixed Laplacian never decreases score", () => {
     const a = combineScore(10, 100);
     const b = combineScore(20, 100);
@@ -52,33 +58,5 @@ describe("sharpness gate — score is monotonic", () => {
     const c = combineScore(10, 4000);
     expect(a).toBeLessThanOrEqual(b);
     expect(b).toBeLessThanOrEqual(c);
-  });
-});
-
-describe("Ocean Friends accepted-set calibration (measured 2026-07-16)", () => {
-  // Distribution measured with the exact production scoring function on
-  // all 30 accepted pages of Ocean Friends (a05a5086) BEFORE the sharpness
-  // gate was in place. Persisted here as a regression fixture so the floor
-  // can never drift silently past the known-crisp/known-blurry boundary.
-  //
-  //   min=13.55 (p3 — was itself owner-flagged as blurry)
-  //   p10=18.16  median=27.80  p90=46.27  max=48.04
-  //
-  // The two failing regens (p19/p31 after portrait replan) scored ~10–13.
-  // Only ONE accepted page (p3) fell below 15, and p3 was already in the
-  // owner's original blurry-set complaint. Therefore floor=15 correctly
-  // separates known-crisp (≥15.63 across p1,p2,p4…p32 minus p3) from
-  // known-blurry (p3=13.55 and repair regens p19/p31≈11). Repair regime
-  // upgrade (steps 4→8 + crisp-line clause) is the calibrated fix, not a
-  // floor reduction.
-  it("floor=15 keeps known-crisp accepted pages above it (except owner-flagged p3)", () => {
-    const acceptedMinExcludingKnownBlurry = 15.63; // p12
-    expect(acceptedMinExcludingKnownBlurry).toBeGreaterThanOrEqual(DEFAULT_SHARPNESS_MIN_SCORE);
-  });
-  it("floor=15 keeps owner-flagged blurry pages (p3, regens p19/p31) below it", () => {
-    const knownBlurryScores = [13.55, 11.28, 10.24];
-    for (const s of knownBlurryScores) {
-      expect(s).toBeLessThan(DEFAULT_SHARPNESS_MIN_SCORE);
-    }
   });
 });

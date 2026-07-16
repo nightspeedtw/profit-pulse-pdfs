@@ -70,23 +70,48 @@ async function patchMeta(db: any, id: string, patch: Record<string, unknown>) {
   return merged;
 }
 
+interface RungAttempt {
+  speed?: "QUALITY" | "BALANCED" | "TURBO" | null;
+  started_at: string;
+  ended_at?: string | null;
+  ok?: boolean;
+  reason?: string | null;
+  status?: string;
+}
+
 interface LadderState {
   rungs: CoverRungLabel[];
   next_index: number;
+  // Ideogram speed cursor: 0=QUALITY, 1=BALANCED, 2=TURBO. Resets on rung advance.
+  ideogram_speed_cursor: number;
   reports: Array<Pick<CoverLadderRungReport, "rung" | "reason" | "produced_bytes">>;
+  attempts_by_rung: Record<string, RungAttempt[]>;
   started_at: string;
   updated_at: string;
 }
+
+const IDEOGRAM_SPEEDS: Array<"QUALITY" | "BALANCED" | "TURBO"> = ["QUALITY", "BALANCED", "TURBO"];
+const RUNG_WALLCLOCK_MS = 90_000;
+const CRASH_STALE_MS = 3 * 60_000; // any attempt with no ended_at older than this = crashed
 
 function newLadderState(): LadderState {
   const now = new Date().toISOString();
   return {
     rungs: [...DEFAULT_COVER_RUNGS],
     next_index: 0,
+    ideogram_speed_cursor: 0,
     reports: [],
+    attempts_by_rung: {},
     started_at: now,
     updated_at: now,
   };
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`wallclock_timeout:${label}:${ms}ms`)), ms);
+    p.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+  });
 }
 
 Deno.serve(async (req: Request) => {
@@ -161,26 +186,96 @@ Deno.serve(async (req: Request) => {
       forbiddenSubjects,
     };
 
-    // Load or init ladder state.
+    // Load or init ladder state (migrate legacy state missing new fields).
     let state = (meta.coloring_cover_ladder as LadderState | undefined) ?? null;
     if (!state || force) state = newLadderState();
+    if (typeof state.ideogram_speed_cursor !== "number") state.ideogram_speed_cursor = 0;
+    if (!state.attempts_by_rung) state.attempts_by_rung = {};
 
-    // Sanity guard
     if (state.next_index >= state.rungs.length) {
-      // Should not happen (SVG rung is terminal), but reset to fallback rung
       state.next_index = state.rungs.length - 1;
     }
 
+    // ── Crash detection: if the current rung has an in-flight attempt with
+    //    no ended_at older than CRASH_STALE_MS, mark it crashed and cascade.
+    const currRung = state.rungs[state.next_index];
+    const attemptsForRung = state.attempts_by_rung[currRung] ?? [];
+    const lastAttempt = attemptsForRung[attemptsForRung.length - 1];
+    if (lastAttempt && !lastAttempt.ended_at) {
+      const ageMs = Date.now() - new Date(lastAttempt.started_at).getTime();
+      if (ageMs > CRASH_STALE_MS) {
+        lastAttempt.ended_at = new Date().toISOString();
+        lastAttempt.ok = false;
+        lastAttempt.reason = `crash_timeout_after_${ageMs}ms`;
+        lastAttempt.status = "crashed";
+        // Cascade: for ideogram rungs advance speed; otherwise advance rung.
+        if ((currRung === "ideogram_v3_a" || currRung === "ideogram_v3_b")
+            && state.ideogram_speed_cursor < IDEOGRAM_SPEEDS.length - 1) {
+          state.ideogram_speed_cursor += 1;
+        } else {
+          state.next_index += 1;
+          state.ideogram_speed_cursor = 0;
+        }
+      }
+    }
+
     const rung = state.rungs[state.next_index];
+    const isIdeogram = rung === "ideogram_v3_a" || rung === "ideogram_v3_b";
+    const speed = isIdeogram ? IDEOGRAM_SPEEDS[state.ideogram_speed_cursor] : null;
+
+    // Persist BEFORE calling the rung so a crash leaves evidence.
+    const attempt: RungAttempt = {
+      speed,
+      started_at: new Date().toISOString(),
+      ended_at: null,
+    };
+    state.attempts_by_rung[rung] = [...(state.attempts_by_rung[rung] ?? []), attempt];
     await patchMeta(db, ebook_id, {
-      coloring_current_step_label: `Cover ladder rung ${state.next_index + 1}/${state.rungs.length}: ${rung}`,
+      coloring_current_step_label:
+        `Cover ladder rung ${state.next_index + 1}/${state.rungs.length}: ${rung}${speed ? ` (${speed})` : ""}`,
       coloring_progress_percent: 92,
       coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
     });
 
-    console.log(`[coloring-cover] ${ebook_id} running rung ${rung} (${state.next_index + 1}/${state.rungs.length})`);
+    console.log(`[coloring-cover] ${ebook_id} rung ${rung} speed=${speed} (${state.next_index + 1}/${state.rungs.length})`);
 
-    const result = await runSingleCoverRung(ladderInput, rung);
+    // ── Run rung with wallclock guard so slow QUALITY calls cannot silent-loop.
+    let result: Awaited<ReturnType<typeof runSingleCoverRung>>;
+    try {
+      result = await withTimeout(
+        runSingleCoverRung({ ...ladderInput, ideogramRenderingSpeed: speed ?? undefined }, rung),
+        RUNG_WALLCLOCK_MS,
+        `${rung}:${speed ?? "n/a"}`,
+      );
+    } catch (e: any) {
+      const reason = `rung_exception:${String(e?.message ?? e).slice(0, 220)}`;
+      attempt.ended_at = new Date().toISOString();
+      attempt.ok = false;
+      attempt.reason = reason;
+      attempt.status = "error";
+      state.reports.push({ rung, reason, produced_bytes: false } as any);
+      // Cascade speed on ideogram, else advance rung.
+      if (isIdeogram && state.ideogram_speed_cursor < IDEOGRAM_SPEEDS.length - 1) {
+        state.ideogram_speed_cursor += 1;
+      } else {
+        state.next_index += 1;
+        state.ideogram_speed_cursor = 0;
+      }
+      await patchMeta(db, ebook_id, {
+        coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
+        coloring_current_step_label:
+          `Cover ladder cascading after ${rung}${speed ? `/${speed}` : ""} error → next attempt`,
+      });
+      fireAndForget("coloring-book-cover", { ebook_id });
+      return json({ ok: true, advanced: true, failed_rung: rung, failed_speed: speed, failed_reason: reason });
+    }
+
+    // Record the attempt's outcome.
+    attempt.ended_at = new Date().toISOString();
+    attempt.ok = result.status === "ok" || result.status === "fallback";
+    attempt.reason = result.report.reason;
+    attempt.status = result.status;
+
     state.reports.push({
       rung: result.report.rung,
       reason: result.report.reason,
@@ -223,9 +318,11 @@ Deno.serve(async (req: Request) => {
         url: up.signedUrl,
         storage_path: up.path,
         accepted_rung: rung,
+        accepted_speed: speed,
         used_svg_fallback: usedSvgFallback,
         title_treatment: treatmentMeta,
         rung_reports: state.reports,
+        attempts_by_rung: state.attempts_by_rung,
         generated_at: new Date().toISOString(),
         subtitle_used: subtitle,
         age_badge: ageBadge,
@@ -242,15 +339,21 @@ Deno.serve(async (req: Request) => {
       });
 
       fireAndForget("coloring-book-assemble", { ebook_id });
-      return json({ ok: true, accepted_rung: rung, chained: "assemble", used_svg_fallback: usedSvgFallback });
+      return json({ ok: true, accepted_rung: rung, accepted_speed: speed, chained: "assemble", used_svg_fallback: usedSvgFallback });
     }
 
-    // Dead or error → advance and self-invoke to run next rung.
-    console.warn(`[coloring-cover] ${ebook_id} rung ${rung} ${result.status}: ${result.report.reason} — advancing`);
-    state.next_index += 1;
+    // Dead / dead-equivalent / error → cascade speed on ideogram, else advance rung.
+    console.warn(`[coloring-cover] ${ebook_id} rung ${rung} speed=${speed} ${result.status}: ${result.report.reason} — cascading`);
+    if (isIdeogram && state.ideogram_speed_cursor < IDEOGRAM_SPEEDS.length - 1) {
+      state.ideogram_speed_cursor += 1;
+    } else {
+      state.next_index += 1;
+      state.ideogram_speed_cursor = 0;
+    }
     await patchMeta(db, ebook_id, {
       coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
-      coloring_current_step_label: `Cover ladder advancing → rung ${Math.min(state.next_index + 1, state.rungs.length)}/${state.rungs.length}`,
+      coloring_current_step_label:
+        `Cover ladder cascading after ${rung}${speed ? `/${speed}` : ""} → rung ${Math.min(state.next_index + 1, state.rungs.length)}/${state.rungs.length}${state.ideogram_speed_cursor > 0 ? ` speed=${IDEOGRAM_SPEEDS[state.ideogram_speed_cursor]}` : ""}`,
     });
 
     fireAndForget("coloring-book-cover", { ebook_id });
@@ -258,8 +361,10 @@ Deno.serve(async (req: Request) => {
       ok: true,
       advanced: true,
       failed_rung: rung,
+      failed_speed: speed,
       failed_reason: result.report.reason,
       next_rung: state.rungs[state.next_index] ?? "done",
+      next_speed: IDEOGRAM_SPEEDS[state.ideogram_speed_cursor] ?? null,
     });
   } catch (e: any) {
     console.error("[coloring-cover] fatal", e?.message);

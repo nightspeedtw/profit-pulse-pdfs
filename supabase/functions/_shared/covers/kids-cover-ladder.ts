@@ -60,6 +60,11 @@ export interface CoverLadderInput {
   forbiddenSubjects?: string[];
   // Feature flag for callers that want to skip vision gates (tests, unit runs).
   skipVisionGuards?: boolean;
+  // Per-invocation Ideogram rendering-speed override. Class 2 fix: the
+  // cover state machine tries QUALITY → BALANCED → TURBO on the ideogram
+  // rungs before falling to the next rung, so wall-clock timeouts on
+  // slow QUALITY calls do not silently loop.
+  ideogramRenderingSpeed?: "TURBO" | "BALANCED" | "QUALITY";
 }
 
 export interface CoverLadderRungReport {
@@ -167,11 +172,11 @@ export async function runSingleCoverRung(
         prompt: buildIdeogramPrompt(input) + jitter,
         image_size: "square_hd",
         style: "DESIGN",
-        rendering_speed: "QUALITY",
+        rendering_speed: input.ideogramRenderingSpeed ?? "QUALITY",
         seed,
         negative_prompt: `${input.negativePrompt}, text, letters, numbers, words, title, typography, watermark, logo, book mockup, ui, caption, subtitle, spine, black canvas, near-black image, empty image, blank image`,
         ebook_id: input.ebookId,
-        step: `kids_cover_${rung}`,
+        step: `kids_cover_${rung}_${input.ideogramRenderingSpeed ?? "QUALITY"}`,
       });
     } else if (rung === "recraft_v3_ref") {
       bytes = await falRecraftV3({
