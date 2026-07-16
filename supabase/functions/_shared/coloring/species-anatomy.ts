@@ -60,7 +60,7 @@ export const SPECIES_ANATOMY: SpeciesAnatomy[] = [
       pectoral_fins: "exactly TWO pectoral (side) fins, one per side, small paddle shape",
       tail: "HORIZONTAL two-lobed tail flukes (never vertical, never mermaid fin, never split into a Y-tail)",
       blowhole: "single blowhole on top of head",
-      eye: "one small round eye visible in profile, no eyelashes",
+      eye: "one small round eye visible in profile (cute stylization such as eyelashes, sparkles, or big pupils is allowed)",
       mouth: "long narrow rostrum with subtle smile line, no teeth shown",
     },
     proportion_rules: [
