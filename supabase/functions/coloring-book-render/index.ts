@@ -32,6 +32,7 @@ import {
   type LineArtStyleContract,
   type PagePlanEntry,
 } from "../_shared/coloring/style-contract.ts";
+import { verifyImageAtBirth, type ImageKind } from "../_shared/coloring/image-kind.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 
 declare const Deno: any;
@@ -41,8 +42,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const CALIBRATION_COUNT = 4;   // pages rendered before owner style-lock review
 const BATCH_SIZE = 6;          // pages rendered per invocation post-calibration
-const MIN_PNG_BYTES = 8_000;   // verify-at-birth: real line-art is well above this
-const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47];
+const MIN_IMAGE_BYTES = 8_000; // verify-at-birth: real line-art is well above this
 
 interface StoredPage {
   page: number;
