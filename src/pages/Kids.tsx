@@ -10,6 +10,9 @@ import { PreviewLightbox } from "@/components/kids/PreviewLightbox";
 import { KidsFilterChips } from "@/components/kids/KidsFilterChips";
 import { KidsSectionNav } from "@/components/kids/KidsSectionNav";
 import { Loader2 } from "lucide-react";
+import {
+  resolveAgeChip, bookMatchesAgeChip, bookIsForKids,
+} from "@/lib/kidsCatalogTaxonomy";
 
 interface RawBook {
   id: string;
@@ -17,6 +20,9 @@ interface RawBook {
   cover_url: string | null;
   price_cents: number;
   age_group_id: string | null;
+  age_band: string | null;
+  age_min: number | null;
+  age_max: number | null;
   theme_ids: string[] | null;
   storefront_meta: Record<string, unknown> | null;
   created_at: string;
