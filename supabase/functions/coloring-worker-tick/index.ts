@@ -8,6 +8,7 @@
 // @ts-nocheck
 import { corsHeaders as baseCors } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { CURRENT_COLORING_REPAIR_REGIME } from "../_shared/coloring/repair-regime.ts";
 
 declare const Deno: any;
 
