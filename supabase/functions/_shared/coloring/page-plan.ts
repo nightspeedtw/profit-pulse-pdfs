@@ -33,7 +33,7 @@ const COMPOSITIONS_BY_BUCKET: Record<SceneBucket, string> = {
 const SCENE_TEMPLATES: Record<SceneBucket, (s: string) => string> = {
   portrait: (s) => `${s} friendly portrait, head and shoulders, warm expression`,
   full_body: (s) => `${s} standing full-body pose, whole body visible`,
-  environment: (s) => `${s} exploring its natural habitat, simple background elements`,
+  environment: (s) => `${s} in its habitat with 2-3 small outline props, plain white background, no water mass, no filled sky`,
   action: (s) => `${s} in a playful action pose, mid-movement`,
   relationship: (s) => `${s} interacting warmly with a friend of the same kind`,
   celebration: (s) => `${s} at a small celebration with festive props`,
