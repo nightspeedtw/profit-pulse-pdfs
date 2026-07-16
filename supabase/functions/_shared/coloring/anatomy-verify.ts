@@ -149,7 +149,15 @@ interface OneModelResult {
   ok: boolean;
   reason?: string;
   parsed?: {
-    verdicts?: Array<{ index: number; pass: boolean; anatomy_score: number; defects?: string[] }>;
+    verdicts?: Array<{
+      index: number;
+      pass: boolean;
+      anatomy_score: number;
+      defects?: string[];
+      named_subject?: string | null;
+      recognizable?: boolean;
+      category_match?: boolean;
+    }>;
   };
   model: string;
 }
