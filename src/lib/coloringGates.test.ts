@@ -60,6 +60,7 @@ describe("coloring release gate", () => {
       cover_gate_pass: true,
       zero_prohibited_artifacts: true,
       commercial_rights_pass: true,
+      book_weighted_gate_pass: true,
       final_sellable: 90,
     });
     expect(r.pass).toBe(false);
