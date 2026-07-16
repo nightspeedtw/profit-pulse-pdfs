@@ -101,7 +101,10 @@ export const DEFAULT_COVER_RUNGS: CoverRungLabel[] = [
 const DEFAULT_RUNGS = DEFAULT_COVER_RUNGS;
 
 export interface SingleRungResult {
-  status: "ok" | "dead" | "error" | "fallback";
+  // "dead-equivalent" == "dead" but rejected by a vision guard (baked text
+  // or wrong subject) rather than luminance. Callers treat it identically:
+  // silent advance, does NOT consume retire budget.
+  status: "ok" | "dead" | "dead-equivalent" | "error" | "fallback";
   bytes: Uint8Array | null;
   report: CoverLadderRungReport;
   title_treatment_metadata?: Record<string, unknown> | null;
