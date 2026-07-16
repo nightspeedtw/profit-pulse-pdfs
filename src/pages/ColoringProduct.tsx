@@ -220,10 +220,12 @@ export default function ColoringProduct() {
           type="button"
           onClick={openPreview}
           aria-label={`Preview inside ${book.title}`}
-          className="relative aspect-square bg-white border-2 border-foreground overflow-hidden group"
+          className="relative aspect-square bg-muted border-2 border-foreground overflow-hidden group"
         >
           {book.cover_url ? (
-            <img src={book.cover_url} alt={book.title} className="w-full h-full object-cover" />
+            // object-contain guarantees the WHOLE cover (title + art) fits
+            // inside the thumbnail frame — no crop, no cut title.
+            <img src={book.cover_url} alt={book.title} className="w-full h-full object-contain" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-muted-foreground">No cover</div>
           )}
