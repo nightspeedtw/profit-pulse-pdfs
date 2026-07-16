@@ -37,14 +37,21 @@ export interface AnatomyPageVerdict {
   model?: string;
   measured_at: string;       // ISO
   measured_version: string;  // ties verdict to this verifier version
+  // Owner law (2026-07-16, cover audit): the same call must also answer
+  // "name the primary subject you see; is it clearly recognizable as the
+  // planned subject?" Amorphous blobs that pass anatomy (deformity-only)
+  // must still fail category recognizability and force regeneration.
+  named_subject?: string | null;
+  recognizable?: boolean;
+  category_match?: boolean;
 }
 
-// v4 — anatomy_deformity_only_v2: the anatomy gate answers ONE question,
-// "does the creature look deformed / injured / disabled?" Category/subject
-// fit is a SEPARATE gate. Cuteness, stylization, and ALL imaginary beings
-// (mythical, divine, hybrid) pass anatomy so long as they match the
-// creature's canonical imaginative form.
-export const ANATOMY_VERIFIER_VERSION = "v4:deformity_only";
+// v5 — anatomy_deformity_only_v2 + subject_recognizability. Two questions,
+// one call: (1) is the creature deformed? (2) is it recognizably the planned
+// subject rather than an amorphous blob? Category/subject fit remains a
+// SEPARATE gate; recognizability is not "does it belong in this category"
+// but "can a parent see WHAT this shape is supposed to be".
+export const ANATOMY_VERIFIER_VERSION = "v5:deformity_only+recognizable";
 
 export interface AnatomyInputPage {
   page: number;
