@@ -50,7 +50,10 @@ const CORRECTIVE_CLAUSES: Record<FailureClass, string[]> = {
     "NO large solid-black fills anywhere",
     "Every enclosed region MUST be white so a child can color it",
     "Use outlines only, never filled black shapes",
+    "Suggest water with a few thin outline wave lines and bubbles only; NEVER fill water areas",
+    "No solid water mass, no shaded ocean background, no black sea silhouette",
   ],
+
   anatomy_structural: [
     "Anatomically correct: exactly the expected number of limbs, fingers/paws, eyes, ears, wings, tails and horns for this subject",
     "No fused, missing, or extra body parts",
@@ -128,3 +131,29 @@ export function decideRepair(
     rationale: `attempt ${attempt}: escalate to owner; never silently retire`,
   };
 }
+
+// Plan-level rescue for escalated pages: rewrite the scene to the
+// guaranteed-simple portrait template, clear secondary subjects, and drop
+// any risky "open water" / large-fill phrasing. Caller resets the page's
+// repair_attempts to 0 and logs into metadata.coloring_replans.
+// Only ONE replan cycle per page — if the replanned page also escalates,
+// the caller must set blocker_reason='coloring_page_dead' (learn-then-retry
+// class) and surface it, never idle-loop.
+const OPEN_WATER_RE = /\b(open water|deep sea|underwater|ocean depths?|swim(?:ming)? through|in the sea|beneath the waves|water background)\b/gi;
+
+export function sanitizeSceneForColorability(scene: string): string {
+  return scene.replace(OPEN_WATER_RE, "").replace(/\s{2,}/g, " ").trim();
+}
+
+export function replanEscalatedPage(page: PagePlanEntry): PagePlanEntry {
+  const subject = page.primary_subject;
+  return {
+    ...page,
+    secondary_subjects: [],
+    complexity: "simple",
+    composition_type: "single_subject_centered",
+    scene: `${subject} friendly portrait, simple pose, plain white background, no water mass, no background fill`,
+    scene_bucket: "portrait",
+  } as PagePlanEntry;
+}
+

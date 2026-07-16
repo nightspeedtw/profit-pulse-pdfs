@@ -36,7 +36,7 @@ import {
 import { verifyImageAtBirth, type ImageKind } from "../_shared/coloring/image-kind.ts";
 import { analyzeSolidBlack, DEFAULT_SOLID_BLACK_TH } from "../_shared/coloring/solid-black.ts";
 import { computeSharpness, DEFAULT_SHARPNESS_MIN_SCORE } from "../_shared/coloring/sharpness-gate.ts";
-import { decideRepair } from "../_shared/coloring/repair-ladder.ts";
+import { decideRepair, replanEscalatedPage, sanitizeSceneForColorability } from "../_shared/coloring/repair-ladder.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 
 // Canonical interior generation params — enforced identically for every page.
@@ -233,10 +233,14 @@ Deno.serve(async (req: Request) => {
     // Track per-page repair attempts on metadata for the repair ladder.
     const repairAttempts = ((meta.coloring_repair_attempts as Record<string, number> | undefined) ?? {});
 
+    // Track replans (one plan-level rescue allowed per page).
+    const replans = ((meta.coloring_replans as Record<string, { at: string; from_scene: string; to_scene: string; reasons: string[] }> | undefined) ?? {});
+    const deadPages: number[] = [];
+
     // Sequential within this invocation — bounded FAL wallclock, safe on cost.
     for (const rawPage of toRender) {
       const attempt = repairAttempts[String(rawPage.canonical_page_number)] ?? 0;
-      // If a prior attempt logged reasons, run the ladder to revise/simplify.
+      // Rolling per-page reason history (last 5 batches), not just last batch.
       const priorReasons = ((meta.coloring_last_errors as any[] | undefined) ?? [])
         .filter((e) => e?.page === rawPage.canonical_page_number)
         .flatMap((e) => (typeof e?.reasons === "string" ? [e.reasons] : e?.reasons ?? []));
@@ -245,12 +249,37 @@ Deno.serve(async (req: Request) => {
         : { action: "repair" as const, revised_page: rawPage, prompt_additions: [], attempt, rationale: "first attempt" };
 
       if (decision.action === "escalate") {
+        const alreadyReplanned = !!replans[String(rawPage.canonical_page_number)];
+        if (!alreadyReplanned) {
+          // Plan-level rescue: rewrite the scene to guaranteed-simple portrait,
+          // reset attempts, log replan. Persist plan entry so next tick uses it.
+          const replanned = replanEscalatedPage(rawPage);
+          const planIdx = plan.findIndex((p) => p.canonical_page_number === rawPage.canonical_page_number);
+          if (planIdx >= 0) plan[planIdx] = { ...plan[planIdx], ...replanned, scene: sanitizeSceneForColorability(replanned.scene) };
+          replans[String(rawPage.canonical_page_number)] = {
+            at: new Date().toISOString(),
+            from_scene: rawPage.scene,
+            to_scene: replanned.scene,
+            reasons: priorReasons.slice(-5),
+          };
+          repairAttempts[String(rawPage.canonical_page_number)] = 0;
+          errors.push({
+            page: rawPage.canonical_page_number,
+            error: `replanned_to_portrait_after_${attempt}_attempts`,
+            reasons: [`replan: ${priorReasons.slice(-1)[0] ?? "escalated"}`],
+          } as any);
+          continue;
+        }
+        // Already replanned once and still failing → dead page class.
+        deadPages.push(rawPage.canonical_page_number);
         errors.push({
           page: rawPage.canonical_page_number,
-          error: `escalate_after_${attempt}_attempts: ${decision.rationale}`,
-        });
+          error: `coloring_page_dead_after_replan: ${decision.rationale}`,
+          reasons: priorReasons.slice(-5),
+        } as any);
         continue;
       }
+
 
       const page = decision.revised_page;
       const basePrompt = buildInteriorPrompt(page, styleContract, {
@@ -337,12 +366,43 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    await patchMeta(db, ebook_id, { coloring_repair_attempts: repairAttempts });
+    // Persist rolling per-page error history (last 5 per page), not overwrite.
+    const priorErrorLog = ((meta.coloring_last_errors as any[] | undefined) ?? []);
+    const errorLog = [...priorErrorLog, ...errors.map((e) => ({ ...e, at: new Date().toISOString() }))];
+    const perPageTrimmed: any[] = [];
+    const byPageCount = new Map<number, number>();
+    for (let i = errorLog.length - 1; i >= 0; i--) {
+      const p = (errorLog[i] as any).page;
+      const c = byPageCount.get(p) ?? 0;
+      if (c < 5) { perPageTrimmed.unshift(errorLog[i]); byPageCount.set(p, c + 1); }
+    }
+
+    // Persist plan (may have been mutated by replan) + attempts + replans.
+    await patchMeta(db, ebook_id, {
+      coloring_repair_attempts: repairAttempts,
+      coloring_replans: replans,
+      coloring_page_plan: { ...planWrap, plan },
+    });
 
     const pages = await updatePages(db, ebook_id, newRecords);
     const total = plan.length;
     const doneNow = pages.length;
     const percent = Math.round((doneNow / total) * 100);
+
+    if (deadPages.length > 0) {
+      // Learn-then-retry surface: dead page class, don't idle-loop, don't P0-pause.
+      await db.from("ebooks_kids").update({
+        pipeline_status: "failed",
+        blocker_reason: `coloring_page_dead: pages ${deadPages.join(",")} exhausted repair + replan ladder`,
+      }).eq("id", ebook_id);
+      await patchMeta(db, ebook_id, {
+        coloring_progress_percent: percent,
+        coloring_current_step_label: `Dead pages after replan: ${deadPages.join(", ")} — learn-then-retry`,
+        coloring_last_errors: perPageTrimmed,
+        coloring_dead_pages: deadPages,
+      });
+      return json({ ok: false, stage: stageLabel, dead_pages: deadPages, errors: perPageTrimmed }, 200);
+    }
 
     if (errors.length > 0 && newRecords.length === 0) {
       // Whole batch failed — surface as blocker but keep queued for retry.
@@ -353,10 +413,16 @@ Deno.serve(async (req: Request) => {
       await patchMeta(db, ebook_id, {
         coloring_progress_percent: percent,
         coloring_current_step_label: `Batch failed at ${stageLabel}; will retry (${errors.length} pages)`,
-        coloring_last_errors: errors,
+        coloring_last_errors: perPageTrimmed,
       });
-      return json({ ok: false, stage: stageLabel, errors }, 200);
+      return json({ ok: false, stage: stageLabel, errors: perPageTrimmed }, 200);
     }
+
+    // On any partial success, still update the rolling error log.
+    if (errors.length > 0) {
+      await patchMeta(db, ebook_id, { coloring_last_errors: perPageTrimmed });
+    }
+
 
     // Determine follow-up state.
     const stillCalibrationRemaining = plan
