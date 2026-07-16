@@ -276,6 +276,7 @@ async function addCoverPage(doc: PDFDocument, coverPng: Uint8Array) {
   const img = await embedImageSmart(doc, coverPng);
   const page = doc.addPage([PAGE_W, PAGE_H]);
   drawFullBleed(page, img);
+  await stampBranding(doc, page, "cover", null);
 }
 
 // SKILL A — shrink-to-fit title/subtitle so nothing ever clips the trim.
