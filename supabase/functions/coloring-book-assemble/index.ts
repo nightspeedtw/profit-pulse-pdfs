@@ -252,7 +252,7 @@ Deno.serve(async (req: Request) => {
         bytes: await fetchBytes(p.signed_url),
         mime: p.mime || "image/png",
       })));
-      const verdicts = await verifyAnatomyBatch(inputs);
+      const verdicts = await verifyAnatomyBatch(inputs, { db });
       for (const v of verdicts) anatomyByPage.set(v.page, v);
       await patchMeta(db, ebook_id, {
         coloring_assembly: {
