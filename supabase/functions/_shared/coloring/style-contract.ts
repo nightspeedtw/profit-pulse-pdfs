@@ -54,10 +54,14 @@ const NEGATIVE_CLAUSES = [
   "NO shadows",
   "NO cross-hatching",
   "NO color fills",
-  "NO text, letters, numbers, watermarks, signatures",
+  "NO large solid-black areas or filled black shapes (outlines only; every enclosed region must be white so a child can color it)",
+  "NO text, letters, numbers, watermarks, signatures, logos",
   "NO border clipping",
   "NO cropped subject",
   "NO out-of-category objects",
+  "NO anatomically incorrect subjects (correct number of limbs, fingers/paws, eyes, ears, wings, tails, horns for the subject; no fused, missing, extra, or malformed features; no incoherent faces)",
+  "NO imitation of any living artist's signature style",
+  "NO recognizable copyrighted or trademarked characters, mascots, or brand IP",
 ];
 
 export function buildInteriorPrompt(
