@@ -40,6 +40,7 @@ import { analyzeSolidBlack, DEFAULT_SOLID_BLACK_TH } from "../_shared/coloring/s
 import { computeSharpness } from "../_shared/coloring/sharpness-gate.ts";
 import { decideRepair, replanEscalatedPage, sanitizeSceneForColorability } from "../_shared/coloring/repair-ladder.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
+import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
 import { verifyAnatomyBatch, ANATOMY_VERIFIER_VERSION, type AnatomyPageVerdict } from "../_shared/coloring/anatomy-verify.ts";
 import { speciesAnatomyRepairClause } from "../_shared/coloring/species-anatomy.ts";
 import {
@@ -651,7 +652,9 @@ Deno.serve(async (req: Request) => {
         coloring_current_step_label: `Batch failed at ${stageLabel}; will retry (${errors.length} pages)`,
         coloring_last_errors: perPageTrimmed,
       });
-      return json({ ok: false, stage: stageLabel, errors: perPageTrimmed }, 200);
+      // Self-advance with backoff — do not wait for the next cron tick.
+      await scheduleSelfAdvance(db, ebook_id, { delayMs: SELF_ADVANCE_DELAY_BACKOFF_MS, reason: `batch_failed:${stageLabel}` });
+      return json({ ok: false, stage: stageLabel, errors: perPageTrimmed, self_advance: true }, 200);
     }
 
     // On any partial success, still update the rolling error log.

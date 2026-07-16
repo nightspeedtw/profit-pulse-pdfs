@@ -33,6 +33,7 @@ import { computeSharpness, SHARPNESS_GATE_VERSION } from "../_shared/coloring/sh
 import { decideAssemblySharpnessPreflight } from "../_shared/coloring/assembly-sharpness.ts";
 import { verifyAnatomyBatch, ANATOMY_VERIFIER_VERSION, summarizeBookAnatomy, type AnatomyPageVerdict } from "../_shared/coloring/anatomy-verify.ts";
 import { drawFitText, drawFitParagraph } from "../_shared/pdf/shrink-to-fit.ts";
+import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -560,7 +561,10 @@ Deno.serve(async (req: Request) => {
         pipeline_status: "queued",
         blocker_reason: `coloring_assemble_gate_blocked: ${[...bookGate.reasons, ...coverGate.reasons].slice(0, 3).join(" | ")}`.slice(0, 300),
       }).eq("id", ebook_id);
-      return json({ ok: false, gate_blocked: true, bookGate, coverGate });
+      // Self-advance with backoff so the book flows back through the tick
+      // dispatcher instead of parking until the next cron beat.
+      await scheduleSelfAdvance(db, ebook_id, { delayMs: SELF_ADVANCE_DELAY_BACKOFF_MS, reason: "assemble_gate_blocked" });
+      return json({ ok: false, gate_blocked: true, bookGate, coverGate, self_advance: true });
     }
 
     await db.from("ebooks_kids").update({

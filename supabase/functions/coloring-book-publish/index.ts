@@ -11,6 +11,7 @@ import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 import { coloringReleaseGate } from "../_shared/coloring/gates.ts";
 import { DEFAULT_PRICING_CONFIG, computePrice, type PricingConfig } from "../_shared/coloring/pricing.ts";
+import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -182,7 +183,8 @@ Deno.serve(async (req: Request) => {
         coloring_release_gate: gate,
         coloring_current_step_label: `Release blocked: ${gate.reasons.join("; ")}`,
       });
-      return json({ ok: false, release_blocked: true, gate });
+      await scheduleSelfAdvance(db, ebook_id, { delayMs: SELF_ADVANCE_DELAY_BACKOFF_MS, reason: "release_gate_blocked" });
+      return json({ ok: false, release_blocked: true, gate, self_advance: true });
     }
 
     // ── Pricing (RULE 1: page-count → base) ───────────────────────────
