@@ -1,12 +1,12 @@
-// Owner law "anatomy_imagination_vs_deformity" (2026-07-16):
-// Regression suite guarding the three-tier verifier rubric.
-// TIER 1 deformity ALWAYS fails; TIER 2 cute stylization ALWAYS passes;
-// TIER 3 canonical fantasy passes when the scene/subject invites it.
+// Owner law "anatomy_deformity_only_v2" (2026-07-16, supersedes v1):
+// The anatomy gate answers ONE question — "does this creature look
+// deformed / injured / disabled?" All imaginary beings pass in ANY
+// category so long as they match their canonical imaginative form.
+// Category / theme fit is a SEPARATE gate.
 
 import { describe, it, expect } from "vitest";
 import {
   getSpeciesAnatomy,
-  isFantasyCategoryKey,
   SPECIES_ANATOMY,
 } from "../../supabase/functions/_shared/coloring/species-anatomy.ts";
 import {
@@ -15,106 +15,109 @@ import {
 } from "../../supabase/functions/_shared/coloring/anatomy-verify.ts";
 import { normalizeDefect } from "../../supabase/functions/_shared/coloring/first-pass-learner.ts";
 
-describe("anatomy_imagination_vs_deformity — verifier rubric contents", () => {
-  it("verifier version is bumped to v3 so old degraded rows re-measure", () => {
-    expect(ANATOMY_VERIFIER_VERSION).toBe("v3:imagination_vs_deformity");
+describe("anatomy_deformity_only_v2 — verifier rubric contents", () => {
+  it("verifier version bumped to v4 so stale verdicts re-measure", () => {
+    expect(ANATOMY_VERIFIER_VERSION).toBe("v4:deformity_only");
   });
 
-  it("system prompt names all three tiers explicitly", () => {
-    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/TIER 1[^\n]*DEFORMITY[^\n]*ALWAYS FAIL/);
-    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/TIER 2[^\n]*CUTE STYLIZATION[^\n]*ALWAYS PASS/);
-    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/TIER 3[^\n]*FANTASY[^\n]*PASS/);
+  it("rubric asks the ONE deformity question", () => {
+    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/broken, injured, disabled, or malformed/i);
+    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/rather than merely stylized or fantastical/i);
   });
 
-  it("system prompt explicitly whitelists eyelashes + cute stylization", () => {
+  it("rubric explicitly permits ALL imaginary beings in ANY category", () => {
+    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/ALL imaginary beings in ANY category/i);
+    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/anatomy does NOT police theme/i);
+  });
+
+  it("rubric lists canonical mythical / divine forms with generous allowance", () => {
+    const t = ANATOMY_RUBRIC_SYSTEM_TEXT;
+    expect(t).toMatch(/naga/i);
+    expect(t).toMatch(/garuda/i);
+    expect(t).toMatch(/kinnari/i);
+    expect(t).toMatch(/erawan|airavata/i);
+    expect(t).toMatch(/nine[- ]tailed fox|kitsune/i);
+    expect(t).toMatch(/multi-armed deities?/i);
+    expect(t).toMatch(/mermaid/i);
+    expect(t).toMatch(/unicorn/i);
+    expect(t).toMatch(/phoenix/i);
+    expect(t).toMatch(/dragon/i);
+  });
+
+  it("rubric explicitly whitelists cuteness / stylization", () => {
     expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/eyelashes/i);
-    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/Never list Tier 2 stylization in defects/i);
+    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/Never list stylization/i);
   });
 
-  it("system prompt still hard-fails uninvited fantasy on realistic species", () => {
-    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/UNINVITED fantasy addition/i);
-  });
-});
-
-describe("SPECIES_ANATOMY — Tier-2 penalty clauses have been purged", () => {
-  it("dolphin eye/failure-mode clauses no longer forbid eyelashes", () => {
-    const dolphin = getSpeciesAnatomy("dolphin");
-    const eye = dolphin.body_parts.eye ?? "";
-    expect(eye.toLowerCase()).not.toMatch(/no eyelash/);
-    const modesJoined = dolphin.common_ai_failure_modes.join(" ").toLowerCase();
-    expect(modesJoined).not.toMatch(/eyelash/);
-    expect(modesJoined).not.toMatch(/human-like face|humanized expression/);
+  it("rubric NO LONGER contains the v1 'uninvited fantasy' anatomy-fail clause", () => {
+    // v1 said uninvited fantasy in realistic categories was a Tier 1 fail —
+    // owner has explicitly removed this restriction; anatomy does not police
+    // theme any longer.
+    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).not.toMatch(/UNINVITED fantasy addition/i);
+    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).not.toMatch(/TIER 1|TIER 2|TIER 3/);
   });
 });
 
-describe("SPECIES_ANATOMY — fantasy creatures seeded before fantasy books render", () => {
-  const mustHave = ["mermaid", "unicorn", "pegasus", "dragon", "fairy"];
-  it.each(mustHave)("%s is seeded with fantasy=true", (key) => {
+describe("SPECIES_ANATOMY — mythical / divine beings seeded before render", () => {
+  const mustHave = [
+    "mermaid", "unicorn", "pegasus", "dragon", "fairy",
+    "phoenix", "naga", "garuda", "kinnari", "erawan",
+    "nine_tailed_fox", "kirin", "deity", "human",
+  ];
+  it.each(mustHave)("%s is seeded", (key) => {
     const spec = SPECIES_ANATOMY.find((s) => s.species_key === key);
     expect(spec, `${key} missing from SPECIES_ANATOMY`).toBeTruthy();
-    expect(spec!.fantasy).toBe(true);
   });
 
-  it("unicorn canon: exactly ONE forehead horn + four legs", () => {
-    const u = getSpeciesAnatomy("unicorn");
-    expect(u.body_parts.horn.toLowerCase()).toMatch(/exactly one/);
-    expect(u.body_parts.horn.toLowerCase()).toMatch(/forehead/);
-    expect(u.common_ai_failure_modes.join(" ").toLowerCase()).toMatch(/two horns/);
+  it("multi-armed deity canon: many arms allowed, five fingers per hand still required", () => {
+    const d = getSpeciesAnatomy("four-armed deity");
+    expect(d.species_key).toBe("deity");
+    expect(d.body_parts.arms.toLowerCase()).toMatch(/multiple arms/);
+    expect(d.body_parts.arms.toLowerCase()).toMatch(/five fingers/);
+    expect(d.proportion_rules.join(" ").toLowerCase()).toMatch(/canonical/);
   });
 
-  it("mermaid canon: one human torso + one fish tail + five fingers per hand", () => {
-    const m = getSpeciesAnatomy("mermaid");
-    expect(m.body_parts.upper_body.toLowerCase()).toMatch(/five fingers/);
-    expect(m.body_parts.lower_body.toLowerCase()).toMatch(/fish/);
-    expect(m.common_ai_failure_modes.join(" ").toLowerCase()).toMatch(/six fingers|two fish tails/);
+  it("nine-tailed fox canon: 1-9 tails is canonical, not a defect", () => {
+    const f = getSpeciesAnatomy("kitsune");
+    expect(f.species_key).toBe("nine_tailed_fox");
+    expect(f.body_parts.tails.toLowerCase()).toMatch(/1 through 9|nine tails/);
+  });
+
+  it("erawan / airavata canon: multi-head elephant is canonical", () => {
+    const e = getSpeciesAnatomy("three-headed elephant");
+    expect(e.species_key).toBe("erawan");
+    expect(e.body_parts.heads.toLowerCase()).toMatch(/multiple/);
+    expect(e.body_parts.legs.toLowerCase()).toMatch(/four legs/);
+  });
+
+  it("human canon: 2 arms, 2 legs, 5 fingers per hand", () => {
+    const h = getSpeciesAnatomy("child");
+    expect(h.species_key).toBe("human");
+    expect(h.body_parts.arms.toLowerCase()).toMatch(/two arms/);
+    expect(h.body_parts.arms.toLowerCase()).toMatch(/five fingers/);
+    expect(h.common_ai_failure_modes.join(" ").toLowerCase()).toMatch(/third arm/);
   });
 });
 
-describe("isFantasyCategoryKey — category-level fantasy tolerance", () => {
-  it("recognises the queued Cute Mermaid and Ocean Fantasy category", () => {
-    expect(isFantasyCategoryKey("cute_mermaid_and_ocean_fantasy")).toBe(true);
-  });
-  it("recognises generic fantasy tokens in the category key", () => {
-    expect(isFantasyCategoryKey("unicorns_and_rainbows")).toBe(true);
-    expect(isFantasyCategoryKey("dragons_and_castles")).toBe(true);
-    expect(isFantasyCategoryKey("fairy_garden")).toBe(true);
-  });
-  it("does NOT flag realistic categories as fantasy", () => {
-    expect(isFantasyCategoryKey("sea_animals")).toBe(false);
-    expect(isFantasyCategoryKey("farm_animals")).toBe(false);
-    expect(isFantasyCategoryKey(null)).toBe(false);
-    expect(isFantasyCategoryKey(undefined)).toBe(false);
-  });
-});
-
-describe("normalizeDefect — Tier-2 stylization is NEVER counted as a defect", () => {
-  it("eyelashes on a dolphin are not a defect (owner-cited false positive)", () => {
+describe("normalizeDefect — deformity taxonomy", () => {
+  it("cuteness (eyelashes, blush, bows) NEVER counts as a defect", () => {
     expect(normalizeDefect("human-like eyelashes on dolphin face", "dolphin", "anatomy")).toBeNull();
-    expect(normalizeDefect("long lashes on the animal", "dolphin", "anatomy")).toBeNull();
-  });
-  it("cute smiles, blush, bows, big sparkly eyes are stylization, not defects", () => {
-    expect(normalizeDefect("smiling anthropomorphic face", "fish", "anatomy")).toBeNull();
     expect(normalizeDefect("rosy cheeks / blush marks", "octopus", "anatomy")).toBeNull();
     expect(normalizeDefect("wearing a bow on the head", "cat", "anatomy")).toBeNull();
-    expect(normalizeDefect("big sparkly eyes on the whale", "whale", "anatomy")).toBeNull();
-    expect(normalizeDefect("humanized expression", "seal", "anatomy")).toBeNull();
   });
-});
 
-describe("normalizeDefect — real Tier-1 deformities still fail", () => {
-  it("5 legs on a 4-legged animal is a Tier-1 defect", () => {
+  it("5 legs on a 4-legged animal is a deformity", () => {
     const hit = normalizeDefect("five legs on the horse", "horse", "anatomy");
-    expect(hit).not.toBeNull();
-    expect(hit!.pattern_key).toBe("extra_limb");
+    expect(hit?.pattern_key).toBe("extra_limb");
   });
-  it("6 fingers on a hand is a Tier-1 defect", () => {
-    const hit = normalizeDefect("hand drawn with six fingers", "fairy", "anatomy");
-    expect(hit).not.toBeNull();
-    expect(hit!.pattern_key).toBe("extra_limb");
+
+  it("6 fingers on a human hand is a deformity", () => {
+    const hit = normalizeDefect("hand drawn with six fingers", "human", "anatomy");
+    expect(hit?.pattern_key).toBe("extra_limb");
   });
-  it("cetacean vertical flukes still fail", () => {
-    const hit = normalizeDefect("vertical fish tail on the dolphin", "dolphin", "anatomy");
-    expect(hit).not.toBeNull();
-    expect(hit!.pattern_key).toBe("cetacean_horizontal_flukes");
+
+  it("3 arms on a human is a deformity", () => {
+    const hit = normalizeDefect("extra arm sprouting from the human torso", "human", "anatomy");
+    expect(hit?.pattern_key).toBe("extra_limb");
   });
 });
