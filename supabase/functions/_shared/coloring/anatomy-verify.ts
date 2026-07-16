@@ -169,6 +169,8 @@ interface OneModelResult {
       named_subject?: string | null;
       recognizable?: boolean;
       category_match?: boolean;
+      has_text?: boolean;
+      text_seen?: string | null;
     }>;
   };
   model: string;
