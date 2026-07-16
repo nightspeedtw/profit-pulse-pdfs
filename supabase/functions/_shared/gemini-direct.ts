@@ -8,6 +8,7 @@
 // not configured.
 
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY");
+const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY");
 
 export function hasGeminiDirect(): boolean {
   return !!GEMINI_KEY && GEMINI_KEY.length > 10;
@@ -34,7 +35,7 @@ export interface GeminiImageMeta {
   safetyRatings: unknown;
   partCount: number;
   bytesLen: number;
-  provider: 'google_direct';
+  provider: 'google_direct' | 'lovable_gateway';
   model: string;
   blockReason?: string | null;
 }
@@ -50,7 +51,10 @@ export async function geminiDirectImageWithMeta(opts: {
   model?: string;
   seed?: number;
 }): Promise<{ bytes: Uint8Array; meta: GeminiImageMeta }> {
-  if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set");
+  if (!GEMINI_KEY) {
+    if (LOVABLE_KEY) return gatewayImageWithMeta(opts, "GEMINI_API_KEY not set");
+    throw new Error("GEMINI_API_KEY not set");
+  }
   const model = normalize(opts.model ?? "google/gemini-3.1-flash-image");
   const parts: Array<Record<string, unknown>> = [{ text: opts.prompt }];
   for (const u of opts.referenceUrls) {
@@ -64,7 +68,12 @@ export async function geminiDirectImageWithMeta(opts: {
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
   );
-  if (!r.ok) throw new Error(`gemini-direct ${model} ${r.status}: ${(await r.text()).slice(0, 400)}`);
+  if (!r.ok) {
+    const directErr = `gemini-direct ${model} ${r.status}: ${(await r.text()).slice(0, 400)}`;
+    if (!LOVABLE_KEY) throw new Error(directErr);
+    console.warn(`${directErr} — falling back to Lovable Gateway image model`);
+    return gatewayImageWithMeta(opts, directErr);
+  }
   const j = await r.json() as {
     candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string } }> }; finishReason?: string; safetyRatings?: unknown }>;
     promptFeedback?: { blockReason?: string; safetyRatings?: unknown };
@@ -89,6 +98,49 @@ export async function geminiDirectImageWithMeta(opts: {
   const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   meta.bytesLen = bytes.length;
   return { bytes, meta };
+}
+
+async function gatewayImageWithMeta(opts: {
+  prompt: string;
+  referenceUrls: string[];
+  model?: string;
+  seed?: number;
+}, directErr: string): Promise<{ bytes: Uint8Array; meta: GeminiImageMeta }> {
+  if (!LOVABLE_KEY) throw new Error(directErr);
+  const content: unknown[] = [{ type: "text", text: opts.prompt }];
+  for (const u of opts.referenceUrls) content.push({ type: "image_url", image_url: { url: u } });
+  const r = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
+    body: JSON.stringify({
+      model: "google/gemini-3-pro-image",
+      messages: [{ role: "user", content }],
+      modalities: ["image", "text"],
+      ...(typeof opts.seed === "number" ? { seed: opts.seed } : {}),
+    }),
+  });
+  if (!r.ok) throw new Error(`${directErr}; gateway-image ${r.status}: ${(await r.text()).slice(0, 400)}`);
+  const j = await r.json() as { data?: Array<{ b64_json?: string; url?: string }> };
+  let bytes = new Uint8Array(0);
+  const b64 = j.data?.[0]?.b64_json;
+  if (b64) bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  else if (j.data?.[0]?.url) {
+    const img = await fetch(j.data[0].url!);
+    if (!img.ok) throw new Error(`gateway image fetch ${img.status}`);
+    bytes = new Uint8Array(await img.arrayBuffer());
+  }
+  return {
+    bytes,
+    meta: {
+      finishReason: bytes.length ? "gateway_fallback" : "gateway_empty",
+      safetyRatings: null,
+      partCount: 1,
+      bytesLen: bytes.length,
+      provider: "lovable_gateway",
+      model: "google/gemini-3-pro-image",
+      blockReason: bytes.length ? null : "no_image_returned",
+    },
+  };
 }
 
 export async function geminiDirectImage(opts: {

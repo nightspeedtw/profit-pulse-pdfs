@@ -137,9 +137,9 @@ export async function runSingleCoverRung(
   };
 
   if (rung === "svg_synthetic_fallback") {
-    const bgBytes = await renderFallbackCoverBackground(input);
+    const bg = await renderFallbackCoverBackground(input);
     const treatment = await renderKidsTitleTreatment({
-      coverBg: bgBytes,
+      coverBg: bg.bytes,
       title: input.title,
       subtitle: input.subtitle ?? null,
       palette: input.palette,
@@ -148,7 +148,7 @@ export async function runSingleCoverRung(
     });
     report.produced_bytes = true;
     report.reason = "svg_fallback_used";
-      report.meta = { synthesized_background: true, used_reference_background: input.refUrls.filter(Boolean).length > 0 };
+      report.meta = { synthesized_background: bg.synthesized_background, used_reference_background: bg.used_reference_background };
     return {
       status: "fallback",
       bytes: treatment.png,
@@ -325,17 +325,17 @@ async function renderSyntheticCoverBackground(
   return await img.encode();
 }
 
-async function renderFallbackCoverBackground(input: CoverLadderInput): Promise<Uint8Array> {
+async function renderFallbackCoverBackground(input: CoverLadderInput): Promise<{ bytes: Uint8Array; synthesized_background: boolean; used_reference_background: boolean }> {
   const ref = input.refUrls.filter(Boolean)[0];
   if (ref) {
     try {
       const r = await fetch(ref);
-      if (r.ok) return new Uint8Array(await r.arrayBuffer());
+      if (r.ok) return { bytes: new Uint8Array(await r.arrayBuffer()), synthesized_background: false, used_reference_background: true };
     } catch (e) {
       console.warn(`[cover-ladder] fallback reference fetch failed: ${(e as Error).message}`);
     }
   }
-  return renderSyntheticCoverBackground(1600, 1600, input.palette);
+  return { bytes: await renderSyntheticCoverBackground(1600, 1600, input.palette), synthesized_background: true, used_reference_background: false };
 }
 
 /**
@@ -436,9 +436,9 @@ export async function renderKidsCoverWithLadder(
   // Synthesizes a warm-cream background locally (dead-impossible) and
   // composites the SVG title treatment on top. A book cannot retire for
   // cover_dead while this rung exists.
-  const bgBytes = await renderFallbackCoverBackground(input);
+  const bg = await renderFallbackCoverBackground(input);
   const treatment = await renderKidsTitleTreatment({
-    coverBg: bgBytes,
+    coverBg: bg.bytes,
     title: input.title,
     subtitle: input.subtitle ?? null,
     palette: input.palette,
@@ -451,7 +451,7 @@ export async function renderKidsCoverWithLadder(
     produced_bytes: true,
     luminance: null,
     reason: "svg_fallback_used",
-    meta: { synthesized_background: true, used_reference_background: input.refUrls.filter(Boolean).length > 0 },
+    meta: { synthesized_background: bg.synthesized_background, used_reference_background: bg.used_reference_background },
   });
   return {
     bytes: treatment.png,

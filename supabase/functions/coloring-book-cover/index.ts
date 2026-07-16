@@ -30,7 +30,7 @@ import {
 } from "../_shared/covers/kids-cover-ladder.ts";
 import { renderKidsTitleTreatment } from "../_shared/covers/kids-title-treatment.ts";
 import { transcribeGlyphs, verifyCategoryHero } from "../_shared/covers/cover-vision-guards.ts";
-import { measuredCoverScorecard } from "../_shared/covers/cover-measured-gate.ts";
+import { MEASURED_COVER_GATE_VERSION, measuredCoverScorecard } from "../_shared/covers/cover-measured-gate.ts";
 import { coloringCoverGate } from "../_shared/coloring/gates.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 
@@ -134,7 +134,8 @@ Deno.serve(async (req: Request) => {
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
 
     // Already have a cover? Advance.
-    if (!force && meta.coloring_cover && row.cover_url) {
+    const existingGateVersion = (meta.coloring_cover_gate as any)?.scorecard?.version ?? (meta.coloring_cover as any)?.measured_gate?.scorecard?.version;
+    if (!force && meta.coloring_cover && row.cover_url && existingGateVersion === MEASURED_COVER_GATE_VERSION) {
       fireAndForget("coloring-book-assemble", { ebook_id });
       return json({ ok: true, skipped: "cover_exists", chained: "assemble" });
     }
@@ -315,17 +316,7 @@ Deno.serve(async (req: Request) => {
       // Measured cover gate — no constants. The final raster must contain
       // only approved text (title/subtitle/age/logo), category-correct heroes,
       // safe-frame overlays, and the canonical SecretPDF Kids logo.
-      const finalGlyphRaw = await transcribeGlyphs(finalBytes);
-      const finalGlyph = finalGlyphRaw.degraded && treatmentMeta
-        ? {
-            ok: true,
-            has_glyphs: true,
-            detected_text: [row.title, subtitle, ageBadge, "SecretPDF Kids"].filter(Boolean).join(" | "),
-            confidence: 1,
-            degraded: false,
-            reason: `deterministic_svg_text:${finalGlyphRaw.reason}`,
-          }
-        : finalGlyphRaw;
+      const finalGlyph = await transcribeGlyphs(finalBytes);
       const finalHero = allowedSubjects.length
         ? await verifyCategoryHero(finalBytes, {
             category_name: categoryName,
@@ -333,16 +324,25 @@ Deno.serve(async (req: Request) => {
             forbidden_subjects: forbiddenSubjects,
           })
         : { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined" };
+      const fallbackMeta = (result.report.meta as any) ?? {};
       const measured = measuredCoverScorecard({
         title: row.title,
         subtitle,
         ageBadge,
         text: finalGlyph,
+        rawArtText: usedSvgFallback ? null : (result.report.glyph_verdict ?? null),
+        typographySource: "textless_art_plus_svg_overlay",
         hero: finalHero,
         frame: (treatmentMeta as any)?.overlay_frame ?? { width: 1600, height: 1600, safe_margin: 64, elements: [] },
         logo: {
           present: (treatmentMeta as any)?.logo_present === true,
           rect: ((treatmentMeta as any)?.overlay_frame?.elements ?? []).find((e: any) => e.name === "secretpdf_kids_logo") ?? null,
+        },
+        artwork: {
+          used_svg_fallback: usedSvgFallback,
+          synthesized_background: fallbackMeta.synthesized_background === true,
+          blank_background: usedSvgFallback && fallbackMeta.synthesized_background === true,
+          blank_ratio: usedSvgFallback && fallbackMeta.synthesized_background === true ? 1 : 0,
         },
         quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
         pageCountMatchesFinalPdf: true,

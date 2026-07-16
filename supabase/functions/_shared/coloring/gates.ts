@@ -148,7 +148,7 @@ export interface ColoringCoverScorecard {
   age_label_present: boolean;
   logo_present: boolean;
   page_count_matches_final_pdf: boolean;
-  hard_fail: Partial<Record<"watermark" | "random_text" | "out_of_category_object" | "clipped_overlay", number>>;
+  hard_fail: Partial<Record<"watermark" | "random_text" | "out_of_category_object" | "clipped_overlay" | "blank_background", number>>;
 }
 
 export function coloringCoverGate(s: Partial<ColoringCoverScorecard>): GateResult {
@@ -168,6 +168,7 @@ export function coloringCoverGate(s: Partial<ColoringCoverScorecard>): GateResul
   if ((hf.random_text ?? 0) > 0) reasons.push(`hard_fail:random_text=${hf.random_text}`);
   if ((hf.out_of_category_object ?? 0) > 0) reasons.push(`hard_fail:out_of_category_object=${hf.out_of_category_object}`);
   if ((hf.clipped_overlay ?? 0) > 0) reasons.push(`hard_fail:clipped_overlay=${hf.clipped_overlay}`);
+  if ((hf.blank_background ?? 0) > 0) reasons.push(`hard_fail:blank_background=${hf.blank_background}`);
   return { pass: reasons.length === 0, reasons };
 }
 
