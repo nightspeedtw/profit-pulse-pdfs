@@ -54,7 +54,7 @@ export function falFluxSchnell(opts: FalImageOpts): Promise<Uint8Array> {
   const body: Record<string, unknown> = {
     prompt: opts.prompt,
     image_size: opts.image_size ?? "square_hd",
-    num_inference_steps: 4,
+    num_inference_steps: opts.num_inference_steps ?? 4,
     num_images: 1,
     enable_safety_checker: true,
     output_format: opts.output_format ?? "jpeg",
