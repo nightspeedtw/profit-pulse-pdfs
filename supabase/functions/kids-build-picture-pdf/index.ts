@@ -540,6 +540,13 @@ Deno.serve(async (req) => {
       : nextLane === 'finalize' ? 'pdf_finalize'
       : `pdf_pages_${Math.floor(newPagesDone / PER_STAGE) + 1}`;
 
+    // Merge branding reports produced this stage into a per-book map.
+    const priorBranding = ((scorecard.branding_qc ?? {}) as Record<string, unknown>);
+    const priorPages = (priorBranding.pages as Record<string, BrandingReport> | undefined) ?? {};
+    const nextBrandingPages: Record<string, BrandingReport> = { ...priorPages };
+    for (const r of runBrandingReports) nextBrandingPages[String(r.page_index)] = r;
+    const brandingSummary = summarizeBranding(Object.values(nextBrandingPages));
+
     await persistJob(db, ebook_id, scorecard, {
       stage: stageLabel,
       last_result: stageResult,
@@ -557,6 +564,21 @@ Deno.serve(async (req) => {
       ...(pos.lane === 'prepare' ? { page_ledger: [] } : {}),
       error: null,
     });
+    try {
+      const { data: fresh } = await db.from('ebooks_kids').select('qc_scorecard').eq('id', ebook_id).single();
+      const base = ((fresh?.qc_scorecard as Record<string, unknown> | null) ?? {}) as Record<string, unknown>;
+      await db.from('ebooks_kids').update({
+        qc_scorecard: {
+          ...base,
+          branding_qc: {
+            pages: nextBrandingPages,
+            summary: brandingSummary,
+            updated_at: new Date().toISOString(),
+            asset_version: 'v1',
+          },
+        },
+      }).eq('id', ebook_id);
+    } catch (e) { console.warn('persist branding_qc failed', (e as Error).message); }
 
     if (nextLane !== 'done') {
       selfChainDoubleTap(db, ebook_id, publish, scorecard);
