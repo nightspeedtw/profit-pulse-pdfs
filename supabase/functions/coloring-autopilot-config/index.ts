@@ -55,20 +55,16 @@ Deno.serve(async (req: Request) => {
     }
 
     const merged = { ...DEFAULTS, ...(body.config ?? {}) };
-      // basic clamps
-      merged.batch_size = Math.max(1, Math.min(20, Number(merged.batch_size) || 1));
-      merged.daily_cap = Math.max(0, Math.min(100, Number(merged.daily_cap) || 0));
-      merged.page_count = [24, 32, 48].includes(Number(merged.page_count)) ? Number(merged.page_count) : 32;
-      if (!["3-5", "4-6", "6-8"].includes(merged.age_band)) merged.age_band = "4-6";
-      if (!["random", "specific"].includes(merged.topic_mode)) merged.topic_mode = "random";
-      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(merged.daily_stop_utc))) merged.daily_stop_utc = "22:00";
-      const { error } = await admin.from("generation_settings")
-        .update({ coloring_autopilot: merged }).eq("id", 1);
-      if (error) throw error;
-      return json({ ok: true, config: merged });
-    }
-
-    return json({ error: "method not allowed" }, 405);
+    merged.batch_size = Math.max(1, Math.min(20, Number(merged.batch_size) || 1));
+    merged.daily_cap = Math.max(0, Math.min(100, Number(merged.daily_cap) || 0));
+    merged.page_count = [24, 32, 48].includes(Number(merged.page_count)) ? Number(merged.page_count) : 32;
+    if (!["3-5", "4-6", "6-8"].includes(merged.age_band)) merged.age_band = "4-6";
+    if (!["random", "specific"].includes(merged.topic_mode)) merged.topic_mode = "random";
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(merged.daily_stop_utc))) merged.daily_stop_utc = "22:00";
+    const { error } = await admin.from("generation_settings")
+      .update({ coloring_autopilot: merged }).eq("id", 1);
+    if (error) throw error;
+    return json({ ok: true, config: merged });
   } catch (e: any) {
     return json({ error: e?.message ?? String(e) }, 500);
   }
