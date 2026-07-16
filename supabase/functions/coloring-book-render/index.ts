@@ -373,6 +373,31 @@ Deno.serve(async (req: Request) => {
         // clear repair counter on success (may be re-bumped by anatomy verifier below)
         delete repairAttempts[String(page.canonical_page_number)];
       } catch (e: any) {
+        // Provider billing/quota locks are lane-state, NOT page-content
+        // failures. Do NOT increment repair_attempts, do NOT trigger the
+        // repair ladder, and STOP dispatching further pages this tick.
+        if (e instanceof FalBillingLockedError || e instanceof FalBudgetCapReachedError) {
+          console.warn(`[coloring-render] lane halted: ${e.message}`);
+          errors.push({
+            page: page.canonical_page_number,
+            error: e instanceof FalBudgetCapReachedError ? "fal_budget_cap_reached" : "provider_billing_locked",
+            reasons: [e.message],
+            provider_state: true,
+          } as any);
+          // Persist plan/attempts as-is (attempts unchanged) and halt the
+          // batch. Row stays in generating; worker-tick's lane guard will
+          // refuse to dispatch until the block is cleared.
+          await patchMeta(db, ebook_id, {
+            coloring_repair_attempts: repairAttempts,
+            coloring_replans: replans,
+            coloring_page_plan: { ...planWrap, plan },
+            coloring_current_step_label: e instanceof FalBudgetCapReachedError
+              ? "Paused: fal_budget_cap_reached — waiting for next UTC day or higher cap"
+              : "Paused: provider_billing_locked — top up fal.ai balance to resume",
+          });
+          await db.from("ebooks_kids").update({ pipeline_status: "queued" }).eq("id", ebook_id);
+          return json({ ok: false, halted: true, reason: e instanceof FalBudgetCapReachedError ? "fal_budget_cap_reached" : "provider_billing_locked", detail: e.message });
+        }
         console.error(`[coloring-render] page ${page.canonical_page_number} failed`, e?.message);
         repairAttempts[String(page.canonical_page_number)] = attempt + 1;
         errors.push({ page: page.canonical_page_number, error: e?.message ?? String(e) });
