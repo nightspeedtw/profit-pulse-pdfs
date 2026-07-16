@@ -494,13 +494,23 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
     : "";
 
   const ageBadge = (input.ageBadge ?? "").trim();
+  // Safe-zone placement — scale pill to canvas so it never clips off-canvas.
+  // (Owner defect: 280×90 pill anchored at translate(W-340, H-150) clipped
+  // off the composited portrait 4:3 canvas.)
+  const safe = Math.max(48, Math.round(W * 0.04));
+  const pillW = Math.min(Math.max(180, Math.round(W * 0.19)), W - 2 * safe);
+  const pillH = Math.max(60, Math.round(pillW * 0.32));
+  const pillX = Math.max(safe, W - safe - pillW);
+  const pillY = Math.max(safe, H - safe - pillH);
+  const pillTextY = Math.round(pillH * 0.68);
+  const pillFont = Math.max(24, Math.round(pillH * 0.46));
   const ageBadgeEl = ageBadge
-    ? `<g transform="translate(${W - 340}, ${H - 150})">
-        <rect x="0" y="0" width="280" height="90" rx="45" ry="45"
+    ? `<g transform="translate(${pillX}, ${pillY})">
+        <rect x="0" y="0" width="${pillW}" height="${pillH}" rx="${Math.round(pillH / 2)}" ry="${Math.round(pillH / 2)}"
               fill="${colors.accent}" opacity="0.96"
               stroke="${colors.stroke}" stroke-width="5"/>
-        <text x="140" y="62" text-anchor="middle" font-family="${subFontFamily}"
-              font-weight="800" font-size="42" fill="${colors.stroke}" letter-spacing="3">
+        <text x="${pillW / 2}" y="${pillTextY}" text-anchor="middle" font-family="${subFontFamily}"
+              font-weight="800" font-size="${pillFont}" fill="${colors.stroke}" letter-spacing="3">
           ${esc(ageBadge)}
         </text>
       </g>`
