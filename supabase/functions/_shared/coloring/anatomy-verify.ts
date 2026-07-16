@@ -39,10 +39,12 @@ export interface AnatomyPageVerdict {
   measured_version: string;  // ties verdict to this verifier version
 }
 
-// v3 — anatomy_imagination_vs_deformity three-tier rubric:
-// Tier 1 deformity always FAILS; Tier 2 cute stylization always PASSES;
-// Tier 3 canonical fantasy PASSES when the scene/subject invites it.
-export const ANATOMY_VERIFIER_VERSION = "v3:imagination_vs_deformity";
+// v4 — anatomy_deformity_only_v2: the anatomy gate answers ONE question,
+// "does the creature look deformed / injured / disabled?" Category/subject
+// fit is a SEPARATE gate. Cuteness, stylization, and ALL imaginary beings
+// (mythical, divine, hybrid) pass anatomy so long as they match the
+// creature's canonical imaginative form.
+export const ANATOMY_VERIFIER_VERSION = "v4:deformity_only";
 
 export interface AnatomyInputPage {
   page: number;
