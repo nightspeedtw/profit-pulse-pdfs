@@ -46,7 +46,7 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
       style={{ animationDelay: `${Math.min(index * 60, 400)}ms` }}
     >
       <Link
-        to={`/product/${book.id}`}
+        to={productHref}
         aria-label={`ดูรายละเอียด ${book.title}`}
         className="relative aspect-square bg-muted overflow-hidden block cursor-pointer"
       >
