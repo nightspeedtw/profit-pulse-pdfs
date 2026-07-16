@@ -60,6 +60,7 @@ const CORRECTIVE_CLAUSES: Record<FailureClass, string[]> = {
     "Anatomically correct: exactly the expected number of limbs, fingers/paws, eyes, ears, wings, tails and horns for this subject",
     "No fused, missing, or extra body parts",
     "Faces must be coherent with symmetric, readable features",
+    "Follow the injected species anatomy checklist EXACTLY (body_parts + proportion_rules + avoid failure modes)",
   ],
   composition_off: [
     "Single well-centered subject, generous safe margin on all four sides",
