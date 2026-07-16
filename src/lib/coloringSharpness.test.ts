@@ -5,7 +5,9 @@
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_SHARPNESS_MIN_SCORE,
+  DEFAULT_VISIBLE_EDGE_MIN_SCORE,
   combineScore,
+  passesVisibleBlurBoundary,
 } from "../../supabase/functions/_shared/coloring/sharpness-scoring.ts";
 
 // Full 30-page accepted-set audit of Ocean Friends (a05a5086) computed
@@ -15,6 +17,17 @@ import {
 const OCEAN_FRIENDS_ACCEPTED_MIN = 13.55;   // page 3
 const OCEAN_FRIENDS_BLURRY_SET = [4.0, 4.2, 5.5, 3.8]; // p7/p23/p25/p35
 const OCEAN_FRIENDS_REGEN_FAILS = [11.28, 10.24];      // p19/p31 after replan
+
+const OWNER_VISIBLE_BLUR_FIXTURE = {
+  sea: {
+    blurry: { pages: [7, 16, 23, 25, 29, 34, 35], scores: [5.66, 5.9, 6.1, 4.92, 5.8, 5.7, 5.6] },
+    crisp: { pages: [1, 4, 5, 10, 11, 17, 28], scores: [12.28, 11.63, 15.87, 11.01, 16.1, 11.93, 15.05] },
+  },
+  ocean: {
+    blurry: { pages: [7, 16, 23, 34, 35], scores: [5.53, 5.9, 6.2, 5.7, 5.6] },
+    crisp: { pages: [1, 4, 5, 10, 17, 28, 29], scores: [8.94, 12.74, 12.85, 13.1, 14.24, 16.6, 14.33] },
+  },
+};
 
 describe("sharpness gate — calibrated threshold (v3, 2026-07-16)", () => {
   it("floor is 13.0 — just below accepted-crisp minimum (13.55)", () => {
@@ -34,6 +47,24 @@ describe("sharpness gate — calibrated threshold (v3, 2026-07-16)", () => {
   it("still rejects the failing repair regens (p19/p31 after replan)", () => {
     for (const s of OCEAN_FRIENDS_REGEN_FAILS) {
       expect(s).toBeLessThan(DEFAULT_SHARPNESS_MIN_SCORE);
+    }
+  });
+});
+
+describe("visible-blur boundary fixture (owner external render audit)", () => {
+  it("uses the owner proxy boundary: blurry < 6.5, crisp >= 6.5", () => {
+    expect(DEFAULT_VISIBLE_EDGE_MIN_SCORE).toBe(6.5);
+  });
+
+  it("fails the owner-listed blurry pages for both sea-animal books", () => {
+    for (const book of [OWNER_VISIBLE_BLUR_FIXTURE.sea, OWNER_VISIBLE_BLUR_FIXTURE.ocean]) {
+      for (const score of book.blurry.scores) expect(passesVisibleBlurBoundary(score)).toBe(false);
+    }
+  });
+
+  it("passes the persisted crisp calibration pair", () => {
+    for (const book of [OWNER_VISIBLE_BLUR_FIXTURE.sea, OWNER_VISIBLE_BLUR_FIXTURE.ocean]) {
+      for (const score of book.crisp.scores) expect(passesVisibleBlurBoundary(score)).toBe(true);
     }
   });
 });
