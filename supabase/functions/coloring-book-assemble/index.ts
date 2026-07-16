@@ -283,17 +283,63 @@ Deno.serve(async (req: Request) => {
       const badPages = new Set<number>([...anatomyFailedPages, ...anatomySummary.unmeasured_pages]);
       const attempts = { ...(((meta as any).coloring_repair_attempts as Record<string, number>) ?? {}) };
       for (const p of badPages) attempts[String(p)] = Math.max(1, attempts[String(p)] ?? 0);
+
+      // BOUNDED LOOP GUARD — permanent class fix for the assemble↔render
+      // anatomy loop. Every assembly-time rejection on the SAME failing
+      // pages increments a cycle counter; once we exceed MAX cycles we
+      // stop the loop and park the book in `failed` awaiting owner verdict.
+      // Never lower the anatomy threshold, never bypass the gate — just
+      // stop looping forever on unfixable pages.
+      const priorAssembly = (((meta as any).coloring_assembly ?? {}) as Record<string, unknown>);
+      const priorCycle = Number((priorAssembly.anatomy_gate_cycle as number | undefined) ?? 0);
+      const priorFailKey = String((priorAssembly.anatomy_gate_last_fail_key as string | undefined) ?? "");
+      const failKey = [...badPages].sort((a, b) => a - b).join(",");
+      const sameFailure = priorFailKey === failKey;
+      const nextCycle = sameFailure ? priorCycle + 1 : 1;
+      const MAX_ANATOMY_CYCLES = 4;
+
+      if (nextCycle > MAX_ANATOMY_CYCLES) {
+        await patchMeta(db, ebook_id, {
+          coloring_assembly: {
+            ...priorAssembly,
+            anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
+            anatomy_summary: anatomySummary,
+            anatomy_gate_cycle: nextCycle,
+            anatomy_gate_last_fail_key: failKey,
+            blocked_at: new Date().toISOString(),
+            blocked_reason: `anatomy_gate_max_cycles:${MAX_ANATOMY_CYCLES}:defects=${anatomyFailedPages.join(",")}`,
+          },
+          coloring_current_step_label: `Anatomy gate looped ${MAX_ANATOMY_CYCLES}× on pages ${[...badPages].join(", ")} — parked for owner verdict`,
+          coloring_progress_percent: 90,
+          awaiting: "owner_final_verification",
+        });
+        await db.from("ebooks_kids").update({
+          pipeline_status: "failed",
+          blocker_reason: `anatomy_gate_max_cycles:pages=${[...badPages].join(",")}`,
+        }).eq("id", ebook_id);
+        return json({
+          ok: false,
+          action: "parked_awaiting_owner",
+          reason: "anatomy_gate_max_cycles",
+          pages: [...badPages],
+          cycles: nextCycle,
+          anatomy_summary: anatomySummary,
+        }, 202);
+      }
+
       await patchMeta(db, ebook_id, {
         coloring_pages: pages.filter((p) => !badPages.has(p.page)),
         coloring_repair_attempts: attempts,
         coloring_assembly: {
-          ...((meta as any).coloring_assembly ?? {}),
+          ...priorAssembly,
           anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
           anatomy_summary: anatomySummary,
+          anatomy_gate_cycle: nextCycle,
+          anatomy_gate_last_fail_key: failKey,
           blocked_at: new Date().toISOString(),
-          blocked_reason: `anatomy_gate:${anatomyFailedPages.length ? `defects=${anatomyFailedPages.join(",")}` : ""}${anatomySummary.unmeasured_pages.length ? `;unmeasured=${anatomySummary.unmeasured_pages.join(",")}` : ""}`,
+          blocked_reason: `anatomy_gate:cycle=${nextCycle}/${MAX_ANATOMY_CYCLES}:${anatomyFailedPages.length ? `defects=${anatomyFailedPages.join(",")}` : ""}${anatomySummary.unmeasured_pages.length ? `;unmeasured=${anatomySummary.unmeasured_pages.join(",")}` : ""}`,
         },
-        coloring_current_step_label: `Assembly anatomy sweep rejected pages ${[...badPages].join(", ")} — regenerating with species checklist`,
+        coloring_current_step_label: `Assembly anatomy sweep rejected pages ${[...badPages].join(", ")} — regen cycle ${nextCycle}/${MAX_ANATOMY_CYCLES}`,
         coloring_progress_percent: 90,
         awaiting: "render",
       });
@@ -303,6 +349,8 @@ Deno.serve(async (req: Request) => {
         ok: false,
         action: "regen_for_anatomy",
         pages: [...badPages],
+        cycle: nextCycle,
+        max_cycles: MAX_ANATOMY_CYCLES,
         anatomy_summary: anatomySummary,
       }, 202);
     }
