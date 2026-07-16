@@ -17,7 +17,7 @@ export const KIDS_BRAND_ASSETS = {
   // Whitespace-trimmed + white-to-transparent variant for corner footers.
   footer: "/__l5e/assets-v1/f42163b0-0dc9-44a2-b7ef-518b2f925ab5/secretpdf-kids-logo-footer.png",
   // Square crop (paper character + shield) — useful for chips / favicons.
-  mark: "/__l5e/assets-v1/33d61b4a-1c9d-4bce-a3f2-5a5f52a9c46a/secretpdf-kids-mark.png",
+  mark: "/__l5e/assets-v1/871ef258-5c41-4fd9-bb5f-57f03f6b742e/secretpdf-kids-mark.png",
 } as const;
 
 /** Native pixel dimensions of the trimmed footer PNG. Encoded here so the PDF
