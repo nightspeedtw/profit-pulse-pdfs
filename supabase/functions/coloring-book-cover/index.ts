@@ -125,11 +125,25 @@ Deno.serve(async (req: Request) => {
     const ageBadge = `Ages ${ageMin}-${ageMax}`;
     const subtitle = `${totalPages} Coloring Pages · ${ageBadge}`;
 
+    // Load category allowed/forbidden subjects for the hero-verification gate.
+    const categoryKey = ((meta.coloring_page_plan as any)?.category_key as string)
+      ?? (meta.category_key as string | undefined);
+    let allowedSubjects: string[] = ((meta.coloring_category_meta as any)?.allowed_subjects as string[]) ?? [];
+    let forbiddenSubjects: string[] = ((meta.coloring_category_meta as any)?.forbidden_subjects as string[]) ?? [];
+    if (categoryKey && (allowedSubjects.length === 0 || forbiddenSubjects.length === 0)) {
+      const { data: cat } = await db.from("coloring_categories")
+        .select("allowed_subjects, forbidden_subjects")
+        .eq("category_key", categoryKey).maybeSingle();
+      if (cat?.allowed_subjects) allowedSubjects = cat.allowed_subjects;
+      if (cat?.forbidden_subjects) forbiddenSubjects = cat.forbidden_subjects;
+    }
+
     const charDesc = [
       `A charming, kid-friendly COVER for a coloring book titled "${row.title}".`,
       `Subject: ${categoryName}. Show 2-4 adorable characters/subjects from the theme in a warm painterly SCENE (COLOR artwork, NOT line-art — this is the printed cover shown in stores).`,
+      allowedSubjects.length ? `Hero must be one of: ${allowedSubjects.slice(0, 8).join(", ")}.` : "",
       `Cover art: full-color, cheerful, high contrast, inviting to children ages ${ageMin}-${ageMax}.`,
-    ].join(" ");
+    ].filter(Boolean).join(" ");
 
     const ladderInput: CoverLadderInput = {
       ebookId: ebook_id,
@@ -142,6 +156,9 @@ Deno.serve(async (req: Request) => {
         "line art only, uncolored, monochrome, black-and-white coloring page, empty, blank, grayscale interior, worksheet, low quality",
       refUrls,
       palette: ["#FFF6E5", "#2A1A0A", "#E9B44C", "#6BAA75", "#4FA3D8"],
+      categoryName,
+      allowedSubjects,
+      forbiddenSubjects,
     };
 
     // Load or init ladder state.
