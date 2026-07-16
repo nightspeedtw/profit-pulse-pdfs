@@ -431,7 +431,14 @@ Deno.serve(async (req: Request) => {
           },
         } as any);
         // Buffer raw bytes for batch anatomy verification below.
-        anatomyBuffer.push({ page: page.canonical_page_number, subject: page.primary_subject, bytes, mime: verified.mime });
+        anatomyBuffer.push({
+          page: page.canonical_page_number,
+          subject: page.primary_subject,
+          bytes,
+          mime: verified.mime,
+          category_key: category?.category_key ?? categoryKey,
+          scene: (page as any).scene_setting ?? (page as any).scene,
+        });
         // First-page params lock.
         if (!recordedParams) {
           await patchMeta(db, ebook_id, { coloring_generation_params: { ...INTERIOR_GEN_PARAMS } });
