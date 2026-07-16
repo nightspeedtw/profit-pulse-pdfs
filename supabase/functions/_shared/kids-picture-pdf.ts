@@ -375,6 +375,7 @@ async function addClosingPage(doc: PDFDocument) {
   const y = PAGE_H / 2 - 10;
   assertTextSafe({ x, y, w, h: 44 });
   page.drawText(end, { x, y, size: 44, font: titleFont, color: WARM_INK });
+  await stampBranding(doc, page, "the_end", null);
 }
 
 // SKILL F — bonus page 1: "Can You Spot the Clues?"
