@@ -47,6 +47,16 @@ import {
   assertAnatomyVerifierAvailable,
   readAnatomyVerifierModels,
 } from "../_shared/coloring/anatomy-verifier-guard.ts";
+import {
+  loadActivePreventionRules,
+  indexRulesBySpecies,
+  pickLearnedRulesFor,
+  learnedClauseFromRules,
+  normalizeDefect,
+  recordDefectsAndLearn,
+  computeFirstPassYield,
+  type DefectHit,
+} from "../_shared/coloring/first-pass-learner.ts";
 
 // Canonical interior generation params — enforced identically for every page.
 // Owner defect: mixed sizes/steps produced 2.6–20.3 edge-density variance.
