@@ -210,8 +210,22 @@ Deno.serve(async (req: Request) => {
     if (typeof state.ideogram_speed_cursor !== "number") state.ideogram_speed_cursor = 0;
     if (!state.attempts_by_rung) state.attempts_by_rung = {};
 
+    // Terminal guard — if the cursor has run past the last rung, do NOT loop
+    // forever with rung=undefined. Leave a `cover_ladder_exhausted` blocker
+    // with all recorded evidence and stop.
     if (state.next_index >= state.rungs.length) {
-      state.next_index = state.rungs.length - 1;
+      await patchMeta(db, ebook_id, {
+        coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
+        coloring_current_step_label: "Cover ladder exhausted — awaiting owner review (all rungs failed)",
+        coloring_blocker: {
+          class: "cover_ladder_exhausted",
+          reason: "all_rungs_failed_including_svg_fallback",
+          reports: state.reports,
+          attempts_by_rung: state.attempts_by_rung,
+          detected_at: new Date().toISOString(),
+        },
+      });
+      return json({ ok: false, error: "cover_ladder_exhausted", reports: state.reports });
     }
 
     // ── Crash detection: if the current rung has an in-flight attempt with
