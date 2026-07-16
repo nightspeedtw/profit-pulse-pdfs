@@ -131,13 +131,19 @@ export default function Kids() {
 
   const matched: MatchedBook[] = useMemo(() => {
     if (allBooks.length === 0) return [];
+    // Kids-only: exclude adult/senior products, then apply chip overlap.
+    const chip = resolveAgeChip(wizardValue.age);
+    const eligible = allBooks
+      .filter((b) => bookIsForKids(b))
+      .filter((b) => (chip ? bookMatchesAgeChip(b, chip) : true));
+
     const themeObj = themes.find((t) => t.slug === wizardValue.theme);
     const ageObj = ageGroups.find((g) => g.slug === wizardValue.age);
     const wantTheme = wizardValue.theme && wizardValue.theme !== "any" ? themeObj?.id ?? null : null;
     const wantAge   = wizardValue.age   && wizardValue.age   !== "any" ? ageObj?.id   ?? null : null;
     const wantAud   = wizardValue.audience && wizardValue.audience !== "any" ? wizardValue.audience : null;
 
-    const scored = allBooks.map((b): MatchedBook => {
+    const scored = eligible.map((b): MatchedBook => {
       let s = 0;
       if (wantTheme && b.theme_ids?.includes(wantTheme)) s += 2;
       if (wantAge && b.age_group_id === wantAge) s += 2;
@@ -159,9 +165,7 @@ export default function Kids() {
     });
 
     scored.sort((a, b) => b._matchScore - a._matchScore);
-    // If no filters selected show all; if any filter show top ~24
-    const cap = (wantTheme || wantAge || wantAud) ? 24 : 24;
-    // If filters exist and everything scored 0, fall back to newest so we never dead-end.
+    const cap = 24;
     const anyMatch = scored.some((s) => s._matchScore >= 1);
     return (anyMatch ? scored : scored.map((b) => ({ ...b, _matchScore: 0 }))).slice(0, cap);
   }, [allBooks, ageGroups, themes, wizardValue]);
