@@ -30,6 +30,12 @@ import {
   type HeroVerdict,
 } from "./cover-vision-guards.ts";
 
+export const TEXTLESS_DIRECTIVE = [
+  "TEXTLESS BACKGROUND ART ONLY.",
+  "Do not draw the book title, subtitle, age badge, author line, publisher mark, letters, numbers, signage, captions, speech bubbles, watermarks, or logos.",
+  "Leave all typography to the deterministic SVG overlay after generation.",
+].join(" ");
+
 export type CoverRungLabel =
   | "ideogram_v3_a"
   | "ideogram_v3_b"
@@ -41,6 +47,7 @@ export interface CoverLadderInput {
   ebookId: string;
   title: string;
   subtitle: string | null;
+  ageBadge?: string | null;
   description?: string | null;
   palette?: string[];
   charDesc: string;                // e.g. "named Pip (fox), rust hair..."
@@ -76,15 +83,6 @@ export interface CoverLadderRungReport {
   meta?: unknown;
   glyph_verdict?: GlyphVerdict | null;
   hero_verdict?: HeroVerdict | null;
-}
-
-export interface CoverLadderRungReport {
-  rung: CoverRungLabel;
-  attempted: boolean;
-  produced_bytes: boolean;
-  luminance: LuminanceStats | null;
-  reason: string | null;   // dead reason, provider error, or 'ok'
-  meta?: unknown;
 }
 
 export interface CoverLadderResult {
@@ -139,17 +137,18 @@ export async function runSingleCoverRung(
   };
 
   if (rung === "svg_synthetic_fallback") {
-    const bgBytes = await renderSyntheticCoverBackground(1600, 1600, input.palette);
+    const bgBytes = await renderFallbackCoverBackground(input);
     const treatment = await renderKidsTitleTreatment({
       coverBg: bgBytes,
       title: input.title,
       subtitle: input.subtitle ?? null,
       palette: input.palette,
       description: input.description ?? null,
+        ageBadge: input.ageBadge ?? null,
     });
     report.produced_bytes = true;
     report.reason = "svg_fallback_used";
-    report.meta = { synthesized_background: true };
+      report.meta = { synthesized_background: true, used_reference_background: input.refUrls.filter(Boolean).length > 0 };
     return {
       status: "fallback",
       bytes: treatment.png,
@@ -254,38 +253,38 @@ export async function runSingleCoverRung(
 }
 
 function buildIdeogramPrompt(i: CoverLadderInput): string {
-  if (i.ideogramCompositionOverride) return i.ideogramCompositionOverride;
+  if (i.ideogramCompositionOverride) return `${i.ideogramCompositionOverride} ${TEXTLESS_DIRECTIVE}`;
   return [
-    `Whimsical children's picture book COVER ARTWORK for a story titled "${i.title}".`,
+    `Whimsical children's coloring-book COVER BACKGROUND ARTWORK.`,
     `Hero character: ${i.charDesc}. Show the hero warmly and clearly.`,
     `Portrait 1:1 composition, warm painterly lighting, cozy inviting mood, generous negative space in the upper third for a title overlay later.`,
     `Style: ${i.styleSuffix}.`,
-    `ABSOLUTELY NO TEXT: no letters, no numbers, no title, no words, no signage, no watermark, no logo, no book mockup, no UI. Textless artwork only.`,
+    TEXTLESS_DIRECTIVE,
     `Avoid AI clichés: no purple/indigo gradients on white, no glossy 3D blobs, no stock face, no six-finger hands.`,
   ].join(" ");
 }
 
 function buildRefConditionedPrompt(i: CoverLadderInput): string {
-  if (i.compositionOverride) return i.compositionOverride;
+  if (i.compositionOverride) return `${i.compositionOverride} ${TEXTLESS_DIRECTIVE}`;
   return [
-    `Whimsical children's picture book COVER ARTWORK for "${i.title}".`,
+    `Whimsical children's coloring-book COVER BACKGROUND ARTWORK.`,
     `Hero character: ${i.charDesc}. Warmly-lit, richly detailed scene that captures the story's emotional promise.`,
     `Portrait composition, strong focal character, rich magical/nature environment when fitting, cozy inviting atmosphere, soft golden lighting, painterly textures, expressive character face, generous negative space at the top for a title to be added later.`,
     `Style: ${i.styleSuffix}. Hand-illustrated feel like a modern reference-grade picture book cover.`,
     i.description ? `Description hint: ${i.description}` : "",
-    `ABSOLUTELY NO TEXT of any kind: no letters, no numbers, no title, no words, no logo, no watermark, no captions, no typography, no book mockup, no UI. Textless artwork only.`,
+    TEXTLESS_DIRECTIVE,
     `Avoid AI clichés: no purple/indigo gradients on white, no glossy 3D blobs, no stock face, no generic hero-on-gradient, no melted shapes, no six-finger hands.`,
   ].filter(Boolean).join(" ");
 }
 
 function buildGeminiPrompt(i: CoverLadderInput): string {
-  if (i.geminiCompositionOverride) return i.geminiCompositionOverride;
+  if (i.geminiCompositionOverride) return `${i.geminiCompositionOverride} ${TEXTLESS_DIRECTIVE}`;
   return [
     `Whimsical children's picture-book cover artwork.`,
     `Use the attached reference image(s) as the DEFINITIVE reference for the hero character's identity AND for the overall art style. Same hero, same style — no restyling, no different character.`,
     `Character notes: ${i.charDesc}.`,
     `Warm painterly lighting, cozy inviting mood, generous space in the upper third for a title overlay later. Portrait composition.`,
-    `ABSOLUTE RULES: Do NOT draw any labels, signage, tag text, box text, onomatopoeia, speech bubbles, author lines, publisher marks, badges, watermarks, or writing of any kind. Completely text-free artwork.`,
+    TEXTLESS_DIRECTIVE,
   ].join(" ");
 }
 
@@ -324,6 +323,19 @@ async function renderSyntheticCoverBackground(
     }
   }
   return await img.encode();
+}
+
+async function renderFallbackCoverBackground(input: CoverLadderInput): Promise<Uint8Array> {
+  const ref = input.refUrls.filter(Boolean)[0];
+  if (ref) {
+    try {
+      const r = await fetch(ref);
+      if (r.ok) return new Uint8Array(await r.arrayBuffer());
+    } catch (e) {
+      console.warn(`[cover-ladder] fallback reference fetch failed: ${(e as Error).message}`);
+    }
+  }
+  return renderSyntheticCoverBackground(1600, 1600, input.palette);
 }
 
 /**
@@ -424,13 +436,14 @@ export async function renderKidsCoverWithLadder(
   // Synthesizes a warm-cream background locally (dead-impossible) and
   // composites the SVG title treatment on top. A book cannot retire for
   // cover_dead while this rung exists.
-  const bgBytes = await renderSyntheticCoverBackground(1600, 1600, input.palette);
+  const bgBytes = await renderFallbackCoverBackground(input);
   const treatment = await renderKidsTitleTreatment({
     coverBg: bgBytes,
     title: input.title,
     subtitle: input.subtitle ?? null,
     palette: input.palette,
     description: input.description ?? null,
+    ageBadge: input.ageBadge ?? null,
   });
   reports.push({
     rung: "svg_synthetic_fallback",
@@ -438,7 +451,7 @@ export async function renderKidsCoverWithLadder(
     produced_bytes: true,
     luminance: null,
     reason: "svg_fallback_used",
-    meta: { synthesized_background: true },
+    meta: { synthesized_background: true, used_reference_background: input.refUrls.filter(Boolean).length > 0 },
   });
   return {
     bytes: treatment.png,

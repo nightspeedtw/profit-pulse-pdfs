@@ -22,6 +22,8 @@ import {
 } from "../_shared/kids-branding.ts";
 import { KIDS_BRAND_LAYOUT, KIDS_BRAND_FOOTER_DIMS } from "../_shared/kids-branding-policy.ts";
 import { coloringBookWeightedGate, coloringCoverGate, coloringReleaseGate } from "../_shared/coloring/gates.ts";
+import { computeSharpness, DEFAULT_SHARPNESS_MIN_SCORE } from "../_shared/coloring/sharpness-gate.ts";
+import { decideAssemblySharpnessPreflight } from "../_shared/coloring/assembly-sharpness.ts";
 import { drawFitText, drawFitParagraph } from "../_shared/pdf/shrink-to-fit.ts";
 
 declare const Deno: any;
@@ -32,6 +34,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const PAGE_W = 612;   // 8.5"
 const PAGE_H = 792;   // 11"
 const SAFE_MARGIN = 36;
+const COLORING_PAGE_FLOOR_FROM_SHARPNESS = 88;
 
 function json(x: unknown, status = 200) {
   return new Response(JSON.stringify(x), {
@@ -159,6 +162,78 @@ Deno.serve(async (req: Request) => {
     const ageBadge = `Ages ${ageMin}-${ageMax}`;
     const totalPages = plan.length;
     const subtitle = row.subtitle || `${totalPages} Coloring Pages · ${ageBadge}`;
+
+    // Assembly-time sharpness sweep: every legacy/stored interior page must be
+    // measured before embedding. Below-floor or decode-unmeasured pages are
+    // removed from metadata and regenerated under the crisp repair regime.
+    const sharpnessMin = ((meta.coloring_style_contract as any)?.sharpness_min_score as number | undefined)
+      ?? DEFAULT_SHARPNESS_MIN_SCORE;
+    const priorSharpnessTable = (((meta as any).coloring_assembly?.sharpness_table as any[] | undefined) ?? []);
+    const sharpnessByPage = new Map<number, any>();
+    for (const r of priorSharpnessTable) if (r?.page && typeof r.score === "number") sharpnessByPage.set(Number(r.page), r);
+    for (const pageRec of pages) {
+      if (sharpnessByPage.has(pageRec.page)) continue;
+      const bytes = await fetchBytes(pageRec.signed_url);
+      const sharp = await computeSharpness(bytes, { minRequired: sharpnessMin });
+      const unmeasured = String(sharp.reason ?? "").startsWith("sharpness_decode_error");
+      sharpnessByPage.set(pageRec.page, {
+        page: pageRec.page,
+        score: sharp.score,
+        sobel_mean: sharp.sobel_mean,
+        laplacian_var: sharp.laplacian_var,
+        min_required: sharp.min_required,
+        pass: sharp.pass && !unmeasured,
+        reason: unmeasured ? `unmeasured:${sharp.reason}` : sharp.reason,
+        storage_path: pageRec.storage_path,
+      });
+      if (sharpnessByPage.size % 4 === 0 || sharpnessByPage.size === pages.length) {
+        await patchMeta(db, ebook_id, {
+          coloring_assembly: {
+            ...((meta as any).coloring_assembly ?? {}),
+            sharpness_table: [...sharpnessByPage.values()].sort((a, b) => a.page - b.page),
+            sharpness_sweep_updated_at: new Date().toISOString(),
+          },
+          coloring_current_step_label: `Assembly sharpness sweep ${sharpnessByPage.size}/${pages.length}`,
+        });
+      }
+    }
+    const sharpnessTable = [...sharpnessByPage.values()].sort((a, b) => a.page - b.page);
+    const sharpnessDecision = decideAssemblySharpnessPreflight(sharpnessTable);
+    if (!sharpnessDecision.pass) {
+      const attempts = { ...(((meta as any).coloring_repair_attempts as Record<string, number>) ?? {}) };
+      for (const p of sharpnessDecision.failures) attempts[String(p)] = Math.max(1, attempts[String(p)] ?? 0);
+      await patchMeta(db, ebook_id, {
+        coloring_pages: pages.filter((p) => !sharpnessDecision.failures.includes(p.page)),
+        coloring_repair_attempts: attempts,
+        coloring_assembly: {
+          ...((meta as any).coloring_assembly ?? {}),
+          sharpness_table: sharpnessTable,
+          blocked_at: new Date().toISOString(),
+          blocked_reason: `legacy_blurry_pages:${sharpnessDecision.failures.join(",")}`,
+        },
+        coloring_current_step_label: `Assembly sharpness sweep rejected pages ${sharpnessDecision.failures.join(", ")} — regenerating crisp`,
+        coloring_progress_percent: 90,
+        awaiting: "render",
+      });
+      await db.from("ebooks_kids").update({ pipeline_status: "queued", blocker_reason: null, pdf_url: null }).eq("id", ebook_id);
+      chain("coloring-book-render", { ebook_id });
+      return json({ ok: false, action: sharpnessDecision.action, pages: sharpnessDecision.failures, sharpness_table: sharpnessTable }, 202);
+    }
+
+    const persistedCoverGate = (meta.coloring_cover_gate as any) ?? (meta.coloring_cover as any)?.measured_gate ?? null;
+    if (!persistedCoverGate?.scorecard) {
+      await patchMeta(db, ebook_id, {
+        coloring_assembly: {
+          sharpness_table: sharpnessTable,
+          cover_gate_pass: false,
+          cover_gate_reasons: ["cover_unmeasured"],
+          blocked_at: new Date().toISOString(),
+        },
+        coloring_current_step_label: "Assembly blocked — cover has no measured gate evidence",
+      });
+      chain("coloring-book-cover", { ebook_id, force: true });
+      return json({ error: "cover_unmeasured", action: "regenerate_cover" }, 422);
+    }
 
     const doc = await PDFDocument.create();
     doc.setTitle(row.title);
@@ -316,7 +391,10 @@ Deno.serve(async (req: Request) => {
     // Build a book scorecard from what we know (all pages passed per-page
     // gates already at render time — coloring-book-render + solid_black_gate
     // + verifyImageAtBirth). This is the aggregate weighted average.
-    const perPageScores = pages.map(() => 94); // per-page gate-pass baseline
+    const perPageScores = sharpnessTable.map((r) => Math.max(
+      COLORING_PAGE_FLOOR_FROM_SHARPNESS,
+      Math.min(99, Math.round(88 + Math.max(0, Number(r.score) - Number(r.min_required))))
+    ));
     const bookGate = coloringBookWeightedGate({
       theme_fit: 96,
       age_fit: 96,
@@ -343,14 +421,11 @@ Deno.serve(async (req: Request) => {
       spelling_ok: (meta.coloring_cover as any)?.spelling_verified !== false,
     });
 
-    const coverGate = coloringCoverGate({
-      cover_category_match: 98,
-      title_readability: 97,
-      cover_quality: 94,
-      age_label_present: true,
+    const measuredCoverScorecard = {
+      ...persistedCoverGate.scorecard,
       page_count_matches_final_pdf: pageCount === expectedPageCount,
-      hard_fail: {},
-    });
+    };
+    const coverGate = coloringCoverGate(measuredCoverScorecard);
 
     const assembly = {
       pdf_url: signed?.signedUrl,
@@ -360,8 +435,9 @@ Deno.serve(async (req: Request) => {
       page_count: pageCount,
       expected_page_count: expectedPageCount,
       weighted_gate: bookGate,
-      cover_gate: coverGate,
+      cover_gate: { ...coverGate, scorecard: measuredCoverScorecard, evidence: persistedCoverGate.evidence ?? null },
       interior_reports: interiorReports,
+      sharpness_table: sharpnessTable,
       assembled_at: new Date().toISOString(),
     };
 

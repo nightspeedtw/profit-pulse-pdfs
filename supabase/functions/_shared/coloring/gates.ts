@@ -146,8 +146,9 @@ export interface ColoringCoverScorecard {
   title_readability: number;
   cover_quality: number;
   age_label_present: boolean;
+  logo_present: boolean;
   page_count_matches_final_pdf: boolean;
-  hard_fail: Partial<Record<"watermark" | "random_text", number>>;
+  hard_fail: Partial<Record<"watermark" | "random_text" | "out_of_category_object" | "clipped_overlay", number>>;
 }
 
 export function coloringCoverGate(s: Partial<ColoringCoverScorecard>): GateResult {
@@ -160,10 +161,13 @@ export function coloringCoverGate(s: Partial<ColoringCoverScorecard>): GateResul
   if ((s.cover_quality ?? 0) < th.cover_quality)
     reasons.push(`cover_quality=${s.cover_quality ?? 0} < ${th.cover_quality}`);
   if (!s.age_label_present) reasons.push("age_label_present=false");
+  if (!s.logo_present) reasons.push("logo_present=false");
   if (!s.page_count_matches_final_pdf) reasons.push("page_count_matches_final_pdf=false");
   const hf = s.hard_fail ?? {};
   if ((hf.watermark ?? 0) > 0) reasons.push(`hard_fail:watermark=${hf.watermark}`);
   if ((hf.random_text ?? 0) > 0) reasons.push(`hard_fail:random_text=${hf.random_text}`);
+  if ((hf.out_of_category_object ?? 0) > 0) reasons.push(`hard_fail:out_of_category_object=${hf.out_of_category_object}`);
+  if ((hf.clipped_overlay ?? 0) > 0) reasons.push(`hard_fail:clipped_overlay=${hf.clipped_overlay}`);
   return { pass: reasons.length === 0, reasons };
 }
 
