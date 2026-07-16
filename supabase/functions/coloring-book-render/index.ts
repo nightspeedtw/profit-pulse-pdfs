@@ -233,10 +233,14 @@ Deno.serve(async (req: Request) => {
     // Track per-page repair attempts on metadata for the repair ladder.
     const repairAttempts = ((meta.coloring_repair_attempts as Record<string, number> | undefined) ?? {});
 
+    // Track replans (one plan-level rescue allowed per page).
+    const replans = ((meta.coloring_replans as Record<string, { at: string; from_scene: string; to_scene: string; reasons: string[] }> | undefined) ?? {});
+    const deadPages: number[] = [];
+
     // Sequential within this invocation — bounded FAL wallclock, safe on cost.
     for (const rawPage of toRender) {
       const attempt = repairAttempts[String(rawPage.canonical_page_number)] ?? 0;
-      // If a prior attempt logged reasons, run the ladder to revise/simplify.
+      // Rolling per-page reason history (last 5 batches), not just last batch.
       const priorReasons = ((meta.coloring_last_errors as any[] | undefined) ?? [])
         .filter((e) => e?.page === rawPage.canonical_page_number)
         .flatMap((e) => (typeof e?.reasons === "string" ? [e.reasons] : e?.reasons ?? []));
@@ -245,12 +249,37 @@ Deno.serve(async (req: Request) => {
         : { action: "repair" as const, revised_page: rawPage, prompt_additions: [], attempt, rationale: "first attempt" };
 
       if (decision.action === "escalate") {
+        const alreadyReplanned = !!replans[String(rawPage.canonical_page_number)];
+        if (!alreadyReplanned) {
+          // Plan-level rescue: rewrite the scene to guaranteed-simple portrait,
+          // reset attempts, log replan. Persist plan entry so next tick uses it.
+          const replanned = replanEscalatedPage(rawPage);
+          const planIdx = plan.findIndex((p) => p.canonical_page_number === rawPage.canonical_page_number);
+          if (planIdx >= 0) plan[planIdx] = { ...plan[planIdx], ...replanned, scene: sanitizeSceneForColorability(replanned.scene) };
+          replans[String(rawPage.canonical_page_number)] = {
+            at: new Date().toISOString(),
+            from_scene: rawPage.scene,
+            to_scene: replanned.scene,
+            reasons: priorReasons.slice(-5),
+          };
+          repairAttempts[String(rawPage.canonical_page_number)] = 0;
+          errors.push({
+            page: rawPage.canonical_page_number,
+            error: `replanned_to_portrait_after_${attempt}_attempts`,
+            reasons: [`replan: ${priorReasons.slice(-1)[0] ?? "escalated"}`],
+          } as any);
+          continue;
+        }
+        // Already replanned once and still failing → dead page class.
+        deadPages.push(rawPage.canonical_page_number);
         errors.push({
           page: rawPage.canonical_page_number,
-          error: `escalate_after_${attempt}_attempts: ${decision.rationale}`,
-        });
+          error: `coloring_page_dead_after_replan: ${decision.rationale}`,
+          reasons: priorReasons.slice(-5),
+        } as any);
         continue;
       }
+
 
       const page = decision.revised_page;
       const basePrompt = buildInteriorPrompt(page, styleContract, {
