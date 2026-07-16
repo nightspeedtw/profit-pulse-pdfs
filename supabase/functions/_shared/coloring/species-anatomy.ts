@@ -13,9 +13,41 @@ export interface SpeciesAnatomy {
   body_parts: Record<string, string>;// part -> "exact count/shape/attachment rule"
   proportion_rules: string[];
   common_ai_failure_modes: string[];
+  /**
+   * Owner law "anatomy_imagination_vs_deformity" (2026-07-16):
+   * true = this is a canonical FANTASY creature. Its own anatomy is judged
+   * by the fantasy canon (unicorn: one horn; mermaid: torso+fish tail).
+   * A fantasy creature PASSES in any scene when the page plan's subject IS
+   * this creature, and specifically in fantasy-flagged categories.
+   */
+  fantasy?: boolean;
 }
 
 const s = (o: SpeciesAnatomy): SpeciesAnatomy => o;
+
+/**
+ * Category keys where uninvited fantasy additions on a REAL species are
+ * still out-of-spec (a sea_animals dolphin doesn't sprout a horn), but the
+ * category itself hosts fantasy creatures whose canonical form is passable.
+ * Extend as fantasy categories are queued.
+ */
+export const FANTASY_CATEGORY_KEYS = new Set<string>([
+  "cute_mermaid_and_ocean_fantasy",
+  "mermaid",
+  "fantasy",
+  "princess_and_fantasy",
+  "unicorn_and_rainbow",
+  "unicorn",
+  "dragons_and_castles",
+  "fairy_garden",
+]);
+
+export function isFantasyCategoryKey(key?: string | null): boolean {
+  if (!key) return false;
+  const k = String(key).toLowerCase().trim();
+  if (FANTASY_CATEGORY_KEYS.has(k)) return true;
+  return /(fantasy|mermaid|unicorn|dragon|fairy|princess)/i.test(k);
+}
 
 // NOTE: keep body_parts values short — they are concatenated into prompts.
 export const SPECIES_ANATOMY: SpeciesAnatomy[] = [
