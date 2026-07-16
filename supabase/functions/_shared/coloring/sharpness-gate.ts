@@ -95,15 +95,10 @@ function laplacianVariance(luma: Float32Array, w: number, h: number): number {
   return v / vals.length;
 }
 
-/**
- * Combine Sobel mean and Laplacian variance into a single 0..~30 score
- * calibrated to the Ocean Friends reference: crisp ≥9, blurry ≤6.
- * The combination is `sobel_mean / 4 + sqrt(laplacian_var) / 10`.
- * Tuned empirically — do not tweak without recalibrating fixtures.
- */
-export function combineScore(sobel_mean: number, laplacian_var: number): number {
-  return sobel_mean / 4 + Math.sqrt(Math.max(0, laplacian_var)) / 10;
-}
+// combineScore + DEFAULT_SHARPNESS_MIN_SCORE are re-exported at the top
+// from ./sharpness-scoring.ts (pure math, importable by vitest).
+
+
 
 export async function computeSharpness(
   bytes: Uint8Array,
