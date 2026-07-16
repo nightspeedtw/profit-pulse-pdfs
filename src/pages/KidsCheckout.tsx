@@ -140,50 +140,38 @@ function PaymentSection({
   submitting: boolean;
   onJoin: (e: React.FormEvent) => void;
 }) {
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("free-download", {
+        body: { ebook_id: book.id },
+      });
+      if (error || !data?.url) throw new Error(error?.message || "ไม่พร้อมดาวน์โหลด");
+      window.location.href = data.url;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "ดาวน์โหลดไม่สำเร็จ";
+      toast.error(msg);
+      setDownloading(false);
+    }
+  };
+
   return (
     <>
-      <p className="font-mono uppercase text-xs tracking-widest text-muted-foreground mb-3">[ ชำระเงิน ]</p>
-
+      <p className="font-mono uppercase text-xs tracking-widest text-muted-foreground mb-3">[ ดาวน์โหลด ]</p>
       <button
         type="button"
-        disabled
-        className="w-full py-3.5 rounded-xl bg-muted text-muted-foreground font-display text-sm inline-flex items-center justify-center gap-2 cursor-not-allowed mb-2"
-        title="ระบบชำระเงินกำลังจะเปิดใช้งาน"
+        onClick={handleDownload}
+        disabled={downloading}
+        className="w-full py-3.5 rounded-xl bg-accent text-accent-foreground font-display text-sm inline-flex items-center justify-center gap-2 hover:bg-accent/90 transition-colors disabled:opacity-60 mb-2"
       >
-        <Lock className="h-4 w-4" /> ชำระเงิน — เร็วๆ นี้
+        {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+        {downloading ? "กำลังเตรียมไฟล์..." : "ดาวน์โหลด PDF ฟรี (ทดสอบ)"}
       </button>
-      <p className="text-[11px] text-muted-foreground text-center mb-5">
-        รองรับบัตรเครดิต / PromptPay ในเร็วๆ นี้
+      <p className="text-[11px] text-muted-foreground text-center">
+        ช่วงทดสอบ — ข้ามการชำระเงินชั่วคราว
       </p>
-
-      {joined ? (
-        <div className="rounded-xl bg-highlight/60 border border-accent/30 p-4 text-center">
-          <Sparkles className="h-5 w-5 text-accent mx-auto mb-1" />
-          <p className="font-display text-base">บันทึกเรียบร้อย</p>
-          <p className="text-xs text-muted-foreground mt-1">เราจะแจ้งเตือนเมื่อเปิดให้ซื้อ "{book.title}"</p>
-        </div>
-      ) : (
-        <form onSubmit={onJoin} className="space-y-2">
-          <label className="text-xs text-muted-foreground block">
-            แจ้งเตือนฉันเมื่อพร้อมขาย
-          </label>
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@email.com"
-            className="w-full h-11 px-3 rounded-lg border-2 border-border bg-background focus:border-accent outline-none"
-          />
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full h-11 rounded-lg bg-accent text-accent-foreground font-display text-sm hover:bg-accent/90 transition-colors disabled:opacity-60"
-          >
-            {submitting ? "กำลังบันทึก..." : "แจ้งเตือนฉัน"}
-          </button>
-        </form>
-      )}
     </>
   );
 }
