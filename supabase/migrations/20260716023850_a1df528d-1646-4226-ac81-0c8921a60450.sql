@@ -1,0 +1,1 @@
+UPDATE public.autopilot_kids_runs SET status='superseded', updated_at=now() WHERE status IN ('queued','running','waiting_for_interior') AND updated_at < now() - interval '2 hours';
