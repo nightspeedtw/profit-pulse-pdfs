@@ -117,29 +117,42 @@ describe("boundary-edge gate — crisp-sparse fixture (toddler/senior contract)"
 // ---------- fixture set 3: blurry → FAIL ----------
 
 describe("boundary-edge gate — blurry fixture (owner-flagged p7/p23/p25/p35 proxy)", () => {
-  it("dense mushy transitions FAIL the gate", () => {
+  it("dense mushy transitions FAIL the gate (ink present, no crisp boundary)", () => {
     const W = 200, H = 200;
     const g = makeGrid(W, H, 250);
-    // Multiple blurry blocks — plenty of area but soft transitions
     for (let bx = 20; bx < 180; bx += 40) {
       for (let by = 20; by < 180; by += 40) {
         paintBlurryRect(g, W, H, bx, by, bx + 18, by + 18, 40, 250, 6);
       }
     }
-    const { score, boundary_pixels } = boundaryEdgeStrength(g, W, H);
-    // A blurry ramp keeps ink pixels far from paper-luma neighbours,
-    // so either boundary_pixels stays low OR the mean delta collapses.
-    // In both cases the gate must reject the raster.
-    const passes = passesBoundaryEdgeGate(boundary_pixels, score);
-    expect(passes).toBe(false);
+    const { score, boundary_pixels, ink_pixels } = boundaryEdgeStrength(g, W, H);
+    // Ink present in bulk but the ramp is too soft for any ink pixel to
+    // sit adjacent to a paper-luma pixel → mushy → hard fail.
+    expect(ink_pixels).toBeGreaterThan(100);
+    expect(passesBoundaryEdgeGate(boundary_pixels, score, DEFAULT_BOUNDARY_EDGE_MIN_SCORE, ink_pixels)).toBe(false);
   });
 
   it("gradient-only image (no crisp lines anywhere) FAILS", () => {
     const W = 128, H = 128;
     const g = new Float32Array(W * H);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) g[y * W + x] = 30 + (x / W) * 220;
-    const { score, boundary_pixels } = boundaryEdgeStrength(g, W, H);
-    expect(passesBoundaryEdgeGate(boundary_pixels, score)).toBe(false);
+    const { score, boundary_pixels, ink_pixels } = boundaryEdgeStrength(g, W, H);
+    expect(ink_pixels).toBeGreaterThan(100);
+    expect(passesBoundaryEdgeGate(boundary_pixels, score, DEFAULT_BOUNDARY_EDGE_MIN_SCORE, ink_pixels)).toBe(false);
+  });
+});
+
+// ---------- inapplicability: fully blank page ----------
+
+describe("boundary-edge gate — inapplicability contract", () => {
+  it("fully blank raster returns 0 ink pixels and defers (pass=true)", () => {
+    const W = 64, H = 64;
+    const g = makeGrid(W, H, 255);
+    const { score, boundary_pixels, ink_pixels } = boundaryEdgeStrength(g, W, H);
+    expect(ink_pixels).toBe(0);
+    expect(boundary_pixels).toBe(0);
+    expect(score).toBe(0);
+    expect(passesBoundaryEdgeGate(boundary_pixels, score, DEFAULT_BOUNDARY_EDGE_MIN_SCORE, ink_pixels)).toBe(true);
   });
 });
 
