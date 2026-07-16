@@ -740,6 +740,63 @@ export type Database = {
         }
         Relationships: []
       }
+      coloring_categories: {
+        Row: {
+          allowed_subjects: string[]
+          allowed_supporting_elements: string[]
+          background_complexity: string
+          category_description: string
+          category_key: string
+          category_name: string
+          coloring_page_count: number
+          complexity_level: string
+          created_at: string
+          forbidden_subjects: string[]
+          id: string
+          line_art_style: string
+          target_age_max: number
+          target_age_min: number
+          trim_size: string
+          updated_at: string
+        }
+        Insert: {
+          allowed_subjects?: string[]
+          allowed_supporting_elements?: string[]
+          background_complexity: string
+          category_description: string
+          category_key: string
+          category_name: string
+          coloring_page_count?: number
+          complexity_level: string
+          created_at?: string
+          forbidden_subjects?: string[]
+          id?: string
+          line_art_style: string
+          target_age_max: number
+          target_age_min: number
+          trim_size?: string
+          updated_at?: string
+        }
+        Update: {
+          allowed_subjects?: string[]
+          allowed_supporting_elements?: string[]
+          background_complexity?: string
+          category_description?: string
+          category_key?: string
+          category_name?: string
+          coloring_page_count?: number
+          complexity_level?: string
+          created_at?: string
+          forbidden_subjects?: string[]
+          id?: string
+          line_art_style?: string
+          target_age_max?: number
+          target_age_min?: number
+          trim_size?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       cost_log: {
         Row: {
           cost_usd: number
@@ -1907,6 +1964,7 @@ export type Database = {
         Row: {
           age_group_id: string | null
           blocker_reason: string | null
+          book_type: Database["public"]["Enums"]["kids_book_type"]
           character_bible_id: string | null
           character_reference_id: string | null
           character_sheet_url: string | null
@@ -1956,6 +2014,7 @@ export type Database = {
         Insert: {
           age_group_id?: string | null
           blocker_reason?: string | null
+          book_type?: Database["public"]["Enums"]["kids_book_type"]
           character_bible_id?: string | null
           character_reference_id?: string | null
           character_sheet_url?: string | null
@@ -2005,6 +2064,7 @@ export type Database = {
         Update: {
           age_group_id?: string | null
           blocker_reason?: string | null
+          book_type?: Database["public"]["Enums"]["kids_book_type"]
           character_bible_id?: string | null
           character_reference_id?: string | null
           character_sheet_url?: string | null
@@ -4042,6 +4102,7 @@ export type Database = {
       app_role: "admin"
       generation_mode: "low_cost" | "premium" | "hybrid"
       job_status: "queued" | "running" | "done" | "failed"
+      kids_book_type: "picture_book" | "coloring_book"
       pipeline_status:
         | "ideation"
         | "idea_generated"
@@ -4196,6 +4257,7 @@ export const Constants = {
       app_role: ["admin"],
       generation_mode: ["low_cost", "premium", "hybrid"],
       job_status: ["queued", "running", "done", "failed"],
+      kids_book_type: ["picture_book", "coloring_book"],
       pipeline_status: [
         "ideation",
         "idea_generated",

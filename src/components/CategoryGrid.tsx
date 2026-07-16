@@ -8,6 +8,7 @@ import {
   Sparkles,
   Palette,
   ChefHat,
+  Pencil,
 } from "lucide-react";
 
 const CATEGORIES = [
@@ -16,6 +17,7 @@ const CATEGORIES = [
   { slug: "wellness", label: "Wellness & Mind", icon: Heart, color: "bg-background" },
   { slug: "fitness", label: "Fitness & Meal Plans", icon: Dumbbell, color: "bg-foreground text-background" },
   { slug: "parenting", label: "Parenting & Kids", icon: Baby, color: "bg-highlight" },
+  { slug: "coloring-books", label: "Coloring Books", icon: Pencil, color: "bg-background" },
   { slug: "lifestyle", label: "Lifestyle & Planners", icon: Sparkles, color: "bg-accent text-accent-foreground" },
   { slug: "creative", label: "Art & Creative", icon: Palette, color: "bg-background" },
   { slug: "cooking", label: "Cooking & Recipes", icon: ChefHat, color: "bg-foreground text-background" },
