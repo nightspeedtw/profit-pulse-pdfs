@@ -448,6 +448,7 @@ async function addSpotTheCluesPage(doc: PDFDocument, clues: string[]) {
     page.drawText(line, { x, y, size: pf.size, font: titleFont, color: WARM_INK });
     y -= pf.size * LINE_HEIGHT_RATIO;
   }
+  await stampBranding(doc, page, "spot_the_clues", null);
 }
 
 // SKILL F — bonus page 2: "Talk About the Story"
