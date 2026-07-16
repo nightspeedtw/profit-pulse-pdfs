@@ -97,16 +97,7 @@ interface LadderState {
 // skip QUALITY as first-try because its wallclock repeatedly killed the whole ladder.
 const IDEOGRAM_SPEEDS: Array<"QUALITY" | "BALANCED" | "TURBO"> = ["BALANCED", "TURBO"];
 
-// Provider billing/quota errors are NOT a rung fault — they are a payments
-// pause. Detect and short-circuit the ladder into a paused/blocker state so
-// we don't burn 5 rungs on the same $0 wallet.
-export function classifyProviderError(reason: string | null | undefined): "billing_exhausted" | "quota_exceeded" | null {
-  if (!reason) return null;
-  const s = reason.toLowerCase();
-  if (s.includes("user is locked") || s.includes("exhausted balance") || s.includes("insufficient credit") || s.includes("top up your balance")) return "billing_exhausted";
-  if (s.includes(" 429") || s.includes("quota") || s.includes("rate limit") || s.includes("exceeded your current quota")) return "quota_exceeded";
-  return null;
-}
+import { classifyProviderError } from "../_shared/covers/provider-errors.ts";
 const RUNG_WALLCLOCK_MS = 90_000;
 const CRASH_STALE_MS = 3 * 60_000; // any attempt with no ended_at older than this = crashed
 
