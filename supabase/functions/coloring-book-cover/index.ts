@@ -330,7 +330,9 @@ Deno.serve(async (req: Request) => {
         subtitle,
         ageBadge,
         text: finalGlyph,
-        rawArtText: usedSvgFallback ? null : (result.report.glyph_verdict ?? null),
+        rawArtText: usedSvgFallback
+          ? { ok: true, has_glyphs: false, detected_text: "", confidence: 1, degraded: false, reason: "fallback_background_no_ai_text" }
+          : (result.report.glyph_verdict ?? null),
         typographySource: "textless_art_plus_svg_overlay",
         hero: finalHero,
         frame: (treatmentMeta as any)?.overlay_frame ?? { width: 1600, height: 1600, safe_margin: 64, elements: [] },
