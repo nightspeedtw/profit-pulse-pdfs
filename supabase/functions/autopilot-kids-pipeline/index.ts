@@ -11,6 +11,7 @@ import { detectBibleStoryMismatch, detectMetadataStoryMismatch, METADATA_STORY_M
 import { writeSegmentedManuscript, renderSegmentsToMd, loadSegments, segmentsToPageTexts } from '../_shared/kids-segments.ts';
 import { loadStoryCraftBlock } from '../_shared/story-craft-skill.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
+import { renderKidsCoverWithLadder } from '../_shared/covers/kids-cover-ladder.ts';
 import { uploadAndSignImage, versionedKidsAssetPath } from '../_shared/versioned-assets.ts';
 import { computeLuminance, generateLiveImage } from '../_shared/image-luminance.ts';
 import { resolveStageOrThrow, logStageEvidence, assertCoverOrInteriorReady } from '../_shared/skill-evidence.ts';
