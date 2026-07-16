@@ -43,10 +43,16 @@ export async function uploadAndSignImage(
   bucket: string,
   path: string,
   bytes: Uint8Array,
-  ttlSeconds = IMAGE_SIGNED_TTL_SECONDS,
+  ttlSecondsOrOpts: number | { ttlSeconds?: number; contentType?: string } = IMAGE_SIGNED_TTL_SECONDS,
 ): Promise<{ path: string; signedUrl: string }> {
+  const ttlSeconds = typeof ttlSecondsOrOpts === "number"
+    ? ttlSecondsOrOpts
+    : (ttlSecondsOrOpts.ttlSeconds ?? IMAGE_SIGNED_TTL_SECONDS);
+  const contentType = typeof ttlSecondsOrOpts === "object" && ttlSecondsOrOpts.contentType
+    ? ttlSecondsOrOpts.contentType
+    : 'image/png';
   const up = await db.storage.from(bucket).upload(path, bytes, {
-    contentType: 'image/png',
+    contentType,
     upsert: false,
   });
   if (up.error) throw up.error;
