@@ -54,6 +54,23 @@ export interface CoverLadderInput {
   geminiCompositionOverride?: string;
   // Which rungs to run, in order. Defaults to full ladder.
   rungs?: CoverRungLabel[];
+  // Vision-gate config (Defect Class 1 permanent fixes).
+  categoryName?: string;
+  allowedSubjects?: string[];
+  forbiddenSubjects?: string[];
+  // Feature flag for callers that want to skip vision gates (tests, unit runs).
+  skipVisionGuards?: boolean;
+}
+
+export interface CoverLadderRungReport {
+  rung: CoverRungLabel;
+  attempted: boolean;
+  produced_bytes: boolean;
+  luminance: LuminanceStats | null;
+  reason: string | null;   // dead reason, provider error, or 'ok'
+  meta?: unknown;
+  glyph_verdict?: GlyphVerdict | null;
+  hero_verdict?: HeroVerdict | null;
 }
 
 export interface CoverLadderRungReport {
