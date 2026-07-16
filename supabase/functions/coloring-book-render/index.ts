@@ -47,6 +47,16 @@ import {
   assertAnatomyVerifierAvailable,
   readAnatomyVerifierModels,
 } from "../_shared/coloring/anatomy-verifier-guard.ts";
+import {
+  loadActivePreventionRules,
+  indexRulesBySpecies,
+  pickLearnedRulesFor,
+  learnedClauseFromRules,
+  normalizeDefect,
+  recordDefectsAndLearn,
+  computeFirstPassYield,
+  type DefectHit,
+} from "../_shared/coloring/first-pass-learner.ts";
 
 // Canonical interior generation params — enforced identically for every page.
 // Owner defect: mixed sizes/steps produced 2.6–20.3 edge-density variance.
@@ -269,6 +279,13 @@ Deno.serve(async (req: Request) => {
     const anatomyBuffer: { page: number; subject: string; bytes: Uint8Array; mime: string }[] = [];
     const errors: { page: number; error: string }[] = [];
 
+    // Load learned prevention rules ONCE per invocation. Every page's base
+    // prompt starts with the counter-clauses for its species so past failures
+    // never repeat at birth (owner First-Pass-Yield law).
+    const preventionRules = await loadActivePreventionRules(db);
+    const rulesIndex = indexRulesBySpecies(preventionRules);
+
+
     // Track per-page repair attempts on metadata for the repair ladder.
     const repairAttempts = ((meta.coloring_repair_attempts as Record<string, number> | undefined) ?? {});
 
@@ -321,11 +338,13 @@ Deno.serve(async (req: Request) => {
 
 
       const page = decision.revised_page;
+      const learnedRules = pickLearnedRulesFor(rulesIndex, page.primary_subject, page.scene);
+      const learnedClause = learnedClauseFromRules(learnedRules);
       const basePrompt = buildInteriorPrompt(page, styleContract, {
         category_name: category.category_name,
         target_age_min: category.target_age_min ?? 4,
         target_age_max: category.target_age_max ?? 6,
-      });
+      }, { learned_prevention_clause: learnedClause });
       const prompt = decision.prompt_additions.length
         ? `${basePrompt} ${decision.prompt_additions.map((c) => c + ".").join(" ")}`
         : basePrompt;
@@ -538,6 +557,60 @@ Deno.serve(async (req: Request) => {
       const p = (errorLog[i] as any).page;
       const c = byPageCount.get(p) ?? 0;
       if (c < 5) { perPageTrimmed.unshift(errorLog[i]); byPageCount.set(p, c + 1); }
+    }
+
+    // FIRST-PASS-YIELD LEARNER — mine this tick's real gate rejections into
+    // the lifetime defect ledger; auto-promote patterns at >= 2 occurrences
+    // so future books' base prompts carry the counter-clause automatically.
+    try {
+      const planByPage = new Map<number, PagePlanEntry>();
+      for (const p of plan) planByPage.set(p.canonical_page_number, p);
+      const hits: DefectHit[] = [];
+      for (const e of errors as any[]) {
+        if (!e || typeof e.page !== "number") continue;
+        const pg = planByPage.get(e.page);
+        const speciesKey = e?.anatomy?.species_key ?? pg?.primary_subject ?? "";
+        const scene = pg?.scene ?? "";
+        const reasons: string[] = Array.isArray(e.reasons) ? e.reasons : (typeof e.reasons === "string" ? [e.reasons] : []);
+        const rawStrings = [e.error, ...reasons].filter(Boolean) as string[];
+        const gate = /anatomy_gate/i.test(e.error ?? "") ? "anatomy"
+                   : /solid[- ]?black/i.test(e.error ?? "") ? "solid_black"
+                   : /sharpness|boundary/i.test(e.error ?? "") ? "sharpness"
+                   : "other";
+        for (const s of rawStrings) {
+          const hit = normalizeDefect(s, speciesKey, gate, scene);
+          if (hit) { hit.page = e.page; hits.push(hit); }
+        }
+      }
+      if (hits.length) {
+        const learnResult = await recordDefectsAndLearn(db, ebook_id, hits);
+        if (learnResult.promoted.length) {
+          console.log(`[first-pass-learner] promoted new rules for ebook=${ebook_id}: ${learnResult.promoted.join(", ")}`);
+        }
+      }
+      // Snapshot FPY every tick — cheap, and lets us watch the ladder rise.
+      const fpy = computeFirstPassYield(plan.length, perPageTrimmed as any);
+      await db.from("book_first_pass_yield").insert({
+        ebook_kids_id: ebook_id,
+        fpy: Number(fpy.fpy.toFixed(4)),
+        first_pass_pages: fpy.first_pass_pages,
+        total_pages: fpy.total_pages,
+        gate_rejections: fpy.gate_rejections,
+        rejections_by_class: fpy.rejections_by_class,
+      });
+      await patchMeta(db, ebook_id, {
+        coloring_first_pass_yield: {
+          fpy: fpy.fpy,
+          first_pass_pages: fpy.first_pass_pages,
+          total_pages: fpy.total_pages,
+          gate_rejections: fpy.gate_rejections,
+          rejections_by_class: fpy.rejections_by_class,
+          rejected_pages: fpy.rejected_pages,
+          measured_at: new Date().toISOString(),
+        },
+      });
+    } catch (learnErr) {
+      console.warn("[first-pass-learner] tick learn failed:", (learnErr as Error).message);
     }
 
     // Persist plan (may have been mutated by replan) + attempts + replans.

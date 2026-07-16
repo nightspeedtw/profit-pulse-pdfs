@@ -66,10 +66,20 @@ const NEGATIVE_CLAUSES = [
   "NO recognizable copyrighted or trademarked characters, mascots, or brand IP",
 ];
 
+export interface BuildInteriorPromptOptions {
+  /**
+   * Optional prevention-rule clause emitted by the First-Pass-Yield learner.
+   * Concatenated ahead of the negative clauses so every past-failure counter
+   * is present in the base prompt for this species/scene.
+   */
+  learned_prevention_clause?: string;
+}
+
 export function buildInteriorPrompt(
   page: PagePlanEntry,
   contract: LineArtStyleContract,
   category: Pick<ColoringCategory, "category_name" | "target_age_min" | "target_age_max">,
+  opts: BuildInteriorPromptOptions = {},
 ): string {
   const [minScale, maxScale] = contract.subject_scale_pct;
   const anatomyClause = speciesAnatomyPromptClause(page.primary_subject);
@@ -87,6 +97,7 @@ export function buildInteriorPrompt(
     `Subject fills ${minScale}-${maxScale}% of usable area. Centered, balanced composition. Safe margin preserved.`,
     `Pure black outlines on pure white. Printable 8.5x11 portrait.`,
     anatomyClause,
+    opts.learned_prevention_clause ?? "",
     NEGATIVE_CLAUSES.join(". ") + ".",
   ].filter(Boolean);
   return withTextlessDirective(parts.join(" "));
