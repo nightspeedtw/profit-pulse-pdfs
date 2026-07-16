@@ -50,7 +50,10 @@ const CORRECTIVE_CLAUSES: Record<FailureClass, string[]> = {
     "NO large solid-black fills anywhere",
     "Every enclosed region MUST be white so a child can color it",
     "Use outlines only, never filled black shapes",
+    "Suggest water with a few thin outline wave lines and bubbles only; NEVER fill water areas",
+    "No solid water mass, no shaded ocean background, no black sea silhouette",
   ],
+
   anatomy_structural: [
     "Anatomically correct: exactly the expected number of limbs, fingers/paws, eyes, ears, wings, tails and horns for this subject",
     "No fused, missing, or extra body parts",
