@@ -83,6 +83,8 @@ const NORMALIZERS: NormalizerRule[] = [
     match: /(fused|conjoined|merged\s+into)/i },
   { pattern_key: "solid_black_fill", gate: "solid_black",
     match: /(solid[- ]?black|black\s+mass|dense\s+fill|hatch\s+fill)/i },
+  { pattern_key: "interior_text_contamination", gate: "text",
+    match: /(raw_art_has_text|interior_text_contamination|random_text|watermark|signature|written\s+glyph|caption|letters?\s+in\s+image)/i },
 ];
 
 const NORM = (s: string) =>

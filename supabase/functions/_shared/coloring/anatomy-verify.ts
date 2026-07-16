@@ -44,6 +44,12 @@ export interface AnatomyPageVerdict {
   named_subject?: string | null;
   recognizable?: boolean;
   category_match?: boolean;
+  // Owner order #2 (2026-07-16, interior_text_contamination): every anatomy
+  // call also answers "does this page contain any letters/words/glyphs?".
+  // When true the page is regenerated via the existing repair ladder
+  // (text_or_watermark class → "absolutely no letters/words/numbers" clause).
+  has_text?: boolean;
+  text_seen?: string | null;
 }
 
 // v5 — anatomy_deformity_only_v2 + subject_recognizability. Two questions,
@@ -95,13 +101,18 @@ function degradedVerdict(p: AnatomyInputPage, reason: string): AnatomyPageVerdic
 // The anatomy gate asks ONE question. Category / theme / subject fit is a
 // SEPARATE gate (allowed_subjects) — do not police it here.
 export const ANATOMY_RUBRIC_SYSTEM_TEXT =
-  "You are the DEFORMITY + RECOGNIZABILITY auditor for a printable children's coloring-book. " +
-  "Answer TWO questions about each image:\n" +
+  "You are the DEFORMITY + RECOGNIZABILITY + TEXT-CONTAMINATION auditor for a printable children's coloring-book. " +
+  "Answer THREE questions about each image:\n" +
   "  Q1 (deformity): Would a parent see this creature as broken, injured, disabled, or " +
   "malformed — rather than merely stylized or fantastical?\n" +
   "  Q2 (recognizability): Name the primary subject you actually see. Is it clearly " +
   "recognizable as the planned subject (see checklist.subject), or is it an amorphous " +
   "blob / potato-shape / egg-with-a-face / anything a parent could not identify?\n" +
+  "  Q3 (text contamination): Are there ANY letters, words, numbers, captions, labels, " +
+  "signatures, watermarks, logos, or written glyphs of any script anywhere in the image? " +
+  "Interior coloring pages MUST be textless — no book title, no subject caption, no " +
+  "'A is for Apple' style labels, no artist signature. Set has_text=true if you see ANY " +
+  "glyphs at all, and copy the visible text into text_seen.\n" +
   "\n" +
   "FAIL Q1 only for real deformity of the depicted creature's OWN canonical form:\n" +
   "  - wrong COUNT of that creature's standard parts (a 4-legged being drawn with 5 legs, " +
@@ -131,16 +142,17 @@ export const ANATOMY_RUBRIC_SYSTEM_TEXT =
   "\n" +
   "The checklist supplied per image (body_parts, proportion_rules, common_ai_failure_modes, " +
   "fantasy flag, category_key, subject) is a helpful reference — use it to know the creature's " +
-  "canon — but the pass/fail decision is the two questions above.\n" +
+  "canon — but the pass/fail decision is the three questions above.\n" +
   "\n" +
   "Return STRICT JSON: " +
   `{"verdicts":[{"index":number,"pass":boolean,"anatomy_score":number(0..100),` +
   `"defects":string[],"named_subject":string,"recognizable":boolean,` +
-  `"category_match":boolean}]}. ` +
+  `"category_match":boolean,"has_text":boolean,"text_seen":string}]}. ` +
   "Score 90+ for anatomy_score whenever no real deformity is present. Never list " +
   "stylization, cuteness, or canonical mythical features in defects. If recognizable=false, " +
   "add \"unrecognizable_subject\" (or \"blob_shape\", \"egg_with_face\") to defects so the " +
-  "page is regenerated. Do not include prose.";
+  "page is regenerated. If has_text=true, add \"raw_art_has_text:<glyphs>\" to defects " +
+  "so the page is regenerated. Do not include prose.";
 
 // Kept for backwards-compat with any external import.
 const SYSTEM_TEXT = ANATOMY_RUBRIC_SYSTEM_TEXT;
@@ -157,6 +169,8 @@ interface OneModelResult {
       named_subject?: string | null;
       recognizable?: boolean;
       category_match?: boolean;
+      has_text?: boolean;
+      text_seen?: string | null;
     }>;
   };
   model: string;
@@ -289,11 +303,15 @@ export async function verifyAnatomyBatch(
     named_subject: string | null;
     recognizable: boolean;
     category_match: boolean;
+    has_text: boolean;
+    text_seen: string | null;
   }>();
   for (const v of winner.parsed.verdicts ?? []) {
     if (typeof v.index === "number") {
-      const recognizable = v.recognizable !== false; // undefined = pass-safe when model omits
+      const recognizable = v.recognizable !== false;
       const categoryMatch = v.category_match !== false;
+      const hasText = v.has_text === true;
+      const textSeen = typeof v.text_seen === "string" ? v.text_seen.slice(0, 120) : null;
       byIndex.set(v.index, {
         pass: !!v.pass,
         anatomy_score: Number.isFinite(v.anatomy_score) ? Math.max(0, Math.min(100, Math.round(v.anatomy_score))) : 0,
@@ -301,6 +319,8 @@ export async function verifyAnatomyBatch(
         named_subject: typeof v.named_subject === "string" ? v.named_subject.slice(0, 80) : null,
         recognizable,
         category_match: categoryMatch,
+        has_text: hasText,
+        text_seen: textSeen,
       });
     }
   }
@@ -311,22 +331,21 @@ export async function verifyAnatomyBatch(
     const spec = speciesAnatomyChecklistJson(p.subject);
     const v = byIndex.get(i);
     if (!v) {
-      // Model responded but skipped this index → treat this page as
-      // unmeasured (do not condemn) — degraded=true.
       out.push(degradedVerdict(p, `${winner.model}:no_verdict_for_index`));
       continue;
     }
-    // Owner law: unrecognizable subject = category_match FAIL and page must
-    // regenerate. Merge into defects so the assemble gate + repair ladder
-    // treat it the same as an anatomy defect.
+    // Owner order #2: has_text=true on an interior page is a hard defect —
+    // merge `raw_art_has_text:<glyphs>` so classifyFailure routes it into
+    // text_or_watermark and the "absolutely no letters" clause is injected.
     const mergedDefects = [...v.defects];
     if (!v.recognizable) mergedDefects.push(`unrecognizable_subject:${v.named_subject ?? "unknown"}`);
     if (!v.category_match) mergedDefects.push(`category_match_fail:${v.named_subject ?? "unknown"}_vs_${p.subject}`);
+    if (v.has_text) mergedDefects.push(`raw_art_has_text:${v.text_seen ?? "letters"}`);
     out.push({
       page: p.page,
       subject: p.subject,
       species_key: spec.species_key,
-      pass: v.pass && v.anatomy_score >= 90 && mergedDefects.length === 0 && v.recognizable && v.category_match,
+      pass: v.pass && v.anatomy_score >= 90 && mergedDefects.length === 0 && v.recognizable && v.category_match && !v.has_text,
       anatomy_score: v.anatomy_score,
       defects: mergedDefects,
       degraded: false,
@@ -336,6 +355,8 @@ export async function verifyAnatomyBatch(
       named_subject: v.named_subject,
       recognizable: v.recognizable,
       category_match: v.category_match,
+      has_text: v.has_text,
+      text_seen: v.text_seen,
     });
   }
   return out;
