@@ -286,6 +286,26 @@ Deno.serve(async (req: Request) => {
       attempt.reason = reason;
       attempt.status = "error";
       state.reports.push({ rung, reason, produced_bytes: false } as any);
+
+      // Provider billing/quota → PAUSE ladder, do NOT burn cursor. Owner
+      // top-up is the fix; a rung cascade would waste evidence + confuse triage.
+      const providerClass = classifyProviderError(reason);
+      if (providerClass) {
+        await patchMeta(db, ebook_id, {
+          coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
+          coloring_current_step_label: `Cover ladder paused: ${providerClass} on ${rung}${speed ? `/${speed}` : ""} — awaiting provider top-up`,
+          coloring_blocker: {
+            class: "provider_unavailable",
+            provider_error: providerClass,
+            rung,
+            speed,
+            reason,
+            detected_at: new Date().toISOString(),
+          },
+        });
+        return json({ ok: false, paused: true, provider_error: providerClass, rung, speed, reason });
+      }
+
       // Cascade speed on ideogram, else advance rung.
       if (isIdeogram && state.ideogram_speed_cursor < IDEOGRAM_SPEEDS.length - 1) {
         state.ideogram_speed_cursor += 1;
