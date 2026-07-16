@@ -36,9 +36,17 @@ const DEFAULTS: ColoringConfig = {
   daily_stop_utc: "22:00",
 };
 
+interface ColoringStatus {
+  queued: number;
+  published_today: number;
+  created_today: number;
+  recent: Array<{ id: string; title: string; pipeline_status: string; listing_status: string | null; created_at: string }>;
+}
+
 export function ColoringAutopilotCard() {
   const [cfg, setCfg] = useState<ColoringConfig>(DEFAULTS);
   const [cats, setCats] = useState<Category[]>([]);
+  const [status, setStatus] = useState<ColoringStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -46,18 +54,17 @@ export function ColoringAutopilotCard() {
   const passcode = () =>
     typeof window !== "undefined" && localStorage.getItem("admin_passcode_ok") === "1" ? "453451" : "";
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const { data, error } = await supabase.functions.invoke("coloring-autopilot-config", {
-          body: { passcode: passcode() },
-          headers: { "x-admin-passcode": passcode() },
-        });
-        if (error) throw error;
-        if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
-        setCfg({ ...DEFAULTS, ...(data?.config ?? {}) });
-        setCats(data?.categories ?? []);
+  const loadStatus = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("coloring-autopilot-config", {
+        body: { passcode: passcode() },
+        headers: { "x-admin-passcode": passcode() },
+      });
+      if (error) throw error;
+      if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
+      setCfg({ ...DEFAULTS, ...(data?.config ?? {}) });
+      setCats(data?.categories ?? []);
+      setStatus(data?.status ?? null);
       } catch (e) {
         toast({ title: "Failed to load coloring autopilot config", description: String(e), variant: "destructive" });
       } finally {
