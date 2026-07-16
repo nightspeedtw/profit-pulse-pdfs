@@ -71,15 +71,14 @@ Deno.serve(async (req: Request) => {
     // Route each queued coloring row to the correct stage based on `awaiting`:
     //   'cover_pdf_publish'          → coloring-book-cover (chains → assemble → publish)
     //   'publish'                    → coloring-book-publish
-    //   'owner_calibration_review'   → skip (external approval)
     //   otherwise                    → coloring-book-render (interior)
+    // NOTE: 'owner_calibration_review' and 'owner_final_verification' pins
+    // are REMOVED — calibration is auto-approved by the gates and publish
+    // is auto-chained. Any legacy row still carrying those awaits is routed
+    // back to its natural stage (render or publish) so it flows without wait.
     for (const row of queued ?? []) {
       const meta = (row.metadata ?? {}) as Record<string, unknown>;
       const awaiting = meta.awaiting as string | undefined;
-      if (awaiting === "owner_calibration_review") {
-        (result.dispatched as unknown[]).push({ ebook_id: row.id, title: row.title, skipped: "owner_calibration_review" });
-        continue;
-      }
       let target = "coloring-book-render";
       if (awaiting === "cover_pdf_publish") {
         target = row.cover_url ? (row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble") : "coloring-book-cover";
