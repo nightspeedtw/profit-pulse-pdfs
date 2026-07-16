@@ -79,7 +79,8 @@ Deno.serve(async (req: Request) => {
     const cfg = { ...DEFAULTS, ...(gs?.coloring_autopilot ?? {}) };
     result.config = cfg;
 
-    if (gs?.paused) { result.skipped = "settings_paused"; return json(result); }
+    // Coloring engine runs on its own queue — independent of the picture-book
+    // autopilot pause/cost cap. Only the coloring config controls it.
     if (!manual && !cfg.enabled) { result.skipped = "autopilot_disabled"; return json(result); }
 
     // Time window (skip for manual).

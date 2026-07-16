@@ -36,9 +36,17 @@ const DEFAULTS: ColoringConfig = {
   daily_stop_utc: "22:00",
 };
 
+interface ColoringStatus {
+  queued: number;
+  published_today: number;
+  created_today: number;
+  recent: Array<{ id: string; title: string; pipeline_status: string; listing_status: string | null; created_at: string }>;
+}
+
 export function ColoringAutopilotCard() {
   const [cfg, setCfg] = useState<ColoringConfig>(DEFAULTS);
   const [cats, setCats] = useState<Category[]>([]);
+  const [status, setStatus] = useState<ColoringStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -46,24 +54,30 @@ export function ColoringAutopilotCard() {
   const passcode = () =>
     typeof window !== "undefined" && localStorage.getItem("admin_passcode_ok") === "1" ? "453451" : "";
 
+  const loadStatus = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("coloring-autopilot-config", {
+        body: { passcode: passcode() },
+        headers: { "x-admin-passcode": passcode() },
+      });
+      if (error) throw error;
+      if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
+      setCfg({ ...DEFAULTS, ...(data?.config ?? {}) });
+      setCats(data?.categories ?? []);
+      setStatus(data?.status ?? null);
+    } catch (e) {
+      toast({ title: "Failed to load coloring autopilot config", description: String(e), variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const { data, error } = await supabase.functions.invoke("coloring-autopilot-config", {
-          body: { passcode: passcode() },
-          headers: { "x-admin-passcode": passcode() },
-        });
-        if (error) throw error;
-        if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
-        setCfg({ ...DEFAULTS, ...(data?.config ?? {}) });
-        setCats(data?.categories ?? []);
-      } catch (e) {
-        toast({ title: "Failed to load coloring autopilot config", description: String(e), variant: "destructive" });
-      } finally {
-        setLoading(false);
-      }
-    })();
+    setLoading(true);
+    loadStatus();
+    const t = setInterval(loadStatus, 15000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const save = async (next: ColoringConfig) => {
@@ -99,6 +113,7 @@ export function ColoringAutopilotCard() {
         title: `Queued ${ok}/${queued.length} coloring book${queued.length === 1 ? "" : "s"}`,
         description: data?.skipped ? `Skipped: ${data.skipped}` : queued.map((q) => q.title).join(" · ").slice(0, 200),
       });
+      await loadStatus();
     } catch (e) {
       toast({ title: "Run failed", description: String(e), variant: "destructive" });
     } finally {
@@ -121,9 +136,32 @@ export function ColoringAutopilotCard() {
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground mb-4">
-        Queues coloring books via the canonical pipeline. Rows are created immediately and generation begins after the P0 sequential-safe lock releases. Manual "Run now" ignores the daily cap and stop time.
+      <p className="text-xs text-muted-foreground mb-3">
+        Independent engine + queue for coloring books — not shared with the picture-book autopilot pause/cost cap. Rows are created immediately; generation begins after the P0 sequential-safe lock releases. Manual "Run now" ignores the daily cap and stop time.
       </p>
+
+      {status && (
+        <div className="mb-4 rounded border border-foreground/20 bg-muted/30 p-3">
+          <div className="flex flex-wrap gap-6 text-sm font-mono">
+            <div><span className="text-muted-foreground uppercase text-xs">Queued: </span><b>{status.queued}</b></div>
+            <div><span className="text-muted-foreground uppercase text-xs">Created today: </span><b>{status.created_today}</b></div>
+            <div><span className="text-muted-foreground uppercase text-xs">Published today: </span><b>{status.published_today}</b></div>
+            <div><span className="text-muted-foreground uppercase text-xs">Daily cap: </span><b>{cfg.daily_cap}</b></div>
+          </div>
+          {status.recent.length > 0 && (
+            <ul className="mt-2 space-y-1 text-xs">
+              {status.recent.map((r) => (
+                <li key={r.id} className="flex justify-between gap-3">
+                  <span className="truncate">{r.title}</span>
+                  <span className="text-muted-foreground shrink-0">
+                    {r.listing_status === "live" ? "live" : r.pipeline_status}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div>
