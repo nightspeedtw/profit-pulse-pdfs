@@ -87,7 +87,7 @@ describe("scheduleSelfAdvance", () => {
     // Detached task fires asynchronously; give it a microtask + timer tick.
     await new Promise((r) => setTimeout(r, 10));
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const url = (fetchImpl.mock.calls[0]?.[0] ?? "") as string;
+    const url = String((fetchImpl.mock.calls as any[])[0]?.[0] ?? "");
     expect(url).toContain("coloring-worker-tick");
   });
 
