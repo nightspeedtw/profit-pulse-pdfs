@@ -492,6 +492,8 @@ Deno.serve(async (req) => {
       let newLedger: PageLedger = priorLedger;
       let bytes: Uint8Array;
       try {
+        // Interior batch pages start at index (3 front matter + ledger already appended).
+        configureKidsBranding({ logoBytes: brandingLogoBytes, startingPageIndex: 3 + priorLedger.length });
         const out = await appendUniqueSpreads({
           existing,
           frontMatterPages: 3, // cover + title + copyright (see startPicturePdf)
@@ -501,6 +503,7 @@ Deno.serve(async (req) => {
         });
         bytes = out.bytes;
         newLedger = out.ledger;
+        runBrandingReports.push(...consumeKidsBrandingReports());
       } catch (e) {
         if (e instanceof PdfAssemblyMismatchError) {
           console.warn(`[build-picture-pdf] ${e.message} — discarding in-progress PDF and restarting from prepare`);
