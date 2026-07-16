@@ -16,8 +16,8 @@ import {
 import { normalizeDefect } from "../../supabase/functions/_shared/coloring/first-pass-learner.ts";
 
 describe("anatomy_deformity_only_v2 — verifier rubric contents", () => {
-  it("verifier version bumped to v4 so stale verdicts re-measure", () => {
-    expect(ANATOMY_VERIFIER_VERSION).toBe("v4:deformity_only");
+  it("verifier version bumped so stale verdicts re-measure (v5 adds recognizability)", () => {
+    expect(ANATOMY_VERIFIER_VERSION).toBe("v5:deformity_only+recognizable");
   });
 
   it("rubric asks the ONE deformity question", () => {
@@ -27,7 +27,13 @@ describe("anatomy_deformity_only_v2 — verifier rubric contents", () => {
 
   it("rubric explicitly permits ALL imaginary beings in ANY category", () => {
     expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/ALL imaginary beings in ANY category/i);
-    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/anatomy does NOT police theme/i);
+  });
+
+  it("rubric also asks the recognizability (blob/potato/egg) question", () => {
+    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/amorphous blob/i);
+    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/egg.*with a face/i);
+    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/recognizable/i);
+    expect(ANATOMY_RUBRIC_SYSTEM_TEXT).toMatch(/unrecognizable_subject/);
   });
 
   it("rubric lists canonical mythical / divine forms with generous allowance", () => {
