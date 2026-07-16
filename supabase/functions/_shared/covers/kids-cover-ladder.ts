@@ -289,42 +289,16 @@ function buildGeminiPrompt(i: CoverLadderInput): string {
 }
 
 /**
- * Synthetic warm-cream canvas + subtle radial vignette. Deterministic,
- * uses only ImageScript — no external generator, cannot ever be dead.
- * Used as the guaranteed background for the SVG-fallback rung so a book
- * can NEVER retire for cover_dead.
+ * OWNER LAW 'cover_can_never_fail' — the blank/gradient synthetic cover
+ * background is PERMANENTLY DELETED. If every AI rung fails and no real
+ * reference image is available, the ladder throws — the caller must route
+ * through the deterministic self-art rung (see `_shared/coloring/self-art-cover.ts`
+ * for the coloring lane) instead of shipping a blank canvas.
+ *
+ * A reference image (interior page or character sheet) is still accepted
+ * as an emergency background because it IS real, gate-passed art — not a
+ * gradient. Only the "make something up out of RGB" path is removed.
  */
-async function renderSyntheticCoverBackground(
-  width = 1600,
-  height = 1600,
-  palette?: string[],
-): Promise<Uint8Array> {
-  const img = new Image(width, height);
-  // Base warm cream
-  const base = { r: 253, g: 240, b: 214 };
-  // Accent from palette if provided
-  const accentHex = (palette && palette.length ? palette[palette.length - 1] : "#E9B44C").replace("#", "");
-  const ar = parseInt(accentHex.slice(0, 2), 16);
-  const ag = parseInt(accentHex.slice(2, 4), 16);
-  const ab = parseInt(accentHex.slice(4, 6), 16);
-  const cx = width / 2;
-  const cy = height * 0.6;
-  const maxD = Math.hypot(cx, cy);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const d = Math.hypot(x - cx, y - cy) / maxD;
-      const t = Math.min(1, d * 1.1);
-      const r = Math.round(base.r * (1 - t * 0.15) + ar * (t * 0.10));
-      const g = Math.round(base.g * (1 - t * 0.15) + ag * (t * 0.10));
-      const b = Math.round(base.b * (1 - t * 0.15) + ab * (t * 0.10));
-      // ImageScript pixel encoding 0xRRGGBBAA
-      const px = ((r & 0xff) << 24) | ((g & 0xff) << 16) | ((b & 0xff) << 8) | 0xff;
-      img.setPixelAt(x + 1, y + 1, px >>> 0);
-    }
-  }
-  return await img.encode();
-}
-
 async function renderFallbackCoverBackground(input: CoverLadderInput): Promise<{ bytes: Uint8Array; synthesized_background: boolean; used_reference_background: boolean }> {
   const ref = input.refUrls.filter(Boolean)[0];
   if (ref) {
@@ -335,7 +309,7 @@ async function renderFallbackCoverBackground(input: CoverLadderInput): Promise<{
       console.warn(`[cover-ladder] fallback reference fetch failed: ${(e as Error).message}`);
     }
   }
-  return { bytes: await renderSyntheticCoverBackground(1600, 1600, input.palette), synthesized_background: true, used_reference_background: false };
+  throw new Error("cover_can_never_fail:no_reference_background_available:blank_gradient_synth_removed");
 }
 
 /**
