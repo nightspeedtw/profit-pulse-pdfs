@@ -68,15 +68,17 @@ export function multiplierForTier(tier: PopularityTier, cfg: PricingConfig = DEF
 
 /**
  * Assign a tier for a book given the full sorted popularity scores of its
- * category (descending). Books outside top 25% get base tier.
+ * category (descending). Uses ceil-based cutoffs so at least 1 book earns
+ * top10 whenever any nonzero signal exists.
  */
 export function popularityTier(score: number, sortedScoresDesc: number[]): PopularityTier {
-  if (sortedScoresDesc.length === 0 || score <= 0) return "base";
-  // rank position (1 = best). Ties: use highest rank.
+  const n = sortedScoresDesc.length;
+  if (n === 0 || score <= 0) return "base";
   const rank = sortedScoresDesc.findIndex((s) => s <= score) + 1;
-  const pct = rank / sortedScoresDesc.length;
-  if (pct <= 0.10) return "top10";
-  if (pct <= 0.25) return "top25";
+  const top10Cut = Math.max(1, Math.ceil(n * 0.10));
+  const top25Cut = Math.max(1, Math.ceil(n * 0.25));
+  if (rank <= top10Cut) return "top10";
+  if (rank <= top25Cut) return "top25";
   return "base";
 }
 
