@@ -740,8 +740,37 @@ export type Database = {
         }
         Relationships: []
       }
+      coloring_age_bands: {
+        Row: {
+          age_max: number
+          age_min: number
+          created_at: string
+          key: string
+          label: string
+          sort_order: number
+        }
+        Insert: {
+          age_max: number
+          age_min: number
+          created_at?: string
+          key: string
+          label: string
+          sort_order?: number
+        }
+        Update: {
+          age_max?: number
+          age_min?: number
+          created_at?: string
+          key?: string
+          label?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
       coloring_categories: {
         Row: {
+          active: boolean
+          age_band_key: string | null
           allowed_subjects: string[]
           allowed_supporting_elements: string[]
           background_complexity: string
@@ -754,12 +783,16 @@ export type Database = {
           forbidden_subjects: string[]
           id: string
           line_art_style: string
+          seo_keywords: Json
+          sort_order: number
           target_age_max: number
           target_age_min: number
           trim_size: string
           updated_at: string
         }
         Insert: {
+          active?: boolean
+          age_band_key?: string | null
           allowed_subjects?: string[]
           allowed_supporting_elements?: string[]
           background_complexity: string
@@ -772,12 +805,16 @@ export type Database = {
           forbidden_subjects?: string[]
           id?: string
           line_art_style: string
+          seo_keywords?: Json
+          sort_order?: number
           target_age_max: number
           target_age_min: number
           trim_size?: string
           updated_at?: string
         }
         Update: {
+          active?: boolean
+          age_band_key?: string | null
           allowed_subjects?: string[]
           allowed_supporting_elements?: string[]
           background_complexity?: string
@@ -790,12 +827,22 @@ export type Database = {
           forbidden_subjects?: string[]
           id?: string
           line_art_style?: string
+          seo_keywords?: Json
+          sort_order?: number
           target_age_max?: number
           target_age_min?: number
           trim_size?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "coloring_categories_age_band_key_fkey"
+            columns: ["age_band_key"]
+            isOneToOne: false
+            referencedRelation: "coloring_age_bands"
+            referencedColumns: ["key"]
+          },
+        ]
       }
       cost_log: {
         Row: {
