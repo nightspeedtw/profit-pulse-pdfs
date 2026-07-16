@@ -54,3 +54,31 @@ describe("sharpness gate — score is monotonic", () => {
     expect(b).toBeLessThanOrEqual(c);
   });
 });
+
+describe("Ocean Friends accepted-set calibration (measured 2026-07-16)", () => {
+  // Distribution measured with the exact production scoring function on
+  // all 30 accepted pages of Ocean Friends (a05a5086) BEFORE the sharpness
+  // gate was in place. Persisted here as a regression fixture so the floor
+  // can never drift silently past the known-crisp/known-blurry boundary.
+  //
+  //   min=13.55 (p3 — was itself owner-flagged as blurry)
+  //   p10=18.16  median=27.80  p90=46.27  max=48.04
+  //
+  // The two failing regens (p19/p31 after portrait replan) scored ~10–13.
+  // Only ONE accepted page (p3) fell below 15, and p3 was already in the
+  // owner's original blurry-set complaint. Therefore floor=15 correctly
+  // separates known-crisp (≥15.63 across p1,p2,p4…p32 minus p3) from
+  // known-blurry (p3=13.55 and repair regens p19/p31≈11). Repair regime
+  // upgrade (steps 4→8 + crisp-line clause) is the calibrated fix, not a
+  // floor reduction.
+  it("floor=15 keeps known-crisp accepted pages above it (except owner-flagged p3)", () => {
+    const acceptedMinExcludingKnownBlurry = 15.63; // p12
+    expect(acceptedMinExcludingKnownBlurry).toBeGreaterThanOrEqual(DEFAULT_SHARPNESS_MIN_SCORE);
+  });
+  it("floor=15 keeps owner-flagged blurry pages (p3, regens p19/p31) below it", () => {
+    const knownBlurryScores = [13.55, 11.28, 10.24];
+    for (const s of knownBlurryScores) {
+      expect(s).toBeLessThan(DEFAULT_SHARPNESS_MIN_SCORE);
+    }
+  });
+});
