@@ -2,7 +2,12 @@
 // coloring book. Does NOT begin generation; sits in `queued` behind
 // Sequential Safe Mode until P0 closes.
 //
-// Body: { category_key: string, title: string, age_min?: number, age_max?: number }
+// Body: {
+//   category_key: string,
+//   title: string,
+//   age_band?: "3-5" | "4-6" | "6-8",
+//   page_count?: 24 | 32 | 48
+// }
 
 // @ts-nocheck  Edge runtime.
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
@@ -19,6 +24,8 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const category_key: string = body.category_key;
     const title: string = body.title;
+    const age_band: string = body.age_band ?? "4-6";
+    const page_count: number = Number(body.page_count ?? 32);
     if (!category_key || !title) {
       return json({ error: "category_key and title required" }, 400);
     }
@@ -28,7 +35,7 @@ Deno.serve(async (req: Request) => {
       { auth: { persistSession: false } },
     );
     const category = await loadColoringCategory(sb, category_key);
-    const pagePlan = generatePagePlan(category);
+    const pagePlan = generatePagePlan({ ...category, coloring_page_count: page_count });
     const styleContract = DEFAULT_KIDS_4_6_STYLE;
 
     const { data, error } = await sb
@@ -39,6 +46,8 @@ Deno.serve(async (req: Request) => {
         pipeline_status: "queued",
         metadata: {
           coloring_category_key: category.category_key,
+          coloring_age_band: age_band,
+          coloring_page_count: page_count,
           coloring_theme_bible: {
             category_key: category.category_key,
             category_name: category.category_name,
