@@ -52,9 +52,17 @@ export const INK_LUMA = 128;
 export const PAPER_LUMA = 170;
 
 /**
- * Below this count we declare the raster has no measurable ink boundary
- * (blank / near-blank page) and defer to the black-density gate rather
- * than emitting a spurious blur failure.
+ * A raster with fewer ink pixels than this is treated as effectively
+ * blank — the blur gate cannot judge line quality on it and defers to
+ * the black-density gate.
+ */
+export const MIN_INK_PIXELS = 24;
+
+/**
+ * Below this count of ink→paper transition pixels the gate treats the
+ * raster as having NO CRISP BOUNDARY. If ink IS present (>=MIN_INK_PIXELS)
+ * this is a hard fail (mushy line art). If no ink is present it's a
+ * deferral to the blackness gate. See passesBoundaryEdgeGate below.
  */
 export const MIN_BOUNDARY_PIXELS = 24;
 
@@ -88,7 +96,10 @@ export function combineScore(sobel_mean: number, laplacian_var: number): number 
  *
  * Crisp thick lines: delta≈180–255 across a 1–2 px transition → score high.
  * Blurry mushy lines: transition ramps over 5–8 px so the max reachable
- *   ink↔paper delta between adjacent pixels shrinks → score low.
+ *   ink↔paper delta between adjacent pixels shrinks → score low, and
+ *   frequently NO ink pixel even touches a paper pixel → boundary_pixels
+ *   collapses to zero while ink_pixels stays large. Both signals fail
+ *   the gate; see passesBoundaryEdgeGate.
  * Sparse crisp page (large white area, small crisp subject): still measures
  *   only the subject's boundary pixels → score high (PASSES).
  */
@@ -96,15 +107,17 @@ export function boundaryEdgeStrength(
   luma: Float32Array | number[],
   w: number,
   h: number,
-): { score: number; boundary_pixels: number } {
-  if (!w || !h) return { score: 0, boundary_pixels: 0 };
+): { score: number; boundary_pixels: number; ink_pixels: number } {
+  if (!w || !h) return { score: 0, boundary_pixels: 0, ink_pixels: 0 };
   let sum = 0;
-  let count = 0;
+  let boundary = 0;
+  let ink = 0;
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
       const i = y * w + x;
       const c = luma[i];
       if (c >= INK_LUMA) continue;
+      ink++;
       let best = 0;
       let touchedPaper = false;
       for (let dy = -1; dy <= 1; dy++) {
@@ -120,25 +133,29 @@ export function boundaryEdgeStrength(
       }
       if (touchedPaper) {
         sum += best;
-        count++;
+        boundary++;
       }
     }
   }
-  return { score: count ? sum / count : 0, boundary_pixels: count };
+  return { score: boundary ? sum / boundary : 0, boundary_pixels: boundary, ink_pixels: ink };
 }
 
 /**
- * Gate helper. If the raster has no measurable ink boundary
- * (`boundary_pixels < MIN_BOUNDARY_PIXELS`) the boundary blur check is
- * INAPPLICABLE — return true and let the blackness/blank gate handle it,
- * because a page with zero ink can't be judged for line quality.
+ * Gate helper.
+ *   • No ink at all (ink_pixels < MIN_INK_PIXELS): raster is effectively
+ *     blank — defer to the black-density gate (return true).
+ *   • Ink present but no crisp ink→paper transition
+ *     (boundary_pixels < MIN_BOUNDARY_PIXELS): mushy line art — FAIL.
+ *   • Otherwise: fail iff mean boundary delta < min.
  */
 export function passesBoundaryEdgeGate(
   boundary_pixels: number,
   score: number,
-  min = DEFAULT_BOUNDARY_EDGE_MIN_SCORE,
+  min: number = DEFAULT_BOUNDARY_EDGE_MIN_SCORE,
+  ink_pixels: number = boundary_pixels, // legacy 2-arg callers: assume ink==boundary
 ): boolean {
-  if (boundary_pixels < MIN_BOUNDARY_PIXELS) return true;
+  if (ink_pixels < MIN_INK_PIXELS) return true;
+  if (boundary_pixels < MIN_BOUNDARY_PIXELS) return false;
   return score >= min;
 }
 
