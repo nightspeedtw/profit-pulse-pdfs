@@ -39,10 +39,12 @@ export interface AnatomyPageVerdict {
   measured_version: string;  // ties verdict to this verifier version
 }
 
-// v3 — anatomy_imagination_vs_deformity three-tier rubric:
-// Tier 1 deformity always FAILS; Tier 2 cute stylization always PASSES;
-// Tier 3 canonical fantasy PASSES when the scene/subject invites it.
-export const ANATOMY_VERIFIER_VERSION = "v3:imagination_vs_deformity";
+// v4 — anatomy_deformity_only_v2: the anatomy gate answers ONE question,
+// "does the creature look deformed / injured / disabled?" Category/subject
+// fit is a SEPARATE gate. Cuteness, stylization, and ALL imaginary beings
+// (mythical, divine, hybrid) pass anatomy so long as they match the
+// creature's canonical imaginative form.
+export const ANATOMY_VERIFIER_VERSION = "v4:deformity_only";
 
 export interface AnatomyInputPage {
   page: number;
@@ -82,33 +84,45 @@ function degradedVerdict(p: AnatomyInputPage, reason: string): AnatomyPageVerdic
 
 // Owner law: anatomy_imagination_vs_deformity — separate real defects from
 // intentional cuteness or canonical fantasy. Do NOT penalise stylization.
+// Owner law: anatomy_deformity_only_v2 (supersedes anatomy_imagination_vs_deformity).
+// The anatomy gate asks ONE question. Category / theme / subject fit is a
+// SEPARATE gate (allowed_subjects) — do not police it here.
 export const ANATOMY_RUBRIC_SYSTEM_TEXT =
-  "You are an anatomy auditor for a printable children's coloring-book. " +
-  "For EACH indexed image, compare the depicted subject against the checklist " +
-  "provided for that index (body_parts, proportion_rules, common_ai_failure_modes, " +
-  "fantasy flag, category_key). " +
-  "Apply this THREE-TIER rubric — do NOT invent additional rules:\n" +
-  "TIER 1 (DEFORMITY = ALWAYS FAIL): wrong COUNT of standard parts for the depicted " +
-  "creature (a 4-legged animal drawn with 5 legs, a hand with 6 fingers, 3 eyes on one head), " +
-  "fused/missing/extra/severed limbs, disembodied parts, broken incoherent bodies, or " +
-  "grotesque proportions that read as injured/disabled. Also fail species-plan violations for " +
-  "realistic subjects (e.g. cetacean flukes drawn vertical, stegosaurus drawn bipedal, narwhal " +
-  "tusk on forehead instead of upper lip).\n" +
-  "TIER 2 (CUTE STYLIZATION = ALWAYS PASS): anthropomorphic charm is welcome everywhere and " +
-  "is NEVER a defect — eyelashes on any animal, big sparkly eyes, smiles, blush marks, " +
-  "bows/hats/props/clothing, expressive faces, cartoon simplification, line-art style. " +
-  "Do NOT list any of these as defects.\n" +
-  "TIER 3 (COHERENT FANTASY = PASS WHEN INTENTIONAL): unicorns (exactly one forehead horn), " +
-  "pegasus (two wings), mermaids (one human torso + one fish tail), dragons, fairies — PASS " +
-  "when either (a) the image's checklist has fantasy:true, or (b) the image's category_key " +
-  "is a fantasy category. In strictly realistic categories, an UNINVITED fantasy addition to a " +
-  "real species (e.g. a dolphin sprouting a unicorn horn in a sea_animals book) is a Tier 1 fail. " +
-  "For fantasy creatures, judge against the fantasy canon in the checklist, not real biology.\n" +
+  "You are the DEFORMITY auditor for a printable children's coloring-book. " +
+  "Ask ONE question about each image: \"Would a parent see this creature as " +
+  "broken, injured, disabled, or malformed — rather than merely stylized or fantastical?\"\n" +
+  "\n" +
+  "FAIL only for real deformity of the depicted creature's OWN canonical form:\n" +
+  "  - wrong COUNT of that creature's standard parts (a 4-legged being drawn with 5 legs, " +
+  "a human hand with 6 fingers, 3 arms on a human, 3 eyes on one head)\n" +
+  "  - fused / missing / extra / severed / floating / disembodied limbs or features\n" +
+  "  - broken, incoherent, or Frankenstein-stitched bodies\n" +
+  "  - grotesque injured-looking proportions (crushed, twisted, mangled)\n" +
+  "\n" +
+  "PASS everything else. Explicitly PASS:\n" +
+  "  - cuteness & stylization: eyelashes on any animal, big sparkly eyes, smiles, blush, " +
+  "bows / hats / clothing / props, cartoon simplification, line-art style\n" +
+  "  - ALL imaginary beings in ANY category — mythical creatures, legends, fantasy, humans, " +
+  "gods / deities, divine beasts, spirits, hybrids — anatomy does NOT police theme\n" +
+  "  - canonical mythical / divine forms (judge generously against the creature's own canon): " +
+  "unicorn (1 forehead horn), pegasus / winged horse (2 wings), mermaid (human torso + fish tail), " +
+  "dragon, phoenix, fairy, naga (serpent-bodied), garuda (bird-human), kinnari (half-bird half-human), " +
+  "erawan / airavata (multi-headed elephant, canonically up to 33 heads), nine-tailed fox / kitsune " +
+  "(up to 9 tails is CANONICAL, not a defect), kirin, multi-armed deities (4, 6, or more arms in " +
+  "iconography = correct)\n" +
+  "  - hybrid beings that are intentionally the plan's subject (centaur, sphinx, harpy)\n" +
+  "\n" +
+  "The checklist supplied per image (body_parts, proportion_rules, common_ai_failure_modes, " +
+  "fantasy flag, category_key) is a helpful reference — use it to know the creature's canon — " +
+  "but the pass/fail decision is the single deformity question above. If the checklist is " +
+  "generic and the subject is clearly a mythical / divine being, apply the canonical-form " +
+  "allowance rather than rejecting for \"extra\" wings / arms / tails / heads.\n" +
+  "\n" +
   "Return STRICT JSON: " +
   `{"verdicts":[{"index":number,"pass":boolean,"anatomy_score":number(0..100),` +
   `"defects":string[]}]}. ` +
-  "Score 90+ only when no Tier 1 defects are present. Never list Tier 2 stylization in defects. " +
-  "Do not include prose.";
+  "Score 90+ whenever no real deformity is present. Never list stylization, cuteness, or " +
+  "canonical mythical features in defects. Do not include prose.";
 
 // Kept for backwards-compat with any external import.
 const SYSTEM_TEXT = ANATOMY_RUBRIC_SYSTEM_TEXT;
