@@ -151,10 +151,36 @@ export default function ColoringProduct() {
     setPreview(true);
   };
 
-  const clickBuy = () => {
-    void emitColoringEvent("click_buy", book.id, { force: true, extra: { price_cents: priceCents } });
-    navigate(`/kids/checkout/${book.id}`);
+  const [downloading, setDownloading] = useState(false);
+  const clickBuy = async () => {
+    if (!book || downloading) return;
+    void emitColoringEvent("click_buy", book.id, { force: true, extra: { price_cents: priceCents, bypass: true } });
+    setDownloading(true);
+    try {
+      // PAYMENT BYPASS (temporary owner directive): coloring books deliver the
+      // PDF instantly via the existing free-download function. When payments
+      // are re-enabled, restore `navigate(`/kids/checkout/${book.id}`)`.
+      const { data, error } = await supabase.functions.invoke("free-download", {
+        body: { ebook_id: book.id },
+      });
+      if (error) throw error;
+      const url = (data as { url?: string } | null)?.url;
+      if (!url) throw new Error("Download link unavailable — book PDF is not ready yet.");
+      const a = document.createElement("a");
+      a.href = url;
+      a.rel = "noopener";
+      a.target = "_blank";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e) {
+      console.error("[coloring-product] download failed", e);
+      alert(e instanceof Error ? e.message : "Download failed. Please try again in a moment.");
+    } finally {
+      setDownloading(false);
+    }
   };
+
 
   // Sanitized long copy (server already runs sales_copy_sanitizer; DOMPurify is
   // client-side belt-and-braces so nothing exotic leaks).
@@ -194,10 +220,12 @@ export default function ColoringProduct() {
           type="button"
           onClick={openPreview}
           aria-label={`Preview inside ${book.title}`}
-          className="relative aspect-square bg-white border-2 border-foreground overflow-hidden group"
+          className="relative aspect-square bg-muted border-2 border-foreground overflow-hidden group"
         >
           {book.cover_url ? (
-            <img src={book.cover_url} alt={book.title} className="w-full h-full object-cover" />
+            // object-contain guarantees the WHOLE cover (title + art) fits
+            // inside the thumbnail frame — no crop, no cut title.
+            <img src={book.cover_url} alt={book.title} className="w-full h-full object-contain" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-muted-foreground">No cover</div>
           )}
@@ -235,11 +263,13 @@ export default function ColoringProduct() {
           <button
             type="button"
             onClick={clickBuy}
-            className="w-full h-14 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-base hover:bg-accent hover:text-accent-foreground transition-colors inline-flex items-center justify-center gap-2"
+            disabled={downloading}
+            className="w-full h-14 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-base hover:bg-accent hover:text-accent-foreground transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
           >
-            <Download className="h-5 w-5" />
-            Download instantly — print at home
+            {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
+            {downloading ? "Preparing your PDF…" : "Download instantly — print at home"}
           </button>
+
 
           <ul className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs md:text-sm text-muted-foreground">
             <li className="inline-flex items-center gap-2"><Download className="h-3.5 w-3.5" /> Instant PDF</li>
@@ -343,9 +373,9 @@ export default function ColoringProduct() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {siblings.map((s) => (
               <Link key={s.id} to={`/kids/coloring/${s.id}`} className="group block">
-                <div className="aspect-square bg-white border-2 border-border overflow-hidden">
+                <div className="aspect-square bg-muted border-2 border-border overflow-hidden">
                   {s.cover_url && (
-                    <img src={s.cover_url} alt={s.title} loading="lazy" className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500" />
+                    <img src={s.cover_url} alt={s.title} loading="lazy" className="w-full h-full object-contain group-hover:scale-[1.03] transition-transform duration-500" />
                   )}
                 </div>
                 <div className="mt-2 text-xs font-display uppercase line-clamp-2 group-hover:text-accent">{s.title}</div>
@@ -365,10 +395,13 @@ export default function ColoringProduct() {
         <button
           type="button"
           onClick={clickBuy}
-          className="flex-1 h-12 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2"
+          disabled={downloading}
+          className="flex-1 h-12 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
         >
-          <Download className="h-4 w-4" /> Download
+          {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          {downloading ? "Preparing…" : "Download"}
         </button>
+
       </div>
 
       <ColoringPreviewLightbox
