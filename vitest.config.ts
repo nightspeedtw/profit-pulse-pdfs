@@ -11,6 +11,11 @@ export default defineConfig({
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
   },
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+      // Strip Deno `npm:` prefix so edge-function source files can be
+      // imported directly from vitest (node) tests.
+      { find: /^npm:(@?[^@]+)(?:@[^/]+)?(\/.*)?$/, replacement: "$1$2" },
+    ],
   },
 });
