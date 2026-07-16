@@ -277,7 +277,7 @@ Deno.serve(async (req: Request) => {
     });
 
     const newRecords: StoredPage[] = [];
-    const anatomyBuffer: { page: number; subject: string; bytes: Uint8Array; mime: string }[] = [];
+    const anatomyBuffer: { page: number; subject: string; bytes: Uint8Array; mime: string; category_key?: string; scene?: string }[] = [];
     const errors: { page: number; error: string }[] = [];
 
     // Load learned prevention rules ONCE per invocation. Every page's base
