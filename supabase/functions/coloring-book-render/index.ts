@@ -36,7 +36,12 @@ Deno.serve(async (req: Request) => {
     // Mark generating briefly for observability.
     await db.from("ebooks_kids").update({
       pipeline_status: "generating",
-      metadata: { ...(row.metadata ?? {}), coloring_render_started_at: new Date().toISOString() },
+      metadata: {
+        ...(row.metadata ?? {}),
+        coloring_render_started_at: new Date().toISOString(),
+        coloring_progress_percent: 10,
+        coloring_current_step_label: "Engine attached — checking post-P0 render availability",
+      },
     }).eq("id", ebook_id);
 
     // Post-P0: real render happens here. For now, return to queue with a
@@ -46,6 +51,8 @@ Deno.serve(async (req: Request) => {
       metadata: {
         ...(row.metadata ?? {}),
         coloring_render_last_attempt_at: new Date().toISOString(),
+        coloring_progress_percent: 10,
+        coloring_current_step_label: "Awaiting post-P0 coloring render engine (no generation yet)",
         awaiting: "post_p0_coloring_render_engine",
       },
     }).eq("id", ebook_id);
