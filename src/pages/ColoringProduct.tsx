@@ -151,10 +151,36 @@ export default function ColoringProduct() {
     setPreview(true);
   };
 
-  const clickBuy = () => {
-    void emitColoringEvent("click_buy", book.id, { force: true, extra: { price_cents: priceCents } });
-    navigate(`/kids/checkout/${book.id}`);
+  const [downloading, setDownloading] = useState(false);
+  const clickBuy = async () => {
+    if (!book || downloading) return;
+    void emitColoringEvent("click_buy", book.id, { force: true, extra: { price_cents: priceCents, bypass: true } });
+    setDownloading(true);
+    try {
+      // PAYMENT BYPASS (temporary owner directive): coloring books deliver the
+      // PDF instantly via the existing free-download function. When payments
+      // are re-enabled, restore `navigate(`/kids/checkout/${book.id}`)`.
+      const { data, error } = await supabase.functions.invoke("free-download", {
+        body: { ebook_id: book.id },
+      });
+      if (error) throw error;
+      const url = (data as { url?: string } | null)?.url;
+      if (!url) throw new Error("Download link unavailable — book PDF is not ready yet.");
+      const a = document.createElement("a");
+      a.href = url;
+      a.rel = "noopener";
+      a.target = "_blank";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e) {
+      console.error("[coloring-product] download failed", e);
+      alert(e instanceof Error ? e.message : "Download failed. Please try again in a moment.");
+    } finally {
+      setDownloading(false);
+    }
   };
+
 
   // Sanitized long copy (server already runs sales_copy_sanitizer; DOMPurify is
   // client-side belt-and-braces so nothing exotic leaks).
