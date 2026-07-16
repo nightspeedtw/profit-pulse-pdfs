@@ -93,7 +93,11 @@ interface LadderState {
   updated_at: string;
 }
 
-const IDEOGRAM_SPEEDS: Array<"QUALITY" | "BALANCED" | "TURBO"> = ["QUALITY", "BALANCED", "TURBO"];
+// Owner order: BALANCED first (fastest that still respects quality), then TURBO;
+// skip QUALITY as first-try because its wallclock repeatedly killed the whole ladder.
+const IDEOGRAM_SPEEDS: Array<"QUALITY" | "BALANCED" | "TURBO"> = ["BALANCED", "TURBO"];
+
+import { classifyProviderError } from "../_shared/covers/provider-errors.ts";
 const RUNG_WALLCLOCK_MS = 90_000;
 const CRASH_STALE_MS = 3 * 60_000; // any attempt with no ended_at older than this = crashed
 
@@ -197,8 +201,22 @@ Deno.serve(async (req: Request) => {
     if (typeof state.ideogram_speed_cursor !== "number") state.ideogram_speed_cursor = 0;
     if (!state.attempts_by_rung) state.attempts_by_rung = {};
 
+    // Terminal guard — if the cursor has run past the last rung, do NOT loop
+    // forever with rung=undefined. Leave a `cover_ladder_exhausted` blocker
+    // with all recorded evidence and stop.
     if (state.next_index >= state.rungs.length) {
-      state.next_index = state.rungs.length - 1;
+      await patchMeta(db, ebook_id, {
+        coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
+        coloring_current_step_label: "Cover ladder exhausted — awaiting owner review (all rungs failed)",
+        coloring_blocker: {
+          class: "cover_ladder_exhausted",
+          reason: "all_rungs_failed_including_svg_fallback",
+          reports: state.reports,
+          attempts_by_rung: state.attempts_by_rung,
+          detected_at: new Date().toISOString(),
+        },
+      });
+      return json({ ok: false, error: "cover_ladder_exhausted", reports: state.reports });
     }
 
     // ── Crash detection: if the current rung has an in-flight attempt with
@@ -259,6 +277,26 @@ Deno.serve(async (req: Request) => {
       attempt.reason = reason;
       attempt.status = "error";
       state.reports.push({ rung, reason, produced_bytes: false } as any);
+
+      // Provider billing/quota → PAUSE ladder, do NOT burn cursor. Owner
+      // top-up is the fix; a rung cascade would waste evidence + confuse triage.
+      const providerClass = classifyProviderError(reason);
+      if (providerClass) {
+        await patchMeta(db, ebook_id, {
+          coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
+          coloring_current_step_label: `Cover ladder paused: ${providerClass} on ${rung}${speed ? `/${speed}` : ""} — awaiting provider top-up`,
+          coloring_blocker: {
+            class: "provider_unavailable",
+            provider_error: providerClass,
+            rung,
+            speed,
+            reason,
+            detected_at: new Date().toISOString(),
+          },
+        });
+        return json({ ok: false, paused: true, provider_error: providerClass, rung, speed, reason });
+      }
+
       // Cascade speed on ideogram, else advance rung.
       if (isIdeogram && state.ideogram_speed_cursor < IDEOGRAM_SPEEDS.length - 1) {
         state.ideogram_speed_cursor += 1;
@@ -418,6 +456,24 @@ Deno.serve(async (req: Request) => {
 
     // Dead / dead-equivalent / error → cascade speed on ideogram, else advance rung.
     console.warn(`[coloring-cover] ${ebook_id} rung ${rung} speed=${speed} ${result.status}: ${result.report.reason} — cascading`);
+
+    // Provider billing/quota short-circuit (same as exception path).
+    const providerClass2 = classifyProviderError(result.report.reason);
+    if (providerClass2) {
+      await patchMeta(db, ebook_id, {
+        coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
+        coloring_current_step_label: `Cover ladder paused: ${providerClass2} on ${rung}${speed ? `/${speed}` : ""} — awaiting provider top-up`,
+        coloring_blocker: {
+          class: "provider_unavailable",
+          provider_error: providerClass2,
+          rung,
+          speed,
+          reason: result.report.reason,
+          detected_at: new Date().toISOString(),
+        },
+      });
+      return json({ ok: false, paused: true, provider_error: providerClass2, rung, speed, reason: result.report.reason });
+    }
     if (isIdeogram && state.ideogram_speed_cursor < IDEOGRAM_SPEEDS.length - 1) {
       state.ideogram_speed_cursor += 1;
     } else {
