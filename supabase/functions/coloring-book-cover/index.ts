@@ -200,11 +200,14 @@ function constructedOverlayTranscription(title: string, subtitle: string, ageBad
 }
 
 async function markCoverBlocked(db: any, ebookId: string, patch: Record<string, unknown>, reason: string, status = 202) {
+  const isBlankArt = reason.startsWith("raw_art_blank_background") || reason.includes("blank_background");
   await patchMeta(db, ebookId, {
     ...patch,
     coloring_progress_percent: 92,
-    coloring_current_step_label: `Cover single-rung requeued: ${reason}`,
-    awaiting: "cover_pdf_publish",
+    coloring_current_step_label: isBlankArt
+      ? `Cover single-rung parked awaiting_cover_retry: ${reason}`
+      : `Cover single-rung requeued: ${reason}`,
+    awaiting: isBlankArt ? "cover_retry" : "cover_pdf_publish",
     coloring_blocker: {
       class: reason.startsWith("provider_") ? "temporary_provider_error" : reason.startsWith("unmeasured") ? "missing_dependency" : "content_quality_failure",
       reason,
@@ -213,6 +216,8 @@ async function markCoverBlocked(db: any, ebookId: string, patch: Record<string, 
   });
   await db.from("ebooks_kids").update({
     pipeline_status: "queued",
+    // Owner law: blank fallback NEVER publishes — book stays awaiting_cover_retry
+    // and the single-rung art path retries until real artwork is produced.
     blocker_reason: `coloring_cover_single_rung:${reason}`.slice(0, 300),
   }).eq("id", ebookId);
   // Lane-blocked reasons (provider billing/quota) must NOT self-advance — a
@@ -221,7 +226,7 @@ async function markCoverBlocked(db: any, ebookId: string, patch: Record<string, 
   if (!isLaneBlocked) {
     await scheduleSelfAdvance(db, ebookId, { delayMs: SELF_ADVANCE_DELAY_BACKOFF_MS, reason: `cover:${reason}` });
   }
-  return json({ ok: false, requeued: true, reason, self_advance: !isLaneBlocked }, status);
+  return json({ ok: false, requeued: true, reason, self_advance: !isLaneBlocked, awaiting_cover_retry: isBlankArt }, status);
 }
 
 Deno.serve(async (req: Request) => {
