@@ -125,6 +125,7 @@ export default function KidsCategory() {
                   price_cents: b.price_cents,
                   theme_ids: b.theme_ids ?? [],
                   storefront_meta: b.storefront_meta,
+                  book_type: b.book_type,
                 };
                 return <KidsBookCard key={b.id} book={card} themes={themes} index={i} />;
               })}

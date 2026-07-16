@@ -24,6 +24,7 @@ import Create from "./pages/Create.tsx";
 import Checkout from "./pages/Checkout.tsx";
 import CheckoutReturn from "./pages/CheckoutReturn.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import ColoringProduct from "./pages/ColoringProduct.tsx";
 import AdminLogin from "./pages/admin/Login.tsx";
 import AdminLayout from "./pages/admin/AdminLayout.tsx";
 import CommandCenter from "./pages/admin/Dashboard.tsx";
@@ -59,6 +60,7 @@ const App = () => (
             <Route path="/category/:slug" element={<Category />} />
             <Route path="/product/:handle" element={<Product />} />
             <Route path="/kids" element={<Kids />} />
+            <Route path="/kids/coloring/:id" element={<ColoringProduct />} />
             <Route path="/kids/:categorySlug" element={<KidsCategory />} />
             <Route path="/royalty" element={<Royalty />} />
             <Route path="/royalty/book/:bookId" element={<RoyaltyBook />} />

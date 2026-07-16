@@ -9,6 +9,7 @@ export interface KidsBookCardData {
   price_cents: number;
   theme_ids: string[];
   storefront_meta: Record<string, unknown> | null;
+  book_type?: string | null;
 }
 
 interface Props {
@@ -30,6 +31,10 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
   const chipLabel = (themeObj?.label_en || themeObj?.slug || "kids").toUpperCase();
 
   const isStrip = variant === "strip";
+  const isColoring = book.book_type === "coloring_book";
+  const productHref = isColoring ? `/kids/coloring/${book.id}` : `/product/${book.id}`;
+  const buyHref = isColoring ? `/kids/coloring/${book.id}` : `/kids/checkout/${book.id}`;
+  const buyLabel = isColoring ? `SHOP · ${priceLabel}` : `BUY · ${priceLabel}`;
 
   return (
     <div
@@ -41,7 +46,7 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
       style={{ animationDelay: `${Math.min(index * 60, 400)}ms` }}
     >
       <Link
-        to={`/product/${book.id}`}
+        to={productHref}
         aria-label={`ดูรายละเอียด ${book.title}`}
         className="relative aspect-square bg-muted overflow-hidden block cursor-pointer"
       >
@@ -80,7 +85,7 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
       </Link>
 
       <div className="p-4 flex flex-col gap-2 flex-1 border-t-2 border-border">
-        <Link to={`/product/${book.id}`} className="hover:text-accent transition-colors">
+        <Link to={productHref} className="hover:text-accent transition-colors">
           <h3 className="font-display uppercase text-base md:text-lg leading-tight tracking-tight line-clamp-2">
             {book.title}
           </h3>
@@ -89,15 +94,15 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
           <p className="text-sm text-muted-foreground line-clamp-2 italic">{tagline}</p>
         )}
         <div className="text-xs text-muted-foreground leading-relaxed mt-1">
-          <div>32 illustrated pages</div>
-          <div>Original character</div>
+          <div>{isColoring ? "Printable coloring pages" : "32 illustrated pages"}</div>
+          <div>{isColoring ? "Ages-tuned line thickness" : "Original character"}</div>
         </div>
         <div className="mt-auto pt-3">
           <Link
-            to={`/kids/checkout/${book.id}`}
+            to={buyHref}
             className="block w-full text-center py-2.5 rounded-md bg-foreground text-background font-display tracking-wide text-sm hover:bg-accent transition-colors"
           >
-            BUY · {priceLabel}
+            {buyLabel}
           </Link>
         </div>
       </div>
