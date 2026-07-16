@@ -21,10 +21,7 @@
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import { computeLuminance, type LuminanceStats } from "../image-luminance.ts";
 import { falIdeogramV3, falRecraftV3 } from "../fal.ts";
-import {
-  geminiDirectImageWithMeta,
-  gatewayImageWithRefs,
-} from "../gemini-image.ts";
+import { geminiDirectImageWithMeta } from "../gemini-direct.ts";
 import { renderKidsTitleTreatment } from "./kids-title-treatment.ts";
 
 export type CoverRungLabel =
