@@ -362,6 +362,7 @@ async function addStoryPage(
   const img = await embedImageSmart(doc, imgBytes);
   drawFullBleed(page, img);
   await drawCaptionOverlay(doc, page, caption, paletteHint);
+  await stampBranding(doc, page, "story", imgBytes);
 }
 
 async function addClosingPage(doc: PDFDocument) {
