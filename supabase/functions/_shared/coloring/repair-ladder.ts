@@ -70,7 +70,9 @@ const CORRECTIVE_CLAUSES: Record<FailureClass, string[]> = {
     "Subject must remain strictly inside the declared category; drop any unrelated objects",
   ],
   text_or_watermark: [
-    "Absolutely NO text, letters, numbers, signatures, watermarks or logos anywhere",
+    "ABSOLUTELY NO letters, words, numbers, captions, labels, signatures, watermarks, logos, or written glyphs of any script anywhere in the image",
+    "The image is PURE LINE-ART with zero typography — no title, no subject name, no 'A is for' style labels, no artist mark",
+    "If any letter shape appears, redraw the whole page without it",
   ],
   sharpness_below_floor: [
     "Crisp clean vector-like thick black outlines, high contrast, sharp edges, no blur, no soft haze",
