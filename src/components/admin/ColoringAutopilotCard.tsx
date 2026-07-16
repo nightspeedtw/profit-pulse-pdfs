@@ -132,6 +132,59 @@ export function ColoringAutopilotCard() {
     }
   };
 
+  const processQueue = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("coloring-worker-tick", {
+        body: { manual: true, passcode: passcode() },
+        headers: { "x-admin-passcode": passcode() },
+      });
+      if (error) throw error;
+      if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
+      toast({
+        title: data?.skipped ? `Worker skipped: ${data.skipped}` : `Dispatched ${(data?.dispatched ?? []).length} / queue ${data?.queue_size ?? 0}`,
+      });
+      await loadStatus();
+    } catch (e) {
+      toast({ title: "Process queue failed", description: String(e), variant: "destructive" });
+    }
+  };
+
+  const togglePause = async () => {
+    await save({ ...cfg, paused: !cfg.paused });
+    await loadStatus();
+  };
+
+  const cancelAll = async () => {
+    if (!confirm("Cancel ALL queued coloring books?")) return;
+    try {
+      const { data, error } = await supabase.functions.invoke("coloring-cancel-queued", {
+        body: { all: true, passcode: passcode() },
+        headers: { "x-admin-passcode": passcode() },
+      });
+      if (error) throw error;
+      if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
+      toast({ title: `Cancelled ${data?.cancelled ?? 0} queued coloring book${(data?.cancelled ?? 0) === 1 ? "" : "s"}` });
+      await loadStatus();
+    } catch (e) {
+      toast({ title: "Cancel failed", description: String(e), variant: "destructive" });
+    }
+  };
+
+  const cancelOne = async (ebook_id: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke("coloring-cancel-queued", {
+        body: { ebook_id, passcode: passcode() },
+        headers: { "x-admin-passcode": passcode() },
+      });
+      if (error) throw error;
+      if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
+      toast({ title: (data?.cancelled ?? 0) ? "Cancelled" : "Row not queued (skipped)" });
+      await loadStatus();
+    } catch (e) {
+      toast({ title: "Cancel failed", description: String(e), variant: "destructive" });
+    }
+  };
+
   const update = <K extends keyof ColoringConfig>(k: K, v: ColoringConfig[K]) => setCfg((p) => ({ ...p, [k]: v }));
 
   return (
