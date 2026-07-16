@@ -26,9 +26,9 @@
 // a gate — this is a metric correction, NOT a threshold reduction.
 
 /**
- * Historical Sobel+Laplacian combined score floor. Retained so the
- * per-page combined score still guards against total decode/degenerate
- * failures, but the primary blur gate is now boundary-strength.
+ * Historical Sobel+Laplacian combined score floor. Retained only so legacy
+ * telemetry rows and trend consumers keep a stable reference value. It is no
+ * longer pass/fail authority.
  */
 export const DEFAULT_SHARPNESS_MIN_SCORE = 13.0;
 
@@ -77,12 +77,11 @@ export const MIN_BOUNDARY_PIXELS = 24;
  */
 export const DEFAULT_BOUNDARY_EDGE_MIN_SCORE = 140;
 
-export const SHARPNESS_GATE_VERSION = "v5:boundary-edge-strength-min140";
+export const SHARPNESS_GATE_VERSION = "v6:boundary-edge-authority-min140";
 
 /**
  * Combine Sobel-magnitude mean and Laplacian variance into a monotonic
- * score on a 0..~30 scale. Same combiner as v3/v4 for continuity of the
- * secondary safety floor.
+ * score on a 0..~30 scale. Same combiner as v3/v4 for telemetry continuity.
  */
 export function combineScore(sobel_mean: number, laplacian_var: number): number {
   return sobel_mean / 4 + Math.sqrt(Math.max(0, laplacian_var)) / 10;
@@ -157,6 +156,31 @@ export function passesBoundaryEdgeGate(
   if (ink_pixels < MIN_INK_PIXELS) return true;
   if (boundary_pixels < MIN_BOUNDARY_PIXELS) return false;
   return score >= min;
+}
+
+export interface SharpnessGateInputs {
+  legacy_score: number;
+  legacy_min?: number;
+  boundary_pixels: number;
+  boundary_score: number;
+  boundary_min?: number;
+  ink_pixels?: number;
+}
+
+/**
+ * Final sharpness authority for v5. The legacy Sobel/Laplacian score is
+ * accepted as an input only to make its non-authoritative status explicit:
+ * it is telemetry and cannot veto a boundary-edge pass.
+ */
+export function passesSharpnessGate(input: SharpnessGateInputs): boolean {
+  void input.legacy_score;
+  void input.legacy_min;
+  return passesBoundaryEdgeGate(
+    input.boundary_pixels,
+    input.boundary_score,
+    input.boundary_min ?? DEFAULT_BOUNDARY_EDGE_MIN_SCORE,
+    input.ink_pixels ?? input.boundary_pixels,
+  );
 }
 
 /**

@@ -27,6 +27,7 @@ import {
   combineScore,
   boundaryEdgeStrength,
   passesBoundaryEdgeGate,
+  passesSharpnessGate,
 } from "../../supabase/functions/_shared/coloring/sharpness-scoring.ts";
 
 // ---------- fixture builders ----------
@@ -112,6 +113,24 @@ describe("boundary-edge gate — crisp-sparse fixture (toddler/senior contract)"
     expect(boundary_pixels).toBeGreaterThan(MIN_BOUNDARY_PIXELS);
     expect(score).toBeGreaterThanOrEqual(DEFAULT_BOUNDARY_EDGE_MIN_SCORE);
   });
+
+  it("legacy Sobel/Laplacian score below 13 cannot veto a boundary pass", () => {
+    const W = 256, H = 256;
+    const g = makeGrid(W, H, 255);
+    paintCrispRect(g, W, 118, 118, 138, 138, 5);
+    const { score, boundary_pixels, ink_pixels } = boundaryEdgeStrength(g, W, H);
+    const legacyScore = combineScore(12, 0); // 3.0 — below legacy floor 13
+    expect(legacyScore).toBeLessThan(DEFAULT_SHARPNESS_MIN_SCORE);
+    expect(score).toBeGreaterThanOrEqual(DEFAULT_BOUNDARY_EDGE_MIN_SCORE);
+    expect(passesSharpnessGate({
+      legacy_score: legacyScore,
+      legacy_min: DEFAULT_SHARPNESS_MIN_SCORE,
+      boundary_pixels,
+      boundary_score: score,
+      boundary_min: DEFAULT_BOUNDARY_EDGE_MIN_SCORE,
+      ink_pixels,
+    })).toBe(true);
+  });
 });
 
 // ---------- fixture set 3: blurry → FAIL ----------
@@ -173,13 +192,13 @@ describe("boundary-edge gate — inapplicability contract", () => {
 // ---------- version + threshold constants ----------
 
 describe("sharpness gate — versioned constants", () => {
-  it("exports v5 gate version", () => {
-    expect(SHARPNESS_GATE_VERSION.startsWith("v5:")).toBe(true);
+  it("exports v6 boundary-authority gate version", () => {
+    expect(SHARPNESS_GATE_VERSION.startsWith("v6:")).toBe(true);
   });
   it("boundary floor is 140 (fixture calibration, do not lower silently)", () => {
     expect(DEFAULT_BOUNDARY_EDGE_MIN_SCORE).toBe(140);
   });
-  it("legacy combined floor still exported at 13.0 for secondary safety", () => {
+  it("legacy combined floor still exported at 13.0 for telemetry compatibility", () => {
     expect(DEFAULT_SHARPNESS_MIN_SCORE).toBe(13.0);
   });
   it("ink/paper thresholds bracket a clear white-gap band", () => {
