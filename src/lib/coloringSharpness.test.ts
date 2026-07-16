@@ -8,7 +8,7 @@ import { describe, it, expect } from "vitest";
 import {
   DEFAULT_SHARPNESS_MIN_SCORE,
   combineScore,
-} from "../../supabase/functions/_shared/coloring/sharpness-gate.ts";
+} from "../../supabase/functions/_shared/coloring/sharpness-scoring.ts";
 
 describe("sharpness gate — calibrated threshold", () => {
   it("DEFAULT_SHARPNESS_MIN_SCORE matches owner calibration (8.0)", () => {
