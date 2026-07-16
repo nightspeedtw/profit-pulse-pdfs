@@ -95,41 +95,52 @@ function degradedVerdict(p: AnatomyInputPage, reason: string): AnatomyPageVerdic
 // The anatomy gate asks ONE question. Category / theme / subject fit is a
 // SEPARATE gate (allowed_subjects) — do not police it here.
 export const ANATOMY_RUBRIC_SYSTEM_TEXT =
-  "You are the DEFORMITY auditor for a printable children's coloring-book. " +
-  "Ask ONE question about each image: \"Would a parent see this creature as " +
-  "broken, injured, disabled, or malformed — rather than merely stylized or fantastical?\"\n" +
+  "You are the DEFORMITY + RECOGNIZABILITY auditor for a printable children's coloring-book. " +
+  "Answer TWO questions about each image:\n" +
+  "  Q1 (deformity): Would a parent see this creature as broken, injured, disabled, or " +
+  "malformed — rather than merely stylized or fantastical?\n" +
+  "  Q2 (recognizability): Name the primary subject you actually see. Is it clearly " +
+  "recognizable as the planned subject (see checklist.subject), or is it an amorphous " +
+  "blob / potato-shape / egg-with-a-face / anything a parent could not identify?\n" +
   "\n" +
-  "FAIL only for real deformity of the depicted creature's OWN canonical form:\n" +
+  "FAIL Q1 only for real deformity of the depicted creature's OWN canonical form:\n" +
   "  - wrong COUNT of that creature's standard parts (a 4-legged being drawn with 5 legs, " +
   "a human hand with 6 fingers, 3 arms on a human, 3 eyes on one head)\n" +
   "  - fused / missing / extra / severed / floating / disembodied limbs or features\n" +
   "  - broken, incoherent, or Frankenstein-stitched bodies\n" +
   "  - grotesque injured-looking proportions (crushed, twisted, mangled)\n" +
   "\n" +
-  "PASS everything else. Explicitly PASS:\n" +
+  "PASS Q1 for everything else. Explicitly PASS Q1:\n" +
   "  - cuteness & stylization: eyelashes on any animal, big sparkly eyes, smiles, blush, " +
   "bows / hats / clothing / props, cartoon simplification, line-art style\n" +
   "  - ALL imaginary beings in ANY category — mythical creatures, legends, fantasy, humans, " +
-  "gods / deities, divine beasts, spirits, hybrids — anatomy does NOT police theme\n" +
+  "gods / deities, divine beasts, spirits, hybrids\n" +
   "  - canonical mythical / divine forms (judge generously against the creature's own canon): " +
-  "unicorn (1 forehead horn), pegasus / winged horse (2 wings), mermaid (human torso + fish tail), " +
-  "dragon, phoenix, fairy, naga (serpent-bodied), garuda (bird-human), kinnari (half-bird half-human), " +
-  "erawan / airavata (multi-headed elephant, canonically up to 33 heads), nine-tailed fox / kitsune " +
-  "(up to 9 tails is CANONICAL, not a defect), kirin, multi-armed deities (4, 6, or more arms in " +
-  "iconography = correct)\n" +
+  "unicorn (1 forehead horn), pegasus, mermaid, dragon, phoenix, fairy, naga, garuda, " +
+  "kinnari, erawan / airavata (multi-headed elephant, canonically up to 33 heads), " +
+  "nine-tailed fox (up to 9 tails), kirin, multi-armed deities\n" +
   "  - hybrid beings that are intentionally the plan's subject (centaur, sphinx, harpy)\n" +
   "\n" +
+  "FAIL Q2 (recognizable=false, category_match=false) when the image is:\n" +
+  "  - an amorphous blob, potato-shape, or lump with a face pasted on\n" +
+  "  - an egg / oval / rock 'with a face' that does not read as the planned subject\n" +
+  "  - a shape that reads as a different kind of creature entirely (planned=dinosaur but " +
+  "you see a blob)\n" +
+  "  - unrecognizable line-art that a parent cannot name\n" +
+  "PASS Q2 when the image is clearly the planned subject even if stylized.\n" +
+  "\n" +
   "The checklist supplied per image (body_parts, proportion_rules, common_ai_failure_modes, " +
-  "fantasy flag, category_key) is a helpful reference — use it to know the creature's canon — " +
-  "but the pass/fail decision is the single deformity question above. If the checklist is " +
-  "generic and the subject is clearly a mythical / divine being, apply the canonical-form " +
-  "allowance rather than rejecting for \"extra\" wings / arms / tails / heads.\n" +
+  "fantasy flag, category_key, subject) is a helpful reference — use it to know the creature's " +
+  "canon — but the pass/fail decision is the two questions above.\n" +
   "\n" +
   "Return STRICT JSON: " +
   `{"verdicts":[{"index":number,"pass":boolean,"anatomy_score":number(0..100),` +
-  `"defects":string[]}]}. ` +
-  "Score 90+ whenever no real deformity is present. Never list stylization, cuteness, or " +
-  "canonical mythical features in defects. Do not include prose.";
+  `"defects":string[],"named_subject":string,"recognizable":boolean,` +
+  `"category_match":boolean}]}. ` +
+  "Score 90+ for anatomy_score whenever no real deformity is present. Never list " +
+  "stylization, cuteness, or canonical mythical features in defects. If recognizable=false, " +
+  "add \"unrecognizable_subject\" (or \"blob_shape\", \"egg_with_face\") to defects so the " +
+  "page is regenerated. Do not include prose.";
 
 // Kept for backwards-compat with any external import.
 const SYSTEM_TEXT = ANATOMY_RUBRIC_SYSTEM_TEXT;
