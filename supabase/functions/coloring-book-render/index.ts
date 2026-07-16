@@ -236,19 +236,19 @@ Deno.serve(async (req: Request) => {
         const bytes = await falFluxSchnell({
           prompt,
           image_size: "portrait_4_3",
-          output_format: "png",
           ebook_id: ebook_id,
           step: `coloring_${stageLabel}_page_${page.canonical_page_number}`,
         });
-        verifyPngAtBirth(bytes, page.canonical_page_number);
+        const verified = verifyImageAtBirth(bytes, page.canonical_page_number, MIN_IMAGE_BYTES);
         const version = `${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
-        const path = coloringPath(ebook_id, page.canonical_page_number, version);
-        const up = await uploadAndSignImage(db, "ebook-covers", path, bytes);
+        const path = coloringPath(ebook_id, page.canonical_page_number, version, verified.ext);
+        const up = await uploadAndSignImage(db, "ebook-covers", path, bytes, { contentType: verified.mime });
         newRecords.push({
           page: page.canonical_page_number,
           signed_url: up.signedUrl,
           storage_path: up.path,
           bytes: bytes.length,
+          mime: verified.mime,
           rendered_at: new Date().toISOString(),
           prompt_hash: promptHash,
           primary_subject: page.primary_subject,
