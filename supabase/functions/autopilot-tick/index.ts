@@ -153,12 +153,18 @@ Deno.serve(async (req) => {
     result.published = published;
     result.publish_skipped = skipped;
 
-    // ---------- 5. Coloring-book autopilot fan-out (non-blocking) ----------
+    // ---------- 5. Coloring-book engine fan-out (independent lane) ----------
     try {
       const cb = await invoke("coloring-autopilot-tick", {});
       result.coloring_autopilot = { ok: cb.ok, status: cb.status, body: cb.body };
     } catch (e) {
       result.coloring_autopilot = { ok: false, error: String(e) };
+    }
+    try {
+      const cw = await invoke("coloring-worker-tick", {});
+      result.coloring_worker = { ok: cw.ok, status: cw.status, body: cw.body };
+    } catch (e) {
+      result.coloring_worker = { ok: false, error: String(e) };
     }
 
     return await finish(db, result);
