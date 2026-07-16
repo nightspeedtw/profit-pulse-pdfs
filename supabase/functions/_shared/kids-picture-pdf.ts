@@ -327,6 +327,7 @@ async function addTitlePage(doc: PDFDocument, title: string, subtitle: string | 
     assertTextSafe({ x, y, w, h: 12 });
     page.drawText(a, { x, y, size: 12, font: bodyFont, color: WARM_INK_SOFT });
   }
+  await stampBranding(doc, page, "title", null);
 }
 
 async function addCopyrightPage(doc: PDFDocument) {
