@@ -59,11 +59,10 @@ describe("coloring pricing — RULE 2 popularity tiers + ceiling/floor", () => {
 
   it("popularityTier honors 10% / 25% cutoffs", () => {
     const scores = [100, 90, 80, 70, 60, 50, 40, 30, 20, 10]; // 10 books
-    expect(popularityTier(100, scores)).toBe("top10"); // rank 1 / 10 = 10%
-    expect(popularityTier(90, scores)).toBe("top25");  // rank 2 = 20%
-    expect(popularityTier(70, scores)).toBe("top25");  // rank 4 = 40%? actually 4/10=40 → base
-    expect(popularityTier(80, scores)).toBe("top25");  // rank 3 = 30% > 25 → base
-    // recheck with clearer sizes
+    expect(popularityTier(100, scores)).toBe("top10"); // rank 1/10 = 10%
+    expect(popularityTier(90, scores)).toBe("top25");  // rank 2/10 = 20%
+    expect(popularityTier(80, scores)).toBe("base");   // rank 3/10 = 30% > 25%
+    expect(popularityTier(50, scores)).toBe("base");   // mid-pack
     const s20 = Array.from({ length: 20 }, (_, i) => 20 - i);
     expect(popularityTier(20, s20)).toBe("top10"); // 1/20 = 5%
     expect(popularityTier(18, s20)).toBe("top25"); // 3/20 = 15%
