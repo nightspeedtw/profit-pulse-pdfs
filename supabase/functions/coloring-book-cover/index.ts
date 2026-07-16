@@ -13,6 +13,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import { TEXTLESS_DIRECTIVE } from "../_shared/textless-illustration-policy.ts";
+import { buildColoringCoverArtPrompt } from "../_shared/coloring/cover-prompt.ts";
 import { renderKidsTitleTreatment } from "../_shared/covers/kids-title-treatment.ts";
 import { transcribeGlyphs, verifyCategoryHero } from "../_shared/covers/cover-vision-guards.ts";
 import { MEASURED_COVER_GATE_VERSION, measuredCoverScorecard } from "../_shared/covers/cover-measured-gate.ts";
@@ -241,15 +242,19 @@ Deno.serve(async (req: Request) => {
     const learnedClause = compactLearnedClause(learnedClauseFromRules([...learnedRules.values()]));
     const anatomyClauses = compactSeaAnatomy(heroSubjects);
 
-    const prompt = [
-      `Full-color cheerful children's coloring-book COVER BACKGROUND ART ONLY for "${categoryNameFinal}" ages ${ageMin}-${ageMax}.`,
-      `Show 3-5 cute friendly sea subjects from this set: ${heroSubjects.slice(0, 8).join(", ")}.`,
-      `Rich colorful painterly storefront cover scene; NOT line art, NOT black-and-white, NOT an interior page. Leave clean upper-half space for later SVG title overlay.`,
-      anatomyClauses,
-      learnedClause,
-      TEXTLESS_DIRECTIVE,
-      `No title/subtitle/age badge, no letters/numbers/watermark/logo/signage/mockup/UI, no blank canvas, no grayscale, no solid black water.`,
-    ].filter(Boolean).join(" ");
+    // OWNER LAW 'coloring_cover_textless_forever': the raw-art prompt is
+    // built by a single guarded builder that asserts TEXTLESS_DIRECTIVE is
+    // present AND that the book title is never leaked to the image model.
+    // The app overlay (renderKidsTitleTreatment + age badge + logo) is the
+    // only typography source on a coloring cover. Any attempt to add a
+    // titled/ideogram rung here will throw at build time.
+    const prompt = buildColoringCoverArtPrompt({
+      categoryName: categoryNameFinal,
+      ageMin, ageMax,
+      heroSubjects,
+      extraClauses: [anatomyClauses, learnedClause],
+      bannedTitle: row.title,
+    });
     const promptHash = await sha256Hex(prompt);
 
     const attempt = {
