@@ -70,14 +70,23 @@ describe("coloring pricing — RULE 2 popularity tiers + ceiling/floor", () => {
   });
 
   it("zero-score books stay base regardless of ranking", () => {
-    const tiers = assignTiersForCategory([
-      { book_id: "a", category_key: "x", purchases: 5 },
-      { book_id: "b", category_key: "x", purchases: 0 },
-      { book_id: "c", category_key: "x", purchases: 0 },
-    ]);
+    const signals = [
+      { book_id: "a", category_key: "x", purchases: 50 },
+      { book_id: "b", category_key: "x", purchases: 20 },
+      { book_id: "c", category_key: "x", purchases: 10 },
+      { book_id: "d", category_key: "x", purchases: 5 },
+      { book_id: "e", category_key: "x", purchases: 4 },
+      { book_id: "f", category_key: "x", purchases: 3 },
+      { book_id: "g", category_key: "x", purchases: 2 },
+      { book_id: "h", category_key: "x", purchases: 1 },
+      { book_id: "z1", category_key: "x", purchases: 0 },
+      { book_id: "z2", category_key: "x", purchases: 0 },
+    ];
+    const tiers = assignTiersForCategory(signals);
     expect(tiers.get("a")).toBe("top10");
-    expect(tiers.get("b")).toBe("base");
-    expect(tiers.get("c")).toBe("base");
+    expect(tiers.get("b")).toBe("top25");
+    expect(tiers.get("z1")).toBe("base");
+    expect(tiers.get("z2")).toBe("base");
   });
 
   it("popularityScore weights purchases 10x, previews 3x, views 1x", () => {
