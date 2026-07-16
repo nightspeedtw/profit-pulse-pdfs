@@ -423,7 +423,13 @@ Deno.serve(async (req: Request) => {
         present: (treatmentMeta as any)?.logo_present === true,
         rect: ((treatmentMeta as any)?.overlay_frame?.elements ?? []).find((e: any) => e.name === "secretpdf_kids_logo") ?? null,
       },
-      artwork: { used_svg_fallback: false, synthesized_background: false, blank_background: false, blank_ratio: 0 },
+      artwork: {
+        used_svg_fallback: false,
+        synthesized_background: false,
+        blank_background: color.blank_background === true,
+        blank_ratio: color.blank_ratio ?? 0,
+        region_stats: color.region_stats,
+      },
       quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
       pageCountMatchesFinalPdf: true,
     });
