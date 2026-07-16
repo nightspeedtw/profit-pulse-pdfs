@@ -225,13 +225,37 @@ Deno.serve(async (req: Request) => {
     const newRecords: StoredPage[] = [];
     const errors: { page: number; error: string }[] = [];
 
+    // Track per-page repair attempts on metadata for the repair ladder.
+    const repairAttempts = ((meta.coloring_repair_attempts as Record<string, number> | undefined) ?? {});
+
     // Sequential within this invocation — bounded FAL wallclock, safe on cost.
-    for (const page of toRender) {
-      const prompt = buildInteriorPrompt(page, styleContract, {
+    for (const rawPage of toRender) {
+      const attempt = repairAttempts[String(rawPage.canonical_page_number)] ?? 0;
+      // If a prior attempt logged reasons, run the ladder to revise/simplify.
+      const priorReasons = ((meta.coloring_last_errors as any[] | undefined) ?? [])
+        .filter((e) => e?.page === rawPage.canonical_page_number)
+        .flatMap((e) => (typeof e?.reasons === "string" ? [e.reasons] : e?.reasons ?? []));
+      const decision = attempt > 0
+        ? decideRepair(rawPage, attempt, priorReasons)
+        : { action: "repair" as const, revised_page: rawPage, prompt_additions: [], attempt, rationale: "first attempt" };
+
+      if (decision.action === "escalate") {
+        errors.push({
+          page: rawPage.canonical_page_number,
+          error: `escalate_after_${attempt}_attempts: ${decision.rationale}`,
+        });
+        continue;
+      }
+
+      const page = decision.revised_page;
+      const basePrompt = buildInteriorPrompt(page, styleContract, {
         category_name: category.category_name,
         target_age_min: category.target_age_min ?? 4,
         target_age_max: category.target_age_max ?? 6,
       });
+      const prompt = decision.prompt_additions.length
+        ? `${basePrompt} ${decision.prompt_additions.map((c) => c + ".").join(" ")}`
+        : basePrompt;
       assertPromptCompliant(prompt);
       const promptHash = await sha256Hex(prompt);
       try {
@@ -242,6 +266,19 @@ Deno.serve(async (req: Request) => {
           step: `coloring_${stageLabel}_page_${page.canonical_page_number}`,
         });
         const verified = verifyImageAtBirth(bytes, page.canonical_page_number, MIN_IMAGE_BYTES);
+
+        // Deterministic solid-black + white-bg check BEFORE upload.
+        const sb = await analyzeSolidBlack(bytes, DEFAULT_SOLID_BLACK_TH);
+        if (!sb.pass) {
+          repairAttempts[String(page.canonical_page_number)] = attempt + 1;
+          errors.push({
+            page: page.canonical_page_number,
+            error: `solid_black_gate: ${sb.reasons.join("; ")}`,
+            reasons: sb.reasons,
+          } as any);
+          continue;
+        }
+
         const version = `${Date.now()}-${crypto.randomUUID().slice(0, 6)}`;
         const path = coloringPath(ebook_id, page.canonical_page_number, version, verified.ext);
         const up = await uploadAndSignImage(db, "ebook-covers", path, bytes, { contentType: verified.mime });
@@ -256,11 +293,16 @@ Deno.serve(async (req: Request) => {
           primary_subject: page.primary_subject,
           stage: stageLabel,
         });
+        // clear repair counter on success
+        delete repairAttempts[String(page.canonical_page_number)];
       } catch (e: any) {
         console.error(`[coloring-render] page ${page.canonical_page_number} failed`, e?.message);
+        repairAttempts[String(page.canonical_page_number)] = attempt + 1;
         errors.push({ page: page.canonical_page_number, error: e?.message ?? String(e) });
       }
     }
+
+    await patchMeta(db, ebook_id, { coloring_repair_attempts: repairAttempts });
 
     const pages = await updatePages(db, ebook_id, newRecords);
     const total = plan.length;
