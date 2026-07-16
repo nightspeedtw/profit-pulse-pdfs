@@ -1,8 +1,9 @@
-import { Link, NavLink as RouterNavLink } from "react-router-dom";
+import { Link, NavLink as RouterNavLink, useLocation } from "react-router-dom";
 import { CartDrawer } from "./CartDrawer";
 import { Search, Menu, X, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import logoHorizontal from "@/assets/secretpdf-horizontal.png";
+import { KIDS_BRAND_URLS } from "./kids/KidsBrand";
 
 const NAV = [
   { label: "Library", to: "/library" },
