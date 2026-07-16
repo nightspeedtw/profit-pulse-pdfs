@@ -40,6 +40,7 @@ import { analyzeSolidBlack, DEFAULT_SOLID_BLACK_TH } from "../_shared/coloring/s
 import { computeSharpness } from "../_shared/coloring/sharpness-gate.ts";
 import { decideRepair, replanEscalatedPage, sanitizeSceneForColorability } from "../_shared/coloring/repair-ladder.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
+import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
 import { verifyAnatomyBatch, ANATOMY_VERIFIER_VERSION, type AnatomyPageVerdict } from "../_shared/coloring/anatomy-verify.ts";
 import { speciesAnatomyRepairClause } from "../_shared/coloring/species-anatomy.ts";
 import {
