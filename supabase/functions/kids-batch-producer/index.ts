@@ -40,6 +40,7 @@ async function reconcile(db: ReturnType<typeof createClient>, order: {
 }) {
   const { data: live } = await db.from('ebooks_kids')
     .select('id')
+    .neq('book_type', 'coloring_book') // coloring is a separate lane
     .eq('listing_status', 'live')
     .gte('updated_at', order.created_at);
   const liveIds = new Set<string>((live ?? []).map(r => r.id as string));
