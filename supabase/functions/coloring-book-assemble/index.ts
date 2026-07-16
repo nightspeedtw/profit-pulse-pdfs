@@ -22,6 +22,7 @@ import {
 } from "../_shared/kids-branding.ts";
 import { KIDS_BRAND_LAYOUT, KIDS_BRAND_FOOTER_DIMS } from "../_shared/kids-branding-policy.ts";
 import { coloringBookWeightedGate, coloringCoverGate, coloringReleaseGate } from "../_shared/coloring/gates.ts";
+import { drawFitText, drawFitParagraph } from "../_shared/pdf/shrink-to-fit.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
