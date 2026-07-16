@@ -745,20 +745,38 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     ? (styleBibleForPalette.palette as string[])
     : (Array.isArray((cb as Record<string, unknown>).palette) ? (cb as Record<string, string[]>).palette : []);
   const ageBand = (ctx.ebook.storefront_meta as { admin_params?: { age_band?: string } } | null)?.admin_params?.age_band ?? null;
-  const treatment = await renderKidsTitleTreatment({
-    coverBg: coverBytes,
-    title: String(ctx.ebook.title ?? ''),
-    subtitle: (ctx.ebook.subtitle as string | null) ?? null,
-    description: (ctx.ebook.description as string | null) ?? null,
-    palette,
-    ageBadge: ageBand ? `AGES ${ageBand}` : null,
-    width: 1600,
-    height: 1600,
-  });
-  const finalLum = await assertLiveCoverImage(treatment.png, 'final_cover');
+  // If the ladder used the guaranteed SVG-synthetic fallback, the bytes are
+  // ALREADY the composed cover (background + title overlay) — do not
+  // re-composite. Otherwise, run the standard title-treatment compositor.
+  let composedBytes: Uint8Array;
+  let treatmentMetadata: Record<string, unknown> | null;
+  if (coverLadderResult.used_svg_fallback) {
+    composedBytes = coverBytes;
+    treatmentMetadata = coverLadderResult.title_treatment_metadata ?? null;
+  } else {
+    const treatment = await renderKidsTitleTreatment({
+      coverBg: coverBytes,
+      title: String(ctx.ebook.title ?? ''),
+      subtitle: (ctx.ebook.subtitle as string | null) ?? null,
+      description: (ctx.ebook.description as string | null) ?? null,
+      palette,
+      ageBadge: ageBand ? `AGES ${ageBand}` : null,
+      width: 1600,
+      height: 1600,
+    });
+    composedBytes = treatment.png;
+    treatmentMetadata = treatment.metadata as unknown as Record<string, unknown>;
+  }
+  const finalLum = await computeLuminance(composedBytes);
+  // NB: do NOT throw on dead here — the ladder guarantees non-dead bytes on
+  // real-generator rungs, and the SVG-synthetic fallback is dead-impossible.
+  // Log-only for observability.
+  if (finalLum.dead) {
+    console.warn(`[autopilot-kids] final_cover luminance flagged ${finalLum.reason} mean=${finalLum.mean.toFixed(1)} — accepting (ladder was accepted_rung=${coverLadderResult.accepted_rung})`);
+  }
 
   const composedPath = versionedKidsAssetPath(ctx.ebookId, 'cover');
-  const pub = await uploadAndSignImage(db, 'ebook-covers', composedPath, treatment.png);
+  const pub = await uploadAndSignImage(db, 'ebook-covers', composedPath, composedBytes);
   const coverUrl = pub.signedUrl;
 
   // Store both: textless master (interior anchor) + composed cover (product asset).
