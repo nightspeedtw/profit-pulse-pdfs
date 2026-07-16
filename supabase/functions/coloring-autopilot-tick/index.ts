@@ -16,6 +16,7 @@
 // @ts-nocheck
 import { corsHeaders as baseCors } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { anglesFor } from "../_shared/coloring/angles.ts";
 
 declare const Deno: any;
 
@@ -38,10 +39,45 @@ const DEFAULTS = {
   daily_stop_utc: "22:00",
 };
 
-function titleFor(catName: string, ageBand: string): string {
-  const openers = ["Adventures", "Fun", "Wonders", "Friends", "Big Book of"];
-  const pick = openers[Math.floor(Math.random() * openers.length)];
-  return `${catName} Coloring ${pick} (Ages ${ageBand})`;
+function composeTitle(angle: string, catName: string, ageBand: string, variant: number): string {
+  const suffix = variant > 1 ? ` V${variant}` : "";
+  const firstWord = (catName ?? "").toLowerCase().split(/\s+/)[0] ?? "";
+  const angleIncludesCategory = firstWord && angle.toLowerCase().includes(firstWord);
+  const head = angleIncludesCategory ? angle : `${angle} ${catName}`;
+  return `${head} Coloring Book (Ages ${ageBand})${suffix}`;
+}
+
+async function pickUniqueTitle(
+  db: any,
+  categoryKey: string,
+  catName: string,
+  ageBand: string,
+): Promise<{ angle: string; variant: number; title: string }> {
+  const angles = anglesFor(categoryKey);
+  const { data: existing } = await db
+    .from("ebooks_kids")
+    .select("title, metadata")
+    .eq("book_type", "coloring_book")
+    .contains("metadata", { coloring_category_key: categoryKey })
+    .limit(500);
+  const usedTitles = new Set<string>((existing ?? []).map((r: any) => String(r.title ?? "").toLowerCase()));
+  const usedAngles = new Set<string>(
+    (existing ?? []).map((r: any) => String(r.metadata?.coloring_angle ?? "").toLowerCase()).filter(Boolean),
+  );
+  for (const a of angles) {
+    if (!usedAngles.has(a.toLowerCase())) {
+      const title = composeTitle(a, catName, ageBand, 1);
+      if (!usedTitles.has(title.toLowerCase())) return { angle: a, variant: 1, title };
+    }
+  }
+  for (let variant = 2; variant <= 20; variant++) {
+    for (const a of angles) {
+      const title = composeTitle(a, catName, ageBand, variant);
+      if (!usedTitles.has(title.toLowerCase())) return { angle: a, variant, title };
+    }
+  }
+  const a = angles[0] ?? "Fun";
+  return { angle: a, variant: 99, title: composeTitle(a, catName, ageBand, 99) };
 }
 
 function weightedPick<T extends { weight?: number }>(items: T[]): T {
