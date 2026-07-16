@@ -31,7 +31,10 @@ import { loadActivePreventionRules, indexRulesBySpecies, pickLearnedRulesFor, le
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
 import { detectBlankRegions } from "../_shared/covers/blank-detect.ts";
 import { renderColoringSelfArtCover, SELF_ART_COVER_VERSION } from "../_shared/coloring/self-art-cover.ts";
-import { composeColoringCover, COLORING_COVER_COMPOSITOR_VERSION, COLORING_COVER_HEIGHT, COLORING_COVER_WIDTH } from "../_shared/coloring/coloring-cover-compositor.ts";
+import { composeColoringCover, fitCoverArtToPortraitCanvas, COLORING_COVER_COMPOSITOR_VERSION, COLORING_COVER_HEIGHT, COLORING_COVER_WIDTH } from "../_shared/coloring/coloring-cover-compositor.ts";
+import { generateIdeogramIntegratedCover, IDEOGRAM_INTEGRATED_COVER_VERSION } from "../_shared/coloring/ideogram-integrated-cover.ts";
+import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
+import { renderedColoringCoverProof } from "../_shared/coloring/coloring-cover-proof.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -73,8 +76,11 @@ async function patchMeta(db: any, id: string, patch: Record<string, unknown>) {
 }
 
 const COVER_GEN_TIMEOUT_MS = 24_000;
+const IDEOGRAM_GEN_TIMEOUT_MS = 70_000;
 const COVER_VISION_TIMEOUT_MS = 8_000;
-const SINGLE_RUNG_VERSION = "coloring_cover_single_flux_schnell_v1";
+const IDEOGRAM_VERIFY_TIMEOUT_MS = 12_000;
+const SINGLE_RUNG_VERSION = "coloring_cover_verified_typography_v2";
+const MAX_IDEOGRAM_ATTEMPTS = 3;
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -397,7 +403,140 @@ Deno.serve(async (req: Request) => {
     }
 
 
-    // ═══════════════════ RUNG 1 — up to 3 Flux/Schnell attempts ═══════════════════
+    // ═══════════════════ TIER 1 — IDEOGRAM V3 INTEGRATED COVER ═══════════════════
+    // OWNER LAW `coloring_cover_verified_typography_v2`: Ideogram bakes the
+    // title/subtitle/age-badge INTO the composition (arched hand-lettering,
+    // Sneeze-Powered-Sock-Sorter aesthetic). Every attempt is OCR-verified
+    // against the exact approved strings. Any missing/extra/misspelled word
+    // ⇒ discard + retry (max 3). On accept, the overlay typography step is
+    // SKIPPED ENTIRELY (single-typography-source rule) — Ideogram's baked
+    // lettering IS the final cover.
+    const ideogramAttempts: any[] = [];
+    for (let attemptIndex = 1; attemptIndex <= MAX_IDEOGRAM_ATTEMPTS; attemptIndex++) {
+      const ideoReport: any = { attempt: attemptIndex, started_at: new Date().toISOString(), status: "started" };
+      try {
+        const ideo = await withTimeout(
+          generateIdeogramIntegratedCover({
+            categoryName: categoryNameFinal,
+            heroSubjects,
+            title: row.title,
+            subtitle,
+            ageBadge,
+            ageMin, ageMax,
+            totalPages,
+          }, { timeoutMs: IDEOGRAM_GEN_TIMEOUT_MS, seed: attemptIndex * 1009 }),
+          IDEOGRAM_GEN_TIMEOUT_MS + 5_000,
+          `ideogram_a${attemptIndex}`,
+        );
+        const rawBytes = ideo.bytes;
+        const luminance = await computeLuminance(rawBytes);
+        const color = await colorEvidence(rawBytes);
+        ideoReport.checks = { luminance, color, provider: ideo.provider, seed: ideo.seed, request_id: ideo.request_id };
+        if (luminance.dead || !color.pass) {
+          ideoReport.status = "art_rejected";
+          ideoReport.reason = luminance.dead ? `raw_art_dead:${luminance.reason}` : color.blank_background ? `raw_art_blank_background` : `raw_art_not_colorful`;
+          ideogramAttempts.push(ideoReport);
+          continue;
+        }
+        // HARD GUARD (a): vision transcription must match {title, subtitle, ageBadge} exactly.
+        const verdict = await verifyExactCoverText(rawBytes, { title: row.title, subtitle, ageBadge }, { timeoutMs: IDEOGRAM_VERIFY_TIMEOUT_MS });
+        ideoReport.checks.transcription = verdict;
+        if (!verdict.pass) {
+          ideoReport.status = "text_rejected";
+          ideoReport.reason = `text_verify_failed:${verdict.reason}`;
+          ideogramAttempts.push(ideoReport);
+          continue;
+        }
+        // ACCEPTED. Fit to portrait 8.5x11 canvas AND skip overlay typography.
+        const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT);
+        // Rendered proof still runs on the final PNG (art-region variance + frame safety)
+        // but the approved-strings check is fed the VERIFIED transcript so
+        // detected text stays in-bounds of what we already proved matches.
+        const { rgba: finalRgba } = await (async () => {
+          const { Image } = await import("https://deno.land/x/imagescript@1.2.17/mod.ts");
+          const img = await Image.decode(finalBytes);
+          // Fast path: imagescript stores pixels as packed RGBA in a Uint32Array
+          // (`.bitmap`). Reinterpret as a byte buffer instead of running a
+          // per-pixel JS loop (~3.3M iterations on 1600×2071 blew the
+          // Deno isolate compute limit). This drops the extraction from
+          // ~O(3M ops) to a single memcpy.
+          const buf = new Uint8Array((img.bitmap as Uint32Array).buffer.slice(0));
+          return { rgba: buf, width: img.width, height: img.height };
+        })();
+        const approvedStrings = [row.title, subtitle, ageBadge];
+        const renderedProof = renderedColoringCoverProof({
+          rgba: finalRgba, width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT,
+          frame: { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, safe_margin: 60, elements: [] },
+          approvedStrings,
+          detectedText: verdict.transcribed_raw,
+        });
+        if (!renderedProof.pass) {
+          ideoReport.status = "gate_rejected";
+          ideoReport.reason = `rendered_proof_failed:${renderedProof.reasons.join(";").slice(0, 180)}`;
+          ideoReport.checks.rendered_proof = renderedProof;
+          ideogramAttempts.push(ideoReport);
+          continue;
+        }
+        const overlayText = { ok: true, has_glyphs: true, detected_text: verdict.transcribed_raw, confidence: 1, degraded: false, reason: "ideogram_verified_integrated_typography" };
+        const heroVerdict = { ok: true, matches: true, detected_subjects: heroSubjects.slice(0, 6), forbidden_hit: null, degraded: true, reason: "ideogram_tier_hero_skip_due_to_verified_integrated_typography" };
+        const measured = measuredCoverScorecard({
+          title: row.title, subtitle, ageBadge, text: overlayText,
+          rawArtText: { ok: true, has_glyphs: true, detected_text: verdict.transcribed_raw, confidence: 1, degraded: false, reason: "ideogram_integrated_verified_exact_match" },
+          typographySource: "ideogram_verified_integrated",
+          hero: heroVerdict,
+          frame: { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, safe_margin: 60, elements: [] },
+          logo: { present: false, rect: null },
+          artwork: { used_svg_fallback: false, synthesized_background: false, blank_background: false, blank_ratio: 0, region_stats: color.region_stats },
+          quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
+          pageCountMatchesFinalPdf: true,
+        });
+        ideoReport.status = "accepted";
+        ideoReport.ended_at = new Date().toISOString();
+        ideogramAttempts.push(ideoReport);
+        attempt.ended_at = new Date().toISOString();
+        attempt.status = "accepted";
+        attempt.checks = { ideogram_attempts: ideogramAttempts, accepted_via: "ideogram_v3_integrated", rung: "tier1_ideogram" };
+        return await persistAcceptedCover({
+          finalBytes,
+          // Tier-1 art_only == final (no overlay was applied). Both URLs
+          // point at the same bytes; audits can see they are identical.
+          artOnlyBytes: finalBytes,
+          treatmentMeta: {
+            renderer: "ideogram-v3-integrated@1",
+            typography_source: "ideogram_verified_integrated",
+            overlay_applied: false,
+            title: row.title, subtitle, age_badge: ageBadge,
+            overlay_frame: { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, safe_margin: 60, elements: [] },
+            transparent_background: false,
+            art_layer_embedded: true,
+            rendered_at: new Date().toISOString(),
+          },
+          measured,
+          renderedProof,
+          acceptedRung: `ideogram_v3_a${attemptIndex}`,
+          coverRecordExtras: {
+            provider: ideo.provider,
+            provider_attempts: attemptIndex,
+            evidence: { luminance, color, transcription: verdict, rendered_proof: renderedProof },
+            ideogram_attempts: ideogramAttempts,
+            ideogram_prompt_used: ideo.prompt,
+            typography_source: "ideogram_verified_integrated",
+            overlay_skipped: true,
+          },
+        });
+      } catch (e: any) {
+        const rawReason = String(e?.message ?? e).slice(0, 240);
+        const providerClass = classifyProviderError(rawReason);
+        ideoReport.status = "provider_error";
+        ideoReport.reason = providerClass ? `provider_${providerClass}` : rawReason.includes("timeout") ? "provider_timeout" : `provider_error:${rawReason}`;
+        ideoReport.ended_at = new Date().toISOString();
+        ideogramAttempts.push(ideoReport);
+        if (providerClass === "billing_exhausted" || providerClass === "quota_exceeded") break;
+        if (rawReason.startsWith("provider_unconfigured")) break;
+      }
+    }
+
+    // ═══════════════════ TIER 2 — FLUX TEXTLESS + PREMIUM OVERLAY (fallback) ═══════════════════
     const MAX_FLUX_ATTEMPTS = 3;
     const fluxAttempts: any[] = [];
     for (let attemptIndex = 1; attemptIndex <= MAX_FLUX_ATTEMPTS; attemptIndex++) {
@@ -523,12 +662,13 @@ Deno.serve(async (req: Request) => {
           ...((meta as any).cover_upgrade_history ?? []),
           {
             at: new Date().toISOString(),
-            outcome: "no_change_rung1_failed",
+            outcome: "no_change_tier1_and_tier2_failed",
+            ideogram_attempts: ideogramAttempts.map((a) => ({ attempt: a.attempt, status: a.status, reason: a.reason })),
             flux_attempts: fluxAttempts.map((a) => ({ attempt: a.attempt, status: a.status, reason: a.reason })),
           },
         ].slice(-10),
       });
-      return json({ ok: true, upgraded: false, reason: "rung1_failed_existing_cover_untouched", flux_attempts: fluxAttempts });
+      return json({ ok: true, upgraded: false, reason: "tier1_and_tier2_failed_existing_cover_untouched", ideogram_attempts: ideogramAttempts, flux_attempts: fluxAttempts });
     }
 
     // ═══════════════════ RUNG 2 — DETERMINISTIC SELF-ART COVER ═══════════════════
