@@ -285,12 +285,12 @@ Deno.serve(async (req: Request) => {
         x: 40, y: 40, width: PAGE_W - 80, height: PAGE_H - 80,
         borderColor: rgb(0.6, 0.45, 0.15), borderWidth: 4,
       });
-      centerText(p, "Certificate of Coloring", PAGE_H - 200, 28, helvBold, rgb(0.35, 0.22, 0.05));
-      centerText(p, "Awarded to", PAGE_H - 260, 14, helv);
-      centerText(p, "_______________________________", PAGE_H - 310, 20, helvBold);
-      centerText(p, `for completing "${row.title}"`, PAGE_H - 370, 14, helv);
-      centerText(p, `${totalPages} coloring pages · ${ageBadge}`, PAGE_H - 400, 12, helv);
-      centerText(p, "Great job, artist!", PAGE_H - 470, 18, helvBold, rgb(0.35, 0.22, 0.05));
+      centerFit(p, "Certificate of Coloring", PAGE_H - 200, 28, helvBold, rgb(0.35, 0.22, 0.05), 14);
+      centerFit(p, "Awarded to", PAGE_H - 260, 14, helv, undefined, 9);
+      centerFit(p, "_______________________________", PAGE_H - 310, 20, helvBold, undefined, 10);
+      centerFit(p, `for completing "${row.title}"`, PAGE_H - 370, 14, helv, undefined, 9);
+      centerFit(p, `${totalPages} coloring pages · ${ageBadge}`, PAGE_H - 400, 12, helv, undefined, 8);
+      centerFit(p, "Great job, artist!", PAGE_H - 470, 18, helvBold, rgb(0.35, 0.22, 0.05), 12);
       drawColoringFooter(p, logoImg, helv);
     }
 
