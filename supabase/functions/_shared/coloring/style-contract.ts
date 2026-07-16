@@ -4,6 +4,7 @@
 
 import { TEXTLESS_DIRECTIVE, withTextlessDirective } from "../textless-illustration-policy.ts";
 import type { ColoringCategory } from "./category.ts";
+import { speciesAnatomyPromptClause } from "./species-anatomy.ts";
 
 export interface LineArtStyleContract {
   style_family: string;                     // e.g. "clean_friendly_thick_line"
