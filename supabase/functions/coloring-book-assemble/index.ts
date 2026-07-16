@@ -1,12 +1,19 @@
 // coloring-book-assemble — builds the final 8.5"×11" portrait PDF.
 //
-// Structure (matches owner spec):
+// STANDARD structure (page_count >= 8):
 //   1. Full-bleed cover
 //   2. Title page (title + subtitle + age badge)
 //   3. Copyright page
 //   4. "How to color" tips page
 //   5. N interior coloring pages (with kids-branding footer: logo BR + © BL)
 //   6. Completion certificate page
+//   → expected_page_count = 4 + N + 1
+//
+// MINI_TEST structure (page_count <= 4, owner smoke test):
+//   1. Full-bleed cover
+//   2. N interior coloring pages (same branded footer, same gates)
+//   3. Combined back page: certificate + compact copyright + secretpdf.co
+//   → expected_page_count = N + 2
 //
 // Applies weighted acceptance gate on the assembled page set before
 // uploading. Never lowers thresholds.
