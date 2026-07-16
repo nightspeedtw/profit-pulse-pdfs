@@ -36,7 +36,7 @@ import {
 import { verifyImageAtBirth, type ImageKind } from "../_shared/coloring/image-kind.ts";
 import { analyzeSolidBlack, DEFAULT_SOLID_BLACK_TH } from "../_shared/coloring/solid-black.ts";
 import { computeSharpness, DEFAULT_SHARPNESS_MIN_SCORE } from "../_shared/coloring/sharpness-gate.ts";
-import { decideRepair } from "../_shared/coloring/repair-ladder.ts";
+import { decideRepair, replanEscalatedPage, sanitizeSceneForColorability } from "../_shared/coloring/repair-ladder.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 
 // Canonical interior generation params — enforced identically for every page.
