@@ -17,6 +17,7 @@ const PASSCODE = Deno.env.get("ADMIN_PASSCODE") ?? "453451";
 
 const DEFAULTS = {
   enabled: false,
+  paused: false,
   topic_mode: "random",
   specific_category_key: null,
   age_band: "4-6",
@@ -24,6 +25,8 @@ const DEFAULTS = {
   batch_size: 1,
   daily_cap: 3,
   daily_stop_utc: "22:00",
+  max_parallel: 1,
+  daily_cost_cap_usd_coloring: 5,
 };
 
 Deno.serve(async (req: Request) => {
@@ -50,9 +53,13 @@ Deno.serve(async (req: Request) => {
         .order("category_key");
       // Status snapshot for the coloring queue only (independent engine).
       const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
-      const [queuedRes, publishedTodayRes, todayTotalRes, recentRes] = await Promise.all([
+      const [queuedRes, generatingRes, cancelledRes, publishedTodayRes, todayTotalRes, recentRes] = await Promise.all([
         admin.from("ebooks_kids").select("id", { count: "exact", head: true })
           .eq("book_type", "coloring_book").eq("pipeline_status", "queued"),
+        admin.from("ebooks_kids").select("id", { count: "exact", head: true })
+          .eq("book_type", "coloring_book").eq("pipeline_status", "generating"),
+        admin.from("ebooks_kids").select("id", { count: "exact", head: true })
+          .eq("book_type", "coloring_book").eq("pipeline_status", "cancelled"),
         admin.from("ebooks_kids").select("id", { count: "exact", head: true })
           .eq("book_type", "coloring_book").eq("listing_status", "live")
           .gte("created_at", dayStart.toISOString()),
@@ -61,27 +68,43 @@ Deno.serve(async (req: Request) => {
         admin.from("ebooks_kids")
           .select("id,title,pipeline_status,listing_status,created_at")
           .eq("book_type", "coloring_book")
-          .order("created_at", { ascending: false }).limit(5),
+          .order("created_at", { ascending: false }).limit(8),
       ]);
+      const cfg = { ...DEFAULTS, ...(data?.coloring_autopilot ?? {}) };
       return json({
-        config: { ...DEFAULTS, ...(data?.coloring_autopilot ?? {}) },
+        config: cfg,
         categories: cats ?? [],
         status: {
           queued: queuedRes.count ?? 0,
+          generating: generatingRes.count ?? 0,
+          cancelled: cancelledRes.count ?? 0,
           published_today: publishedTodayRes.count ?? 0,
           created_today: todayTotalRes.count ?? 0,
+          paused: !!cfg.paused,
+          last_worker_tick_at: cfg.last_worker_tick_at ?? null,
+          last_worker_tick_result: cfg.last_worker_tick_result ?? null,
           recent: recentRes.data ?? [],
         },
       });
     }
 
-    const merged = { ...DEFAULTS, ...(body.config ?? {}) };
+    // Save path: preserve internal telemetry fields not sent by client.
+    const { data: existingRow } = await admin
+      .from("generation_settings").select("coloring_autopilot").eq("id", 1).maybeSingle();
+    const existing = existingRow?.coloring_autopilot ?? {};
+    const merged = { ...DEFAULTS, ...existing, ...(body.config ?? {}) };
     merged.batch_size = Math.max(1, Math.min(20, Number(merged.batch_size) || 1));
     merged.daily_cap = Math.max(0, Math.min(100, Number(merged.daily_cap) || 0));
+    merged.max_parallel = Math.max(1, Math.min(4, Number(merged.max_parallel) || 1));
+    merged.daily_cost_cap_usd_coloring = Math.max(0, Math.min(500, Number(merged.daily_cost_cap_usd_coloring) || 0));
+    merged.paused = !!merged.paused;
     merged.page_count = [24, 32, 48].includes(Number(merged.page_count)) ? Number(merged.page_count) : 32;
     if (!["3-5", "4-6", "6-8"].includes(merged.age_band)) merged.age_band = "4-6";
     if (!["random", "specific"].includes(merged.topic_mode)) merged.topic_mode = "random";
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(merged.daily_stop_utc))) merged.daily_stop_utc = "22:00";
+    // Preserve telemetry
+    merged.last_worker_tick_at = existing.last_worker_tick_at ?? null;
+    merged.last_worker_tick_result = existing.last_worker_tick_result ?? null;
     const { error } = await admin.from("generation_settings")
       .update({ coloring_autopilot: merged }).eq("id", 1);
     if (error) throw error;
