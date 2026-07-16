@@ -561,7 +561,10 @@ Deno.serve(async (req: Request) => {
         pipeline_status: "queued",
         blocker_reason: `coloring_assemble_gate_blocked: ${[...bookGate.reasons, ...coverGate.reasons].slice(0, 3).join(" | ")}`.slice(0, 300),
       }).eq("id", ebook_id);
-      return json({ ok: false, gate_blocked: true, bookGate, coverGate });
+      // Self-advance with backoff so the book flows back through the tick
+      // dispatcher instead of parking until the next cron beat.
+      await scheduleSelfAdvance(db, ebook_id, { delayMs: SELF_ADVANCE_DELAY_BACKOFF_MS, reason: "assemble_gate_blocked" });
+      return json({ ok: false, gate_blocked: true, bookGate, coverGate, self_advance: true });
     }
 
     await db.from("ebooks_kids").update({
