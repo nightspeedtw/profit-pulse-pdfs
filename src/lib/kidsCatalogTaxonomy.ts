@@ -170,7 +170,7 @@ export const CATEGORY_PAGES: CategoryPage[] = [
     titleTag: "Printable Kids Coloring Books — Instant PDF Download | SecretPDF",
     metaDescription: "Original illustrated coloring books for kids. Print-ready PDFs, unique themes, thick clean line-art perfect for crayons and markers.",
     h1: "Kids Coloring Books",
-    intro: "Original, print-ready coloring books drawn in a clean, kid-friendly line style. Every book is a full 32-page PDF — download once, print as many times as you want.",
+    intro: "Original, print-ready coloring books drawn in a clean, kid-friendly line style. Available in 16, 24, 32, and 48-page PDFs — download once, print as many times as you want.",
     filter: { book_type: "coloring_book" },
     keywords: KEYWORDS.coloring,
   },
