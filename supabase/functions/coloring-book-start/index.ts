@@ -28,6 +28,9 @@ Deno.serve(async (req: Request) => {
     const variant_number: number = Number(body.variant_number ?? 1) || 1;
     const age_band: string = body.age_band ?? "4-6";
     const page_count: number = Number(body.page_count ?? 32);
+    if (![16, 24, 32, 48].includes(page_count)) {
+      return json({ error: "page_count must be 16, 24, 32, or 48" }, 400);
+    }
     if (!category_key || !title) {
       return json({ error: "category_key and title required" }, 400);
     }
