@@ -27,6 +27,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { falFluxSchnell } from "../_shared/fal.ts";
 import { FalBillingLockedError, FalBudgetCapReachedError, assertLaneCanDispatch } from "../_shared/fal-billing.ts";
+import { generateImageWithFailover, readImageProviderPolicy, DEFAULT_IMAGE_PROVIDER_POLICY } from "../_shared/image-providers.ts";
 import {
   assertPromptCompliant,
   buildInteriorPrompt,
@@ -141,6 +142,10 @@ Deno.serve(async (req: Request) => {
       }
       throw e;
     }
+
+    // Multi-provider policy (data-driven; A/B pilot may flip primary via
+    // generation_settings.coloring_autopilot.image_provider_policy).
+    const imagePolicy = (await readImageProviderPolicy(db)).interiors;
 
     const { data: row, error } = await db.from("ebooks_kids")
       .select("id, book_type, pipeline_status, metadata, title")
@@ -322,13 +327,15 @@ Deno.serve(async (req: Request) => {
         // 10–13 even after portrait replan — a per-page render-quality
         // deficit, not a floor bug. Bumping steps is the calibrated repair.
         const repairSteps = attempt >= 1 ? 8 : 4;
-        const bytes = await falFluxSchnell({
+        const gen = await generateImageWithFailover({
           prompt,
           image_size: INTERIOR_GEN_PARAMS.image_size,
           num_inference_steps: repairSteps,
           ebook_id: ebook_id,
           step: `coloring_${stageLabel}_page_${page.canonical_page_number}${attempt >= 1 ? "_repair" : ""}`,
-        });
+        }, imagePolicy);
+        const bytes = gen.bytes;
+        const providerUsed = gen.provider;
         const verified = verifyImageAtBirth(bytes, page.canonical_page_number, MIN_IMAGE_BYTES);
 
         // Deterministic solid-black + white-bg check BEFORE upload.
@@ -373,6 +380,8 @@ Deno.serve(async (req: Request) => {
           primary_subject: page.primary_subject,
           stage: stageLabel,
           render_params: { ...INTERIOR_GEN_PARAMS },
+          image_provider: providerUsed,
+          image_provider_attempts: gen.attempts,
           sharpness: { score: sharp.score, sobel_mean: sharp.sobel_mean, laplacian_var: sharp.laplacian_var, min_required: sharp.min_required },
         } as any);
         // Buffer raw bytes for batch anatomy verification below.
