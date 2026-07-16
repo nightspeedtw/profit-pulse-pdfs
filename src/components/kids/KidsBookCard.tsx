@@ -31,6 +31,10 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
   const chipLabel = (themeObj?.label_en || themeObj?.slug || "kids").toUpperCase();
 
   const isStrip = variant === "strip";
+  const isColoring = book.book_type === "coloring_book";
+  const productHref = isColoring ? `/kids/coloring/${book.id}` : `/product/${book.id}`;
+  const buyHref = isColoring ? `/kids/coloring/${book.id}` : `/kids/checkout/${book.id}`;
+  const buyLabel = isColoring ? `SHOP · ${priceLabel}` : `BUY · ${priceLabel}`;
 
   return (
     <div
