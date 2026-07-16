@@ -1,7 +1,7 @@
 // Coloring Book Pricing — owner pricing law.
 // RULE 1 (page count → base): linear interp across anchor table.
 // RULE 2 (popularity → multiplier): top 10% +40%, top 25% +20%, else base.
-// Ceiling $12.99, floor = base. Data-driven; config lives in
+// Ceiling $16.99, floor = base. Data-driven; config lives in
 // generation_settings.coloring_autopilot.pricing.
 //
 // Pure module — no I/O, no Deno globals. Runs in vitest (node) and Deno.
