@@ -38,6 +38,8 @@ import { analyzeSolidBlack, DEFAULT_SOLID_BLACK_TH } from "../_shared/coloring/s
 import { computeSharpness, DEFAULT_SHARPNESS_MIN_SCORE } from "../_shared/coloring/sharpness-gate.ts";
 import { decideRepair, replanEscalatedPage, sanitizeSceneForColorability } from "../_shared/coloring/repair-ladder.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
+import { verifyAnatomyBatch, ANATOMY_VERIFIER_VERSION, type AnatomyPageVerdict } from "../_shared/coloring/anatomy-verify.ts";
+import { speciesAnatomyRepairClause } from "../_shared/coloring/species-anatomy.ts";
 
 // Canonical interior generation params — enforced identically for every page.
 // Owner defect: mixed sizes/steps produced 2.6–20.3 edge-density variance.
