@@ -128,17 +128,26 @@ Deno.serve(async (req: Request) => {
     if (!row.cover_url) return json({ error: "cover_missing" }, 422);
     if (pages.length !== plan.length) return json({ error: "interior_incomplete" }, 422);
 
-    // OWNER LAW: publish-candidate is the terminal automated state UNLESS
-    // (a) the owner explicitly flips (`owner_flip === true`), OR
-    // (b) batch-learning `clean_auto_flip` is on AND `defect_ledger` is
-    //     empty (clean book — owner has pre-delegated the flip).
+    // OWNER LAW batch_learning_rounds (v2 — full-live amendment):
+    //   qc_mode = 'learning' (default): every book with pdf_url + cover_url
+    //     goes LIVE regardless of defect_ledger. Ledger is still recorded
+    //     in full — it is the learning fuel between rounds.
+    //   qc_mode = 'strict': restores original QC-blocking regime — only an
+    //     explicit owner flip (owner_flip===true) or a clean_auto_flip+
+    //     empty-ledger book goes live; everything else stays candidate.
+    //   Absolute floor (non-negotiable commerce integrity): pdf_url +
+    //   cover_url must be present and non-zero. Enforced above (422) AND
+    //   by the ebooks_kids_live_assets_guard DB trigger.
     const { data: gsPreview } = await db.from("generation_settings")
       .select("coloring_autopilot").eq("id", 1).maybeSingle();
     const autopilotCfg = (gsPreview?.coloring_autopilot ?? {}) as Record<string, unknown>;
     const ledger = Array.isArray(meta.defect_ledger) ? (meta.defect_ledger as any[]) : [];
     const cleanLedger = ledger.length === 0;
     const autoFlipEnabled = autopilotCfg.clean_auto_flip === true;
-    const publishLive = (mode === "live" && owner_flip === true) || (cleanLedger && autoFlipEnabled);
+    const qcMode = (autopilotCfg.qc_mode as string) ?? "learning";
+    const publishLive = qcMode === "learning"
+      ? true
+      : ((mode === "live" && owner_flip === true) || (cleanLedger && autoFlipEnabled));
 
 
     await patchMeta(db, ebook_id, {
@@ -188,17 +197,41 @@ Deno.serve(async (req: Request) => {
     });
 
     if (!gate.pass) {
-      await db.from("ebooks_kids").update({
-        listing_status: "draft", status: "needs_revision",
-        pipeline_status: "queued",
-        blocker_reason: `coloring_release_gate_blocked: ${gate.reasons.slice(0, 3).join(" | ")}`.slice(0, 300),
-      }).eq("id", ebook_id);
-      await patchMeta(db, ebook_id, {
-        coloring_release_gate: gate,
-        coloring_current_step_label: `Release blocked: ${gate.reasons.join("; ")}`,
-      });
-      await scheduleSelfAdvance(db, ebook_id, { delayMs: SELF_ADVANCE_DELAY_BACKOFF_MS, reason: "release_gate_blocked" });
-      return json({ ok: false, release_blocked: true, gate, self_advance: true });
+      if (qcMode === "learning") {
+        // Learning mode: log the gate failure into the defect ledger and
+        // continue publishing live. The commerce-floor (pdf+cover) was
+        // already enforced above.
+        const nextLedger = [
+          ...ledger,
+          {
+            stage: "publish",
+            gate: "release_gate",
+            page: null,
+            reasons: gate.reasons.slice(0, 10),
+            attempts: 1,
+            evidence_url: row.pdf_url,
+            waived_at: new Date().toISOString(),
+            round: Number((autopilotCfg.learning_round as number | undefined) ?? 1),
+          },
+        ];
+        await patchMeta(db, ebook_id, {
+          defect_ledger: nextLedger,
+          coloring_release_gate: gate,
+          coloring_current_step_label: `Release gate waived (learning mode): ${gate.reasons.slice(0, 3).join("; ")}`,
+        });
+      } else {
+        await db.from("ebooks_kids").update({
+          listing_status: "draft", status: "needs_revision",
+          pipeline_status: "queued",
+          blocker_reason: `coloring_release_gate_blocked: ${gate.reasons.slice(0, 3).join(" | ")}`.slice(0, 300),
+        }).eq("id", ebook_id);
+        await patchMeta(db, ebook_id, {
+          coloring_release_gate: gate,
+          coloring_current_step_label: `Release blocked: ${gate.reasons.join("; ")}`,
+        });
+        await scheduleSelfAdvance(db, ebook_id, { delayMs: SELF_ADVANCE_DELAY_BACKOFF_MS, reason: "release_gate_blocked" });
+        return json({ ok: false, release_blocked: true, gate, self_advance: true });
+      }
     }
 
     // ── Pricing (RULE 1: page-count → base) ───────────────────────────
