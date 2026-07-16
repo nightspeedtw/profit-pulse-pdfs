@@ -303,11 +303,15 @@ export async function verifyAnatomyBatch(
     named_subject: string | null;
     recognizable: boolean;
     category_match: boolean;
+    has_text: boolean;
+    text_seen: string | null;
   }>();
   for (const v of winner.parsed.verdicts ?? []) {
     if (typeof v.index === "number") {
-      const recognizable = v.recognizable !== false; // undefined = pass-safe when model omits
+      const recognizable = v.recognizable !== false;
       const categoryMatch = v.category_match !== false;
+      const hasText = v.has_text === true;
+      const textSeen = typeof v.text_seen === "string" ? v.text_seen.slice(0, 120) : null;
       byIndex.set(v.index, {
         pass: !!v.pass,
         anatomy_score: Number.isFinite(v.anatomy_score) ? Math.max(0, Math.min(100, Math.round(v.anatomy_score))) : 0,
@@ -315,6 +319,8 @@ export async function verifyAnatomyBatch(
         named_subject: typeof v.named_subject === "string" ? v.named_subject.slice(0, 80) : null,
         recognizable,
         category_match: categoryMatch,
+        has_text: hasText,
+        text_seen: textSeen,
       });
     }
   }
@@ -325,22 +331,21 @@ export async function verifyAnatomyBatch(
     const spec = speciesAnatomyChecklistJson(p.subject);
     const v = byIndex.get(i);
     if (!v) {
-      // Model responded but skipped this index → treat this page as
-      // unmeasured (do not condemn) — degraded=true.
       out.push(degradedVerdict(p, `${winner.model}:no_verdict_for_index`));
       continue;
     }
-    // Owner law: unrecognizable subject = category_match FAIL and page must
-    // regenerate. Merge into defects so the assemble gate + repair ladder
-    // treat it the same as an anatomy defect.
+    // Owner order #2: has_text=true on an interior page is a hard defect —
+    // merge `raw_art_has_text:<glyphs>` so classifyFailure routes it into
+    // text_or_watermark and the "absolutely no letters" clause is injected.
     const mergedDefects = [...v.defects];
     if (!v.recognizable) mergedDefects.push(`unrecognizable_subject:${v.named_subject ?? "unknown"}`);
     if (!v.category_match) mergedDefects.push(`category_match_fail:${v.named_subject ?? "unknown"}_vs_${p.subject}`);
+    if (v.has_text) mergedDefects.push(`raw_art_has_text:${v.text_seen ?? "letters"}`);
     out.push({
       page: p.page,
       subject: p.subject,
       species_key: spec.species_key,
-      pass: v.pass && v.anatomy_score >= 90 && mergedDefects.length === 0 && v.recognizable && v.category_match,
+      pass: v.pass && v.anatomy_score >= 90 && mergedDefects.length === 0 && v.recognizable && v.category_match && !v.has_text,
       anatomy_score: v.anatomy_score,
       defects: mergedDefects,
       degraded: false,
@@ -350,6 +355,8 @@ export async function verifyAnatomyBatch(
       named_subject: v.named_subject,
       recognizable: v.recognizable,
       category_match: v.category_match,
+      has_text: v.has_text,
+      text_seen: v.text_seen,
     });
   }
   return out;
