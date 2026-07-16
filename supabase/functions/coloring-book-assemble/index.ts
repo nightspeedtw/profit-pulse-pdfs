@@ -375,10 +375,16 @@ Deno.serve(async (req: Request) => {
     await patchMeta(db, ebook_id, {
       coloring_assembly: assembly,
       coloring_progress_percent: 97,
-      coloring_current_step_label: "PDF assembled — publishing to storefront",
-      awaiting: "publish",
+      coloring_current_step_label: publishHold
+        ? "PDF assembled — publish HELD for owner re-verification"
+        : "PDF assembled — publishing to storefront",
+      awaiting: publishHold ? "owner_final_verification" : "publish",
     });
 
+    if (publishHold) {
+      console.log(`[coloring-assemble] ${ebook_id} publish HELD (coloring_hold_publish=true)`);
+      return json({ ok: true, assembly, chained: "held", pdf_url: signed?.signedUrl });
+    }
     chain("coloring-book-publish", { ebook_id });
     return json({ ok: true, assembly, chained: "publish" });
   } catch (e: any) {
