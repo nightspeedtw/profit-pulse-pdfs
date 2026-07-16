@@ -34,8 +34,16 @@ import {
 } from "../_shared/coloring/style-contract.ts";
 import { verifyImageAtBirth, type ImageKind } from "../_shared/coloring/image-kind.ts";
 import { analyzeSolidBlack, DEFAULT_SOLID_BLACK_TH } from "../_shared/coloring/solid-black.ts";
+import { computeSharpness, DEFAULT_SHARPNESS_MIN_SCORE } from "../_shared/coloring/sharpness-gate.ts";
 import { decideRepair } from "../_shared/coloring/repair-ladder.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
+
+// Canonical interior generation params — enforced identically for every page.
+// Owner defect: mixed sizes/steps produced 2.6–20.3 edge-density variance.
+const INTERIOR_GEN_PARAMS = Object.freeze({
+  model: "fal-ai/flux/schnell",
+  image_size: "portrait_4_3" as const,
+});
 
 declare const Deno: any;
 
