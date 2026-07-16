@@ -6,7 +6,7 @@
 //   category_key: string,
 //   title: string,
 //   age_band?: "3-5" | "4-6" | "6-8",
-//   page_count?: 16 | 24 | 32 | 48
+//   page_count?: 4 | 16 | 24 | 32 | 48   (4 = mini_test format)
 // }
 
 // @ts-nocheck  Edge runtime.
