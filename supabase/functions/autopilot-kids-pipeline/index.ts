@@ -11,6 +11,7 @@ import { detectBibleStoryMismatch, detectMetadataStoryMismatch, METADATA_STORY_M
 import { writeSegmentedManuscript, renderSegmentsToMd, loadSegments, segmentsToPageTexts } from '../_shared/kids-segments.ts';
 import { loadStoryCraftBlock } from '../_shared/story-craft-skill.ts';
 import { renderKidsTitleTreatment } from '../_shared/covers/kids-title-treatment.ts';
+import { renderKidsCoverWithLadder } from '../_shared/covers/kids-cover-ladder.ts';
 import { uploadAndSignImage, versionedKidsAssetPath } from '../_shared/versioned-assets.ts';
 import { computeLuminance, generateLiveImage } from '../_shared/image-luminance.ts';
 import { resolveStageOrThrow, logStageEvidence, assertCoverOrInteriorReady } from '../_shared/skill-evidence.ts';
@@ -696,47 +697,37 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     }).eq('ebook_id', ctx.ebookId);
   }
 
-  // Step: final cover — reference-grade whimsical illustrated children's storybook cover.
-  // Textless art layer: title lettering is layered as a separate typographic overlay by
-  // the store-thumbnail pipeline, so the AI never bakes text into the artwork.
-  const coverPrompt = [
-    `Whimsical illustrated children's picture book COVER ARTWORK for "${ctx.ebook.title}".`,
-    `Hero character: ${charDesc}. Show the hero clearly in a warmly-lit, richly detailed scene that captures the story's emotional promise.`,
-    `Portrait orientation. Storybook composition with strong focal character, rich magical/nature environment when fitting, cozy inviting atmosphere, soft golden lighting, painterly textures, expressive character face, generous negative space at the top for a title to be added later.`,
-    `Style: ${styleSuffix}. Hand-illustrated feel like a modern reference-grade picture book cover (in the emotional spirit of Oliver Jeffers, Jon Klassen, Beatrice Alemagna — do NOT copy any of them).`,
-    `Description hint: ${ctx.ebook.description ?? ''}`,
-    `ABSOLUTELY NO TEXT of any kind: no letters, no numbers, no title, no words, no logo, no watermark, no captions, no typography, no book mockup, no UI. Textless artwork only.`,
-    `Avoid AI clichés: no purple/indigo gradients on white, no glossy 3D blobs, no stock face, no generic hero-on-gradient, no melted shapes, no six-finger hands.`,
-  ].join(' ');
-
-  // Dead frames are rejected at birth: generateLiveImage does up to 3 in-call
-  // retries with jitter, and only throws when EVERY attempt is dead — so a
-  // repeated-black-cover budget-exhaustion class can only happen for a
-  // genuinely broken generation path.
-  let coverBytes: Uint8Array | null = null;
+  // Step: final cover — unified ladder shared with kids-repair-cover-from-interior.
+  // Rungs: Ideogram v3 A → Ideogram v3 B → Recraft v3 (ref) → Gemini refs →
+  //         SVG-synthetic fallback (dead-impossible). A dead frame on any
+  //         rung SILENTLY ADVANCES to the next rung — dead frames never
+  //         consume the concept/retire budget. Only exhausting every rung
+  //         AND the SVG synthetic canvas failing (which cannot happen) is
+  //         a real failure. This is the ONLY cover-generation entrypoint.
+  let coverBytes: Uint8Array;
+  let coverLadderResult: Awaited<ReturnType<typeof renderKidsCoverWithLadder>>;
   try {
-    const live = await generateLiveImage({
-      label: 'cover_master',
-      attempts: 3,
-      gen: async (inner) => {
-        const jitter = inner === 1 ? '' : inner === 2
-          ? ' Bright, fully lit; avoid any dark or empty canvas.'
-          : ' Retry with fresh composition: warmer palette, higher pose energy.';
-        const bytes = await falRecraftV3({
-          prompt: `${coverPrompt}${jitter}`,
-          image_url: refUrl ?? undefined,
-          strength: 0.6,
-          image_size: 'portrait_4_3',
-          negative_prompt: `${negativePrompt}, black canvas, near-black image, empty image, blank image, text, letters, numbers, words, title, typography, watermark, logo, book mockup, ui, caption, subtitle, spine, gradient on white, glossy 3d blob, stock photo, six fingers, deformed hands, generic ai look`,
-          ebook_id: ctx.ebookId,
-          step: 'kids_cover_master',
-        });
-        return { bytes, meta: { provider: 'google_direct', model: 'fal/recraft-v3', partCount: 1, bytesLen: bytes.length, finishReason: null, safetyRatings: null } };
-      },
+    coverLadderResult = await renderKidsCoverWithLadder({
+      ebookId: ctx.ebookId,
+      title: String(ctx.ebook.title ?? ''),
+      subtitle: (ctx.ebook.subtitle as string | null) ?? null,
+      description: (ctx.ebook.description as string | null) ?? null,
+      charDesc,
+      heroName: (cb.name as string | undefined) ?? null,
+      styleSuffix,
+      negativePrompt,
+      refUrls: refUrl ? [refUrl] : [],
+      palette: Array.isArray((bible!.style_bible_json as Record<string, unknown> | null)?.palette)
+        ? ((bible!.style_bible_json as Record<string, unknown>).palette as string[])
+        : undefined,
     });
-    coverBytes = live.bytes;
+    coverBytes = coverLadderResult.bytes;
+    console.log(`[autopilot-kids] cover ladder accepted rung=${coverLadderResult.accepted_rung} svg_fallback=${coverLadderResult.used_svg_fallback}`);
   } catch (e) {
-    throw new Error(`cover_generation_failed_after_dead_image_gate: ${String((e as Error).message ?? e).slice(0, 240)}`);
+    // renderKidsCoverWithLadder guarantees SVG fallback; if we reach this,
+    // it's a truly non-recoverable error (typography renderer crash). We
+    // do NOT retire the book; we surface it for repair.
+    throw new Error(`cover_ladder_hard_error_svg_fallback_failed: ${String((e as Error).message ?? e).slice(0, 240)}`);
   }
 
 
@@ -754,20 +745,38 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     ? (styleBibleForPalette.palette as string[])
     : (Array.isArray((cb as Record<string, unknown>).palette) ? (cb as Record<string, string[]>).palette : []);
   const ageBand = (ctx.ebook.storefront_meta as { admin_params?: { age_band?: string } } | null)?.admin_params?.age_band ?? null;
-  const treatment = await renderKidsTitleTreatment({
-    coverBg: coverBytes,
-    title: String(ctx.ebook.title ?? ''),
-    subtitle: (ctx.ebook.subtitle as string | null) ?? null,
-    description: (ctx.ebook.description as string | null) ?? null,
-    palette,
-    ageBadge: ageBand ? `AGES ${ageBand}` : null,
-    width: 1600,
-    height: 1600,
-  });
-  const finalLum = await assertLiveCoverImage(treatment.png, 'final_cover');
+  // If the ladder used the guaranteed SVG-synthetic fallback, the bytes are
+  // ALREADY the composed cover (background + title overlay) — do not
+  // re-composite. Otherwise, run the standard title-treatment compositor.
+  let composedBytes: Uint8Array;
+  let treatmentMetadata: Record<string, unknown> | null;
+  if (coverLadderResult.used_svg_fallback) {
+    composedBytes = coverBytes;
+    treatmentMetadata = coverLadderResult.title_treatment_metadata ?? null;
+  } else {
+    const treatment = await renderKidsTitleTreatment({
+      coverBg: coverBytes,
+      title: String(ctx.ebook.title ?? ''),
+      subtitle: (ctx.ebook.subtitle as string | null) ?? null,
+      description: (ctx.ebook.description as string | null) ?? null,
+      palette,
+      ageBadge: ageBand ? `AGES ${ageBand}` : null,
+      width: 1600,
+      height: 1600,
+    });
+    composedBytes = treatment.png;
+    treatmentMetadata = treatment.metadata as unknown as Record<string, unknown>;
+  }
+  const finalLum = await computeLuminance(composedBytes);
+  // NB: do NOT throw on dead here — the ladder guarantees non-dead bytes on
+  // real-generator rungs, and the SVG-synthetic fallback is dead-impossible.
+  // Log-only for observability.
+  if (finalLum.dead) {
+    console.warn(`[autopilot-kids] final_cover luminance flagged ${finalLum.reason} mean=${finalLum.mean.toFixed(1)} — accepting (ladder was accepted_rung=${coverLadderResult.accepted_rung})`);
+  }
 
   const composedPath = versionedKidsAssetPath(ctx.ebookId, 'cover');
-  const pub = await uploadAndSignImage(db, 'ebook-covers', composedPath, treatment.png);
+  const pub = await uploadAndSignImage(db, 'ebook-covers', composedPath, composedBytes);
   const coverUrl = pub.signedUrl;
 
   // Store both: textless master (interior anchor) + composed cover (product asset).
@@ -787,7 +796,7 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     cover_url: coverUrl,
     thumbnail_url: coverUrl,
     status: 'rendering', pipeline_status: 'rendering',
-    storefront_meta: { ...existingMeta, title_treatment: treatment.metadata, cover_luminance: { master: { note: 'live_verified_at_birth' }, final: finalLum } },
+    storefront_meta: { ...existingMeta, title_treatment: treatmentMetadata, cover_source: coverLadderResult.accepted_rung, cover_ladder_reports: coverLadderResult.rung_reports, cover_luminance: { master: { note: 'live_verified_at_birth' }, final: finalLum } },
     story_bible_id: bibleRowId,
     character_bible_id: bibleRowId,
     character_reference_id: characterReferenceId,
@@ -809,9 +818,11 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
       master_path: masterPath,
       style: styleSlug,
       ref_used: !!refUrl,
-      title_theme: treatment.metadata.theme,
-      title_font_size: treatment.metadata.font_size,
-      lines: treatment.metadata.lines,
+      title_theme: (treatmentMetadata as any)?.theme,
+      title_font_size: (treatmentMetadata as any)?.font_size,
+      lines: (treatmentMetadata as any)?.lines,
+      cover_accepted_rung: coverLadderResult.accepted_rung,
+      cover_used_svg_fallback: coverLadderResult.used_svg_fallback,
       character_reference_id: characterReferenceId,
       story_bible_id: bibleRowId,
     },
