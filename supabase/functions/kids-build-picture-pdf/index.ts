@@ -57,6 +57,9 @@ function summarizeBranding(reports: BrandingReport[]) {
     logo_skipped_pages: logo_skipped.map((r) => ({ page_index: r.page_index, reason: r.reason })),
     copyright_skipped_pages: cov_skipped.map((r) => ({ page_index: r.page_index, reason: r.reason })),
   };
+}
+
+
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
