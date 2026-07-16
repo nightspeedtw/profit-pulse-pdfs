@@ -60,6 +60,11 @@ const SEALS = new Set(["seal","sea lion","fur seal","harbor seal"]);
 
 const TECHNICAL_MATCH = /(verifier|degraded|no_verdict|billing|budget|provider_|http_?\d{3}|timeout|replanned_to_portrait|coloring_page_dead)/i;
 
+// Owner law anatomy_imagination_vs_deformity — Tier 2 stylization is NEVER
+// a defect. If the verifier still surfaces such a string, drop it here so it
+// does not increment counters or promote learned rules.
+const STYLIZATION_MATCH = /(eyelash|long\s+lashes|big\s+(sparkly\s+)?eyes|sparkl(e|y)\s+eyes|smile|smiling|blush|rosy\s+cheeks|bow(\s+on|tie)|wearing\s+(a\s+)?(bow|hat|ribbon|crown|scarf)|humani[sz]ed\s+(face|expression)|anthropomorphic|cute\s+(face|expression))/i;
+
 const NORMALIZERS: NormalizerRule[] = [
   { pattern_key: "cetacean_horizontal_flukes", gate: "anatomy",
     match: /(vertical\s+(fish\s+)?tail|vertical\s+flukes?|mermaid\s+fin|split\s+y[- ]?tail|y[- ]?shaped\s+tail|caudal\s+fin\s+vertical)/i },
