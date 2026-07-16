@@ -500,6 +500,50 @@ export type Database = {
           },
         ]
       }
+      book_first_pass_yield: {
+        Row: {
+          created_at: string
+          ebook_kids_id: string
+          first_pass_pages: number
+          fpy: number
+          gate_rejections: number
+          id: string
+          measured_at: string
+          rejections_by_class: Json
+          total_pages: number
+        }
+        Insert: {
+          created_at?: string
+          ebook_kids_id: string
+          first_pass_pages: number
+          fpy: number
+          gate_rejections?: number
+          id?: string
+          measured_at?: string
+          rejections_by_class?: Json
+          total_pages: number
+        }
+        Update: {
+          created_at?: string
+          ebook_kids_id?: string
+          first_pass_pages?: number
+          fpy?: number
+          gate_rejections?: number
+          id?: string
+          measured_at?: string
+          rejections_by_class?: Json
+          total_pages?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "book_first_pass_yield_ebook_kids_id_fkey"
+            columns: ["ebook_kids_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks_kids"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       book_royalty_markets: {
         Row: {
           book_id: string
@@ -2827,6 +2871,105 @@ export type Database = {
           label_th?: string
           slug?: string
           sort_order?: number
+        }
+        Relationships: []
+      }
+      learned_defect_counts: {
+        Row: {
+          count: number
+          created_at: string
+          first_seen_at: string
+          gate: string
+          id: string
+          last_ebook_id: string | null
+          last_seen_at: string
+          pattern_key: string
+          species_key: string
+          updated_at: string
+        }
+        Insert: {
+          count?: number
+          created_at?: string
+          first_seen_at?: string
+          gate: string
+          id?: string
+          last_ebook_id?: string | null
+          last_seen_at?: string
+          pattern_key: string
+          species_key: string
+          updated_at?: string
+        }
+        Update: {
+          count?: number
+          created_at?: string
+          first_seen_at?: string
+          gate?: string
+          id?: string
+          last_ebook_id?: string | null
+          last_seen_at?: string
+          pattern_key?: string
+          species_key?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      learned_prevention_rules: {
+        Row: {
+          activated_at: string
+          composition_hint: string
+          created_at: string
+          fpy_after: number | null
+          fpy_baseline: number | null
+          gate: string
+          id: string
+          last_hit_at: string | null
+          negative_clause: string
+          occurrence_count: number
+          pattern_key: string
+          positive_clause: string
+          source: string
+          species_key: string
+          status: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          activated_at?: string
+          composition_hint?: string
+          created_at?: string
+          fpy_after?: number | null
+          fpy_baseline?: number | null
+          gate: string
+          id?: string
+          last_hit_at?: string | null
+          negative_clause?: string
+          occurrence_count?: number
+          pattern_key: string
+          positive_clause: string
+          source?: string
+          species_key: string
+          status?: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          activated_at?: string
+          composition_hint?: string
+          created_at?: string
+          fpy_after?: number | null
+          fpy_baseline?: number | null
+          gate?: string
+          id?: string
+          last_hit_at?: string | null
+          negative_clause?: string
+          occurrence_count?: number
+          pattern_key?: string
+          positive_clause?: string
+          source?: string
+          species_key?: string
+          status?: string
+          updated_at?: string
+          version?: number
         }
         Relationships: []
       }
