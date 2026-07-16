@@ -168,7 +168,7 @@ Deno.serve(async (req: Request) => {
     // Dispatch is FIRE-AND-FORGET (3s timeout treated as dispatched). A
     // dispatcher must never wait for the work it dispatches — otherwise the
     // gateway wall-clock kills the tick and books stall mid-stage.
-    for (const row of queued) {
+    const dispatchPromises = queued.map(async (row) => {
       const meta = (row.metadata ?? {}) as Record<string, unknown>;
       const awaiting = meta.awaiting as string | undefined;
       let target = "coloring-book-render";
@@ -183,11 +183,13 @@ Deno.serve(async (req: Request) => {
         { ebook_id: row.id, ...(awaiting === "publish_candidate" || awaiting === "owner_final_verification" ? { mode: "candidate" } : {}) },
         3_000,
       );
-      (result.dispatched as unknown[]).push({
+      return {
         ebook_id: row.id, title: row.title, target,
         dispatched: outcome.dispatched, status: outcome.status ?? null, note: outcome.error ?? null,
-      });
-    }
+      };
+    });
+    const dispatchResults = await Promise.all(dispatchPromises);
+    (result.dispatched as unknown[]).push(...dispatchResults);
 
     await recordTick(db, result);
     return json(result);
