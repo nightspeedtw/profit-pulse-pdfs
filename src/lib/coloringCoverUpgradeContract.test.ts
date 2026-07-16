@@ -14,6 +14,7 @@ import { describe, it, expect } from "vitest";
 function buildUpgradePatch(opts: {
   prevMeta: Record<string, any>;
   newCoverUrl: string;
+  newArtOnlyUrl?: string;
   newRung: string;
   isUpgradeMode: boolean;
 }) {
@@ -26,6 +27,9 @@ function buildUpgradePatch(opts: {
       ...opts.prevMeta,
       coloring_cover: {
         url: opts.newCoverUrl,
+        final_composed_url: opts.newCoverUrl,
+        art_only_url: opts.newArtOnlyUrl ?? "https://x/art-only.png",
+        rendered_proof: { pass: true },
         accepted_rung: opts.newRung,
         is_fallback_rung: isRung2Fallback,
         upgraded_from_rung: opts.isUpgradeMode ? (prevCover as any)?.accepted_rung ?? null : null,
@@ -45,6 +49,9 @@ describe("cover_can_never_fail: upgrade atomic-swap contract", () => {
     });
     expect(patch.metadata.cover_upgrade_pending).toBe(true);
     expect(patch.metadata.coloring_cover.is_fallback_rung).toBe(true);
+    expect(patch.metadata.coloring_cover.art_only_url).toMatch(/art-only/);
+    expect(patch.metadata.coloring_cover.final_composed_url).toBe(patch.cover_url);
+    expect(patch.metadata.coloring_cover.rendered_proof.pass).toBe(true);
     expect(patch.cover_url).toBe(patch.thumbnail_url);
   });
 
@@ -58,6 +65,7 @@ describe("cover_can_never_fail: upgrade atomic-swap contract", () => {
     expect(patch.metadata.cover_upgrade_pending).toBe(false);
     expect(patch.metadata.coloring_cover.upgraded_from_rung).toBe("coloring_self_art_cover_v2_beautified");
     expect(patch.cover_url).toBe(patch.thumbnail_url); // atomic: url + thumbnail swap together
+    expect(patch.metadata.coloring_cover.art_only_url).toBeTruthy();
   });
 
   it("upgrade failure path: no patch is emitted (existing cover untouched)", () => {
