@@ -73,17 +73,36 @@ Deno.serve(async (req: Request) => {
     result.candidate_count = books?.length ?? 0;
     if (!books || books.length === 0) return json(result);
 
-    // Popularity signal: purchases via kids_download_grants over lookback.
+    // Popularity signals over lookback window:
+    //   - purchases: kids_download_grants rows (the strongest, ×10 weight)
+    //   - views:     coloring_book_events.view_product
+    //   - previews:  coloring_book_events.open_preview + preview_page_turn
+    // Event names MUST match src/lib/coloringFunnelEvents.ts.
     const since = new Date(startedAt.getTime() - cfg.popularity.lookback_days * 86_400_000).toISOString();
     const bookIds = books.map((b: any) => b.id);
-    const { data: grants } = await db.from("kids_download_grants")
-      .select("ebook_kids_id, created_at")
-      .in("ebook_kids_id", bookIds)
-      .gte("created_at", since);
+    const [{ data: grants }, { data: events }] = await Promise.all([
+      db.from("kids_download_grants")
+        .select("ebook_kids_id, created_at")
+        .in("ebook_kids_id", bookIds)
+        .gte("created_at", since),
+      db.from("coloring_book_events")
+        .select("ebook_kids_id, event_type, session_id")
+        .in("ebook_kids_id", bookIds)
+        .gte("created_at", since),
+    ]);
     const purchases = new Map<string, number>();
     for (const g of grants ?? []) {
       const id = (g as any).ebook_kids_id;
       purchases.set(id, (purchases.get(id) ?? 0) + 1);
+    }
+    const views = new Map<string, number>();
+    const previews = new Map<string, number>();
+    for (const e of events ?? []) {
+      const id = (e as any).ebook_kids_id;
+      const t = (e as any).event_type as string;
+      if (t === "view_product") views.set(id, (views.get(id) ?? 0) + 1);
+      else if (t === "open_preview" || t === "preview_page_turn") previews.set(id, (previews.get(id) ?? 0) + 1);
+      // click_buy: reserved — kids_download_grants is the authoritative purchase signal.
     }
 
     // Group by category_key.
@@ -98,8 +117,8 @@ Deno.serve(async (req: Request) => {
       arr.push({
         book_id: b.id,
         category_key: catKey,
-        views: 0,
-        previews: 0,
+        views: views.get(b.id) ?? 0,
+        previews: previews.get(b.id) ?? 0,
         purchases: purchases.get(b.id) ?? 0,
       });
       byCat.set(catKey, arr);
