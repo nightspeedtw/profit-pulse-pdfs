@@ -283,7 +283,7 @@ export function bookMatchesFilter(book: FilterableBook, filter: CategoryFilter):
 }
 
 export interface KidsUrlParams {
-  age?: AgeBandSlug | null;
+  age?: AgeChipSlug | AgeBandSlug | null;
   theme?: ThemeSlug | null;
   type?: BookTypeSlug | null;
 }
@@ -299,10 +299,15 @@ export function buildKidsUrl(params: KidsUrlParams, base = "/kids"): string {
 
 export function parseKidsUrl(search: URLSearchParams): KidsUrlParams {
   return {
-    age:   (search.get("age")   as AgeBandSlug | null)  ?? null,
+    age:   (search.get("age")   as AgeChipSlug | AgeBandSlug | null)  ?? null,
     theme: (search.get("theme") as ThemeSlug   | null)  ?? null,
     type:  (search.get("type")  as BookTypeSlug | null) ?? null,
   };
+}
+
+export function resolveAgeChip(slug: string | null | undefined): AgeChip | null {
+  if (!slug) return null;
+  return AGE_CHIPS.find((c) => c.slug === slug) ?? null;
 }
 
 export const CATEGORY_SLUGS = CATEGORY_PAGES.map((c) => c.slug);
