@@ -16,6 +16,7 @@
 // - OCR verification (spelling is verified from source text against metadata).
 
 import { initWasm, Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
+import { KIDS_BRAND_ASSETS, KIDS_BRAND_FOOTER_DIMS } from "../kids-branding-policy.ts";
 
 // ---------- WASM + font loading (shared with kids-cover-render) ----------
 let wasmReady: Promise<void> | null = null;
@@ -122,6 +123,21 @@ function toB64(bytes: Uint8Array): string {
     bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)));
   }
   return btoa(bin);
+}
+
+let coverLogoB64Cache: string | null = null;
+async function loadCoverLogoB64(): Promise<string | null> {
+  if (coverLogoB64Cache) return coverLogoB64Cache;
+  try {
+    const url = `https://profit-pulse-pdfs.lovable.app${KIDS_BRAND_ASSETS.footer}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`logo_fetch_${r.status}`);
+    coverLogoB64Cache = toB64(new Uint8Array(await r.arrayBuffer()));
+    return coverLogoB64Cache;
+  } catch (e) {
+    console.warn(`kids-title-treatment cover logo failed: ${(e as Error).message}`);
+    return null;
+  }
 }
 
 /** Split title into ≤ maxLines balanced lines, favouring visual balance. */
@@ -416,6 +432,13 @@ export interface TitleTreatmentMetadata {
   y_bounce_px: number;
   decorations_count: number;
   age_badge: string | null;
+  logo_present: boolean;
+  overlay_frame: {
+    width: number;
+    height: number;
+    safe_margin: number;
+    elements: Array<{ name: string; x: number; y: number; w: number; h: number }>;
+  };
   renderer: "kids-title-treatment@1";
   rendered_at: string;
 }
@@ -516,6 +539,27 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
       </g>`
     : "";
 
+  // SecretPDF Kids logo on cover: deterministic uploaded asset, never AI.
+  // 12% width, inside safe margin, bottom-left away from the title/badge.
+  const logoB64 = await loadCoverLogoB64();
+  const logoW = Math.round(W * 0.12);
+  const logoH = Math.round(logoW * (KIDS_BRAND_FOOTER_DIMS.h / KIDS_BRAND_FOOTER_DIMS.w));
+  const logoX = safe;
+  const logoY = H - safe - logoH;
+  const logoEl = logoB64
+    ? `<g transform="translate(${logoX}, ${logoY})">
+        <rect x="-14" y="-10" width="${logoW + 28}" height="${logoH + 20}" rx="18" ry="18" fill="#FFFFFF" opacity="0.74"/>
+        <image href="data:image/png;base64,${logoB64}" x="0" y="0" width="${logoW}" height="${logoH}" preserveAspectRatio="xMidYMid meet" opacity="0.96"/>
+      </g>`
+    : "";
+
+  const overlayElements = [
+    { name: "title_cluster", x: titleBounds.x - 40, y: titleBounds.y - 20, w: titleBounds.w + 80, h: titleBounds.h + 40 },
+    ...(showSubtitle ? [{ name: "subtitle", x: Math.round(W * 0.16), y: Math.round(subtitleY - 58), w: Math.round(W * 0.68), h: 72 }] : []),
+    ...(ageBadge ? [{ name: "age_badge", x: pillX, y: pillY, w: pillW, h: pillH }] : []),
+    ...(logoB64 ? [{ name: "secretpdf_kids_logo", x: logoX, y: logoY, w: logoW, h: logoH }] : []),
+  ];
+
   const bgB64 = toB64(input.coverBg);
 
   // Whole title cluster tilt.
@@ -562,6 +606,7 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
 
   ${subtitleEl}
   ${ageBadgeEl}
+  ${logoEl}
 </svg>`;
 
   await ensureWasm();
@@ -588,6 +633,13 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
     y_bounce_px: traits.yBounce,
     decorations_count: decoCount,
     age_badge: ageBadge || null,
+    logo_present: !!logoB64,
+    overlay_frame: {
+      width: W,
+      height: H,
+      safe_margin: safe,
+      elements: overlayElements,
+    },
     renderer: "kids-title-treatment@1",
     rendered_at: new Date().toISOString(),
   };

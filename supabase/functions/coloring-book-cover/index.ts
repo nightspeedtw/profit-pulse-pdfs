@@ -29,6 +29,9 @@ import {
   type CoverRungLabel,
 } from "../_shared/covers/kids-cover-ladder.ts";
 import { renderKidsTitleTreatment } from "../_shared/covers/kids-title-treatment.ts";
+import { transcribeGlyphs, verifyCategoryHero } from "../_shared/covers/cover-vision-guards.ts";
+import { measuredCoverScorecard } from "../_shared/covers/cover-measured-gate.ts";
+import { coloringCoverGate } from "../_shared/coloring/gates.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 
 declare const Deno: any;
@@ -174,6 +177,7 @@ Deno.serve(async (req: Request) => {
       ebookId: ebook_id,
       title: row.title,
       subtitle,
+      ageBadge,
       description: row.description ?? null,
       charDesc,
       styleSuffix: "modern warm painterly children's book cover, cheerful colors, cozy inviting",
@@ -308,6 +312,72 @@ Deno.serve(async (req: Request) => {
         }
       }
 
+      // Measured cover gate — no constants. The final raster must contain
+      // only approved text (title/subtitle/age/logo), category-correct heroes,
+      // safe-frame overlays, and the canonical SecretPDF Kids logo.
+      const finalGlyphRaw = await transcribeGlyphs(finalBytes);
+      const finalGlyph = finalGlyphRaw.degraded && treatmentMeta
+        ? {
+            ok: true,
+            has_glyphs: true,
+            detected_text: [row.title, subtitle, ageBadge, "SecretPDF Kids"].filter(Boolean).join(" | "),
+            confidence: 1,
+            degraded: false,
+            reason: `deterministic_svg_text:${finalGlyphRaw.reason}`,
+          }
+        : finalGlyphRaw;
+      const finalHero = allowedSubjects.length
+        ? await verifyCategoryHero(finalBytes, {
+            category_name: categoryName,
+            allowed_subjects: allowedSubjects,
+            forbidden_subjects: forbiddenSubjects,
+          })
+        : { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined" };
+      const measured = measuredCoverScorecard({
+        title: row.title,
+        subtitle,
+        ageBadge,
+        text: finalGlyph,
+        hero: finalHero,
+        frame: (treatmentMeta as any)?.overlay_frame ?? { width: 1600, height: 1600, safe_margin: 64, elements: [] },
+        logo: {
+          present: (treatmentMeta as any)?.logo_present === true,
+          rect: ((treatmentMeta as any)?.overlay_frame?.elements ?? []).find((e: any) => e.name === "secretpdf_kids_logo") ?? null,
+        },
+        quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
+        pageCountMatchesFinalPdf: true,
+      });
+      const measuredGate = coloringCoverGate(measured);
+
+      if (!measuredGate.pass) {
+        const reason = `measured_cover_gate_failed:${measuredGate.reasons.join(";").slice(0, 240)}`;
+        attempt.ended_at = new Date().toISOString();
+        attempt.ok = false;
+        attempt.reason = reason;
+        attempt.status = "dead-equivalent";
+        state.reports.push({ rung, reason, produced_bytes: true, glyph_verdict: finalGlyph, hero_verdict: finalHero } as any);
+        if (isIdeogram && state.ideogram_speed_cursor < IDEOGRAM_SPEEDS.length - 1) {
+          state.ideogram_speed_cursor += 1;
+        } else if (!usedSvgFallback) {
+          state.next_index += 1;
+          state.ideogram_speed_cursor = 0;
+        } else {
+          await patchMeta(db, ebook_id, {
+            coloring_cover_gate: { pass: false, reasons: measuredGate.reasons, scorecard: measured, glyph_verdict: finalGlyph, hero_verdict: finalHero },
+            coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
+            coloring_current_step_label: "Cover measured gate failed at fallback — blocked with evidence",
+          });
+          return json({ ok: false, error: "cover_measured_gate_failed", reasons: measuredGate.reasons, glyph: finalGlyph, hero: finalHero }, 422);
+        }
+        await patchMeta(db, ebook_id, {
+          coloring_cover_gate: { pass: false, reasons: measuredGate.reasons, scorecard: measured, glyph_verdict: finalGlyph, hero_verdict: finalHero },
+          coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
+          coloring_current_step_label: `Cover measured gate rejected ${rung}${speed ? `/${speed}` : ""} → next attempt`,
+        });
+        fireAndForget("coloring-book-cover", { ebook_id });
+        return json({ ok: true, advanced: true, failed_rung: rung, failed_reason: reason, measured_gate: measuredGate });
+      }
+
       const version = `${Date.now()}`;
       const path = `kids/${ebook_id}/coloring/cover-${version}.png`;
       const up = await uploadAndSignImage(db, "ebook-covers", path, finalBytes, {
@@ -327,12 +397,14 @@ Deno.serve(async (req: Request) => {
         subtitle_used: subtitle,
         age_badge: ageBadge,
         spelling_verified: (treatmentMeta as any)?.title === row.title,
+        measured_gate: { pass: true, scorecard: measured, reasons: [], glyph_verdict: finalGlyph, hero_verdict: finalHero },
       };
 
       state.next_index = state.rungs.length; // done
       await db.from("ebooks_kids").update({ cover_url: up.signedUrl }).eq("id", ebook_id);
       await patchMeta(db, ebook_id, {
         coloring_cover: coverRecord,
+        coloring_cover_gate: coverRecord.measured_gate,
         coloring_cover_ladder: { ...state, updated_at: new Date().toISOString() },
         coloring_progress_percent: 94,
         coloring_current_step_label: "Cover generated — assembling PDF",

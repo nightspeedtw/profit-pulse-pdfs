@@ -44,7 +44,7 @@ export interface HeroVerdict {
   reason: string;
 }
 
-const VISION_MODEL = "gemini-2.5-flash";
+const VISION_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash"];
 
 function b64FromBytes(bytes: Uint8Array): string {
   let s = "";
@@ -71,11 +71,18 @@ async function geminiVisionJson<T>(
     }],
     generationConfig: { responseMimeType: "application/json", temperature: 0 },
   };
-  const r = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${VISION_MODEL}:generateContent?key=${GEMINI_KEY}`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
-  );
-  if (!r.ok) throw new Error(`vision ${r.status}`);
+  let r: Response | null = null;
+  let lastErr = "";
+  for (const model of VISION_MODELS) {
+    r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    );
+    if (r.ok) break;
+    lastErr = `vision ${model} ${r.status}: ${(await r.text()).slice(0, 180)}`;
+    r = null;
+  }
+  if (!r) throw new Error(lastErr || "vision_models_unavailable");
   const j = await r.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
   const text = j.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
   if (!text) return null;

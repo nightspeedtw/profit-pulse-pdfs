@@ -42,6 +42,7 @@ describe("coloring cover gate", () => {
       title_readability: 98,
       cover_quality: 95,
       age_label_present: false,
+      logo_present: true,
       page_count_matches_final_pdf: true,
       hard_fail: {},
     });
