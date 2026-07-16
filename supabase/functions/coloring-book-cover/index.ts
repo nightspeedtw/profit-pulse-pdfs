@@ -494,6 +494,25 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Upgrade mode: rung 1 is the ONLY acceptable outcome. If all 3 flux
+    // attempts failed, leave the existing (rung-2 fallback) cover untouched
+    // and stamp the attempt for the next day's sweep. Sale continuity: price,
+    // listing, thumbnail, PDF — all remain intact.
+    if (isUpgradeMode) {
+      await patchMeta(db, ebook_id, {
+        cover_upgrade_last_attempt_at: new Date().toISOString(),
+        cover_upgrade_history: [
+          ...((meta as any).cover_upgrade_history ?? []),
+          {
+            at: new Date().toISOString(),
+            outcome: "no_change_rung1_failed",
+            flux_attempts: fluxAttempts.map((a) => ({ attempt: a.attempt, status: a.status, reason: a.reason })),
+          },
+        ].slice(-10),
+      });
+      return json({ ok: true, upgraded: false, reason: "rung1_failed_existing_cover_untouched", flux_attempts: fluxAttempts });
+    }
+
     // ═══════════════════ RUNG 2 — DETERMINISTIC SELF-ART COVER ═══════════════════
     // Guaranteed success. Built from the book's own gate-passed interior pages.
     // Cannot be blank, off-category, or text-contaminated.
