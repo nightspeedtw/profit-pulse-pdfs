@@ -247,7 +247,12 @@ Deno.serve(async (req: Request) => {
     const ageMin = ((meta.coloring_category_meta as any)?.target_age_min) ?? 4;
     const ageMax = ((meta.coloring_category_meta as any)?.target_age_max) ?? 6;
     const ageBadge = `Ages ${ageMin}-${ageMax}`;
-    const subtitle = `${totalPages} Coloring Pages · ${ageBadge}`;
+    // Subtitle kept SHORT so Ideogram actually renders it. The historic
+    // "N Coloring Pages · Ages X-Y" form embedded marketing metadata the
+    // model consistently dropped, causing every book to fail text-verify
+    // on missing "N pages" tokens. Page count lives on the product page,
+    // not the cover.
+    const subtitle = `A Coloring Adventure`;
 
     // Load category allowed/forbidden subjects for the hero-verification gate.
     const categoryKey = ((meta.coloring_page_plan as any)?.category_key as string)
