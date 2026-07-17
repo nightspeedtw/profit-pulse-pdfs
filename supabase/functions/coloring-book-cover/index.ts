@@ -756,7 +756,9 @@ Deno.serve(async (req: Request) => {
             evidence: { transcription: verdict, learning_mode_waived: true, defect_ledger_appended: true },
             typography_source: "ideogram_verified_integrated",
             overlay_skipped: true,
+            visual_fingerprint: waivedFp,
           },
+
         });
       }
     } catch (waiveErr) {
