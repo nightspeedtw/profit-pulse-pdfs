@@ -47,15 +47,34 @@ export default function KidsQcReport() {
   const [book, setBook] = useState<Book | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = async () => {
-    if (!id) return;
-    const [b, f] = await Promise.all([
-      supabase.from("ebooks_kids").select("id,title,cover_url,pdf_url,sellable,overall_qc_score,qc_rule_version,qc_scorecard,human_review_reason").eq("id", id).single(),
-      supabase.from("qc_findings").select("*").eq("ebook_id", id).order("passed").order("severity"),
-    ]);
-    setBook((b.data as unknown) as Book | null);
-    setFindings(((f.data ?? []) as unknown) as Finding[]);
+    if (!id) { setLoadError("Missing book id in URL."); setLoading(false); return; }
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const [b, f] = await Promise.all([
+        supabase.from("ebooks_kids").select("id,title,cover_url,pdf_url,sellable,overall_qc_score,qc_rule_version,qc_scorecard,human_review_reason").eq("id", id).maybeSingle(),
+        supabase.from("qc_findings").select("*").eq("ebook_id", id).order("passed").order("severity"),
+      ]);
+      if (b.error) throw new Error(`book: ${b.error.message}`);
+      if (f.error) throw new Error(`findings: ${f.error.message}`);
+      if (!b.data) throw new Error(`No coloring/kids book found with id ${id}. It may have been retired or the id is wrong.`);
+      setBook((b.data as unknown) as Book);
+      setFindings(((f.data ?? []) as unknown) as Finding[]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLoadError(msg);
+      // Session-token corruption ("missing sub claim") — force sign-out so admin
+      // can log back in cleanly instead of an infinite Loading… spinner.
+      if (/missing sub claim|bad_jwt|JWT/i.test(msg)) {
+        try { await supabase.auth.signOut(); } catch { /* ignore */ }
+      }
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id]);
 
@@ -72,7 +91,21 @@ export default function KidsQcReport() {
     } finally { setBusy(false); }
   };
 
-  if (!book) return <div className="p-6">Loading…</div>;
+  if (loading) return <div className="p-6 text-sm text-muted-foreground">Loading QC report…</div>;
+  if (loadError) return (
+    <div className="p-6 space-y-3">
+      <h1 className="font-display text-2xl uppercase">QC Report unavailable</h1>
+      <p className="text-sm text-red-700 font-mono whitespace-pre-wrap">{loadError}</p>
+      <div className="flex gap-2">
+        <Button onClick={load} variant="outline"><RefreshCw className="size-4" /> Retry</Button>
+        {/missing sub claim|bad_jwt|JWT/i.test(loadError) && (
+          <a href="/admin/login" className="underline text-sm self-center">Sign in again</a>
+        )}
+      </div>
+    </div>
+  );
+  if (!book) return <div className="p-6 text-sm text-muted-foreground">No book.</div>;
+
 
   const cats = book.qc_scorecard?.category_scores ?? {};
 
