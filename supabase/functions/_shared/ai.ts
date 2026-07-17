@@ -114,10 +114,15 @@ function extractJson<T>(raw: string, opts: { allowTruncated?: boolean } = {}): T
 // ('google_direct' | 'gateway') so savings are measurable.
 
 import { hasGeminiDirect, geminiDirectChat } from "./gemini-direct.ts";
+import { hasOpenAIDirect, openaiDirectChat } from "./openai-direct.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
 
 function isGoogleModel(model: string): boolean {
   return model.startsWith("google/");
+}
+
+function isOpenAIModel(model: string): boolean {
+  return model.startsWith("openai/");
 }
 
 export async function aiJSON<T>(opts: {
@@ -152,6 +157,34 @@ export async function aiJSON<T>(opts: {
       return { data: parsed, usage: { input_tokens: r.input_tokens, output_tokens: r.output_tokens, cost_usd: cost }, model: opts.model };
     } catch (e) {
       console.warn(`[ai-router] gemini-direct JSON failed, falling back to gateway: ${(e as Error).message}`);
+    }
+  }
+
+  // --- openai direct path (activates when OPENAI_API_KEY is set) ---
+  if (isOpenAIModel(opts.model) && hasOpenAIDirect()) {
+    try {
+      const sys = opts.system + "\nRespond with valid JSON only. No markdown fences.";
+      const r = await openaiDirectChat({
+        system: sys,
+        user: opts.user + schemaSuffix,
+        model: opts.model,
+        responseJson: true,
+        maxTokens: opts.maxTokens,
+        timeoutMs: opts.timeoutMs,
+      });
+      let parsed: T;
+      try { parsed = JSON.parse(r.text); }
+      catch { try { parsed = extractJson<T>(r.text); } catch { parsed = extractJson<T>(r.text, { allowTruncated: true }); } }
+      const rate = RATES[opts.model] ?? { in: 0.1, out: 0.4 };
+      const cost = (r.input_tokens / 1_000_000) * rate.in + (r.output_tokens / 1_000_000) * rate.out;
+      logAiCost(costDb(), {
+        ebook_id: opts.ebook_id ?? null, step: stepTag, model: opts.model,
+        input_tokens: r.input_tokens, output_tokens: r.output_tokens,
+        cost_usd: cost, provider: "openai_direct",
+      });
+      return { data: parsed, usage: { input_tokens: r.input_tokens, output_tokens: r.output_tokens, cost_usd: cost }, model: opts.model };
+    } catch (e) {
+      console.warn(`[ai-router] openai-direct JSON failed, falling back to gateway: ${(e as Error).message}`);
     }
   }
 
@@ -241,6 +274,26 @@ export async function aiText(opts: {
       return { data: r.text, usage: { input_tokens: r.input_tokens, output_tokens: r.output_tokens, cost_usd: cost }, model: opts.model };
     } catch (e) {
       console.warn(`[ai-router] gemini-direct text failed, falling back to gateway: ${(e as Error).message}`);
+    }
+  }
+
+  // --- openai direct path (activates when OPENAI_API_KEY is set) ---
+  if (isOpenAIModel(opts.model) && hasOpenAIDirect()) {
+    try {
+      const r = await openaiDirectChat({
+        system: opts.system, user: opts.user, model: opts.model,
+        maxTokens: opts.maxTokens, timeoutMs: opts.timeoutMs,
+      });
+      const rate = RATES[opts.model] ?? { in: 0.1, out: 0.4 };
+      const cost = (r.input_tokens / 1_000_000) * rate.in + (r.output_tokens / 1_000_000) * rate.out;
+      logAiCost(costDb(), {
+        ebook_id: opts.ebook_id ?? null, step: stepTag, model: opts.model,
+        input_tokens: r.input_tokens, output_tokens: r.output_tokens,
+        cost_usd: cost, provider: "openai_direct",
+      });
+      return { data: r.text, usage: { input_tokens: r.input_tokens, output_tokens: r.output_tokens, cost_usd: cost }, model: opts.model };
+    } catch (e) {
+      console.warn(`[ai-router] openai-direct text failed, falling back to gateway: ${(e as Error).message}`);
     }
   }
 
