@@ -84,6 +84,17 @@ const COVER_VISION_TIMEOUT_MS = 8_000;
 const IDEOGRAM_VERIFY_TIMEOUT_MS = 12_000;
 const SINGLE_RUNG_VERSION = "coloring_cover_verified_typography_v2";
 const MAX_IDEOGRAM_ATTEMPTS = 3;
+// OWNER LAW (2026-07-17, added after $116 unbounded-retry incident):
+// hard ceiling on how many TIMES the cover function may be invoked per book.
+// Each invocation burns up to MAX_IDEOGRAM_ATTEMPTS × $0.06 = $0.18 on Runware
+// Ideogram. Without this ceiling, worker-tick + self-advance + upgrade-sweep
+// re-invoke the cover forever whenever text-verify keeps failing. When the
+// ceiling is hit, the book parks with a distinct terminal-ish blocker that
+// worker-tick's LANE_BLOCKED filter skips — permanent, non-waivable, non-self-
+// advancing. Human/admin resets by clearing metadata.coloring_cover_invocations.
+const MAX_COVER_INVOCATIONS_PER_BOOK = 5;
+const COVER_RETRY_CEILING_REASON = "coloring_cover_retry_ceiling_reached";
+
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
