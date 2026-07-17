@@ -537,12 +537,17 @@ Deno.serve(async (req: Request) => {
     }
 
     // ═══════════════════ TIER 2 — FLUX TEXTLESS + PREMIUM OVERLAY (fallback) ═══════════════════
+    // v2 — per-provider health aware. Uses the configured interior policy
+    // (CF primary + FAL fallback by default) with per-provider latches so
+    // a dry FAL doesn't block Tier-2 when Cloudflare is healthy. The
+    // premium hand-lettered SVG overlay renders on top of the textless
+    // flux art from whichever provider serves.
+    const coverPolicy = (await readImageProviderPolicy(db)).interiors;
     const MAX_FLUX_ATTEMPTS = 3;
     const fluxAttempts: any[] = [];
     for (let attemptIndex = 1; attemptIndex <= MAX_FLUX_ATTEMPTS; attemptIndex++) {
       const attemptReport: any = { attempt: attemptIndex, started_at: new Date().toISOString(), status: "started" };
       try {
-        const singlePolicy = { primary: "fal_flux_schnell" as const, fallback: null };
         const providerResult: any = await withTimeout(
           generateImageWithFailover({
             prompt,
@@ -550,7 +555,7 @@ Deno.serve(async (req: Request) => {
             num_inference_steps: 4,
             ebook_id,
             step: `coloring_cover_flux_schnell_a${attemptIndex}`,
-          }, singlePolicy),
+          }, coverPolicy, db),
           COVER_GEN_TIMEOUT_MS,
           `cover_flux_schnell_a${attemptIndex}`,
         );
