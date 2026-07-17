@@ -75,3 +75,33 @@ Symptoms:
 - final PDF exists but run waits for Shopify, SEO, pricing, or publish
 
 Class: feature-flag or state-machine scope bug.
+
+## Cover baked-title clipped by aspect-mismatched container
+
+Symptoms:
+
+- storefront card, product hero, or PDF cover page shows the cover with
+  the baked title's first/last letters chopped off, or edge characters/art
+  cut at the top or right
+- the raw asset in storage looks correct when opened directly
+- only appears once the asset is placed inside a UI or PDF frame
+
+Fingerprint:
+
+- coloring covers ship native at 1600×2071 (8.5:11, w/h ≈ 0.7726)
+- adult picture-book covers ship native at 1024×1280 (4:5, w/h = 0.8)
+- container uses `aspect-square`, `aspect-[3/4]`, or any ratio ≠ native,
+  with `object-cover` (or a PDF `Math.max` fit-COVER) → hard crop of the
+  baked title
+
+Class: `asset_identity_bug` (display / embed container).
+
+Fix: every consumer of `cover_url` MUST match the native asset ratio
+exactly. Either set the container to `aspect-[1600/2071]` (coloring) /
+`aspect-[1024/1280]` (picture book), or letterbox with `object-contain`
+— NEVER `object-cover` a baked-title cover into a mismatched frame. In
+the PDF, keep the trim at 8.5×11 so `Math.max` fit-COVER is a no-op.
+
+Regression test: `src/lib/coloringCoverAspectGate.test.ts`.
+Runtime gate: `supabase/functions/_shared/coloring/cover-aspect-gate.ts`
+enforced from `coloring-book-assemble` before PDF embed.
