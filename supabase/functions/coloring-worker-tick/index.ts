@@ -47,15 +47,13 @@ Deno.serve(async (req: Request) => {
       return json(result);
     }
 
-    // Lane-level provider guards — never dispatch into a locked account or
-    // over the daily FAL budget cap. These are class fixes, not per-book.
+    // Lane-level provider guards.
+    // v2 (per-provider): a single provider being billing_blocked is NOT
+    // grounds to freeze the whole tick — the failover dispatcher in
+    // image-providers.ts will route around it. We only halt when the
+    // FAL daily-BUDGET cap has been reached (spend safety, not health).
     const guards = await readLaneGuards(db);
-    if (guards.billing_blocked.active) {
-      result.skipped = "provider_billing_locked";
-      result.billing_blocked = guards.billing_blocked;
-      await recordTick(db, result);
-      return json(result);
-    }
+    result.provider_billing_blocked = guards.provider_billing_blocked;
     const cap = Number((guards.cfg.fal_daily_budget_usd as number | undefined) ?? DEFAULT_FAL_DAILY_BUDGET_USD);
     if (cap > 0) {
       const spent = await sumFalSpendToday(db);
