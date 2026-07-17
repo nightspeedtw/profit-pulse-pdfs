@@ -79,10 +79,19 @@ function classifyCloudflareError(status: number, body: string): Error {
   return new Error(`cloudflare @cf/flux-1-schnell ${status}: ${body.slice(0, 400)}`);
 }
 
+// Cloudflare Workers AI enforces a hard prompt length limit (2048 chars).
+// Truncate defensively at the adapter boundary so long compound prompts
+// still land on CF — the trailing detail our prompts append (learned
+// prevention clauses, category glossary) is safe to clip.
+const CF_MAX_PROMPT_CHARS = 2000;
+
 export async function cloudflareFluxSchnell(opts: GenerateImageOpts): Promise<Uint8Array> {
   const creds = cfCreds();
   if (!creds) throw new ProviderUnconfiguredError("cloudflare_flux_schnell", "CF_ACCOUNT_ID + CF_API_TOKEN not set");
   const steps = Math.min(CF_MAX_STEPS, Math.max(1, opts.num_inference_steps ?? 4));
+  const prompt = opts.prompt.length > CF_MAX_PROMPT_CHARS
+    ? opts.prompt.slice(0, CF_MAX_PROMPT_CHARS)
+    : opts.prompt;
   const url = `https://api.cloudflare.com/client/v4/accounts/${creds.accountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`;
   const res = await fetch(url, {
     method: "POST",
@@ -90,7 +99,7 @@ export async function cloudflareFluxSchnell(opts: GenerateImageOpts): Promise<Ui
       Authorization: `Bearer ${creds.token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ prompt: opts.prompt, num_steps: steps }),
+    body: JSON.stringify({ prompt, num_steps: steps }),
   });
   if (!res.ok) {
     const txt = (await res.text()).slice(0, 800);
