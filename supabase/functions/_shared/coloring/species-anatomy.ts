@@ -469,7 +469,523 @@ export const SPECIES_ANATOMY: SpeciesAnatomy[] = [
     ],
     fantasy: false,
   }),
+
+  // ── LAND MAMMALS · QUADRUPEDS ──────────────────────────────────────
+  // Owner mandate (2026-07-17, chimera/extra-limb defect): every real
+  // quadruped must state EXACTLY FOUR LEGS, no fusion, no duplication,
+  // ONE head, ONE tail. This is the single most common AI failure class
+  // ("5-legged puppy", "two-headed bear", fused-hip fox).
+  s({
+    species_key: "dog",
+    aliases: ["dog", "dogs", "puppy", "puppies", "pup", "doggo"],
+    body_parts: {
+      body: "one canine body",
+      head: "ONE head with TWO eyes, TWO ears, ONE nose, ONE mouth",
+      legs: "EXACTLY FOUR legs (front-left, front-right, back-left, back-right), NO fifth leg, NO fused hips, NO duplicated leg",
+      paws: "one paw per leg, four paws total",
+      tail: "EXACTLY ONE tail",
+    },
+    proportion_rules: ["4 legs, 1 head, 1 tail — never 3, never 5, never fused"],
+    common_ai_failure_modes: [
+      "five or six legs on a dog",
+      "extra head or two-headed dog",
+      "two tails",
+      "duplicated / fused front leg",
+      "extra paw floating from body",
+    ],
+  }),
+  s({
+    species_key: "cat",
+    aliases: ["cat", "cats", "kitten", "kittens", "kitty", "black cat"],
+    body_parts: {
+      body: "one feline body",
+      head: "ONE head with TWO eyes, TWO pointed ears, ONE nose, ONE mouth with whiskers",
+      legs: "EXACTLY FOUR legs, NO fifth leg, NO fused hips",
+      paws: "one paw per leg, four paws total",
+      tail: "EXACTLY ONE tail",
+    },
+    proportion_rules: ["4 legs, 1 head, 1 tail"],
+    common_ai_failure_modes: ["5+ legs", "extra head", "two tails", "fused legs"],
+  }),
+  s({
+    species_key: "rabbit",
+    aliases: ["rabbit", "rabbits", "bunny", "bunnies", "hare"],
+    body_parts: {
+      body: "one rabbit body",
+      head: "ONE head with TWO eyes, TWO long ears, ONE nose",
+      legs: "EXACTLY FOUR legs (2 short front, 2 large hind)",
+      tail: "EXACTLY ONE small round tail",
+    },
+    proportion_rules: ["4 legs, 2 ears, 1 tail — hind legs larger than front"],
+    common_ai_failure_modes: ["5+ legs", "one ear only", "three ears", "extra tail"],
+  }),
+  s({
+    species_key: "bear",
+    aliases: ["bear", "bears", "teddy bear", "cub", "polar bear", "grizzly"],
+    body_parts: {
+      body: "one bear body",
+      head: "ONE head with TWO eyes, TWO round ears, ONE nose",
+      legs: "EXACTLY FOUR legs",
+      paws: "one paw per leg, four paws total",
+      tail: "one very small tail (or none visible)",
+    },
+    proportion_rules: ["4 legs, 1 head, 2 ears"],
+    common_ai_failure_modes: ["5+ legs", "extra head", "duplicated paws"],
+  }),
+  s({
+    species_key: "fox",
+    aliases: ["fox", "foxes"],
+    body_parts: {
+      body: "one fox body",
+      head: "ONE head with TWO eyes, TWO pointed ears, ONE pointed snout",
+      legs: "EXACTLY FOUR legs",
+      tail: "EXACTLY ONE bushy tail",
+    },
+    proportion_rules: ["4 legs, 1 head, 1 tail (single bushy)"],
+    common_ai_failure_modes: [
+      "5+ legs",
+      "multiple tails (that would be a nine-tailed fox, not a real fox)",
+      "extra ears",
+    ],
+  }),
+  s({
+    species_key: "squirrel",
+    aliases: ["squirrel", "squirrels", "chipmunk"],
+    body_parts: {
+      body: "one squirrel body",
+      head: "ONE head with TWO eyes, TWO round ears",
+      legs: "EXACTLY FOUR legs",
+      tail: "ONE large bushy tail curled behind",
+    },
+    proportion_rules: ["4 legs, 1 tail"],
+    common_ai_failure_modes: ["5+ legs", "two tails", "extra head"],
+  }),
+  s({
+    species_key: "deer",
+    aliases: ["deer", "fawn", "doe", "stag", "reindeer"],
+    body_parts: {
+      body: "one deer body",
+      head: "ONE head with TWO eyes, TWO ears, optional antlers (0 or 2 symmetric)",
+      legs: "EXACTLY FOUR long thin legs",
+      tail: "ONE small tail",
+    },
+    proportion_rules: ["4 legs, symmetric antlers if present"],
+    common_ai_failure_modes: ["5+ legs", "single antler", "asymmetric antlers"],
+  }),
+  s({
+    species_key: "raccoon",
+    aliases: ["raccoon"],
+    body_parts: {
+      body: "one raccoon body with masked face",
+      head: "ONE head with TWO eyes (with black mask), TWO ears",
+      legs: "EXACTLY FOUR legs",
+      tail: "ONE ringed tail",
+    },
+    proportion_rules: ["4 legs, 1 ringed tail"],
+    common_ai_failure_modes: ["5+ legs", "two tails"],
+  }),
+  s({
+    species_key: "hedgehog",
+    aliases: ["hedgehog"],
+    body_parts: {
+      body: "one round body covered in spines on the back",
+      head: "ONE head with TWO eyes, TWO small ears, ONE snout",
+      legs: "EXACTLY FOUR short legs",
+      tail: "very small tail (or none)",
+    },
+    proportion_rules: ["4 legs"],
+    common_ai_failure_modes: ["5+ legs", "spines on the belly"],
+  }),
+  s({
+    species_key: "owl",
+    aliases: ["owl", "owls", "owlet"],
+    body_parts: {
+      body: "one round bird body with feathers",
+      head: "ONE head with TWO large forward-facing eyes, TWO ear tufts (or none)",
+      wings: "EXACTLY TWO wings, one per side",
+      legs: "EXACTLY TWO legs ending in talons",
+      tail: "one short tail",
+      beak: "one small hooked beak",
+    },
+    proportion_rules: ["2 wings, 2 legs, 1 head — no arms, no extra wings"],
+    common_ai_failure_modes: ["one wing only", "four wings", "three legs", "two heads"],
+  }),
+
+  // ── FARM ANIMALS ───────────────────────────────────────────────────
+  s({
+    species_key: "cow",
+    aliases: ["cow", "cows", "calf", "bull", "cattle"],
+    body_parts: {
+      body: "one cow body",
+      head: "ONE head with TWO eyes, TWO ears, TWO horns (or none for hornless breeds)",
+      legs: "EXACTLY FOUR legs ending in hooves",
+      tail: "ONE tail with tuft at the end",
+      udder: "one udder on the belly (adult female only)",
+    },
+    proportion_rules: ["4 legs, 1 head, 1 tail; horns 0 or 2 symmetric"],
+    common_ai_failure_modes: ["5+ legs", "single horn", "asymmetric horns", "two heads"],
+  }),
+  s({
+    species_key: "pig",
+    aliases: ["pig", "pigs", "piglet", "hog"],
+    body_parts: {
+      body: "one round pig body",
+      head: "ONE head with TWO eyes, TWO floppy ears, ONE flat snout",
+      legs: "EXACTLY FOUR legs with cloven hooves",
+      tail: "ONE curly tail",
+    },
+    proportion_rules: ["4 legs, 1 curly tail"],
+    common_ai_failure_modes: ["5+ legs", "two snouts", "two tails"],
+  }),
+  s({
+    species_key: "sheep",
+    aliases: ["sheep", "lamb", "ewe", "ram"],
+    body_parts: {
+      body: "one wooly body",
+      head: "ONE head with TWO eyes, TWO ears, optional curled horns (0 or 2)",
+      legs: "EXACTLY FOUR legs",
+      tail: "ONE short tail",
+    },
+    proportion_rules: ["4 legs; horns 0 or 2"],
+    common_ai_failure_modes: ["5+ legs", "single horn"],
+  }),
+  s({
+    species_key: "goat",
+    aliases: ["goat", "goats", "kid goat"],
+    body_parts: {
+      body: "one goat body",
+      head: "ONE head with TWO eyes, TWO ears, TWO horns (or none)",
+      legs: "EXACTLY FOUR legs ending in cloven hooves",
+      tail: "ONE short upright tail",
+    },
+    proportion_rules: ["4 legs; horns 0 or 2 symmetric"],
+    common_ai_failure_modes: ["5+ legs", "single horn"],
+  }),
+  s({
+    species_key: "chicken",
+    aliases: ["chicken", "hen", "rooster", "chick", "poultry"],
+    body_parts: {
+      body: "one round bird body with feathers",
+      head: "ONE head with TWO eyes, ONE beak, ONE red comb on top, ONE wattle under beak (or none for chicks)",
+      wings: "EXACTLY TWO wings",
+      legs: "EXACTLY TWO legs ending in three-toed feet",
+      tail: "one tail of curved feathers (larger on roosters)",
+    },
+    proportion_rules: ["2 legs, 2 wings — never 4 legs, never 3 wings"],
+    common_ai_failure_modes: [
+      "four legs on a chicken",
+      "one wing only",
+      "two beaks",
+      "two heads",
+    ],
+  }),
+  s({
+    species_key: "duck",
+    aliases: ["duck", "ducks", "duckling"],
+    body_parts: {
+      body: "one duck body",
+      head: "ONE head with TWO eyes, ONE flat beak",
+      wings: "EXACTLY TWO wings",
+      legs: "EXACTLY TWO webbed feet",
+      tail: "one small tail",
+    },
+    proportion_rules: ["2 wings, 2 legs — bird body plan"],
+    common_ai_failure_modes: ["4 legs on a duck", "one wing", "two heads"],
+  }),
+  s({
+    species_key: "horse",
+    aliases: ["horse", "horses", "pony", "foal", "colt", "mare", "stallion"],
+    body_parts: {
+      body: "one horse body",
+      head: "ONE head with TWO eyes, TWO ears, ONE nose",
+      legs: "EXACTLY FOUR legs ending in ONE hoof each",
+      mane: "one flowing mane",
+      tail: "EXACTLY ONE flowing tail",
+    },
+    proportion_rules: ["4 legs, 1 head, 1 tail — never 3 or 5 legs"],
+    common_ai_failure_modes: ["5+ legs", "extra head", "two tails"],
+  }),
+  s({
+    species_key: "donkey",
+    aliases: ["donkey", "burro", "mule"],
+    body_parts: {
+      body: "one donkey body",
+      head: "ONE head with TWO eyes, TWO long ears",
+      legs: "EXACTLY FOUR legs",
+      tail: "one tail with tuft",
+    },
+    proportion_rules: ["4 legs, 2 long ears"],
+    common_ai_failure_modes: ["5+ legs", "one ear only"],
+  }),
+
+  // ── WILD SAFARI ────────────────────────────────────────────────────
+  s({
+    species_key: "elephant",
+    aliases: ["elephant", "elephants", "baby elephant"],
+    body_parts: {
+      body: "one large elephant body",
+      head: "ONE head with TWO eyes, TWO large ears, ONE trunk, TWO tusks (or none for young/female)",
+      legs: "EXACTLY FOUR thick legs — never more, never fused",
+      tail: "ONE tail with tuft",
+      trunk: "EXACTLY ONE trunk from the front of the head",
+    },
+    proportion_rules: ["4 legs, 1 trunk, 1 head — multi-headed variants are the erawan fantasy creature, not a real elephant"],
+    common_ai_failure_modes: [
+      "5+ legs",
+      "two trunks",
+      "extra head on a real elephant (that would be erawan/airavata)",
+      "single tusk with visible asymmetry",
+    ],
+  }),
+  s({
+    species_key: "lion",
+    aliases: ["lion", "lions", "lioness", "lion cub"],
+    body_parts: {
+      body: "one feline body",
+      head: "ONE head with TWO eyes, TWO round ears; adult males have a mane surrounding the head",
+      legs: "EXACTLY FOUR legs",
+      tail: "ONE tail with tuft at end",
+    },
+    proportion_rules: ["4 legs, 1 head, 1 tail"],
+    common_ai_failure_modes: ["5+ legs", "extra tails", "two heads"],
+  }),
+  s({
+    species_key: "tiger",
+    aliases: ["tiger", "tigers", "tiger cub"],
+    body_parts: {
+      body: "one striped feline body",
+      head: "ONE head with TWO eyes, TWO round ears",
+      legs: "EXACTLY FOUR legs",
+      tail: "ONE striped tail",
+    },
+    proportion_rules: ["4 legs, symmetric stripe pattern"],
+    common_ai_failure_modes: ["5+ legs", "extra tails"],
+  }),
+  s({
+    species_key: "giraffe",
+    aliases: ["giraffe", "giraffes"],
+    body_parts: {
+      body: "one long-necked body with patchwork spots",
+      head: "ONE head with TWO eyes, TWO ears, TWO short horn-like ossicones",
+      neck: "ONE long neck",
+      legs: "EXACTLY FOUR long legs",
+      tail: "ONE tail with tuft",
+    },
+    proportion_rules: ["4 legs, 1 neck, 2 ossicones"],
+    common_ai_failure_modes: ["5+ legs", "two necks", "one ossicone"],
+  }),
+  s({
+    species_key: "zebra",
+    aliases: ["zebra", "zebras"],
+    body_parts: {
+      body: "one horse-like body with black-and-white stripes",
+      head: "ONE head with TWO eyes, TWO ears, ONE mane along the neck",
+      legs: "EXACTLY FOUR legs ending in ONE hoof each",
+      tail: "ONE tail",
+    },
+    proportion_rules: ["4 legs, stripes cover body symmetrically"],
+    common_ai_failure_modes: ["5+ legs", "two tails"],
+  }),
+  s({
+    species_key: "monkey",
+    aliases: ["monkey", "monkeys", "chimp", "gorilla", "ape"],
+    body_parts: {
+      body: "one primate body",
+      head: "ONE head with TWO eyes, TWO ears",
+      arms: "EXACTLY TWO arms, each ending in ONE hand with FIVE fingers",
+      legs: "EXACTLY TWO legs, each ending in ONE foot",
+      tail: "ONE tail (monkeys) or NO tail (apes/gorillas)",
+    },
+    proportion_rules: ["2 arms + 2 legs; 5 fingers per hand"],
+    common_ai_failure_modes: ["extra limbs", "6+ fingers", "two tails"],
+  }),
+
+  // ── DINOSAURS ──────────────────────────────────────────────────────
+  // Realistic dinosaurs — no chimera legs, no duplicated heads. Fantasy
+  // dragon is a separate entry above.
+  s({
+    species_key: "dinosaur",
+    aliases: ["dinosaur", "dinosaurs", "dino", "baby dino", "baby dinos"],
+    body_parts: {
+      body: "one dinosaur body",
+      head: "ONE head with TWO eyes",
+      limbs: "correct limb count for the species (bipeds: 2 legs + 2 small arms; quadrupeds: 4 legs) — NEVER 5 legs, NEVER duplicated limb",
+      tail: "EXACTLY ONE tail",
+    },
+    proportion_rules: ["one head, one tail, species-appropriate limb count"],
+    common_ai_failure_modes: ["5+ legs", "two heads", "two tails", "fused limbs"],
+  }),
+  s({
+    species_key: "t-rex",
+    aliases: ["t-rex", "trex", "tyrannosaurus", "tyrannosaurus rex"],
+    body_parts: {
+      body: "one bipedal dinosaur body, large head, thick tail",
+      head: "ONE large head with TWO eyes, ONE mouth of teeth",
+      arms: "EXACTLY TWO small forelimbs, each with TWO or THREE fingers",
+      legs: "EXACTLY TWO powerful hind legs",
+      tail: "EXACTLY ONE thick tail for balance",
+    },
+    proportion_rules: ["biped: 2 legs, 2 small arms, 1 head, 1 tail"],
+    common_ai_failure_modes: ["four legs on a t-rex", "two heads", "arms as large as legs"],
+  }),
+  s({
+    species_key: "triceratops",
+    aliases: ["triceratops"],
+    body_parts: {
+      body: "one quadruped dinosaur body with bony frill behind the head",
+      head: "ONE head with TWO eyes, ONE beak, THREE horns (two long above eyes + one short on nose), ONE bony frill",
+      legs: "EXACTLY FOUR legs",
+      tail: "EXACTLY ONE tail",
+    },
+    proportion_rules: ["4 legs, 3 horns, 1 frill, 1 tail"],
+    common_ai_failure_modes: ["5+ legs", "wrong horn count (2 or 4)", "two frills"],
+  }),
+  s({
+    species_key: "brachiosaurus",
+    aliases: ["brachiosaurus", "long-neck dinosaur", "sauropod"],
+    body_parts: {
+      body: "one large quadruped body with long neck and long tail",
+      head: "ONE small head at the end of the long neck, TWO eyes",
+      neck: "ONE long neck",
+      legs: "EXACTLY FOUR pillar-like legs",
+      tail: "EXACTLY ONE long tail",
+    },
+    proportion_rules: ["4 legs, 1 neck, 1 head, 1 tail"],
+    common_ai_failure_modes: ["5+ legs", "two heads on the neck", "two necks"],
+  }),
+  s({
+    species_key: "stegosaurus",
+    aliases: ["stegosaurus"],
+    body_parts: {
+      body: "one quadruped body with two rows of bony plates along the back",
+      head: "ONE small head with TWO eyes",
+      legs: "EXACTLY FOUR legs (hind legs taller than front)",
+      tail: "EXACTLY ONE tail ending in FOUR bony spikes (thagomizer)",
+      plates: "two symmetric rows of upright plates along the spine",
+    },
+    proportion_rules: ["4 legs, 1 tail with 4 tail-spikes, symmetric back plates"],
+    common_ai_failure_modes: ["5+ legs", "asymmetric plates", "wrong spike count"],
+  }),
+
+  // ── ADDITIONAL MARINE (round_1 coverage gap) ───────────────────────
+  s({
+    species_key: "seal",
+    aliases: ["seal", "sea lion"],
+    body_parts: {
+      body: "one streamlined body",
+      flippers: "EXACTLY FOUR flippers (2 front, 2 hind) — never legs with paws",
+      head: "ONE head with TWO eyes, ONE nose, whiskers",
+      tail: "hind flippers form the tail",
+    },
+    proportion_rules: ["4 flippers, no walking legs"],
+    common_ai_failure_modes: ["dog-like legs with paws", "extra flippers"],
+  }),
+  s({
+    species_key: "squid",
+    aliases: ["squid"],
+    body_parts: {
+      head: "one elongated mantle (head)",
+      arms: "EIGHT arms + TWO longer tentacles = TEN appendages total",
+      eyes: "TWO large eyes",
+      fins: "TWO fins on either side of the mantle",
+    },
+    proportion_rules: ["10 appendages (8 arms + 2 tentacles)"],
+    common_ai_failure_modes: ["wrong arm count", "octopus-only 8-arm form"],
+  }),
+  s({
+    species_key: "lobster",
+    aliases: ["lobster"],
+    body_parts: {
+      body: "one segmented body with tail",
+      claws: "TWO front claws",
+      legs: "EIGHT walking legs",
+      antennae: "TWO long antennae",
+      eyes: "TWO stalked eyes",
+    },
+    proportion_rules: ["10 appendages total (2 claws + 8 legs)"],
+    common_ai_failure_modes: ["wrong leg count", "extra claws"],
+  }),
+  s({
+    species_key: "manta_ray",
+    aliases: ["manta ray", "manta", "stingray", "ray fish"],
+    body_parts: {
+      body: "one flat diamond-shaped body",
+      wings: "TWO large pectoral fin-wings (one per side)",
+      tail: "ONE long thin tail",
+      head: "one head with two cephalic lobes at the front",
+    },
+    proportion_rules: ["2 fin-wings, 1 tail — never 4 wings, never 2 tails"],
+    common_ai_failure_modes: ["extra tail", "asymmetric wings"],
+  }),
+  s({
+    species_key: "pufferfish",
+    aliases: ["pufferfish", "puffer fish", "blowfish"],
+    body_parts: {
+      body: "one round spiky body",
+      dorsal_fin: "one small dorsal fin",
+      pectoral_fins: "TWO paired pectoral fins",
+      tail_fin: "one tail fin",
+      eye: "one large eye on each side",
+      mouth: "small mouth at the front",
+    },
+    proportion_rules: ["spherical body is CANONICAL — not a defect"],
+    common_ai_failure_modes: ["extra fins", "duck bill mouth"],
+  }),
 ];
+
+// Non-anatomical subject hints — pattern / object / plant / scene nouns
+// that legitimately have no species contract and should be exempt from
+// the species-coverage gate. Extend when the concept generator emits new
+// non-creature subjects.
+export const NON_ANATOMY_SUBJECT_HINTS: string[] = [
+  // patterns / art
+  "mandala", "zentangle", "pattern", "geometric", "symmetric design", "shape",
+  // botanical
+  "flower", "bouquet", "leaf", "leaves", "wreath", "botanical", "garden",
+  "tree", "trees", "florals", "meadow",
+  // objects / props / decor
+  "teacup", "tea set", "bookshelf", "spell book", "magic wand", "wand",
+  "seashell", "coral", "candle", "lantern", "accessory", "accessories",
+  "skull", "moon", "star", "rainbow",
+  // scenes / places
+  "castle", "castles", "cottage", "cottages", "barn", "barns", "kitchen",
+  "reading nook", "cafe corner", "cozy indoor scene", "seasonal comfort",
+  "enchanted forest", "coral castle", "savanna", "holiday scene",
+  "halloween", "christmas", "easter", "valentine",
+  // stylized abstractions
+  "big-eyed character", "chunky animal", "large single object", "simple shape",
+];
+
+/** true when a subject is a known non-creature scene/object/pattern. */
+export function isNonAnatomySubject(subject: string): boolean {
+  const q = NORM(subject);
+  return NON_ANATOMY_SUBJECT_HINTS.some((h) => q === NORM(h) || q.includes(NORM(h)));
+}
+
+/**
+ * Coverage gate (owner mandate 2026-07-17): a coloring category may not
+ * be enabled for autopilot production if any of its generated subjects is
+ * creature-like AND has no matching `species_anatomy` entry. Returns the
+ * list of uncovered subjects so the caller can block the run with a
+ * precise `species_contract_missing` blocker.
+ */
+export function assertSpeciesCoverage(subjects: string[]): {
+  ok: boolean;
+  missing: { subject: string; reason: "no_species_contract" }[];
+} {
+  const missing: { subject: string; reason: "no_species_contract" }[] = [];
+  const seen = new Set<string>();
+  for (const raw of subjects) {
+    const s = NORM(raw ?? "");
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    if (hasSpeciesAnatomy(s)) continue;
+    if (isNonAnatomySubject(s)) continue;
+    missing.push({ subject: raw, reason: "no_species_contract" });
+  }
+  return { ok: missing.length === 0, missing };
+}
+
 
 const GENERIC_ANATOMY: SpeciesAnatomy = {
   species_key: "__generic__",
