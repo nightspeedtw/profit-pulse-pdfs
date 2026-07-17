@@ -314,7 +314,16 @@ export function ColoringAutopilotCard() {
                         {r.current_step_label}
                       </div>
                     )}
+                    {(isLive || r.pipeline_status === "published") && (
+                      <div className="pl-1"><CanvaBookActions ebookId={r.id} hasPdf compact /></div>
+                    )}
                   </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
                 );
               })}
             </ul>
