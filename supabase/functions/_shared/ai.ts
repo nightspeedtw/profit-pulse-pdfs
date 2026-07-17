@@ -114,10 +114,15 @@ function extractJson<T>(raw: string, opts: { allowTruncated?: boolean } = {}): T
 // ('google_direct' | 'gateway') so savings are measurable.
 
 import { hasGeminiDirect, geminiDirectChat } from "./gemini-direct.ts";
+import { hasOpenAIDirect, openaiDirectChat } from "./openai-direct.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
 
 function isGoogleModel(model: string): boolean {
   return model.startsWith("google/");
+}
+
+function isOpenAIModel(model: string): boolean {
+  return model.startsWith("openai/");
 }
 
 export async function aiJSON<T>(opts: {
