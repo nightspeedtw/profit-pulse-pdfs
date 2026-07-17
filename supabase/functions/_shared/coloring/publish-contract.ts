@@ -38,10 +38,65 @@ export interface ColoringPublishContractResult {
     trim_verified: boolean;
     thumbnail_distinct_and_fitted: boolean;
     cover_category_verified: boolean;
+    cover_spelling_verified: boolean;
   };
 }
 
-export const COLORING_PUBLISH_CONTRACT_VERSION = "coloring_cover_thumbnail_contract_v2";
+export const COLORING_PUBLISH_CONTRACT_VERSION = "coloring_cover_thumbnail_contract_v3_spelling";
+
+// Chrome/marketing tokens that are OK to appear even if not part of the
+// approved title/subtitle/age-badge. Mirrors CHROME_TOKENS in
+// cover-text-transcription.ts. Keep small and specific — anything not in
+// this set counts as a hard-fail "extra".
+const SPELLING_CHROME_TOKENS = new Set([
+  "secretpdf", "kids", "the", "a", "an", "of", "and", "&",
+  "coloring", "book", "pages", "fun", "for",
+]);
+
+/**
+ * Spelling gate. Owner law: no cover with misspelled title tokens or
+ * garbage/hallucinated glyphs may go LIVE. Non-waivable, even in learning
+ * mode. Reads the OCR evidence written by coloring-book-cover.
+ */
+function checkCoverSpelling(cover: Record<string, any>, gateSc: Record<string, any>): {
+  pass: boolean;
+  reason: string | null;
+} {
+  const t = cover?.evidence?.transcription
+    ?? gateSc?.evidence?.exact_transcription
+    ?? cover?.transcription
+    ?? null;
+  if (!t || typeof t !== "object") {
+    return { pass: false, reason: "cover_spelling_unverified:no_evidence" };
+  }
+  if (t.degraded === true) {
+    return { pass: false, reason: "cover_spelling_unverified:degraded_ocr" };
+  }
+  const missingRequired = Array.isArray(t.missing_required) ? t.missing_required : [];
+  if (missingRequired.length > 0) {
+    return { pass: false, reason: `cover_spelling_unverified:missing_required=${missingRequired.slice(0, 4).join(",")}` };
+  }
+  // Misspellings only fail when the intended token is a required (title) one.
+  const misspelled = Array.isArray(t.misspelled) ? t.misspelled : [];
+  const requiredSet = new Set(Array.isArray(t.required_tokens) ? t.required_tokens : []);
+  const misspelledRequired = misspelled.filter((m: string) => {
+    const intended = String(m).split("→")[0];
+    return requiredSet.has(intended);
+  });
+  if (misspelledRequired.length > 0) {
+    return { pass: false, reason: `cover_spelling_unverified:misspelled_required=${misspelledRequired.slice(0, 4).join(",")}` };
+  }
+  // Any extra token that isn't a known chrome/marketing word counts as
+  // hallucinated glyphs (e.g. "fname" from "Book-Fname").
+  const extras = (Array.isArray(t.extra) ? t.extra : [])
+    .map((s: any) => String(s ?? "").toLowerCase().trim())
+    .filter((s: string) => s.length > 0 && !SPELLING_CHROME_TOKENS.has(s));
+  if (extras.length > 0) {
+    return { pass: false, reason: `cover_spelling_unverified:garbage_extras=${extras.slice(0, 4).join(",")}` };
+  }
+  return { pass: true, reason: null };
+}
+
 
 export function assertColoringPublishContract(
   input: ColoringPublishContractInput,
