@@ -20,7 +20,7 @@
 // logs $0.003/img — the sum is what the cap enforces).
 
 import { falFluxSchnell } from "./fal.ts";
-import { FalBillingLockedError, isFalBillingLocked } from "./fal-billing.ts";
+import { FalBillingLockedError, isFalBillingLocked, markProviderBillingBlocked } from "./fal-billing.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
 
 export type ImageProviderId = "cloudflare_flux_schnell" | "fal_flux_schnell";
@@ -79,10 +79,19 @@ function classifyCloudflareError(status: number, body: string): Error {
   return new Error(`cloudflare @cf/flux-1-schnell ${status}: ${body.slice(0, 400)}`);
 }
 
+// Cloudflare Workers AI enforces a hard prompt length limit (2048 chars).
+// Truncate defensively at the adapter boundary so long compound prompts
+// still land on CF — the trailing detail our prompts append (learned
+// prevention clauses, category glossary) is safe to clip.
+const CF_MAX_PROMPT_CHARS = 2000;
+
 export async function cloudflareFluxSchnell(opts: GenerateImageOpts): Promise<Uint8Array> {
   const creds = cfCreds();
   if (!creds) throw new ProviderUnconfiguredError("cloudflare_flux_schnell", "CF_ACCOUNT_ID + CF_API_TOKEN not set");
   const steps = Math.min(CF_MAX_STEPS, Math.max(1, opts.num_inference_steps ?? 4));
+  const prompt = opts.prompt.length > CF_MAX_PROMPT_CHARS
+    ? opts.prompt.slice(0, CF_MAX_PROMPT_CHARS)
+    : opts.prompt;
   const url = `https://api.cloudflare.com/client/v4/accounts/${creds.accountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`;
   const res = await fetch(url, {
     method: "POST",
@@ -90,7 +99,7 @@ export async function cloudflareFluxSchnell(opts: GenerateImageOpts): Promise<Ui
       Authorization: `Bearer ${creds.token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ prompt: opts.prompt, num_steps: steps }),
+    body: JSON.stringify({ prompt, num_steps: steps }),
   });
   if (!res.ok) {
     const txt = (await res.text()).slice(0, 800);
@@ -189,17 +198,23 @@ export async function latchCfBillingUntilNextUtcMidnight(db: any, ebook_id?: str
 
 /**
  * Read image_provider_policy from generation_settings.coloring_autopilot.
- * Applies the CF daily-quota latch: if `cf_billing_locked_until` is in the
- * future and the primary is CF, swap it out for the fallback (no CF
- * round-trips today). CF auto-reactivates the moment the latch expires.
+ * Applies per-provider health latches so a dry provider is transparently
+ * skipped:
+ *   - CF daily-quota latch (cf_billing_locked_until in future) → swap CF out.
+ *   - FAL per-provider billing_blocked (provider_billing_blocked.fal.active)
+ *     → swap FAL out.
+ * The policy returned always reflects only providers that are currently
+ * eligible to be called. If ALL configured providers are dry, primary stays
+ * as-is so the caller surfaces a real error instead of silent inaction.
  */
 // deno-lint-ignore no-explicit-any
 export async function readImageProviderPolicy(db: any): Promise<ImageProviderPolicy> {
   let base = DEFAULT_IMAGE_PROVIDER_POLICY;
+  let cfg: Record<string, unknown> = {};
   try {
     const { data } = await db.from("generation_settings")
       .select("coloring_autopilot").eq("id", 1).maybeSingle();
-    const cfg = (data?.coloring_autopilot ?? {}) as Record<string, unknown>;
+    cfg = (data?.coloring_autopilot ?? {}) as Record<string, unknown>;
     const policy = cfg.image_provider_policy as Partial<ImageProviderPolicy> | undefined;
     const interiors = policy?.interiors;
     if (interiors?.primary) {
@@ -212,14 +227,26 @@ export async function readImageProviderPolicy(db: any): Promise<ImageProviderPol
     }
   } catch (_e) { /* fall through */ }
 
-  const latch = await readCfBillingLockedUntil(db);
-  if (latch && base.interiors.primary === "cloudflare_flux_schnell") {
-    const alt = base.interiors.fallback && base.interiors.fallback !== "cloudflare_flux_schnell"
-      ? base.interiors.fallback
-      : "fal_flux_schnell";
-    return { interiors: { primary: alt, fallback: null } };
+  const cfLatch = await readCfBillingLockedUntil(db);
+  const cfBlocked = !!cfLatch
+    || !!((cfg.provider_billing_blocked as any)?.cloudflare?.active);
+  const falBlocked = !!((cfg.provider_billing_blocked as any)?.fal?.active)
+    || !!(cfg.billing_blocked as any)?.active; // legacy mirror
+
+  const dry = (p: ImageProviderId) =>
+    (p === "cloudflare_flux_schnell" && cfBlocked) ||
+    (p === "fal_flux_schnell" && falBlocked);
+
+  const ordered: ImageProviderId[] = [];
+  for (const p of [base.interiors.primary, base.interiors.fallback].filter(Boolean) as ImageProviderId[]) {
+    if (!ordered.includes(p) && !dry(p)) ordered.push(p);
   }
-  return base;
+  if (ordered.length === 0) {
+    // Every configured provider is dry — return the original policy so the
+    // caller sees the real provider error (don't fabricate a healthy path).
+    return base;
+  }
+  return { interiors: { primary: ordered[0], fallback: ordered[1] ?? null } };
 }
 
 /**
@@ -256,11 +283,21 @@ export async function generateImageWithFailover(
       const err = e as Error;
       attempts.push({ provider: providerId, ok: false, error: err?.message ?? String(e) });
       lastErr = e;
-      // Cloudflare billing lock → latch for the rest of the UTC day.
-      if (providerId === "cloudflare_flux_schnell" && e instanceof FalBillingLockedError && db) {
-        await latchCfBillingUntilNextUtcMidnight(db, opts.ebook_id);
+      // Provider billing/quota lock → mark the specific provider blocked so
+      // the next dispatch (and readImageProviderPolicy) skips it entirely
+      // instead of freezing the lane. Cloudflare also latches for the day.
+      if (e instanceof FalBillingLockedError && db) {
+        if (providerId === "cloudflare_flux_schnell") {
+          await latchCfBillingUntilNextUtcMidnight(db, opts.ebook_id);
+          try { await markProviderBillingBlocked(db, "cloudflare", e); } catch (_e) { /* best-effort */ }
+        } else if (providerId === "fal_flux_schnell") {
+          try { await markProviderBillingBlocked(db, "fal", e); } catch (_e) { /* best-effort */ }
+        }
       }
       if (e instanceof ProviderUnconfiguredError) continue;
+      // A provider-billing lock on THIS provider is not fatal — keep trying
+      // the next configured fallback rather than propagating up.
+      if (e instanceof FalBillingLockedError) continue;
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));

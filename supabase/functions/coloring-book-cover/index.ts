@@ -23,7 +23,7 @@ import { buildColoringCoverArtPrompt } from "../_shared/coloring/cover-prompt.ts
 import { transcribeGlyphs, verifyCategoryHero } from "../_shared/covers/cover-vision-guards.ts";
 import { MEASURED_COVER_GATE_VERSION, measuredCoverScorecard } from "../_shared/covers/cover-measured-gate.ts";
 import { coloringCoverGate } from "../_shared/coloring/gates.ts";
-import { generateImageWithFailover } from "../_shared/image-providers.ts";
+import { generateImageWithFailover, readImageProviderPolicy } from "../_shared/image-providers.ts";
 import { computeLuminance } from "../_shared/image-luminance.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 import { classifyProviderError } from "../_shared/covers/provider-errors.ts";
@@ -329,7 +329,11 @@ Deno.serve(async (req: Request) => {
       const artUp = await uploadAndSignImage(db, "ebook-covers", artPath, params.artOnlyBytes, { contentType: "image/png" });
       const up = await uploadAndSignImage(db, "ebook-covers", finalPath, params.finalBytes, { contentType: "image/png" });
       const measuredGate = { pass: true, scorecard: params.measured, reasons: [] as string[] };
-      const isRung2Fallback = params.acceptedRung.startsWith("coloring_self_art_cover");
+      // Any accepted rung that is NOT Tier-1 (ideogram_v3_*) is a fallback
+      // and must be re-attempted by the daily cover-upgrade sweep when
+      // Tier-1's provider comes back healthy. Rung-2 self-art AND Tier-2
+      // flux-textless-with-overlay both qualify.
+      const isRung2Fallback = !params.acceptedRung.startsWith("ideogram_v3_");
       const coverRecord = {
         version: SINGLE_RUNG_VERSION,
         compositor_version: COLORING_COVER_COMPOSITOR_VERSION,
@@ -537,12 +541,17 @@ Deno.serve(async (req: Request) => {
     }
 
     // ═══════════════════ TIER 2 — FLUX TEXTLESS + PREMIUM OVERLAY (fallback) ═══════════════════
+    // v2 — per-provider health aware. Uses the configured interior policy
+    // (CF primary + FAL fallback by default) with per-provider latches so
+    // a dry FAL doesn't block Tier-2 when Cloudflare is healthy. The
+    // premium hand-lettered SVG overlay renders on top of the textless
+    // flux art from whichever provider serves.
+    const coverPolicy = (await readImageProviderPolicy(db)).interiors;
     const MAX_FLUX_ATTEMPTS = 3;
     const fluxAttempts: any[] = [];
     for (let attemptIndex = 1; attemptIndex <= MAX_FLUX_ATTEMPTS; attemptIndex++) {
       const attemptReport: any = { attempt: attemptIndex, started_at: new Date().toISOString(), status: "started" };
       try {
-        const singlePolicy = { primary: "fal_flux_schnell" as const, fallback: null };
         const providerResult: any = await withTimeout(
           generateImageWithFailover({
             prompt,
@@ -550,7 +559,7 @@ Deno.serve(async (req: Request) => {
             num_inference_steps: 4,
             ebook_id,
             step: `coloring_cover_flux_schnell_a${attemptIndex}`,
-          }, singlePolicy),
+          }, coverPolicy, db),
           COVER_GEN_TIMEOUT_MS,
           `cover_flux_schnell_a${attemptIndex}`,
         );

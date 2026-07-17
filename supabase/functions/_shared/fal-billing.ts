@@ -1,20 +1,25 @@
-// Fal provider billing/lock/quota classifier + lane-level guard.
+// Per-provider image billing/lock/quota classifier + lane-level guards.
 //
-// PERMANENT CLASS FIX: fal 403 "Exhausted balance", 402, 429 quota, and
-// "user is locked" responses are PROVIDER-STATE errors, NOT page-content
-// failures. They must never:
-//   - increment coloring_repair_attempts
-//   - trigger the repair ladder (repair → revise → simplify → escalate)
-//   - burn a page's replan budget
-// Instead they FLIP a lane-level state (generation_settings.coloring_autopilot
-// .billing_blocked) and halt all further dispatch until cleared.
+// PERMANENT CLASS FIX (v2 — per-provider latch): provider 4xx billing/lock
+// responses (fal 403 "Exhausted balance", 402, 429 "quota", "user is
+// locked", Cloudflare 4006/quota) are PROVIDER-STATE errors and must
+// never burn page repair attempts or freeze the whole lane when another
+// healthy provider exists.
 //
-// The auto-resume path: any successful FAL call flips billing_blocked back
-// off. Admin can also POST to coloring-autopilot-config to clear it.
+// v1 stored ONE lane-wide `billing_blocked` bool. That was wrong once
+// interiors ran on multi-provider failover: a fal 403 froze the whole
+// lane even though Cloudflare was healthy and configured as primary.
 //
-// A daily-budget guard sums cost_log fal_direct spend for today and refuses
-// dispatch when it exceeds cfg.fal_daily_budget_usd (default $5) so the
-// balance never dies mid-book.
+// v2 stores per-provider state under
+//   generation_settings.coloring_autopilot.provider_billing_blocked = {
+//     fal: { active, status, provider_message, at, cleared_at? },
+//     cloudflare: { ... },
+//   }
+// Lane dispatch checks now consult ONLY the daily budget cap. Per-request
+// provider selection is handled by the failover dispatcher in
+// image-providers.ts (skips locked providers, keeps healthy ones).
+// Legacy `billing_blocked` is still mirrored to the FAL slot so older
+// readers keep working.
 
 export class FalBillingLockedError extends Error {
   readonly kind = "provider_billing_locked" as const;
@@ -49,12 +54,18 @@ const BILLING_PATTERNS: RegExp[] = [
   /account.*(locked|suspended|disabled)/i,
   /billing/i,
   /top.?up/i,
+  // Cloudflare Workers AI free-pool exhaustion wording:
+  /daily free allocation/i,
+  /neurons/i,
+  /workers paid/i,
+  /free (tier|allowance|allocation)/i,
 ];
 
 const QUOTA_PATTERNS: RegExp[] = [
   /quota/i,
   /rate.?limit/i,
   /too many requests/i,
+  /daily.*allocation/i,
 ];
 
 /** Return true iff this Fal response should be treated as provider_billing_locked. */
@@ -88,18 +99,33 @@ export interface BudgetCapState {
   at?: string;
 }
 
+export type ProviderKey = "fal" | "cloudflare";
+
+export interface ProviderBillingBlockedMap {
+  fal?: BillingBlockedState;
+  cloudflare?: BillingBlockedState;
+}
+
 /** Read generation_settings.coloring_autopilot for a fast dispatch-time guard. */
 export async function readLaneGuards(db: any): Promise<{
-  billing_blocked: BillingBlockedState;
+  billing_blocked: BillingBlockedState;                 // legacy (== fal)
+  provider_billing_blocked: ProviderBillingBlockedMap;  // v2, per-provider
   budget_cap: BudgetCapState;
   cfg: Record<string, unknown>;
 }> {
   const { data } = await db.from("generation_settings")
     .select("coloring_autopilot").eq("id", 1).maybeSingle();
   const cfg = (data?.coloring_autopilot ?? {}) as Record<string, unknown>;
-  const billing_blocked = (cfg.billing_blocked as BillingBlockedState | undefined) ?? { active: false };
+  const provider_billing_blocked = (cfg.provider_billing_blocked as ProviderBillingBlockedMap | undefined) ?? {};
+  // Legacy slot mirrors the FAL entry so older readers keep working.
+  const legacy = (cfg.billing_blocked as BillingBlockedState | undefined) ?? { active: false };
+  const fal = provider_billing_blocked.fal ?? legacy;
+  const merged: ProviderBillingBlockedMap = {
+    fal,
+    cloudflare: provider_billing_blocked.cloudflare ?? { active: false },
+  };
   const budget_cap = (cfg.fal_budget_cap as BudgetCapState | undefined) ?? { reached: false };
-  return { billing_blocked, budget_cap, cfg };
+  return { billing_blocked: fal, provider_billing_blocked: merged, budget_cap, cfg };
 }
 
 /** Merge-write coloring_autopilot without clobbering unrelated keys. */
@@ -110,25 +136,41 @@ export async function patchLaneCfg(db: any, patch: Record<string, unknown>): Pro
   await db.from("generation_settings").update({ coloring_autopilot: merged }).eq("id", 1);
 }
 
-export async function markBillingBlocked(db: any, err: FalBillingLockedError): Promise<void> {
-  await patchLaneCfg(db, {
-    billing_blocked: {
+export async function markProviderBillingBlocked(
+  db: any, provider: ProviderKey, err: FalBillingLockedError,
+): Promise<void> {
+  const { provider_billing_blocked } = await readLaneGuards(db);
+  const next: ProviderBillingBlockedMap = {
+    ...provider_billing_blocked,
+    [provider]: {
       active: true,
       status: err.status,
       provider_message: err.provider_message.slice(0, 400),
       at: new Date().toISOString(),
     } as BillingBlockedState,
-  });
+  };
+  const patch: Record<string, unknown> = { provider_billing_blocked: next };
+  // Mirror to legacy slot for fal so older readers still see it.
+  if (provider === "fal") patch.billing_blocked = next.fal;
+  await patchLaneCfg(db, patch);
 }
 
-export async function clearBillingBlocked(db: any): Promise<void> {
-  await patchLaneCfg(db, {
-    billing_blocked: {
-      active: false,
-      cleared_at: new Date().toISOString(),
-    } as BillingBlockedState,
-  });
+export async function clearProviderBillingBlocked(db: any, provider: ProviderKey): Promise<void> {
+  const { provider_billing_blocked } = await readLaneGuards(db);
+  const next: ProviderBillingBlockedMap = {
+    ...provider_billing_blocked,
+    [provider]: { active: false, cleared_at: new Date().toISOString() } as BillingBlockedState,
+  };
+  const patch: Record<string, unknown> = { provider_billing_blocked: next };
+  if (provider === "fal") patch.billing_blocked = next.fal;
+  await patchLaneCfg(db, patch);
 }
+
+// Legacy aliases — FAL-specific, retained so existing callers compile.
+export const markBillingBlocked = (db: any, err: FalBillingLockedError) =>
+  markProviderBillingBlocked(db, "fal", err);
+export const clearBillingBlocked = (db: any) =>
+  clearProviderBillingBlocked(db, "fal");
 
 /** Sum today's fal_direct spend from cost_log (UTC day). */
 export async function sumFalSpendToday(db: any): Promise<number> {
@@ -147,18 +189,16 @@ export async function sumFalSpendToday(db: any): Promise<number> {
 }
 
 /**
- * Dispatch-time guard for the coloring lane. Throws FalBudgetCapReachedError
- * when today's spend is at/over cap, or FalBillingLockedError when the lane
- * is already flagged blocked. Call this BEFORE any FAL invocation.
+ * Dispatch-time guard for the coloring lane.
+ *
+ * v2: per-provider billing blocks NO LONGER halt dispatch — the failover
+ * dispatcher in image-providers.ts skips a locked provider and uses the
+ * next healthy one. This guard now only enforces the daily FAL BUDGET CAP
+ * (a spend-side safety, not a provider-state signal) so an accidental
+ * runaway can't drain the account.
  */
 export async function assertLaneCanDispatch(db: any): Promise<void> {
-  const { billing_blocked, cfg } = await readLaneGuards(db);
-  if (billing_blocked.active) {
-    throw new FalBillingLockedError(
-      billing_blocked.status ?? 403,
-      billing_blocked.provider_message ?? "lane billing_blocked=true",
-    );
-  }
+  const { cfg } = await readLaneGuards(db);
   const cap = Number((cfg.fal_daily_budget_usd as number | undefined) ?? DEFAULT_FAL_DAILY_BUDGET_USD);
   if (cap > 0) {
     const spent = await sumFalSpendToday(db);
