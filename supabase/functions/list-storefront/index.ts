@@ -198,7 +198,93 @@ Deno.serve(async (req) => {
           previewExcerpt = acc.join('\n\n') || null;
         }
 
-        data = [{
+        // ── Coloring-book branch ─────────────────────────────────────────
+        // Owner law 2026-07-18: coloring books ship with a full conversion
+        // copy pack + interior page grid preview — not the picture-book
+        // story reader. Derive the pack on the fly from category + ages +
+        // page count so retroactive upgrades work without a DB backfill.
+        const isColoring = kid.book_type === "coloring_book";
+        if (isColoring) {
+          const pageCountCol = (kid as any).page_count as number | null;
+          const pcMeta = Number((meta as any).page_count ?? 0);
+          const pageCount = pageCountCol ?? (Number.isFinite(pcMeta) && pcMeta > 0 ? pcMeta : 32);
+          const ageMin = Number((meta as any).age_min ?? NaN);
+          const ageMax = Number((meta as any).age_max ?? NaN);
+          const categoryName = (meta as any).category_name ?? null;
+          const stored = (meta as any).conversion_copy ?? null;
+          const copy = stored ?? buildColoringSalesCopy({
+            title: kid.title,
+            category_name: categoryName,
+            age_min: Number.isFinite(ageMin) ? ageMin : null,
+            age_max: Number.isFinite(ageMax) ? ageMax : null,
+            page_count: pageCount,
+          });
+          // Preview spreads: interior coloring pages (line art, no text).
+          const previewUrlList: string[] = Array.isArray((meta as any).preview_page_urls)
+            ? ((meta as any).preview_page_urls as any[]).filter((u) => typeof u === "string" && u.length > 0)
+            : [];
+          const coloringPreviews = previewUrlList.slice(0, 6).map((url, i) => ({
+            page: i === 0 ? 1
+              : i === previewUrlList.length - 1 ? pageCount
+              : Math.round(((i) / Math.max(1, previewUrlList.length - 1)) * pageCount),
+            image_url: url,
+            text: null as string | null,
+            caption: null as string | null,
+          }));
+
+          const ageSlug = (Number.isFinite(ageMin) && Number.isFinite(ageMax)) ? `${ageMin}-${ageMax}` : null;
+          data = [{
+            id: kid.id,
+            title: kid.title,
+            subtitle: kid.subtitle,
+            price: (kid.price_cents ?? 999) / 100,
+            cover_url: kid.cover_url,
+            book_type: "coloring_book",
+            store_thumbnail_url: kid.thumbnail_url,
+            product_description: copy.product_description,
+            selling_hook: copy.selling_hook,
+            short_hook: copy.short_hook,
+            shopping_card_description: copy.shopping_card_description,
+            preview_blurb: copy.short_hook,
+            benefit_bullets: copy.benefit_bullets,
+            key_benefits: copy.benefit_bullets,
+            who_it_is_for: copy.who_it_is_for,
+            what_you_get: copy.what_you_get,
+            long_description: copy.product_description,
+            category_slug: "coloring_book",
+            listing_status: kid.listing_status,
+            product_type: "coloring_book",
+            seo_title: kid.title,
+            seo_meta: copy.short_hook,
+            tags: [categoryName, ageSlug ? `ages-${ageSlug}` : null].filter(Boolean) as string[],
+            sales_count: 0,
+            listed_at: null,
+            inside_illustrations_json: null,
+            is_bestseller: false,
+            series_id: null,
+            cliffhanger_hook: null,
+            preview_page_count: coloringPreviews.length,
+            hook_description: copy.selling_hook,
+            preview_excerpt: null,
+            persona: "coloring-parent",
+            page_count: pageCount,
+            _kids_preview_spreads: coloringPreviews,
+            _kids_total_spreads: pageCount,
+            _kids_read_aloud_minutes: null,
+            _kids_ad_promise: { theme: categoryName ?? "", primary_benefit: "screen-free time" },
+            _kids_value_cards: copy.value_cards,
+            _kids_age_slugs: ageSlug ? [ageSlug] : [],
+            _kids_theme_slugs: (kidsThemeSlugs.length > 0 ? kidsThemeSlugs : (categoryName ? [String(categoryName).toLowerCase().replace(/\s+/g, "-")] : [])),
+            _coloring_extras: {
+              trim_size: copy.trim_size,
+              format_label: copy.format_label,
+              digital_delivery_note: copy.digital_delivery_note,
+              license_note: copy.license_note,
+              who_its_not_for: copy.who_its_not_for,
+            },
+          }] as any;
+        } else {
+          data = [{
           id: kid.id,
           title: kid.title,
           subtitle: kid.subtitle,
@@ -242,6 +328,7 @@ Deno.serve(async (req) => {
           _kids_age_slugs: kidsAgeSlugs,
           _kids_theme_slugs: kidsThemeSlugs,
         }] as any;
+        }
       }
     }
 
