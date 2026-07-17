@@ -251,8 +251,34 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, skipped: "cover_exists", chained: "assemble" });
     }
 
-    // Build input once.
-    const pages = (meta.coloring_pages as any[] | undefined) ?? [];
+    // ── HARD RETRY CEILING (owner law: unbounded_cover_retry_forbidden) ──
+    // Increment BEFORE any provider call so a crashing attempt still counts.
+    // Upgrade mode is exempt (it's a manual admin sweep, not the retry loop).
+    const priorInvocations = Number((meta as any).coloring_cover_invocations ?? 0);
+    if (!isUpgradeMode && priorInvocations >= MAX_COVER_INVOCATIONS_PER_BOOK) {
+      await patchMeta(db, ebook_id, {
+        coloring_current_step_label: `Cover retry ceiling reached (${priorInvocations}/${MAX_COVER_INVOCATIONS_PER_BOOK}). Parked for human review — admin must inspect and reset metadata.coloring_cover_invocations to resume.`,
+        coloring_blocker: {
+          class: "non_recoverable_config",
+          reason: COVER_RETRY_CEILING_REASON,
+          invocations: priorInvocations,
+          ceiling: MAX_COVER_INVOCATIONS_PER_BOOK,
+          detected_at: new Date().toISOString(),
+        },
+        awaiting: "human_review",
+      });
+      await db.from("ebooks_kids").update({
+        pipeline_status: "queued",
+        blocker_reason: `${COVER_RETRY_CEILING_REASON}:${priorInvocations}`,
+      }).eq("id", ebook_id);
+      // NO scheduleSelfAdvance — this is a terminal park until a human resets.
+      return json({ ok: false, parked: true, reason: COVER_RETRY_CEILING_REASON, invocations: priorInvocations }, 202);
+    }
+    if (!isUpgradeMode) {
+      await patchMeta(db, ebook_id, { coloring_cover_invocations: priorInvocations + 1 });
+    }
+
+
     const plan = ((meta.coloring_page_plan as any)?.plan ?? []) as any[];
     const totalPages = plan.length || pages.length || 32;
 
