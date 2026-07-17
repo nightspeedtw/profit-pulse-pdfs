@@ -39,12 +39,17 @@ const DEFAULTS = {
   daily_stop_utc: "22:00",
 };
 
+function ageBandLabel(ageBand: string): string {
+  if (ageBand === "all_ages") return "All Ages";
+  return `Ages ${ageBand.replace("-", "\u2013")}`;
+}
+
 function composeTitle(angle: string, catName: string, ageBand: string, variant: number): string {
   const suffix = variant > 1 ? ` V${variant}` : "";
   const firstWord = (catName ?? "").toLowerCase().split(/\s+/)[0] ?? "";
   const angleIncludesCategory = firstWord && angle.toLowerCase().includes(firstWord);
   const head = angleIncludesCategory ? angle : `${angle} ${catName}`;
-  return `${head} Coloring Book (Ages ${ageBand})${suffix}`;
+  return `${head} Coloring Book (${ageBandLabel(ageBand)})${suffix}`;
 }
 
 async function pickUniqueTitle(
