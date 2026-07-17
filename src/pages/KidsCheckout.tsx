@@ -9,7 +9,9 @@ interface Book {
   id: string;
   title: string;
   cover_url: string | null;
+  thumbnail_url: string | null;
   price_cents: number;
+  book_type: string | null;
   storefront_meta: Record<string, unknown> | null;
 }
 
@@ -29,7 +31,7 @@ export default function KidsCheckout() {
     (async () => {
       if (!id) { setLoading(false); return; }
       const { data } = await supabase.from("ebooks_kids")
-        .select("id,title,cover_url,price_cents,storefront_meta")
+        .select("id,title,cover_url,thumbnail_url,price_cents,book_type,storefront_meta")
         .eq("id", id).maybeSingle();
       if (!cancelled) {
         setBook((data ?? null) as Book | null);
@@ -63,15 +65,26 @@ export default function KidsCheckout() {
       <h1 className="font-display text-3xl md:text-4xl mb-2">สรุปคำสั่งซื้อ</h1>
       <p className="text-sm text-muted-foreground mb-8">ตรวจสอบเล่มที่คุณเลือกก่อนชำระเงิน</p>
 
+      {(() => {
+        const isColoring = book.book_type === "coloring_book";
+        const trimLabel = isColoring ? "Coloring book · 8.5×11\"" : "Picture book · 8.5×8.5\"";
+        // Coloring covers are native 1600×2071 (8.5:11). Any square/object-cover
+        // container clips the baked title — must use aspect-[1600/2071] +
+        // object-contain on white (round_2 regression: cover-crop-v3).
+        const thumbAspect = isColoring ? "aspect-[1600/2071]" : "aspect-square";
+        const imgFit = isColoring ? "object-contain" : "object-cover";
+        const imgBg = isColoring ? "bg-white" : "";
+        const thumbSrc = book.thumbnail_url || book.cover_url;
+        return (
       <div className="grid md:grid-cols-[1fr,360px] gap-6 md:gap-10">
         {/* Order summary */}
         <section className="rounded-2xl border-2 border-border bg-card overflow-hidden">
           <div className="flex flex-col sm:flex-row">
-            <div className="sm:w-52 aspect-square bg-muted flex-shrink-0">
-              {book.cover_url && <img src={book.cover_url} alt={book.title} className="w-full h-full object-cover" />}
+            <div className={`sm:w-52 ${thumbAspect} ${isColoring ? "bg-white" : "bg-muted"} flex-shrink-0`}>
+              {thumbSrc && <img src={thumbSrc} alt={book.title} className={`w-full h-full ${imgFit} ${imgBg}`} />}
             </div>
             <div className="p-5 flex-1">
-              <p className="font-mono uppercase tracking-widest text-xs text-accent mb-2">[ Picture book · 8.5×8.5" ]</p>
+              <p className="font-mono uppercase tracking-widest text-xs text-accent mb-2">[ {trimLabel} ]</p>
               <h2 className="font-display text-xl md:text-2xl leading-tight mb-2">{book.title}</h2>
               <ul className="text-sm text-muted-foreground space-y-1.5 mt-3">
                 <li className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-accent" /> ดาวน์โหลด PDF ทันทีหลังชำระเงิน</li>

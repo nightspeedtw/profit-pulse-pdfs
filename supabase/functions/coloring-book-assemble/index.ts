@@ -37,6 +37,7 @@ import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/c
 import { appendDefectLedger, WAIVER_REPAIR_ATTEMPTS } from "../_shared/coloring/defect-ledger.ts";
 import { readQcMode, waiveOrBlock } from "../_shared/coloring/qc-mode.ts";
 import { checkCoverAspect } from "../_shared/coloring/cover-aspect-gate.ts";
+import { fitContainCover } from "../_shared/coloring/pdf-cover-fit.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -461,13 +462,13 @@ Deno.serve(async (req: Request) => {
     const coverImg = await embedAny(doc, coverBytes);
     {
       const p = doc.addPage([PAGE_W, PAGE_H]);
-      // fit-cover the artwork into the page — safe because the aspect
-      // gate above proves the ratios match within tolerance.
-      const iw = coverImg.width, ih = coverImg.height;
-      const scale = Math.max(PAGE_W / iw, PAGE_H / ih);
-      const w = iw * scale, h = ih * scale;
+      // fit-CONTAIN on a white letterbox (round_2 regression: cover-crop-v3).
+      // Never fit-COVER — that mathematically overflows whenever raster
+      // ratio isn't bit-exact with the page ratio, clipping the baked title.
+      p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1, 1, 1) });
+      const placement = fitContainCover(coverImg.width, coverImg.height, PAGE_W, PAGE_H);
       p.drawImage(coverImg, {
-        x: (PAGE_W - w) / 2, y: (PAGE_H - h) / 2, width: w, height: h,
+        x: placement.x, y: placement.y, width: placement.w, height: placement.h,
       });
     }
 
