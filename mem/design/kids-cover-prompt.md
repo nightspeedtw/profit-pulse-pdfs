@@ -133,3 +133,11 @@ Rules:
 - The publish path enforces this via
   `supabase/functions/_shared/coloring/cover-aspect-gate.ts`; do not
   bypass or loosen its tolerance (±1% w/h).
+
+## Coloring covers — three permanent rules (v1)
+
+1. **Baked title only.** Coloring covers MUST use `ideogram_verified_integrated` typography — the title/subtitle/age badge is hand-lettered INTO the illustration. No `textless_art_plus_svg_overlay`, no post-hoc SVG title layer, no "flat text stamped on art". If Ideogram fails 3 attempts, park in `awaiting_cover_retry` — never fall back to overlay.
+2. **8.5×11 trim, everywhere.** Cover raster 1600×2071 px, interior raster 1600×2071 px, thumbnail 600×776 px, every PDF page 612×792 pt. Enforced via `_shared/coloring/trim-lock.ts`.
+3. **Distinct fitted thumbnail.** `thumbnail_url` must be a separate asset from `cover_url`, produced by the `coloring-book-thumbnail` edge function on a 600×776 white canvas with fit-contain letterboxing (`thumbnail_render_meta.non_crop_pass=true`).
+
+Contract lives in `pipeline_skills['coloring-cover-thumbnail-contract-v1']` and is asserted by `_shared/coloring/publish-contract.ts` inside `kids-publish-if-qc-passed`. No waivers.
