@@ -190,14 +190,27 @@ Deno.serve(async (req: Request) => {
         result.focus_skipped = { ebook_id: focusEbookId, status: row?.pipeline_status ?? "not_found" };
       }
     } else {
+      // Fetch a larger candidate window so we can filter out rows we just
+      // dispatched (cooldown) without starving the remaining queue when
+      // the top-N are stuck bouncing on the same terminal-ish stage.
       const { data } = await db
         .from("ebooks_kids")
         .select("id, title, metadata, pdf_url, cover_url")
         .eq("book_type", "coloring_book")
         .eq("pipeline_status", "queued")
         .order("created_at", { ascending: true })
-        .limit(slots);
-      queued = data ?? [];
+        .limit(Math.max(slots * 4, 12));
+      const now = Date.now();
+      const COOLDOWN_MS = 90_000;
+      const filtered = (data ?? []).filter((r: any) => {
+        const t = (r.metadata as any)?.coloring_last_dispatched_at;
+        if (!t) return true;
+        const ts = Date.parse(t);
+        return !Number.isFinite(ts) || (now - ts) > COOLDOWN_MS;
+      });
+      queued = filtered.slice(0, slots);
+      result.candidates_seen = (data ?? []).length;
+      result.cooldown_skipped = (data ?? []).length - filtered.length;
     }
     result.queue_size = queued.length;
     result.focus = focusEbookId;
@@ -225,6 +238,13 @@ Deno.serve(async (req: Request) => {
         { ebook_id: row.id, ...(awaiting === "publish_candidate" || awaiting === "owner_final_verification" ? { mode: "candidate" } : {}) },
         3_000,
       );
+      // Stamp cooldown so the next tick doesn't re-pick the same row before
+      // the target stage has had time to complete (or park itself).
+      try {
+        await db.from("ebooks_kids").update({
+          metadata: { ...meta, coloring_last_dispatched_at: new Date().toISOString(), coloring_last_dispatched_target: target },
+        }).eq("id", row.id);
+      } catch (_e) { /* best-effort */ }
       return {
         ebook_id: row.id, title: row.title, target,
         dispatched: outcome.dispatched, status: outcome.status ?? null, note: outcome.error ?? null,

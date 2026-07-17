@@ -303,6 +303,18 @@ export async function generateImageWithFailover(
     return null;
   };
 
+  // Per-provider hard timeout. A hung provider (e.g. billing-locked account
+  // that never returns) must never eat the whole dispatcher budget — that
+  // is the "one provider hangs, whole queue stalls" regression class from
+  // known-regressions.md. 45s covers a real cold-start Flux run with room
+  // to spare while still forcing failover long before the gateway wall.
+  const PROVIDER_TIMEOUT_MS = 45_000;
+  const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(`provider_hard_timeout_${ms}ms:${label}`)), ms);
+      p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+    });
+
   let lastErr: unknown = null;
   for (const providerId of order) {
     const fn = PROVIDERS[providerId];
@@ -311,7 +323,7 @@ export async function generateImageWithFailover(
       continue;
     }
     try {
-      const bytes = await fn(opts);
+      const bytes = await withTimeout(fn(opts), PROVIDER_TIMEOUT_MS, providerId);
       attempts.push({ provider: providerId, ok: true });
       return { bytes, provider: providerId, attempts };
     } catch (e) {
@@ -329,6 +341,8 @@ export async function generateImageWithFailover(
       }
       if (e instanceof ProviderUnconfiguredError) continue;
       if (e instanceof FalBillingLockedError) continue;
+      // Hard timeout → try next provider immediately (fail-fast).
+      if (err?.message?.startsWith("provider_hard_timeout_")) continue;
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));

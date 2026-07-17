@@ -127,7 +127,17 @@ Deno.serve(async (req: Request) => {
 
     if (!row.pdf_url || !assembly?.pdf_sha256) return json({ error: "pdf_missing" }, 422);
     if (!row.cover_url) return json({ error: "cover_missing" }, 422);
-    if (pages.length !== plan.length) return json({ error: "interior_incomplete" }, 422);
+    // Interior completeness: TRUST THE ASSEMBLED PDF (source of truth), not
+    // the stale metadata.coloring_pages array. Assembly already verified
+    // pdf page_count === expected_page_count. If a few interior renders
+    // failed and the assembler filled placeholders, that's a defect_ledger
+    // event under batch-learning-mode, not a publish-blocking condition.
+    // Previous behavior returned 422 forever, causing the dispatcher to
+    // re-pick the same rows every tick and starve the rest of the queue.
+    const assyOk = Number(assembly?.page_count ?? 0) > 0
+      && Number(assembly?.page_count) === Number(assembly?.expected_page_count ?? assembly?.page_count);
+    if (!assyOk) return json({ error: "interior_incomplete", assembly_page_count: assembly?.page_count, expected: assembly?.expected_page_count }, 422);
+    const missingInterior = Math.max(0, plan.length - pages.length);
 
     // NON-WAIVABLE PUBLISH CONTRACT — enforced even in learning mode.
     // Missing/NULL cover QC evidence is a hard FAIL (not a silent pass).
@@ -175,6 +185,15 @@ Deno.serve(async (req: Request) => {
       .select("coloring_autopilot").eq("id", 1).maybeSingle();
     const autopilotCfg = (gsPreview?.coloring_autopilot ?? {}) as Record<string, unknown>;
     const ledger = Array.isArray(meta.defect_ledger) ? (meta.defect_ledger as any[]) : [];
+    if (missingInterior > 0) {
+      ledger.push({
+        stage: "publish", gate: "interior_page_count", page: null,
+        reasons: [`interior_pages_missing_from_metadata=${missingInterior}`, `plan=${plan.length}`, `rendered=${pages.length}`, `assembled=${assembly?.page_count}`],
+        attempts: 1, evidence_url: row.pdf_url,
+        waived_at: new Date().toISOString(),
+        round: Number((autopilotCfg.learning_round as number | undefined) ?? 1),
+      });
+    }
     const cleanLedger = ledger.length === 0;
     const autoFlipEnabled = autopilotCfg.clean_auto_flip === true;
     const qcMode = (autopilotCfg.qc_mode as string) ?? "learning";
