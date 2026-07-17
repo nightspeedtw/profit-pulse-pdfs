@@ -1,46 +1,55 @@
-## Goal
-Ocean Friends Coloring Adventure (Ages 4-6) sale page shows the cover cropped because Product.tsx forces `aspect-square` on kids items — but square is the picture-book shape. Coloring books are 8.5×11 portrait (1600×2071 native, 600×776 thumb). Fix the sale-page thumbnail aspect for coloring books, and regenerate a fresh cover for this book so the PDF/sale page uses a clean new artwork.
 
-## Scope
-Two changes:
-1. **Sale-page thumbnail aspect fix (permanent, all coloring books).**
-2. **Regenerate cover + PDF for Ocean Friends Coloring Adventure (`a05a5086-8972-4b9e-8953-ee9dfa633d64`).**
+# Cover spelling gate — non-waivable, must pass before Live
 
-Storefront card grid (`/kids`) is already fine per screenshot — no change there.
+## Problem
 
----
+The uploaded Farm & Woodland cover shows a misspelled subtitle ("Coloring Bookl-Fname"). The pipeline already OCRs the cover (`verifyExactCoverText` in `_shared/coloring/cover-text-transcription.ts`) and detects `missing` / `extra` / `misspelled` tokens, but in learning mode the failure is only written to the defect ledger and the book is still shipped Live. Result: covers with clearly wrong words reach the storefront.
 
-## Change 1 — Portrait aspect for coloring books on `/product/:id`
+Owner directive: after cover generation and before the book flips to `listing_status='live'`, add a spell-check gate that CANNOT be waived by learning mode.
 
-### Files
-- `supabase/functions/list-storefront/index.ts` — kids branch (line ~200): add `book_type: kid.book_type` to the returned payload so the client can tell coloring books apart from picture books.
-- `src/lib/storefront.ts` — add `book_type?: string | null` to `StorefrontEbook`.
-- `src/pages/Product.tsx` — line 101 cover container:
-  - `coloring_book` → `aspect-[17/22]` (matches native 8.5×11 = ColoringProduct's `1600×2071` container).
-  - Other `children_illustrated` (picture books) → keep `aspect-square`.
-  - Adults → keep `aspect-[3/4]`.
-  - Keep `object-cover`; with the correct aspect there's no crop.
+## Fix (3 parts)
 
-Detection rule: `product.book_type === 'coloring_book'`. No square fallback for coloring books.
+### 1. Add a hard `cover_spelling_verified` check to the publish contract
 
-## Change 2 — Regenerate Ocean Friends cover + PDF
+`_shared/coloring/publish-contract.ts` gains a 5th non-waivable check alongside the existing baked-title / trim / thumbnail / category checks. It reads the persisted transcription evidence stored on the cover record (`metadata.coloring_cover.evidence.exact_transcription` and the mirror at `coloring_cover_gate.scorecard.evidence.exact_transcription`) and fails when any of these are true:
 
-Sequence (uses existing pipeline, no new code):
-1. Clear `cover_url`, `thumbnail_url`, `metadata.coloring_cover`, `pdf_url`, `pdf_sha256` on `a05a5086-8972-4b9e-8953-ee9dfa633d64`.
-2. Set `metadata.focus_run=true` and `metadata.qc_mode_override='learning'` (owner-approved Round 1 mode).
-3. Invoke `coloring-book-cover` (interior-first law: uses already-rendered interior pages 6/7/8 as Ideogram 3.0 reference — book already has 32 rendered interiors).
-4. Chain: cover → thumbnail (600×776) → assemble (fresh PDF with new cover fit-CONTAIN) → publish.
-5. Verify: `cover_used_interior_refs=true`, `pdf_url` refreshed, `listing_status='live'`, `sellable=true`.
+- `misspelled_required.length > 0` — a required title token appears as a near-match typo on the cover (e.g. `book → bookl`, `friends → freinds`).
+- `extra` contains any garbage token that isn't in `CHROME_TOKENS` and isn't a known chrome word (subtitle/badge tokens that OCR sometimes joins with hyphens). Hyphenated OCR joins get split before comparison so "Book-Fname" → `["book","fname"]` and `fname` is a hard-fail extra.
+- Transcription evidence is missing OR `degraded: true` — treated like NULL cover QC: hard fail, force regeneration. (Never a silent pass.)
 
-No threshold lowered, no gate bypassed — same publish-contract path all recently-fixed books used.
+Because this lives in `assertColoringPublishContract`, which `coloring-book-publish` already enforces **before** the learning-mode branch, it blocks Live for every book regardless of `qc_mode`. Failure sets `blocker_reason='coloring_publish_contract:cover_spelling_unverified:...'` and posts back to `coloring-book-cover` with `force:true`, same pattern used today for category/baked-title failures.
 
-## Verification
-- Reload `/product/a05a5086-...` → cover renders full 8.5×11 portrait, no crop.
-- Reload `/product/<any picture book>` → still square.
-- Reload `/product/<adult PDF>` → still 3/4.
-- Download PDF → cover is the newly-generated artwork.
+### 2. Make the cover step retry on spelling failure instead of accepting
 
-## Out of scope
-- Storefront grid card aspect (already correct per screenshot).
-- ColoringProduct.tsx (already uses `1600/2071` container).
-- Any threshold, QC gate, or contract change.
+`supabase/functions/coloring-book-cover/index.ts` today accepts the first Ideogram attempt whose category+hero pass, then falls to the learning-mode "waived" rungs (e.g. `ideogram_v3_learning_waived_a3` that Ocean Friends used). Update the acceptance ladder:
+
+- Spelling verdict (`verifyExactCoverText`) is now a first-class rung check, not an evidence field. An attempt with `misspelled_required.length > 0` or garbage `extra` tokens is rejected and retried, up to the existing 3-attempt cap.
+- After 3 spelling failures, the cover step still writes the attempt to storage BUT does **not** stamp `cover_accepted=true` — instead sets `metadata.cover_spelling_stubborn=true` and enqueues a REPLAN (drop subtitle tokens that Ideogram consistently mangles, keep title-only) rather than a blind 4th attempt. Same escalation shape as the existing text-page escalation in `first-pass-learner.ts`.
+- Learning mode can still waive category/hero (as today), but NOT spelling.
+
+### 3. Strengthen the Ideogram prompt spelling clause
+
+`_shared/coloring/ideogram-integrated-cover.ts` prompt gains an explicit STRICT SPELLING CONTRACT block ("render every letter of these exact words, do not invent letters, do not append or drop characters, do not hyphenate mid-word") tied to the required tokens, alongside the existing text contract. Prompt-side prevention is cheap and reduces the retry rate — but the gate above is what guarantees no misspelled cover ever ships.
+
+## Backfill
+
+One-shot query to identify already-live coloring books whose stored `exact_transcription` evidence would fail the new gate, then reset those rows (clear `cover_url` / `thumbnail_url`, set `focus_run=true`, `pipeline_status='queued'`) so the fixed cover step regenerates them. Farm & Woodland (`607018e8-9190-4c30-b4ef-538a0fa999c9`) is confirmed in scope; the query catches the rest.
+
+## Files touched
+
+- `supabase/functions/_shared/coloring/publish-contract.ts` — add `cover_spelling_verified` check + hyphenation-aware token split.
+- `supabase/functions/coloring-book-cover/index.ts` — promote spelling verdict to acceptance rung; add REPLAN escalation after 3 spelling fails.
+- `supabase/functions/_shared/coloring/ideogram-integrated-cover.ts` — add STRICT SPELLING CONTRACT prompt clause.
+- Migration: backfill query that resets books failing the new gate, plus a `pipeline_skills` row recording the doctrine `cover_spelling_never_waived`.
+
+## Tests
+
+- Unit: `assertColoringPublishContract` returns `pass:false, reason:cover_spelling_unverified` when evidence has `misspelled_required` or a garbage `extra`, and `pass:true` when evidence shows only optional-token gaps.
+- Unit: hyphenated OCR join "Book-Fname" tokenizes into `["book","fname"]` and `fname` is flagged as extra.
+- Integration: reset Farm & Woodland → cover regenerates → new cover with clean spelling → publish contract passes → Live.
+
+## What this does NOT change
+
+- Category / hero waiver via interior refs (owner-approved) stays as-is.
+- Learning mode still waives boundary-sharpness, page-count, weighted-gate, etc. Only spelling becomes non-waivable.
+- No threshold lowered.

@@ -625,14 +625,31 @@ Deno.serve(async (req: Request) => {
     // publish so the interior work isn't wasted parking on cover chrome.
     try {
       const { qcMode, round } = await readQcMode(db, ebook_id);
+      // Owner law (spelling gate): only waive when the failure is limited
+      // to OPTIONAL chrome (subtitle/age-badge). If a REQUIRED title token
+      // is missing or misspelled, OR the OCR found garbage/hallucinated
+      // extras, DO NOT waive — those covers must never reach LIVE.
+      const isWaivableTextReject = (v: any): boolean => {
+        if (!v || typeof v !== "object") return false;
+        const missReq = Array.isArray(v.missing_required) ? v.missing_required : [];
+        if (missReq.length > 0) return false;
+        const requiredSet = new Set(Array.isArray(v.required_tokens) ? v.required_tokens : []);
+        const misspelled = Array.isArray(v.misspelled) ? v.misspelled : [];
+        const misspelledRequired = misspelled.filter((m: string) => requiredSet.has(String(m).split("→")[0]));
+        if (misspelledRequired.length > 0) return false;
+        const extras = Array.isArray(v.extra) ? v.extra : [];
+        if (extras.length > 0) return false;
+        return true;
+      };
       const textRejected = ideogramAttempts.filter((a: any) =>
-        a?._rawBytes && a?.status === "text_rejected"
+        a?._rawBytes && a?.status === "text_rejected" && isWaivableTextReject(a?._verdict)
       );
       if (qcMode === "learning" && textRejected.length > 0) {
         const best = textRejected[textRejected.length - 1];
         const rawBytes = best._rawBytes as Uint8Array;
         const verdict = best._verdict as any;
         const heroVerdict = { ok: true, matches: true, detected_subjects: heroSubjects, forbidden_hit: null, degraded: false, reason: "learning_mode_waived" };
+
         const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT);
         // Log defect to ledger
         const { data: rowMetaRow } = await db.from("ebooks_kids").select("metadata").eq("id", ebook_id).maybeSingle();
