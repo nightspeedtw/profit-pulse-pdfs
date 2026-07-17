@@ -155,6 +155,30 @@ const KNOWN_SIGNATURES: Array<{
       fingerprint: "fal_billing_locked",
     }),
   },
+  // Runware.ai billing / balance exhausted — pay-per-request, requires top-up.
+  {
+    match: (m) => /runware/i.test(m) && /(balance|credit|insufficient|billing|payment required|402)/i.test(m),
+    build: (m, ctx) => ({
+      error_type: "quota_wait" as const,
+      severity: "high" as const,
+      recoverable: true,
+      affected_step: ctx.step,
+      user_friendly_message:
+        "Waiting for Runware.ai balance top-up — visit runware.ai to add credit; pipeline will auto-resume.",
+      technical_message: m,
+      detected_root_cause:
+        "Runware.ai rejected the imageInference call for billing/balance reasons.",
+      auto_recovery_action:
+        "Latch runware provider as billing_blocked, fall through to cloudflare/fal fallbacks for this tick, park book in awaiting_billing with 30-minute re-check cadence.",
+      next_retry_at: backoff(30),
+      needs_code_fix: false,
+      lovable_fix_instruction: "",
+      affected_files: [],
+      test_to_confirm: "After topping up at runware.ai, parked book returns to queued and completes without manual DB edits.",
+      suggested_status: "needs_admin_attention" as const,
+      fingerprint: "runware_billing_locked",
+    }),
+  },
   // Storefront daily cap / 402 / quota
   {
     match: (m) => /storefront/i.test(m) && /(quota|throttl|daily|cap|402)/i.test(m),

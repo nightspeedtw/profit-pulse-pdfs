@@ -20,20 +20,32 @@
 // logs $0.003/img — the sum is what the cap enforces).
 
 import { falFluxSchnell } from "./fal.ts";
-import { FalBillingLockedError, isFalBillingLocked, markProviderBillingBlocked } from "./fal-billing.ts";
+import { FalBillingLockedError, isFalBillingLocked, markProviderBillingBlocked, type ProviderKey } from "./fal-billing.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
+import { runwareInference, RUNWARE_MODELS } from "./runware.ts";
 
-export type ImageProviderId = "cloudflare_flux_schnell" | "fal_flux_schnell";
+export type ImageProviderId =
+  | "runware_flux_schnell"
+  | "cloudflare_flux_schnell"
+  | "fal_flux_schnell";
 
 export type ImageProviderPolicy = {
   interiors: {
     primary: ImageProviderId;
     fallback: ImageProviderId | null;
+    fallback2?: ImageProviderId | null;
   };
 };
 
+// PRIMARY = Runware (pay-per-request, no daily cap → clears backlog).
+// FALLBACK 1 = Cloudflare Workers AI free-neuron tier (zero-cost while it lasts).
+// FALLBACK 2 = fal.ai (only if the two above are unhealthy).
 export const DEFAULT_IMAGE_PROVIDER_POLICY: ImageProviderPolicy = {
-  interiors: { primary: "cloudflare_flux_schnell", fallback: "fal_flux_schnell" },
+  interiors: {
+    primary: "runware_flux_schnell",
+    fallback: "cloudflare_flux_schnell",
+    fallback2: "fal_flux_schnell",
+  },
 };
 
 export interface GenerateImageOpts {
@@ -131,6 +143,14 @@ export async function cloudflareFluxSchnell(opts: GenerateImageOpts): Promise<Ui
 // -------- Provider registry + dispatcher --------
 
 export const PROVIDERS: Record<ImageProviderId, (o: GenerateImageOpts) => Promise<Uint8Array>> = {
+  runware_flux_schnell: (o) => runwareInference({
+    prompt: o.prompt,
+    image_size: o.image_size,
+    num_inference_steps: o.num_inference_steps,
+    model: RUNWARE_MODELS.line_art,
+    ebook_id: o.ebook_id,
+    step: o.step,
+  }),
   cloudflare_flux_schnell: cloudflareFluxSchnell,
   fal_flux_schnell: (o) => falFluxSchnell({
     prompt: o.prompt,
@@ -222,51 +242,66 @@ export async function readImageProviderPolicy(db: any): Promise<ImageProviderPol
         interiors: {
           primary: interiors.primary,
           fallback: interiors.fallback ?? DEFAULT_IMAGE_PROVIDER_POLICY.interiors.fallback,
+          fallback2: interiors.fallback2 ?? DEFAULT_IMAGE_PROVIDER_POLICY.interiors.fallback2 ?? null,
         },
       };
     }
   } catch (_e) { /* fall through */ }
 
   const cfLatch = await readCfBillingLockedUntil(db);
-  const cfBlocked = !!cfLatch
-    || !!((cfg.provider_billing_blocked as any)?.cloudflare?.active);
-  const falBlocked = !!((cfg.provider_billing_blocked as any)?.fal?.active)
-    || !!(cfg.billing_blocked as any)?.active; // legacy mirror
+  const pbb = (cfg.provider_billing_blocked as any) ?? {};
+  const cfBlocked = !!cfLatch || !!pbb?.cloudflare?.active;
+  const falBlocked = !!pbb?.fal?.active || !!(cfg.billing_blocked as any)?.active;
+  const runwareBlocked = !!pbb?.runware?.active;
+  // Runware requires an API key to be usable. If missing, mark it dry so we
+  // fall through to CF/fal instead of burning a round-trip per page.
+  const runwareUnconfigured = !Deno.env.get("RUNWARE_API_KEY");
 
   const dry = (p: ImageProviderId) =>
     (p === "cloudflare_flux_schnell" && cfBlocked) ||
-    (p === "fal_flux_schnell" && falBlocked);
+    (p === "fal_flux_schnell" && falBlocked) ||
+    (p === "runware_flux_schnell" && (runwareBlocked || runwareUnconfigured));
 
+  const chain = [base.interiors.primary, base.interiors.fallback, base.interiors.fallback2]
+    .filter(Boolean) as ImageProviderId[];
   const ordered: ImageProviderId[] = [];
-  for (const p of [base.interiors.primary, base.interiors.fallback].filter(Boolean) as ImageProviderId[]) {
+  for (const p of chain) {
     if (!ordered.includes(p) && !dry(p)) ordered.push(p);
   }
-  if (ordered.length === 0) {
-    // Every configured provider is dry — return the original policy so the
-    // caller sees the real provider error (don't fabricate a healthy path).
-    return base;
-  }
-  return { interiors: { primary: ordered[0], fallback: ordered[1] ?? null } };
+  if (ordered.length === 0) return base;
+  const finalPolicy = {
+    interiors: {
+      primary: ordered[0],
+      fallback: ordered[1] ?? null,
+      fallback2: ordered[2] ?? null,
+    },
+  };
+  console.log(`[image-providers] policy chain=${ordered.join(",")} runware_key=${!!Deno.env.get("RUNWARE_API_KEY")} cf_blocked=${cfBlocked} fal_blocked=${falBlocked} runware_blocked=${runwareBlocked}`);
+  return finalPolicy;
 }
 
 /**
- * Dispatch with automatic failover. Semantics:
- *   - Try `primary`. Success → return.
- *   - On ProviderUnconfiguredError OR any generic error/timeout → try `fallback`.
- *   - FalBillingLockedError from the LAST provider propagates up.
- *   - FalBillingLockedError from Cloudflare (when db provided) sets the
- *     daily latch so tomorrow's runs skip CF entirely until next 00:00 UTC.
+ * Dispatch with automatic failover across a chain of up to 3 providers.
+ * On a per-provider billing lock the provider is latched and the loop
+ * continues to the next healthy provider; only the LAST error propagates.
  */
 export async function generateImageWithFailover(
   opts: GenerateImageOpts,
-  policy: { primary: ImageProviderId; fallback: ImageProviderId | null },
+  policy: { primary: ImageProviderId; fallback: ImageProviderId | null; fallback2?: ImageProviderId | null },
   // deno-lint-ignore no-explicit-any
   db?: any,
 ): Promise<GenerateImageResult> {
   const attempts: GenerateImageResult["attempts"] = [];
-  const order: ImageProviderId[] = policy.fallback && policy.fallback !== policy.primary
-    ? [policy.primary, policy.fallback]
-    : [policy.primary];
+  const chain = [policy.primary, policy.fallback, policy.fallback2 ?? null].filter(Boolean) as ImageProviderId[];
+  const order: ImageProviderId[] = [];
+  for (const p of chain) if (!order.includes(p)) order.push(p);
+
+  const providerKey = (id: ImageProviderId): ProviderKey | null => {
+    if (id === "cloudflare_flux_schnell") return "cloudflare";
+    if (id === "fal_flux_schnell") return "fal";
+    if (id === "runware_flux_schnell") return "runware" as ProviderKey;
+    return null;
+  };
 
   let lastErr: unknown = null;
   for (const providerId of order) {
@@ -283,20 +318,16 @@ export async function generateImageWithFailover(
       const err = e as Error;
       attempts.push({ provider: providerId, ok: false, error: err?.message ?? String(e) });
       lastErr = e;
-      // Provider billing/quota lock → mark the specific provider blocked so
-      // the next dispatch (and readImageProviderPolicy) skips it entirely
-      // instead of freezing the lane. Cloudflare also latches for the day.
       if (e instanceof FalBillingLockedError && db) {
         if (providerId === "cloudflare_flux_schnell") {
           await latchCfBillingUntilNextUtcMidnight(db, opts.ebook_id);
-          try { await markProviderBillingBlocked(db, "cloudflare", e); } catch (_e) { /* best-effort */ }
-        } else if (providerId === "fal_flux_schnell") {
-          try { await markProviderBillingBlocked(db, "fal", e); } catch (_e) { /* best-effort */ }
+        }
+        const key = providerKey(providerId);
+        if (key) {
+          try { await markProviderBillingBlocked(db, key, e); } catch (_e) { /* best-effort */ }
         }
       }
       if (e instanceof ProviderUnconfiguredError) continue;
-      // A provider-billing lock on THIS provider is not fatal — keep trying
-      // the next configured fallback rather than propagating up.
       if (e instanceof FalBillingLockedError) continue;
     }
   }

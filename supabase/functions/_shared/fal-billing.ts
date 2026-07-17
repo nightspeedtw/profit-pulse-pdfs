@@ -99,11 +99,12 @@ export interface BudgetCapState {
   at?: string;
 }
 
-export type ProviderKey = "fal" | "cloudflare";
+export type ProviderKey = "fal" | "cloudflare" | "runware";
 
 export interface ProviderBillingBlockedMap {
   fal?: BillingBlockedState;
   cloudflare?: BillingBlockedState;
+  runware?: BillingBlockedState;
 }
 
 /** Read generation_settings.coloring_autopilot for a fast dispatch-time guard. */
@@ -123,6 +124,7 @@ export async function readLaneGuards(db: any): Promise<{
   const merged: ProviderBillingBlockedMap = {
     fal,
     cloudflare: provider_billing_blocked.cloudflare ?? { active: false },
+    runware: provider_billing_blocked.runware ?? { active: false },
   };
   const budget_cap = (cfg.fal_budget_cap as BudgetCapState | undefined) ?? { reached: false };
   return { billing_blocked: fal, provider_billing_blocked: merged, budget_cap, cfg };
