@@ -48,19 +48,25 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
       <Link
         to={productHref}
         aria-label={`ดูรายละเอียด ${book.title}`}
-        className="relative aspect-[3/4] bg-muted overflow-hidden block cursor-pointer"
+        // Container aspect MUST match the native cover asset ratio exactly.
+        // Coloring covers ship at 1600×2071 (8.5:11 portrait). Using any
+        // other ratio with object-cover clips the baked title/art at the
+        // edges (round_2 regression fix: title/edge glyph crop).
+        className={[
+          "relative bg-muted overflow-hidden block cursor-pointer",
+          isColoring ? "aspect-[1600/2071]" : "aspect-[1024/1280]",
+        ].join(" ")}
       >
         {book.cover_url ? (
           <img
             src={book.cover_url}
             alt={book.title}
             loading="lazy"
-            // Portrait aspect frame + object-cover (round_1 CLASS A fix):
-            // covers are now generated at true 3:4 portrait, so cover-fit
-            // fills the frame edge-to-edge without letterboxing or clipping
-            // the baked title. Fallback: contain if a legacy square cover
-            // sneaks in.
-            className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500"
+            // object-contain is the safety net: even if a legacy cover of a
+            // different ratio sneaks in, we letterbox instead of clipping the
+            // baked title. Aspect-matched containers above make this a no-op
+            // for correctly-sized covers.
+            className="w-full h-full object-contain group-hover:scale-[1.03] transition-transform duration-500"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
