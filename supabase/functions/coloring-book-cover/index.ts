@@ -501,11 +501,14 @@ Deno.serve(async (req: Request) => {
           const buf = new Uint8Array((img.bitmap as Uint32Array).buffer.slice(0));
           return { rgba: buf, width: img.width, height: img.height };
         })();
-        const approvedStrings = [row.title, subtitle, ageBadge];
+        // Owner ruling 2026-07-17: title = REQUIRED, subtitle + age badge =
+        // OPTIONAL (Ideogram consistently drops secondary marketing chrome).
+        // `extra_unapproved` remains a HARD FAIL — no uncontrolled baked text.
         const renderedProof = renderedColoringCoverProof({
           rgba: finalRgba, width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT,
           frame: { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, safe_margin: 60, elements: [] },
-          approvedStrings,
+          requiredStrings: [row.title],
+          optionalStrings: [subtitle, ageBadge],
           detectedText: verdict.transcribed_raw,
         });
         if (!renderedProof.pass) {

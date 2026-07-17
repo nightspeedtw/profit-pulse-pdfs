@@ -21,7 +21,15 @@ export interface RenderedCoverProofInput {
   width: number;
   height: number;
   frame: ProofFrame;
-  approvedStrings: string[];
+  /**
+   * Legacy flat list. When provided WITHOUT `requiredStrings`, treated as
+   * "all required" (back-compat). Prefer passing required/optional split.
+   */
+  approvedStrings?: string[];
+  /** Must-render strings (typically just the title). Missing → hard fail. */
+  requiredStrings?: string[];
+  /** Nice-to-have strings (subtitle, age badge). Missing → warning only. */
+  optionalStrings?: string[];
   detectedText: string;
 }
 
@@ -47,6 +55,8 @@ export interface RenderedCoverProof {
   transcription: {
     pass: boolean;
     missing: string[];
+    missing_required: string[];
+    missing_optional: string[];
     extra_unapproved: string[];
     detected_text: string;
   };
@@ -77,17 +87,44 @@ export function assertProofOverlayInsideSafeMargin(frame: ProofFrame): { pass: b
   return { pass: clipped.length === 0, clipped };
 }
 
-export function verifyApprovedTranscription(approvedStrings: string[], detectedText: string) {
+/**
+ * Consolidated cover-text transcription contract shared with
+ * `cover-text-transcription.verifyExactCoverText`. Required strings
+ * (title) MUST appear; optional strings (subtitle, age badge) trigger
+ * a warning only. Extra unapproved text remains a HARD FAIL — owner law
+ * `cover_random_embedded_text = 0`.
+ */
+export function verifyApprovedTranscription(
+  required: string[],
+  optional: string[],
+  detectedText: string,
+) {
   const detected = norm(detectedText);
-  const approved = approvedStrings.map(norm).filter(Boolean);
-  const missing = approved.filter((s) => !detected.includes(s));
-  // We intentionally do not OCR-split arbitrary words here; production passes
-  // constructed SVG text, so equality-by-source is the contract. If an OCR
-  // provider is used later, this still catches extra text by comparing the
-  // normalized full string against the approved string set.
-  const approvedJoined = approved.join(" ");
-  const extra_unapproved = detected.replace(approvedJoined, "").trim() ? [detected] : [];
-  return { pass: missing.length === 0 && extra_unapproved.length === 0, missing, extra_unapproved, detected_text: detectedText };
+  const req = required.map(norm).filter(Boolean);
+  const opt = optional.map(norm).filter(Boolean);
+  const missing_required = req.filter((s) => !detected.includes(s));
+  const missing_optional = opt.filter((s) => !detected.includes(s));
+  const missing = [...missing_required, ...missing_optional];
+  // Strip every approved string (required OR optional) that IS present from
+  // the detected text; whatever remains is unapproved extra text. Owner law:
+  // any unapproved baked text is a hard fail (same class as gibberish /
+  // watermark / duplicate "COLORING BOOK" banners).
+  let residual = detected;
+  for (const s of [...req, ...opt]) {
+    if (!s) continue;
+    residual = residual.split(s).join(" ");
+  }
+  residual = residual.replace(/\s+/g, " ").trim();
+  const extra_unapproved = residual ? [residual] : [];
+  const pass = missing_required.length === 0 && extra_unapproved.length === 0;
+  return {
+    pass,
+    missing,
+    missing_required,
+    missing_optional,
+    extra_unapproved,
+    detected_text: detectedText,
+  };
 }
 
 export function measureFinalArtRegionVariance(rgba: Uint8Array, width: number, height: number) {
@@ -141,12 +178,17 @@ export function renderedColoringCoverProof(input: RenderedCoverProofInput): Rend
   const portrait_aspect_pass = Math.abs(aspect - LETTER_ASPECT) <= 0.012;
   const art_region = measureFinalArtRegionVariance(input.rgba, input.width, input.height);
   const overlays_in_frame = assertProofOverlayInsideSafeMargin(input.frame);
-  const transcription = verifyApprovedTranscription(input.approvedStrings, input.detectedText);
+  // Back-compat: if only legacy flat `approvedStrings` was supplied, treat
+  // ALL entries as required (old callers expected any missing string to fail).
+  // New callers pass explicit required/optional split.
+  const required = input.requiredStrings ?? input.approvedStrings ?? [];
+  const optional = input.optionalStrings ?? [];
+  const transcription = verifyApprovedTranscription(required, optional, input.detectedText);
   const reasons: string[] = [];
   if (!portrait_aspect_pass) reasons.push(`not_letter_portrait:${input.width}x${input.height}`);
   if (!art_region.pass) reasons.push(`final_art_region_low_variance:chroma=${art_region.avg_chroma}:stdev=${art_region.luminance_stdev}:buckets=${art_region.unique_color_buckets}`);
   if (!overlays_in_frame.pass) reasons.push(`overlay_clipped:${overlays_in_frame.clipped.join(",")}`);
-  if (!transcription.pass) reasons.push(`transcription_mismatch:missing=${transcription.missing.join("|")}:extra=${transcription.extra_unapproved.join("|")}`);
+  if (!transcription.pass) reasons.push(`transcription_mismatch:missing_required=${transcription.missing_required.join("|")}:extra=${transcription.extra_unapproved.join("|")}`);
   return {
     pass: reasons.length === 0,
     reasons,
