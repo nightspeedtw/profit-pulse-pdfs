@@ -309,3 +309,143 @@ export async function generateIdeogramIntegratedCover(
     }
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INPAINT-ONLY TEXT RETRY (owner order 2026-07-17)
+//
+// On a `text_rejected` failure, re-rolling the WHOLE cover from scratch throws
+// away artwork that already passed category/hero/uniqueness checks and pays
+// full price ($0.06) for a fresh gamble. Instead, mask ONLY the text regions
+// (top ~40% band where the title/subtitle live, plus the bottom-left age
+// badge) and let Ideogram re-render just those pixels on top of the prior
+// accepted base image. Character/scene continuity is preserved by construction.
+//
+// Runware imageInference supports `seedImage` + `maskImage` for inpainting;
+// white pixels in the mask = regenerate, black = keep. Ideogram 3.0 (AIR id
+// `ideogram:4@1`) supports this path.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
+
+async function buildTextRegionMaskPng(width: number, height: number): Promise<Uint8Array> {
+  const img = new Image(width, height);
+  // Fill with BLACK (0x000000FF) = keep.
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) img.setPixelAt(x + 1, y + 1, 0x000000ffn as unknown as number);
+  }
+  // Top 40% band = WHITE = regenerate (title + subtitle live here).
+  const topBand = Math.floor(height * 0.4);
+  for (let y = 0; y < topBand; y++) {
+    for (let x = 0; x < width; x++) img.setPixelAt(x + 1, y + 1, 0xffffffffn as unknown as number);
+  }
+  // Bottom-left circular-ish region for the age badge (~18% of the frame).
+  const badgeR = Math.floor(Math.min(width, height) * 0.14);
+  const cx = Math.floor(width * 0.18);
+  const cy = Math.floor(height * 0.86);
+  for (let y = Math.max(0, cy - badgeR); y < Math.min(height, cy + badgeR); y++) {
+    for (let x = Math.max(0, cx - badgeR); x < Math.min(width, cx + badgeR); x++) {
+      const dx = x - cx, dy = y - cy;
+      if (dx * dx + dy * dy <= badgeR * badgeR) img.setPixelAt(x + 1, y + 1, 0xffffffffn as unknown as number);
+    }
+  }
+  return await img.encode();
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
+export interface IdeogramInpaintRequest extends IdeogramCoverRequest {
+  baseImageBytes: Uint8Array;
+}
+
+export async function generateIdeogramTextInpaint(
+  request: IdeogramInpaintRequest,
+  opts: { timeoutMs?: number; seed?: number } = {},
+): Promise<IdeogramCoverResult> {
+  if (!RUNWARE_API_KEY) throw new Error("provider_unconfigured:RUNWARE_API_KEY_missing");
+  const prompt = buildIdeogramIntegratedCoverPrompt(request);
+  const timeoutMs = opts.timeoutMs ?? 60_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const taskUUID = (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  // Ensure the base image matches the Ideogram grid (832x1088).
+  const decoded = await Image.decode(request.baseImageBytes);
+  let baseBytes = request.baseImageBytes;
+  if (decoded.width !== RUNWARE_IDEOGRAM_WIDTH || decoded.height !== RUNWARE_IDEOGRAM_HEIGHT) {
+    decoded.resize(RUNWARE_IDEOGRAM_WIDTH, RUNWARE_IDEOGRAM_HEIGHT);
+    baseBytes = await decoded.encode();
+  }
+  const maskBytes = await buildTextRegionMaskPng(RUNWARE_IDEOGRAM_WIDTH, RUNWARE_IDEOGRAM_HEIGHT);
+
+  const task = {
+    taskType: "imageInference",
+    taskUUID,
+    positivePrompt: prompt.slice(0, 3000),
+    model: RUNWARE_IDEOGRAM_MODEL,
+    width: RUNWARE_IDEOGRAM_WIDTH,
+    height: RUNWARE_IDEOGRAM_HEIGHT,
+    numberResults: 1,
+    outputType: ["URL"],
+    outputFormat: "JPEG",
+    includeCost: true,
+    seedImage: `data:image/png;base64,${toBase64(baseBytes)}`,
+    maskImage: `data:image/png;base64,${toBase64(maskBytes)}`,
+    strength: 0.95,
+    ...(opts.seed != null ? { seed: opts.seed } : {}),
+  };
+  try {
+    const res = await fetch("https://api.runware.ai/v1", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${RUNWARE_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify([task]),
+    });
+    const bodyText = await res.text();
+    if (!res.ok) {
+      if (res.status === 402 || /balance|credit|insufficient|billing|payment required/i.test(bodyText)) {
+        throw new Error(`provider_billing_exhausted:runware_ideogram_inpaint:${bodyText.slice(0, 200)}`);
+      }
+      throw new Error(`runware_ideogram_inpaint_http_${res.status}:${bodyText.slice(0, 300)}`);
+    }
+    let j: any;
+    try { j = JSON.parse(bodyText); }
+    catch { throw new Error(`runware_ideogram_inpaint_non_json:${bodyText.slice(0, 200)}`); }
+    if (Array.isArray(j?.errors) && j.errors.length > 0) {
+      const msg = j.errors.map((e: any) => e.message || e.code || JSON.stringify(e)).join("; ");
+      throw new Error(`runware_ideogram_inpaint_errors:${msg.slice(0, 300)}`);
+    }
+    const first = (j?.data ?? [])[0];
+    if (!first?.imageURL) throw new Error(`runware_ideogram_inpaint_no_image:${bodyText.slice(0, 200)}`);
+    const imgRes = await fetch(first.imageURL);
+    if (!imgRes.ok) throw new Error(`runware_ideogram_inpaint_download_http_${imgRes.status}`);
+    const bytes = new Uint8Array(await imgRes.arrayBuffer());
+    try {
+      const { logAiCost, costDb } = await import("../cost-log.ts");
+      logAiCost(costDb(), {
+        ebook_id: (request as any).ebook_id,
+        step: "coloring_cover_ideogram_inpaint",
+        model: RUNWARE_IDEOGRAM_MODEL,
+        images: 1,
+        cost_usd: Number(first.cost ?? 0) || 0,
+        provider: "runware_ideogram_cover_inpaint",
+      });
+    } catch (_e) { /* non-fatal */ }
+    return {
+      bytes,
+      provider: "fal_ideogram_v3",
+      prompt,
+      seed: first?.seed ?? opts.seed,
+      request_id: taskUUID,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+

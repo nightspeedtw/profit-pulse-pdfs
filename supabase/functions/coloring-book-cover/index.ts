@@ -32,7 +32,7 @@ import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/c
 import { detectBlankRegions } from "../_shared/covers/blank-detect.ts";
 import { renderColoringSelfArtCover, SELF_ART_COVER_VERSION } from "../_shared/coloring/self-art-cover.ts";
 import { composeColoringCover, fitCoverArtToPortraitCanvas, COLORING_COVER_COMPOSITOR_VERSION, COLORING_COVER_HEIGHT, COLORING_COVER_WIDTH } from "../_shared/coloring/coloring-cover-compositor.ts";
-import { generateIdeogramIntegratedCover, IDEOGRAM_INTEGRATED_COVER_VERSION } from "../_shared/coloring/ideogram-integrated-cover.ts";
+import { generateIdeogramIntegratedCover, generateIdeogramTextInpaint, IDEOGRAM_INTEGRATED_COVER_VERSION } from "../_shared/coloring/ideogram-integrated-cover.ts";
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
 import { renderedColoringCoverProof } from "../_shared/coloring/coloring-cover-proof.ts";
 import { readQcMode, waiveOrBlock } from "../_shared/coloring/qc-mode.ts";
@@ -501,25 +501,50 @@ Deno.serve(async (req: Request) => {
     // SKIPPED ENTIRELY (single-typography-source rule) — Ideogram's baked
     // lettering IS the final cover.
     const ideogramAttempts: any[] = [];
+    // Owner order 2026-07-17: on text-only failure, subsequent attempts must
+    // INPAINT just the text region on the same base image rather than reroll
+    // the entire cover. This preserves art that already passed
+    // category/hero/uniqueness checks and cuts $/retry roughly in half by
+    // avoiding a fresh full-scene gamble.
+    let lastPassingArtBytes: Uint8Array | null = null;
     for (let attemptIndex = 1; attemptIndex <= MAX_IDEOGRAM_ATTEMPTS; attemptIndex++) {
-      const ideoReport: any = { attempt: attemptIndex, started_at: new Date().toISOString(), status: "started" };
+      const useInpaint = attemptIndex > 1 && lastPassingArtBytes != null;
+      const ideoReport: any = { attempt: attemptIndex, mode: useInpaint ? "inpaint" : "full", started_at: new Date().toISOString(), status: "started" };
       try {
-        const ideo = await withTimeout(
-          generateIdeogramIntegratedCover({
-            categoryName: categoryNameFinal,
-            heroSubjects,
-            title: row.title,
-            subtitle,
-            ageBadge,
-            ageMin, ageMax,
-            totalPages,
-            forbiddenSubjects,
-            forbiddenBackgrounds: forbiddenSubjects,
-            referenceImageURLs,
-          }, { timeoutMs: IDEOGRAM_GEN_TIMEOUT_MS, seed: attemptIndex * 1009 }),
-          IDEOGRAM_GEN_TIMEOUT_MS + 5_000,
-          `ideogram_a${attemptIndex}`,
-        );
+        const ideo = useInpaint
+          ? await withTimeout(
+              generateIdeogramTextInpaint({
+                categoryName: categoryNameFinal,
+                heroSubjects,
+                title: row.title,
+                subtitle,
+                ageBadge,
+                ageMin, ageMax,
+                totalPages,
+                forbiddenSubjects,
+                forbiddenBackgrounds: forbiddenSubjects,
+                referenceImageURLs,
+                baseImageBytes: lastPassingArtBytes!,
+              }, { timeoutMs: IDEOGRAM_GEN_TIMEOUT_MS, seed: attemptIndex * 2017 }),
+              IDEOGRAM_GEN_TIMEOUT_MS + 5_000,
+              `ideogram_inpaint_a${attemptIndex}`,
+            )
+          : await withTimeout(
+              generateIdeogramIntegratedCover({
+                categoryName: categoryNameFinal,
+                heroSubjects,
+                title: row.title,
+                subtitle,
+                ageBadge,
+                ageMin, ageMax,
+                totalPages,
+                forbiddenSubjects,
+                forbiddenBackgrounds: forbiddenSubjects,
+                referenceImageURLs,
+              }, { timeoutMs: IDEOGRAM_GEN_TIMEOUT_MS, seed: attemptIndex * 1009 }),
+              IDEOGRAM_GEN_TIMEOUT_MS + 5_000,
+              `ideogram_a${attemptIndex}`,
+            );
         const rawBytes = ideo.bytes;
         const luminance = await computeLuminance(rawBytes);
         const color = await colorEvidence(rawBytes);
@@ -542,6 +567,10 @@ Deno.serve(async (req: Request) => {
         if (!verdict.pass) {
           ideoReport.status = "text_rejected";
           ideoReport.reason = `text_verify_failed:${verdict.reason}`;
+          // Owner order: art passed luminance+color but text failed → keep
+          // these bytes as the base for the next attempt's inpaint retry
+          // rather than re-rolling the whole cover.
+          lastPassingArtBytes = rawBytes;
           ideogramAttempts.push(ideoReport);
           continue;
         }

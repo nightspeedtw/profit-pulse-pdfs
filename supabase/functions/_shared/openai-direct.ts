@@ -70,3 +70,62 @@ export async function openaiDirectChat(opts: {
     model: `openai/${model}`,
   };
 }
+
+/**
+ * Direct OpenAI image generation (gpt-image-1, gpt-image-2). Wired for the
+ * cover-model evaluation path: owner asked to test GPT Image's exact-text
+ * accuracy against Ideogram's before deciding whether to swap. Zero-risk —
+ * throws "OPENAI_API_KEY not set" when the key is absent so callers cleanly
+ * fall back to the Runware/Ideogram path.
+ */
+export async function openaiDirectImage(opts: {
+  prompt: string;
+  model?: string;                                    // default "gpt-image-1"
+  size?: "1024x1024" | "1024x1536" | "1536x1024";    // portrait for covers = 1024x1536
+  quality?: "low" | "medium" | "high";
+  timeoutMs?: number;
+}): Promise<{ bytes: Uint8Array; model: string }> {
+  if (!OPENAI_KEY) throw new Error("OPENAI_API_KEY not set");
+  const model = opts.model ?? "gpt-image-1";
+  const controller = opts.timeoutMs ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort("openai_direct_image_timeout"), opts.timeoutMs) : null;
+  let r: Response;
+  try {
+    r = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_KEY}`,
+      },
+      body: JSON.stringify({
+        model,
+        prompt: opts.prompt,
+        size: opts.size ?? "1024x1536",
+        quality: opts.quality ?? "medium",
+        n: 1,
+      }),
+      signal: controller?.signal,
+    });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+  if (!r.ok) {
+    throw new Error(`openai-direct-image ${model} ${r.status}: ${(await r.text()).slice(0, 400)}`);
+  }
+  const j = await r.json() as { data?: Array<{ b64_json?: string; url?: string }> };
+  const first = j.data?.[0];
+  if (!first) throw new Error(`openai-direct-image ${model}: empty data`);
+  let bytes: Uint8Array;
+  if (first.b64_json) {
+    const bin = atob(first.b64_json);
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  } else if (first.url) {
+    const imgRes = await fetch(first.url);
+    if (!imgRes.ok) throw new Error(`openai-direct-image download ${imgRes.status}`);
+    bytes = new Uint8Array(await imgRes.arrayBuffer());
+  } else {
+    throw new Error(`openai-direct-image ${model}: no image payload`);
+  }
+  return { bytes, model };
+}
