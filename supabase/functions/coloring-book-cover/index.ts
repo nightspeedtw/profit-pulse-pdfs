@@ -484,6 +484,12 @@ Deno.serve(async (req: Request) => {
         // HARD GUARD (a): vision transcription must match {title, subtitle, ageBadge} exactly.
         const verdict = await verifyExactCoverText(rawBytes, { title: row.title, subtitle, ageBadge }, { timeoutMs: IDEOGRAM_VERIFY_TIMEOUT_MS });
         ideoReport.checks.transcription = verdict;
+        // Stash raw bytes so a learning-mode waiver at the end of the loop
+        // can accept the best-of art even if OCR text-verify keeps failing
+        // (owner ruling 2026-07-17: focus books must reach live; extras log
+        // to defect_ledger for the next round).
+        ideoReport._rawBytes = rawBytes;
+        ideoReport._verdict = verdict;
         if (!verdict.pass) {
           ideoReport.status = "text_rejected";
           ideoReport.reason = `text_verify_failed:${verdict.reason}`;
