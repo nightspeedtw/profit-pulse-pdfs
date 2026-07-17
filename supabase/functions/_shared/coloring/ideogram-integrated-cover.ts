@@ -178,6 +178,7 @@ async function generateViaRunware(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const taskUUID = (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const refs = (request.referenceImageURLs ?? []).filter(Boolean).slice(0, 3);
   const task = {
     taskType: "imageInference",
     taskUUID,
@@ -189,6 +190,7 @@ async function generateViaRunware(
     outputType: ["URL"],
     outputFormat: "JPEG",
     includeCost: true,
+    ...(refs.length > 0 ? { referenceImages: refs } : {}),
     ...(opts.seed != null ? { seed: opts.seed } : {}),
   };
   try {
