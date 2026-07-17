@@ -329,7 +329,11 @@ Deno.serve(async (req: Request) => {
       const artUp = await uploadAndSignImage(db, "ebook-covers", artPath, params.artOnlyBytes, { contentType: "image/png" });
       const up = await uploadAndSignImage(db, "ebook-covers", finalPath, params.finalBytes, { contentType: "image/png" });
       const measuredGate = { pass: true, scorecard: params.measured, reasons: [] as string[] };
-      const isRung2Fallback = params.acceptedRung.startsWith("coloring_self_art_cover");
+      // Any accepted rung that is NOT Tier-1 (ideogram_v3_*) is a fallback
+      // and must be re-attempted by the daily cover-upgrade sweep when
+      // Tier-1's provider comes back healthy. Rung-2 self-art AND Tier-2
+      // flux-textless-with-overlay both qualify.
+      const isRung2Fallback = !params.acceptedRung.startsWith("ideogram_v3_");
       const coverRecord = {
         version: SINGLE_RUNG_VERSION,
         compositor_version: COLORING_COVER_COMPOSITOR_VERSION,
