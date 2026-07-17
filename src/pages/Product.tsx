@@ -195,6 +195,25 @@ export default function Product() {
       </div>
 
       <div className="mt-10 space-y-12">
+        {isColoring && (
+          <ColoringPreviewModule
+            title={product.title}
+            sellingHook={product.selling_hook ?? product.hook_description ?? null}
+            shortHook={product.short_hook ?? null}
+            ageBand={ageBand}
+            categoryLabel={themeLabel}
+            pageCount={product.page_count ?? totalPages ?? null}
+            trimSize={product.coloring_extras?.trim_size ?? null}
+            formatLabel={product.coloring_extras?.format_label ?? null}
+            spreads={previewSpreads}
+            priceLabel={priceText}
+            onBuy={handleBuy}
+            valueCards={product.value_cards ?? null}
+            digitalDeliveryNote={product.coloring_extras?.digital_delivery_note ?? null}
+            licenseNote={product.coloring_extras?.license_note ?? null}
+          />
+        )}
+
         {isKids && (
           <StoryPreviewModule
             title={product.title}
@@ -211,7 +230,7 @@ export default function Product() {
           />
         )}
 
-        {!isKids && (hasStoryPreview ? (
+        {!isKids && !isColoring && (hasStoryPreview ? (
           <StoryPreviewReader
             spreads={previewSpreads}
             totalPages={totalPages}
