@@ -48,16 +48,19 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
       <Link
         to={productHref}
         aria-label={`ดูรายละเอียด ${book.title}`}
-        className="relative aspect-square bg-muted overflow-hidden block cursor-pointer"
+        className="relative aspect-[3/4] bg-muted overflow-hidden block cursor-pointer"
       >
         {book.cover_url ? (
           <img
             src={book.cover_url}
             alt={book.title}
             loading="lazy"
-            // object-contain: the WHOLE cover (title + art) is visible inside
-            // the thumbnail frame — never crops the top of a portrait cover.
-            className="w-full h-full object-contain group-hover:scale-[1.03] transition-transform duration-500"
+            // Portrait aspect frame + object-cover (round_1 CLASS A fix):
+            // covers are now generated at true 3:4 portrait, so cover-fit
+            // fills the frame edge-to-edge without letterboxing or clipping
+            // the baked title. Fallback: contain if a legacy square cover
+            // sneaks in.
+            className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">

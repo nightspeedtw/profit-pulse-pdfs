@@ -1,79 +1,86 @@
+## Round 1 Consolidation Plan
 
-# Cover Typography Beauty Upgrade — `coloring_cover_verified_typography_v2`
+Owner order: fix 3 live defect classes discovered by external audit, bake every Round-1 lesson into a single permanent skill pack, and close Round 1 with a report. Books stay live throughout via atomic asset swap.
 
-Supersedes `coloring_cover_textless_forever`. New law: **no UNVERIFIED AI text** (verified integrated lettering is preferred; unverified is forbidden).
+---
 
-## Tier ladder (coloring covers)
+### CLASS A — Baked-title clipped covers (all 4 live books)
 
-```text
-Tier 1  Ideogram V3 integrated cover (fal.ai/ideogram/v3)
-        → gemini vision transcription must equal {title, subtitle, age badge} exactly
-        → up to 3 attempts (balanced speed)
-        → on accept: SKIP overlay typography entirely (single-source rule)
+Root cause: Tier-1 Ideogram covers are generated square, then fit-COVER cropped to 8.5x11 portrait → baked title loses edge letters ("cean Friends", "ute Sea"), edge animals cut. Thumbnail letterboxes for the same aspect reason.
 
-Tier 2  Flux textless art + PREMIUM curved overlay
-        → puffy hand-lettered display font, thick dark outline, warm palette fill
-        → arched title baseline, category-palette colors, soft drop shadow
-        → title placed in calm sky/art region OR on subtle rounded banner
-        → NO flat straight-line default font
+Permanent fixes (all four are required — one alone is insufficient):
 
-Tier 3  Self-art colorized cover (unchanged insurance)
-        → cover_upgrade_pending flag so sweeper retries Tier 1 later
-```
+1. **Portrait art at generation time** — patch `_shared/coloring/ideogram-integrated-cover.ts` to request the nearest supported portrait aspect (`10:16`) and add the prompt clause: *"all lettering must sit inside the central 80% of the frame — no letter, glyph, or stroke may touch the outer 10% band on any side."*
+2. **Edge-glyph reject gate** — new `_shared/coloring/cover-edge-glyph-check.ts`: rasterize the outer 6% band, run text-ink detection (dark connected components with letter-like aspect ratio). Any ink in the band ⇒ reject art + retry (max 3 attempts before falling back to Tier-2 art-only + overlay).
+3. **Assembler never crops baked-text covers** — update the coloring cover compositor / assembler: when source is Tier-1 (integrated typography), use `fit-CONTAIN` with palette-matched fill bars (sample from cover corners) instead of `fit-COVER`. Only art-only covers may be fit-COVER cropped.
+4. **Product-page thumbnail = portrait `object-fit:cover`** — update `ProductCard.tsx` / `KidsBookCard.tsx` thumbnail box to a portrait aspect (`aspect-[3/4]`) with `object-cover` so true-portrait covers show edge-to-edge.
 
-## Files to change
+Then: rebuild all 4 live covers via one-shot batch script (calls `coloring-cover` edge fn in `regenerate_art=true` mode), reassemble PDFs, atomic-swap `cover_url` + `pdf_url` in a single transaction — books never leave `listing_status='live'`.
 
-- **Create** `supabase/functions/_shared/coloring/ideogram-integrated-cover.ts`
-  - fal.ai `fal-ai/ideogram/v3` call (uses existing `FAL_KEY`)
-  - prompt: full-color kids scene + baked-in title/subtitle/age badge, style hint = "arched playful hand-lettering, integrated into composition"
-  - returns raw PNG bytes + prompt used
-- **Create** `supabase/functions/_shared/coloring/cover-text-transcription.ts`
-  - Gemini 2.5 Flash vision transcription (via Lovable AI Gateway)
-  - Normalize (lowercase, strip punctuation, collapse whitespace)
-  - `verifyExactMatch(imageBytes, {title, subtitle, ageBadge})` → `{pass, transcribedTokens, missing, extra}`
-  - Any extra/missing/misspelled word ⇒ discard
-- **Rewrite** `supabase/functions/_shared/covers/kids-title-treatment.ts` (Tier 2 overlay)
-  - New `renderPremiumCurvedTitleTreatment({ transparentBackground:true })`
-  - Puffy display font (bundled TTF: Fredoka One / Bungee equivalent already in repo assets, else load via `Deno.readFile` from `_shared/fonts/`)
-  - Arched baseline via per-glyph rotate/translate around a chord
-  - 8px dark stroke + warm gradient fill + 12px soft drop shadow
-  - Palette from `coloring-palettes.ts` category tint
-  - Optional rounded-banner backing when sky region variance is low
-- **Edit** `supabase/functions/coloring-book-cover/index.ts`
-  - New state machine: `tier1_ideogram (×3) → tier2_flux+premium → tier3_selfart`
-  - Tier 1 accepted ⇒ store as final cover directly; DO NOT call compositor overlay
-  - Tier 2 ⇒ existing compositor but calls new premium overlay renderer
-  - Persist `rendered_proof`, `art_only_url`, `final_composed_url`, `tier`, `transcription_report`
-- **Edit** `supabase/functions/_shared/covers/kids-cover-ladder.ts`
-  - Wire Ideogram rung ahead of Flux rung for coloring covers
-- **Migration** `pipeline_skills`
-  - Mark `coloring_cover_textless_forever` superseded (v_current=false, superseded_by)
-  - Insert `coloring_cover_verified_typography_v2` (v1) with owner-order body
+### CLASS B — Waived blurry pages shipped
 
-## Tests (release-blocking)
+Known blur casualties (external measurement):
+- Sea Animals: p23, p35
+- Ocean Friends: p23, p35
+- Preschool: p20, p26, p29
+- Farm & Woodland: clean → fixture reference
 
-- `src/lib/coloringCoverVerifiedTypography.test.ts`
-  - transcription mismatch fixture ⇒ tier-1 discarded, next attempt tried
-  - all-3 mismatches ⇒ falls to tier-2
-  - tier-1 accepted ⇒ overlay step NOT invoked (spy assertion)
-- `src/lib/coloringCoverPremiumOverlay.test.ts`
-  - curved baseline geometry (chord angle per glyph within tolerance)
-  - stroke width ≥ 6px, outline darker than fill by ΔL ≥ 40
-  - no flat straight-line render (rejects legacy render)
-  - snapshot bytes hash stable
+Actions:
+1. New one-shot `coloring-book-page-blur-sweep` edge fn: for each live book, run boundary-edge-strength scorer (existing `SHARPNESS_GATE_VERSION v5`) over every page. Any page < floor 140 ⇒ mark page for repair.
+2. Regenerate flagged pages under crisp regime (`steps=8` + crisp-line clauses, existing `CURRENT_COLORING_REPAIR_REGIME v4`).
+3. Rebuild PDFs, atomic-swap `pdf_url`. Books stay live.
+4. Record each repair in `defect_ledger` (fixed writer, see Class C).
 
-## Batch resubmit (after deploy)
+### CLASS C — Ledger writer bug + backfill
 
-Trigger `coloring-book-cover` for:
-- Ocean Friends, Sea Animals (both candidates), Fierce Dinosaurs, Cute Dinosaurs, Princess Fairy, Farm & Woodland
+Root cause: `waiveOrBlock()` records verdict but the caller-side ledger write is conditional on a code path that isn't hit under learning-mode waivers. Audit `_shared/coloring/qc-mode.ts` + every call site in `coloring-book-assemble` and render; ensure `appendDefectLedger` runs on every waive (idempotent by stage+gate+page key already handles re-runs).
 
-Report per book: `tier`, `art_only_url`, `final_composed_url`, `transcription_report`.
+Backfill: SQL update to synthesize `defect_ledger` rows for the 4 live books from `coloring_last_errors` + externally-observed Class-A/B defects (attempts=2, waived_at=now(), round=1).
 
-## Assumptions (correct me if wrong)
+### CONSOLIDATION — `round_1_skill_pack`
 
-1. **Ideogram provider = fal.ai** (`fal-ai/ideogram/v3`) using existing `FAL_KEY` — no new secret needed. If you want direct Ideogram API instead, I need `IDEOGRAM_API_KEY`.
-2. **Vision transcription = Gemini 2.5 Flash** via Lovable AI Gateway (`LOVABLE_API_KEY` already set).
-3. **Age badge string** = the same "Ages 4-6" style already stored in `storefront_meta`.
-4. **Overlay font** — I'll bundle a free puffy display TTF (Fredoka One, OFL) under `supabase/functions/_shared/fonts/` if none already present.
+Single `pipeline_skills` row (`skill_key='round_1_defect_pack'`, `source='consolidated'`) enumerating every Round-1 defect class with, for each: **class name · symptom · root cause · prevention rule file · fixture test file · status**.
 
-Confirm the four assumptions (or override) and I'll build + deploy + run the batch.
+Classes to include (13):
+1. cover compositor overwrite (opaque title canvas replacing art)
+2. cover baked-title clipped (this round, Class A)
+3. cover blank fallback
+4. blur metric confound (sparse portraits false-failed → v5 boundary-edge)
+5. dark-coat solid black interiors
+6. ground shadow contamination
+7. anatomy deformity vs imagination
+8. interior text contamination
+9. verifier model deprecation
+10. provider billing burn (CF daily latch)
+11. conveyor idle
+12. sweep loop
+13. live-without-assets (DB invariant guard)
+
+For any class currently lacking a regression test, add a minimal deterministic test under `src/lib/` (naming pattern `coloring<Class>.test.ts`) that fails without the fix and passes with it.
+
+### Round 1 Report
+
+Generated as `.lovable/round_1_report.md`:
+- defect class × frequency table (from `defect_ledger` post-backfill)
+- FPY per book before repair vs after repair
+- CF-vs-FAL provider distribution (once CF pool resets at 00:00 UTC — note in report if pool still latched)
+- confirmation that all 4 live books survived repair without leaving `listing_status='live'` (assets_guard invariant proof)
+
+### Order of operations
+
+1. Ship Class-A code fixes (ideogram portrait + edge-glyph gate + assembler contain + thumbnail).
+2. Ship Class-C ledger-writer fix.
+3. Deploy `coloring-book-page-blur-sweep` and cover-rebuild batch runners.
+4. Run backfill SQL + trigger repairs for all 4 books, atomic-swap.
+5. Write consolidated skill pack + any missing regression tests.
+6. Generate Round 1 report.
+
+### Technical notes
+
+- Atomic swap = single `UPDATE ebooks_kids SET pdf_url=$new, cover_url=$new, updated_at=now() WHERE id=$id` after new assets uploaded to storage under versioned paths. `ebooks_kids_live_assets_guard` trigger already blocks the invariant violation of null-asset while live.
+- Fit-contain fill-bar sampling: median RGB of the 8 corner-adjacent 32×32 tiles of the source art.
+- Edge-glyph detector: threshold to binary at Otsu, connected-components with 8 ≤ height ≤ 80 px and 0.2 ≤ aspect ≤ 3.0 inside the outer 6% band ⇒ text-like.
+
+### Out of scope for this round
+- No Shopify, no payment activation, no royalty/exchange changes.
+- CF-vs-FAL A/B stays observational (report only) — no policy change since CF pool still latched until 00:00 UTC.
