@@ -141,3 +141,12 @@ Rules:
 3. **Distinct fitted thumbnail.** `thumbnail_url` must be a separate asset from `cover_url`, produced by the `coloring-book-thumbnail` edge function on a 600×776 white canvas with fit-contain letterboxing (`thumbnail_render_meta.non_crop_pass=true`).
 
 Contract lives in `pipeline_skills['coloring-cover-thumbnail-contract-v1']` and is asserted by `_shared/coloring/publish-contract.ts` inside `kids-publish-if-qc-passed`. No waivers.
+
+## cover-crop-v3 (permanent rule)
+Any container or PDF page that renders a coloring cover MUST use fit-CONTAIN
+(`object-contain` / `Math.min` scale) on a white background. NEVER fit-COVER
+(`object-cover` / `Math.max`) — that mathematically clips the baked title
+whenever the raster ratio drifts even 1% from the page ratio.
+Native coloring cover raster = 1600×2071 (8.5:11). PDF page = 612×792pt.
+Enforced by `checkCoverAspect` (upstream) + `fitContainCover` (assembler)
++ `src/lib/coloringCoverPdfPlacement.test.ts` regression.

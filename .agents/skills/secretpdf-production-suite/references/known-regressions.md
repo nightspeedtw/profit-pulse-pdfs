@@ -134,3 +134,14 @@ Symptom that triggered the fix: 9 of 13 live coloring books had
 top of the illustration), and every live book had `thumbnail_url === cover_url`.
 Storefront relied on frontend CSS to make the raw 1600×2071 cover look right
 in a small card — fragile.
+
+## cover-crop-v3 (2026-07-17)
+- Symptom: baked title clipped on KidsCheckout order-summary thumbnail and
+  on PDF page 1 (e.g. "Cute Farm" and "Ages 4-6" badge cut on right edge).
+- Root cause A (UI): `KidsCheckout` used `aspect-square` + `object-cover`
+  for coloring covers whose native ratio is 8.5:11.
+- Root cause B (PDF): assembler used `Math.max` (fit-COVER) which
+  mathematically overflows whenever raster ratio ≠ page ratio bit-exact.
+- Fix: `object-contain` on `aspect-[1600/2071]` for coloring in UI; new
+  shared `fitContainCover()` helper (`Math.min`) in the assembler.
+- Regression test: `src/lib/coloringCoverPdfPlacement.test.ts`.
