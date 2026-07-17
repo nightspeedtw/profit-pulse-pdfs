@@ -35,6 +35,13 @@ export interface IdeogramCoverRequest {
   backgroundHint?: string;
   forbiddenBackgrounds?: string[];
   forbiddenSubjects?: string[];
+  /**
+   * Interior-page reference URLs (up to 3). When present, the cover model is
+   * conditioned on the SAME character designs the interior already rendered
+   * so the cover cast matches the book cast (owner law: interior-first,
+   * cover-last, character-continuity permanent).
+   */
+  referenceImageURLs?: string[];
 }
 
 export interface IdeogramCoverResult {
@@ -74,6 +81,9 @@ export function buildIdeogramIntegratedCoverPrompt(input: IdeogramCoverRequest):
     `SCENE / BACKGROUND — ${bgHint}. The background MUST match the "${input.categoryName}" category. Do NOT reuse a generic ocean/water strip or template from other books.`,
     forbiddenBg.length ? `NEGATIVE SCENE — do NOT include: ${forbiddenBg.join(", ")}.` : "",
     forbiddenSubj.length ? `NEGATIVE SUBJECTS — do NOT include any of: ${forbiddenSubj.join(", ")}.` : "",
+    (input.referenceImageURLs && input.referenceImageURLs.length > 0)
+      ? "CHARACTER CONTINUITY — the attached reference images are pages from THIS book's interior. Reuse the SAME characters (same species, same proportions, same friendly faces, same palette family) so the cover cast matches the interior cast exactly. Do NOT invent new characters or restyle them."
+      : "",
     "Full-color painterly illustration, thick crayon-textured line art, soft warm palette, cozy natural light, clean uncluttered background, generous negative space at the top for the title.",
     // Integrated typography (this is what Ideogram excels at)
     "INTEGRATED HAND-LETTERED TYPOGRAPHY baked into the composition — MODEST, COMPACT scale (never oversized):",
@@ -168,6 +178,7 @@ async function generateViaRunware(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const taskUUID = (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const refs = (request.referenceImageURLs ?? []).filter(Boolean).slice(0, 3);
   const task = {
     taskType: "imageInference",
     taskUUID,
@@ -179,6 +190,7 @@ async function generateViaRunware(
     outputType: ["URL"],
     outputFormat: "JPEG",
     includeCost: true,
+    ...(refs.length > 0 ? { referenceImages: refs } : {}),
     ...(opts.seed != null ? { seed: opts.seed } : {}),
   };
   try {

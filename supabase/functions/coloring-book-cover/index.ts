@@ -242,6 +242,30 @@ Deno.serve(async (req: Request) => {
     const plan = ((meta.coloring_page_plan as any)?.plan ?? []) as any[];
     const totalPages = plan.length || pages.length || 32;
 
+    // OWNER LAW `interior_first_cover_last_character_continuity` (2026-07-17):
+    // the cover MUST be generated AFTER the interior so we can condition the
+    // cover on the real interior character designs. If interior pages are
+    // missing, requeue back through render — never generate a cover from
+    // prompt alone (that's how cover/interior character drift happens).
+    const renderedPages = pages.filter((p: any) => p && typeof p.signed_url === "string");
+    if (!isUpgradeMode && renderedPages.length < Math.max(4, Math.floor((plan.length || 8) * 0.5))) {
+      await patchMeta(db, ebook_id, {
+        awaiting: undefined,
+        coloring_current_step_label: `Cover deferred — interior only ${renderedPages.length}/${plan.length || totalPages} pages rendered. Interior-first law.`,
+      });
+      await db.from("ebooks_kids").update({ pipeline_status: "queued" }).eq("id", ebook_id);
+      fireAndForget("coloring-book-render", { ebook_id });
+      return json({ ok: true, deferred: "interior_first_law", rendered: renderedPages.length, planned: plan.length });
+    }
+    // Pick up to 3 interior page URLs to hand to Ideogram as character-
+    // continuity references. Prefer pages whose primary_subject is one of
+    // the cover heroes; fall back to the first few pages otherwise.
+    const referenceImageURLs: string[] = renderedPages
+      .slice()
+      .sort((a: any, b: any) => (a.page ?? 999) - (b.page ?? 999))
+      .slice(0, 3)
+      .map((p: any) => p.signed_url as string);
+
     const categoryName = (meta.category_name as string)
       ?? "Coloring Book";
     const ageMin = ((meta.coloring_category_meta as any)?.target_age_min) ?? 4;
@@ -442,6 +466,7 @@ Deno.serve(async (req: Request) => {
             totalPages,
             forbiddenSubjects,
             forbiddenBackgrounds: forbiddenSubjects,
+            referenceImageURLs,
           }, { timeoutMs: IDEOGRAM_GEN_TIMEOUT_MS, seed: attemptIndex * 1009 }),
           IDEOGRAM_GEN_TIMEOUT_MS + 5_000,
           `ideogram_a${attemptIndex}`,
