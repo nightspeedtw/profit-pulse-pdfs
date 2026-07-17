@@ -84,7 +84,12 @@ export function decideReaction(
   const awaiting = (meta.awaiting as string) ?? null;
   const lastReqRegime = (meta.coloring_last_requeued_regime_version as string | undefined) ?? null;
   const age_ms = now - lastProgressAt(row);
-  const is_stalled = !TERMINAL_STATUSES.has(row.pipeline_status) && age_ms >= STALL_THRESHOLD_MS;
+  // A published row missing pdf_url/cover_url or not listed live is
+  // NON-terminal (DB invariant). Treat it as stallable like any other.
+  const isFullyLive = row.pipeline_status === "published"
+    && !!row.pdf_url && !!row.cover_url && row.listing_status === "live";
+  const isTerminal = TERMINAL_STATUSES.has(row.pipeline_status) && (row.pipeline_status !== "published" || isFullyLive);
+  const is_stalled = !isTerminal && age_ms >= STALL_THRESHOLD_MS;
 
   // Class 1: coloring row in 'failed' with dead pages, newer regime available.
   if (
