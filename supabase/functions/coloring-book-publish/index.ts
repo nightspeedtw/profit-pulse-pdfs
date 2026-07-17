@@ -125,18 +125,22 @@ Deno.serve(async (req: Request) => {
     const plan = ((meta.coloring_page_plan as any)?.plan ?? []) as any[];
     const pages = ((meta.coloring_pages as any[] | undefined) ?? []).slice().sort((a, b) => a.page - b.page);
 
-    if (!row.pdf_url || !assembly?.pdf_sha256) return json({ error: "pdf_missing" }, 422);
+    // Trust the first-class ebooks_kids.pdf_url + pdf_sha256 columns as the
+    // canonical proof of an assembled PDF. metadata.coloring_assembly is a
+    // secondary breadcrumb — some rows (assembled by older flows, or where
+    // the metadata patch dropped) legitimately have pdf_url without an
+    // assembly sub-object. Rejecting those with 422 forever was the source
+    // of today's head-of-queue stall.
+    if (!row.pdf_url || !row.pdf_sha256) return json({ error: "pdf_missing" }, 422);
     if (!row.cover_url) return json({ error: "cover_missing" }, 422);
-    // Interior completeness: TRUST THE ASSEMBLED PDF (source of truth), not
-    // the stale metadata.coloring_pages array. Assembly already verified
-    // pdf page_count === expected_page_count. If a few interior renders
-    // failed and the assembler filled placeholders, that's a defect_ledger
-    // event under batch-learning-mode, not a publish-blocking condition.
-    // Previous behavior returned 422 forever, causing the dispatcher to
-    // re-pick the same rows every tick and starve the rest of the queue.
-    const assyOk = Number(assembly?.page_count ?? 0) > 0
-      && Number(assembly?.page_count) === Number(assembly?.expected_page_count ?? assembly?.page_count);
-    if (!assyOk) return json({ error: "interior_incomplete", assembly_page_count: assembly?.page_count, expected: assembly?.expected_page_count }, 422);
+    // If assembly metadata is present, trust its page-count claim; if it is
+    // absent, trust the on-disk PDF (pdf_url + pdf_sha256 exist) and log
+    // the missing-assembly breadcrumb into the ledger below.
+    if (assembly && Number(assembly?.page_count ?? 0) > 0
+        && Number(assembly?.expected_page_count ?? 0) > 0
+        && Number(assembly.page_count) !== Number(assembly.expected_page_count)) {
+      return json({ error: "interior_incomplete", assembly_page_count: assembly?.page_count, expected: assembly?.expected_page_count }, 422);
+    }
     const missingInterior = Math.max(0, plan.length - pages.length);
 
     // NON-WAIVABLE PUBLISH CONTRACT — enforced even in learning mode.
