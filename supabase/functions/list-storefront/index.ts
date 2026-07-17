@@ -390,7 +390,7 @@ Deno.serve(async (req) => {
         preview_images = row._kids_preview_spreads.map((s: any) => s.image_url).filter(Boolean);
         total_spreads = row._kids_total_spreads ?? preview_spreads.length;
       }
-      const { inside_illustrations_json, _kids_preview_spreads, _kids_total_spreads, _kids_read_aloud_minutes, _kids_ad_promise, _kids_value_cards, _kids_age_slugs, _kids_theme_slugs, ...rest } = row;
+      const { inside_illustrations_json, _kids_preview_spreads, _kids_total_spreads, _kids_read_aloud_minutes, _kids_ad_promise, _kids_value_cards, _kids_age_slugs, _kids_theme_slugs, _coloring_extras, ...rest } = row;
       const ages = (Array.isArray(_kids_age_slugs) && _kids_age_slugs.length > 0) ? _kids_age_slugs : (ageBy[row.id] ?? []);
       const themes = (Array.isArray(_kids_theme_slugs) && _kids_theme_slugs.length > 0) ? _kids_theme_slugs : (themeBy[row.id] ?? []);
       return {
@@ -403,6 +403,7 @@ Deno.serve(async (req) => {
         read_aloud_minutes: _kids_read_aloud_minutes ?? null,
         ad_promise: _kids_ad_promise ?? null,
         value_cards: _kids_value_cards ?? null,
+        coloring_extras: _coloring_extras ?? null,
       };
     });
     return new Response(JSON.stringify({ items }), {
