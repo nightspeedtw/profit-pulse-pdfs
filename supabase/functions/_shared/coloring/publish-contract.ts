@@ -179,6 +179,11 @@ export function assertColoringPublishContract(
     );
   }
 
+  // 5. Cover spelling verified — NON-WAIVABLE, blocks LIVE even in
+  //    learning mode. Prevents "Coloring Bookl-Fname" class of defect.
+  const spelling = checkCoverSpelling(cover, gateSc);
+  if (!spelling.pass && spelling.reason) reasons.push(spelling.reason);
+
   return {
     pass: reasons.length === 0,
     reasons,
@@ -188,6 +193,8 @@ export function assertColoringPublishContract(
       trim_verified: trimOk,
       thumbnail_distinct_and_fitted: thumbOk,
       cover_category_verified: catOk,
+      cover_spelling_verified: spelling.pass,
     },
   };
 }
+
