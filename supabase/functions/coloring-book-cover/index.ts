@@ -35,6 +35,7 @@ import { composeColoringCover, fitCoverArtToPortraitCanvas, COLORING_COVER_COMPO
 import { generateIdeogramIntegratedCover, IDEOGRAM_INTEGRATED_COVER_VERSION } from "../_shared/coloring/ideogram-integrated-cover.ts";
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
 import { renderedColoringCoverProof } from "../_shared/coloring/coloring-cover-proof.ts";
+import { readQcMode, waiveOrBlock } from "../_shared/coloring/qc-mode.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
