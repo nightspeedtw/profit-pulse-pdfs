@@ -12,6 +12,13 @@ function baseInput(over: Record<string, unknown> = {}) {
         typography_source: "ideogram_verified_integrated",
         overlay_applied: false,
       },
+      evidence: {
+        hero: { matches: true, degraded: false, detected_subjects: ["unicorn"] },
+      },
+    },
+    coloring_cover_gate: {
+      pass: true,
+      scorecard: { cover_category_match: 99 },
     },
     thumbnail_render_meta: {
       canvas: { width: 600, height: 776 },
