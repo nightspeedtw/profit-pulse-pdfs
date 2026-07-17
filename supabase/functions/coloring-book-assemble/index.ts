@@ -441,10 +441,28 @@ Deno.serve(async (req: Request) => {
 
     // ── 1. Cover (full-bleed) ─────────────────────────────────────────
     const coverBytes = await fetchBytes(row.cover_url);
+    // HARD GATE (round_2 CLASS: cover-aspect-mismatch). The cover asset
+    // MUST match the PDF trim ratio (8.5:11). If it doesn't, fit-COVER
+    // below will clip the baked title/edge glyphs. In learning mode we
+    // ledger and continue; in strict mode we block the assemble.
+    const aspect = checkCoverAspect(coverBytes);
+    if (!aspect.pass) {
+      const mode = await readQcMode(db, ebookId);
+      const outcome = await waiveOrBlock(db, ebookId, {
+        gate: "cover_aspect_match",
+        reason: aspect.reason ?? "cover_aspect_mismatch",
+        detail: { actual: aspect, expected_ratio: aspect.expected_ratio },
+        mode,
+      });
+      if (outcome.blocked) {
+        return json({ error: "cover_aspect_mismatch", detail: aspect }, 422);
+      }
+    }
     const coverImg = await embedAny(doc, coverBytes);
     {
       const p = doc.addPage([PAGE_W, PAGE_H]);
-      // fit-cover the artwork into the page
+      // fit-cover the artwork into the page — safe because the aspect
+      // gate above proves the ratios match within tolerance.
       const iw = coverImg.width, ih = coverImg.height;
       const scale = Math.max(PAGE_W / iw, PAGE_H / ih);
       const w = iw * scale, h = ih * scale;
