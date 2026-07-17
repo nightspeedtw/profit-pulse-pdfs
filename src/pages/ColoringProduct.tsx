@@ -220,11 +220,15 @@ export default function ColoringProduct() {
           type="button"
           onClick={openPreview}
           aria-label={`Preview inside ${book.title}`}
-          className="relative aspect-square bg-muted border-2 border-foreground overflow-hidden group"
+          // Container aspect MUST match native coloring cover (1600×2071
+          // = 8.5:11). Any other ratio with object-cover clips the baked
+          // title; object-contain in a mismatched frame letterboxes.
+          className="relative aspect-[1600/2071] bg-muted border-2 border-foreground overflow-hidden group"
         >
           {book.cover_url ? (
-            // object-contain guarantees the WHOLE cover (title + art) fits
-            // inside the thumbnail frame — no crop, no cut title.
+            // Aspect-matched container → object-cover fills edge-to-edge
+            // with zero crop, zero letterbox. object-contain kept as belt-
+            // and-braces safety if a legacy off-ratio cover slips through.
             <img src={book.cover_url} alt={book.title} className="w-full h-full object-contain" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-muted-foreground">No cover</div>
