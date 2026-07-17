@@ -2,6 +2,7 @@
 // Supports optional kids-taxonomy filters (age, themes), bestseller flag, and sort order.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/stripe.ts";
+import { buildColoringSalesCopy } from "../_shared/coloring/sales-copy.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
