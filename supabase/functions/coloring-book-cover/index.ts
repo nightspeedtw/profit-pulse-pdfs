@@ -279,8 +279,10 @@ Deno.serve(async (req: Request) => {
     }
 
 
+    const pages = (meta.coloring_pages as any[] | undefined) ?? [];
     const plan = ((meta.coloring_page_plan as any)?.plan ?? []) as any[];
     const totalPages = plan.length || pages.length || 32;
+
 
     // OWNER LAW `interior_first_cover_last_character_continuity` (2026-07-17):
     // the cover MUST be generated AFTER the interior so we can condition the
