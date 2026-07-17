@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { Sparkles, RefreshCw, FileSearch } from "lucide-react";
 import { fetchAdminData } from "@/lib/adminData";
+import { CanvaBookActions } from "@/components/admin/CanvaBookActions";
 
 interface KidsBook {
   id: string;
