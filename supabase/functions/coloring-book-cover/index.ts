@@ -526,7 +526,33 @@ Deno.serve(async (req: Request) => {
           ideogramAttempts.push(ideoReport);
           continue;
         }
+        // ═══════ COVER UNIQUENESS GATE (owner law 2026-07-18, permanent) ═══════
+        // No two coloring books may ship with visually near-identical covers.
+        // dHash the raw art and reject if the closest existing cover is
+        // within DUPLICATE_HAMMING_THRESHOLD bits. On duplicate we bump the
+        // seed and re-roll rather than accepting a knock-off composition.
+        let coverFingerprint: any = null;
+        try {
+          coverFingerprint = await computeCoverFingerprint(rawBytes);
+          const dup = await findDuplicateCover(db, coverFingerprint, ebook_id);
+          ideoReport.checks.uniqueness = {
+            fingerprint: coverFingerprint.hash,
+            duplicate_of: dup ? { id: dup.id, title: dup.title, distance: dup.distance } : null,
+            threshold: DUPLICATE_HAMMING_THRESHOLD,
+          };
+          if (dup) {
+            ideoReport.status = "duplicate_rejected";
+            ideoReport.reason = `duplicate_of:${dup.id}:hd=${dup.distance}:title="${String(dup.title).slice(0, 60)}"`;
+            ideogramAttempts.push(ideoReport);
+            continue;
+          }
+        } catch (fpErr: any) {
+          // Fingerprint failure is non-fatal (defense in depth: publish
+          // contract can also assert uniqueness). Log and proceed.
+          ideoReport.checks.uniqueness = { error: String(fpErr?.message ?? fpErr).slice(0, 120) };
+        }
         // ACCEPTED. Fit to portrait 8.5x11 canvas AND skip overlay typography.
+
         const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT);
         // Rendered proof still runs on the final PNG (art-region variance + frame safety)
         // but the approved-strings check is fed the VERIFIED transcript so
