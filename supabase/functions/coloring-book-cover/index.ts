@@ -567,6 +567,10 @@ Deno.serve(async (req: Request) => {
         if (!verdict.pass) {
           ideoReport.status = "text_rejected";
           ideoReport.reason = `text_verify_failed:${verdict.reason}`;
+          // Owner order: art passed luminance+color but text failed → keep
+          // these bytes as the base for the next attempt's inpaint retry
+          // rather than re-rolling the whole cover.
+          lastPassingArtBytes = rawBytes;
           ideogramAttempts.push(ideoReport);
           continue;
         }
