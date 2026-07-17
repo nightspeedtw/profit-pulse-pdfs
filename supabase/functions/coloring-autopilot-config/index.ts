@@ -132,7 +132,7 @@ Deno.serve(async (req: Request) => {
     merged.daily_cost_cap_usd_coloring = Math.max(0, Math.min(500, Number(merged.daily_cost_cap_usd_coloring) || 0));
     merged.paused = !!merged.paused;
     merged.page_count = [24, 32, 48].includes(Number(merged.page_count)) ? Number(merged.page_count) : 32;
-    if (!["3-5", "4-6", "6-8"].includes(merged.age_band)) merged.age_band = "4-6";
+    if (!["2-4", "3-5", "4-6", "6-8", "8-12", "13-17", "all_ages"].includes(merged.age_band)) merged.age_band = "4-6";
     if (!["random", "specific"].includes(merged.topic_mode)) merged.topic_mode = "random";
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(merged.daily_stop_utc))) merged.daily_stop_utc = "22:00";
     // Preserve telemetry

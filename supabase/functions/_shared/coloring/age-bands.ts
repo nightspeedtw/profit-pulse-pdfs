@@ -93,6 +93,24 @@ export function ageBandForAges(minAge: number, maxAge: number): AgeBandKey {
   return "teen_adult";
 }
 
+/**
+ * Normalize an admin-picker age slug (which mirrors the storefront chip set:
+ * 2-4, 4-6, 6-8, 8-12, 13-17, all_ages, plus legacy 3-5) to a concrete
+ * AgeBandKey used by the style-contract library.
+ */
+export function normalizeAdminAgeBand(slug: string | null | undefined): AgeBandKey {
+  switch ((slug ?? "").toLowerCase()) {
+    case "2-4": return "2-4";
+    case "3-5": return "4-6";
+    case "4-6": return "4-6";
+    case "6-8": return "6-8";
+    case "8-12": return "8-12";
+    case "13-17": return "teen_adult";
+    case "all_ages": return "4-6";
+    default: return "4-6";
+  }
+}
+
 export function defaultStyleForAges(minAge: number, maxAge: number): LineArtStyleContract {
   return AGE_BAND_DEFAULTS[ageBandForAges(minAge, maxAge)];
 }

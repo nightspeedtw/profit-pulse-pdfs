@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ interface ColoringConfig {
   paused: boolean;
   topic_mode: "random" | "specific";
   specific_category_key: string | null;
-  age_band: "3-5" | "4-6" | "6-8";
+  age_band: "2-4" | "4-6" | "6-8" | "8-12" | "13-17" | "all_ages";
   page_count: 4 | 16 | 24 | 32 | 48;
   batch_size: number;
   daily_cap: number;
@@ -75,11 +75,16 @@ export function ColoringAutopilotCard() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  // When the user edits the form locally, background polling must NOT clobber
+  // their unsaved selection (this is what caused age_band to jump back to 4-6
+  // after clicking "Run now").
+  const dirtyRef = useRef(false);
+  const cfgLoadedRef = useRef(false);
 
   const passcode = () =>
     typeof window !== "undefined" && localStorage.getItem("admin_passcode_ok") === "1" ? "453451" : "";
 
-  const loadStatus = async () => {
+  const loadStatus = async (adoptConfig = false) => {
     try {
       const { data, error } = await supabase.functions.invoke("coloring-autopilot-config", {
         body: { passcode: passcode() },
@@ -87,7 +92,13 @@ export function ColoringAutopilotCard() {
       });
       if (error) throw error;
       if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
-      setCfg({ ...DEFAULTS, ...(data?.config ?? {}) });
+      // Only overwrite the form state on the initial load or right after a save.
+      // Background polls keep status/cats fresh without touching cfg.
+      if (adoptConfig || !cfgLoadedRef.current) {
+        setCfg({ ...DEFAULTS, ...(data?.config ?? {}) });
+        cfgLoadedRef.current = true;
+        dirtyRef.current = false;
+      }
       setCats(data?.categories ?? []);
       setStatus(data?.status ?? null);
     } catch (e) {
@@ -116,6 +127,7 @@ export function ColoringAutopilotCard() {
       if (error) throw error;
       if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
       setCfg({ ...DEFAULTS, ...(data?.config ?? next) });
+      dirtyRef.current = false;
       toast({ title: "Coloring autopilot saved" });
     } catch (e) {
       toast({ title: "Save failed", description: String(e), variant: "destructive" });
@@ -127,6 +139,12 @@ export function ColoringAutopilotCard() {
   const runNow = async () => {
     setRunning(true);
     try {
+      // Persist current picker values FIRST so the tick honors the age band /
+      // topic / page count showing on screen. Otherwise the tick reads the
+      // last-saved config and the UI appears to "reset" (age jumps back to 4-6).
+      if (dirtyRef.current) {
+        await save(cfg);
+      }
       const { data, error } = await supabase.functions.invoke("coloring-autopilot-tick", {
         body: { manual: true, override_batch: cfg.batch_size, passcode: passcode() },
         headers: { "x-admin-passcode": passcode() },
@@ -139,7 +157,8 @@ export function ColoringAutopilotCard() {
         title: `Queued ${ok}/${queued.length} coloring book${queued.length === 1 ? "" : "s"}`,
         description: data?.skipped ? `Skipped: ${data.skipped}` : queued.map((q) => q.title).join(" · ").slice(0, 200),
       });
-      await loadStatus();
+      // Refresh status counters but do NOT overwrite cfg with server state.
+      await loadStatus(false);
     } catch (e) {
       toast({ title: "Run failed", description: String(e), variant: "destructive" });
     } finally {
@@ -200,7 +219,10 @@ export function ColoringAutopilotCard() {
     }
   };
 
-  const update = <K extends keyof ColoringConfig>(k: K, v: ColoringConfig[K]) => setCfg((p) => ({ ...p, [k]: v }));
+  const update = <K extends keyof ColoringConfig>(k: K, v: ColoringConfig[K]) => {
+    dirtyRef.current = true;
+    setCfg((p) => ({ ...p, [k]: v }));
+  };
 
   return (
     <Card className="p-4 border-2 border-foreground">
@@ -345,12 +367,16 @@ export function ColoringAutopilotCard() {
           <Select value={cfg.age_band} onValueChange={(v) => update("age_band", v as ColoringConfig["age_band"])}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="3-5">3–5</SelectItem>
+              <SelectItem value="2-4">2–4</SelectItem>
               <SelectItem value="4-6">4–6</SelectItem>
               <SelectItem value="6-8">6–8</SelectItem>
+              <SelectItem value="8-12">8–12</SelectItem>
+              <SelectItem value="13-17">13–17</SelectItem>
+              <SelectItem value="all_ages">All Ages</SelectItem>
             </SelectContent>
           </Select>
         </div>
+
 
         <div>
           <Label className="text-xs uppercase font-mono">Page count</Label>
