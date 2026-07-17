@@ -51,7 +51,8 @@ export interface PagePlanValidationIssue {
     | "DUPLICATE_CONCEPT"
     | "OVERUSED_SUBJECT"
     | "MISSING_FIELD"
-    | "SCENE_TAXONOMY_UNDERCOVERED";
+    | "SCENE_TAXONOMY_UNDERCOVERED"
+    | "SPECIES_CONTRACT_MISSING";
   message: string;
 }
 
