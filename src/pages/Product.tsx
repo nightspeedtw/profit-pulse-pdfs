@@ -69,7 +69,8 @@ export default function Product() {
   const scrollToBuy = () => buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   const handleBuy = () => freeDownload(product.id, product.title);
 
-  const isKids = product.category_slug === 'kids' || product.category_slug === 'children_illustrated' || product.product_type === 'children_illustrated';
+  const isColoring = product.book_type === 'coloring_book' || product.product_type === 'coloring_book';
+  const isKids = !isColoring && (product.category_slug === 'kids' || product.category_slug === 'children_illustrated' || product.product_type === 'children_illustrated');
   const ageBand = (product.age_group_slugs?.[0]) ?? null;
   const themeLabel = product.ad_promise?.theme ?? product.theme_slugs?.[0] ?? null;
   const seoTitle = `${product.title} — Illustrated Children's Ebook | SecretPDF`;
