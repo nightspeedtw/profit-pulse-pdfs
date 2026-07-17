@@ -132,29 +132,127 @@ async function pollFalQueue(statusUrl: string, responseUrl: string, deadlineMs: 
   throw new Error(`fal_ideogram_poll_deadline_exceeded`);
 }
 
-export async function generateIdeogramIntegratedCover(
+// ─────────────────────────────────────────────────────────────────────────────
+// PROVIDER ROUTING — Ideogram 3.0 via Runware.
+//
+// The direct fal.ai path (`fal-ai/ideogram/v3`, keyed by FAL_KEY) is retired
+// as the default. Fal's Ideogram sits on a separately-billed account whose
+// silent exhaustion caused today's `ideogram_only_park:provider_billing_exhausted`
+// class of stall. Runware aggregates the same Ideogram 3.0 model under AIR id
+// `ideogram:4@1` and shares the funded RUNWARE_API_KEY that already powers
+// interior generation — one funded path for every image the coloring lane
+// makes.
+//
+// The fal path remains as a strictly LAST-RESORT emergency override, gated on
+// the `COLORING_COVER_ALLOW_FAL_IDEOGRAM=1` env flag. It is off by default and
+// stays off unless the owner deliberately re-enables it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RUNWARE_API_KEY = Deno.env.get("RUNWARE_API_KEY");
+const ALLOW_FAL_FALLBACK = (Deno.env.get("COLORING_COVER_ALLOW_FAL_IDEOGRAM") ?? "0") === "1";
+const RUNWARE_IDEOGRAM_MODEL = "ideogram:4@1"; // Ideogram 3.0 text-to-image
+// Ideogram 3.0 on Runware only accepts a fixed grid of portrait dimensions.
+// 832x1088 is the closest ~3:4 portrait that the endpoint actually honors
+// (smoke-tested; the 864x1152 combo advertised in the docs is rejected).
+const RUNWARE_IDEOGRAM_WIDTH = 832;
+const RUNWARE_IDEOGRAM_HEIGHT = 1088;
+
+async function generateViaRunware(
   request: IdeogramCoverRequest,
-  opts: { timeoutMs?: number; seed?: number } = {},
+  opts: { timeoutMs?: number; seed?: number },
+): Promise<IdeogramCoverResult> {
+  if (!RUNWARE_API_KEY) throw new Error("provider_unconfigured:RUNWARE_API_KEY_missing");
+  const prompt = buildIdeogramIntegratedCoverPrompt(request);
+  const timeoutMs = opts.timeoutMs ?? 60_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const taskUUID = (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const task = {
+    taskType: "imageInference",
+    taskUUID,
+    positivePrompt: prompt.slice(0, 3000),
+    model: RUNWARE_IDEOGRAM_MODEL,
+    width: RUNWARE_IDEOGRAM_WIDTH,
+    height: RUNWARE_IDEOGRAM_HEIGHT,
+    numberResults: 1,
+    outputType: ["URL"],
+    outputFormat: "JPEG",
+    includeCost: true,
+    ...(opts.seed != null ? { seed: opts.seed } : {}),
+  };
+  try {
+    const res = await fetch("https://api.runware.ai/v1", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${RUNWARE_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify([task]),
+    });
+    const bodyText = await res.text();
+    if (!res.ok) {
+      // 402/insufficient-credit style responses → billing exhausted
+      if (res.status === 402 || /balance|credit|insufficient|billing|payment required/i.test(bodyText)) {
+        throw new Error(`provider_billing_exhausted:runware_ideogram:${bodyText.slice(0, 200)}`);
+      }
+      throw new Error(`runware_ideogram_http_${res.status}:${bodyText.slice(0, 300)}`);
+    }
+    // deno-lint-ignore no-explicit-any
+    let j: any;
+    try { j = JSON.parse(bodyText); }
+    catch { throw new Error(`runware_ideogram_non_json:${bodyText.slice(0, 200)}`); }
+    if (Array.isArray(j?.errors) && j.errors.length > 0) {
+      const msg = j.errors.map((e: any) => e.message || e.code || JSON.stringify(e)).join("; ");
+      if (/balance|credit|insufficient|billing|payment/i.test(msg)) {
+        throw new Error(`provider_billing_exhausted:runware_ideogram:${msg.slice(0, 200)}`);
+      }
+      throw new Error(`runware_ideogram_errors:${msg.slice(0, 300)}`);
+    }
+    const first = (j?.data ?? [])[0];
+    if (!first?.imageURL) throw new Error(`runware_ideogram_no_image:${bodyText.slice(0, 200)}`);
+    const imgRes = await fetch(first.imageURL);
+    if (!imgRes.ok) throw new Error(`runware_ideogram_download_http_${imgRes.status}`);
+    const bytes = new Uint8Array(await imgRes.arrayBuffer());
+
+    // Best-effort cost logging — runware billing lives in the same key so
+    // this shows up in the same cost_log stream as interior generation.
+    try {
+      const { logAiCost, costDb } = await import("../cost-log.ts");
+      logAiCost(costDb(), {
+        ebook_id: (request as any).ebook_id,
+        step: "coloring_cover_ideogram",
+        model: RUNWARE_IDEOGRAM_MODEL,
+        images: 1,
+        cost_usd: Number(first.cost ?? 0) || 0,
+        provider: "runware_ideogram_cover",
+      });
+    } catch (_e) { /* non-fatal */ }
+
+    return {
+      bytes,
+      provider: "fal_ideogram_v3", // kept for scorecard back-compat; actual host is runware
+      prompt,
+      seed: first?.seed ?? opts.seed,
+      request_id: taskUUID,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function generateViaFalEmergency(
+  request: IdeogramCoverRequest,
+  opts: { timeoutMs?: number; seed?: number },
 ): Promise<IdeogramCoverResult> {
   if (!FAL_KEY) throw new Error("provider_unconfigured:FAL_KEY_missing");
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const prompt = buildIdeogramIntegratedCoverPrompt(request);
   const body = {
-    prompt,
-    aspect_ratio: "3:4",
-    rendering_speed: "BALANCED",
-    style: "AUTO",
-    expand_prompt: false,
-    num_images: 1,
+    prompt, aspect_ratio: "3:4", rendering_speed: "BALANCED", style: "AUTO",
+    expand_prompt: false, num_images: 1,
     ...(opts.seed != null ? { seed: opts.seed } : {}),
   };
-
   const submitRes = await fetch("https://queue.fal.run/fal-ai/ideogram/v3", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Key ${FAL_KEY}`,
-    },
+    headers: { "Content-Type": "application/json", Authorization: `Key ${FAL_KEY}` },
     body: JSON.stringify(body),
   });
   if (!submitRes.ok) {
@@ -170,10 +268,30 @@ export async function generateIdeogramIntegratedCover(
   if (!imgRes.ok) throw new Error(`fal_ideogram_download_http_${imgRes.status}`);
   const bytes = new Uint8Array(await imgRes.arrayBuffer());
   return {
-    bytes,
-    provider: "fal_ideogram_v3",
-    prompt,
-    seed: completed?.seed ?? opts.seed,
-    request_id: queue.request_id ?? null,
+    bytes, provider: "fal_ideogram_v3", prompt,
+    seed: completed?.seed ?? opts.seed, request_id: queue.request_id ?? null,
   };
+}
+
+export async function generateIdeogramIntegratedCover(
+  request: IdeogramCoverRequest,
+  opts: { timeoutMs?: number; seed?: number } = {},
+): Promise<IdeogramCoverResult> {
+  // Primary path: Runware-hosted Ideogram 3.0.
+  try {
+    return await generateViaRunware(request, opts);
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    // Only defer to fal.ai if the operator has explicitly re-enabled it AND
+    // the failure isn't a billing-side signal we should surface as-is.
+    const runwareBillingExhausted = /provider_billing_exhausted/.test(msg);
+    if (!ALLOW_FAL_FALLBACK || runwareBillingExhausted) throw e;
+    try {
+      return await generateViaFalEmergency(request, opts);
+    } catch (fe: any) {
+      // Preserve the original (runware) error message so operators see the
+      // primary provider's failure, not the emergency fallback's.
+      throw new Error(`${msg} | fal_fallback_also_failed:${String(fe?.message ?? fe).slice(0, 160)}`);
+    }
+  }
 }
