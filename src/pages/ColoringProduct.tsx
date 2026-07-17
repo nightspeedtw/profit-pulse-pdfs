@@ -52,6 +52,7 @@ export default function ColoringProduct() {
   const [notFound, setNotFound] = useState(false);
   const [siblings, setSiblings] = useState<Sibling[]>([]);
   const [preview, setPreview] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     if (!id) return;
