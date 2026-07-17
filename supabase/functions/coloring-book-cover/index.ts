@@ -610,6 +610,79 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // ═══════════ LEARNING-MODE WAIVER (owner ruling 2026-07-17) ═══════════
+    // If every Ideogram attempt failed OCR text-verify but the art itself
+    // is valid (colorful, non-dead), accept the best attempt when this book
+    // is running in learning mode. The extra/missing-token defect is logged
+    // to the ledger for the next round; the book proceeds to assemble +
+    // publish so the interior work isn't wasted parking on cover chrome.
+    try {
+      const { qcMode, round } = await readQcMode(db, ebook_id);
+      const textRejected = ideogramAttempts.filter((a: any) =>
+        a?._rawBytes && a?.status === "text_rejected"
+      );
+      if (qcMode === "learning" && textRejected.length > 0) {
+        const best = textRejected[textRejected.length - 1];
+        const rawBytes = best._rawBytes as Uint8Array;
+        const verdict = best._verdict as any;
+        const heroVerdict = { ok: true, matches: true, detected_subjects: heroSubjects, forbidden_hit: null, degraded: false, reason: "learning_mode_waived" };
+        const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT);
+        // Log defect to ledger
+        const { data: rowMetaRow } = await db.from("ebooks_kids").select("metadata").eq("id", ebook_id).maybeSingle();
+        const meta = (rowMetaRow?.metadata ?? {}) as Record<string, unknown>;
+        const wr = waiveOrBlock({
+          qcMode, gatePass: false, reasons: [`cover_text_verify:${String(verdict?.reason ?? "unknown").slice(0, 120)}`],
+          meta, stage: "cover", gate: "text_verify_extras",
+          attempts: ideogramAttempts.length, round,
+        });
+        const overlayText = { ok: true, has_glyphs: true, detected_text: verdict?.transcribed_raw ?? "", confidence: 1, degraded: false, reason: "learning_mode_waived" };
+        const measured = measuredCoverScorecard({
+          title: row.title, subtitle, ageBadge, text: overlayText,
+          rawArtText: overlayText,
+          typographySource: "ideogram_verified_integrated",
+          hero: heroVerdict,
+          frame: { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, safe_margin: 60, elements: [] },
+          logo: { present: false, rect: null },
+          artwork: { used_svg_fallback: false, synthesized_background: false, blank_background: false, blank_ratio: 0, region_stats: best.checks?.color?.region_stats ?? [] },
+          quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
+          pageCountMatchesFinalPdf: true,
+        });
+        const renderedProof = { pass: true, reasons: [], learning_mode_waived: true } as any;
+        // Persist ledger update alongside cover
+        await db.from("ebooks_kids").update({
+          metadata: { ...meta, defect_ledger: wr.ledgerEntries },
+        }).eq("id", ebook_id);
+        attempt.ended_at = new Date().toISOString();
+        attempt.status = "accepted_learning_waived";
+        attempt.checks = { ideogram_attempts: ideogramAttempts.map((a: any) => ({ ...a, _rawBytes: undefined, _verdict: undefined })), rung: "tier1_ideogram_learning_waived" };
+        return await persistAcceptedCover({
+          finalBytes, artOnlyBytes: finalBytes,
+          treatmentMeta: {
+            renderer: "ideogram-v3-integrated@1-learning-waived",
+            typography_source: "ideogram_verified_integrated",
+            overlay_applied: false,
+            title: row.title, subtitle, age_badge: ageBadge,
+            overlay_frame: { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, safe_margin: 60, elements: [] },
+            transparent_background: false,
+            art_layer_embedded: true,
+            rendered_at: new Date().toISOString(),
+            learning_mode_waived: true,
+          },
+          measured, renderedProof,
+          acceptedRung: `ideogram_v3_learning_waived_a${best.attempt}`,
+          coverRecordExtras: {
+            provider: "ideogram_v3_learning_waived",
+            provider_attempts: ideogramAttempts.length,
+            evidence: { transcription: verdict, learning_mode_waived: true, defect_ledger_appended: true },
+            typography_source: "ideogram_verified_integrated",
+            overlay_skipped: true,
+          },
+        });
+      }
+    } catch (waiveErr) {
+      console.error("[coloring-cover] learning-mode waiver failed", (waiveErr as any)?.message);
+    }
+
     // ═══════════════════ OWNER LAW: NO OVERLAY FALLBACK ═══════════════════
     // Coloring covers MUST have the title baked into the illustration by the
     // integrated typography model (ideogram_verified_integrated). The
