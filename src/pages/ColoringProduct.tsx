@@ -52,6 +52,7 @@ export default function ColoringProduct() {
   const [notFound, setNotFound] = useState(false);
   const [siblings, setSiblings] = useState<Sibling[]>([]);
   const [preview, setPreview] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -151,7 +152,6 @@ export default function ColoringProduct() {
     setPreview(true);
   };
 
-  const [downloading, setDownloading] = useState(false);
   const clickBuy = async () => {
     if (!book || downloading) return;
     void emitColoringEvent("click_buy", book.id, { force: true, extra: { price_cents: priceCents, bypass: true } });
