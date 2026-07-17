@@ -35,6 +35,13 @@ export interface IdeogramCoverRequest {
   backgroundHint?: string;
   forbiddenBackgrounds?: string[];
   forbiddenSubjects?: string[];
+  /**
+   * Interior-page reference URLs (up to 3). When present, the cover model is
+   * conditioned on the SAME character designs the interior already rendered
+   * so the cover cast matches the book cast (owner law: interior-first,
+   * cover-last, character-continuity permanent).
+   */
+  referenceImageURLs?: string[];
 }
 
 export interface IdeogramCoverResult {
