@@ -1,67 +1,84 @@
-# Coloring autopilot — quota-aware, self-resuming pipeline
-
 ## Goal
-No coloring book ever silently dies on external quota/billing. Provider exhaustion produces a **distinct state** with a **real scheduled resume**, and interior generation is **paced** so we don't burn Cloudflare's 10k/day allocation in one burst.
+Make three coloring-book cover/thumbnail rules permanent and gated, then apply the re-render pass to every currently-live coloring book.
 
-## Root causes confirmed
-1. **Bursty interior generation**: `coloring-book-render` fires the full production batch (up to 32 pages × ~4 steps ≈ 128 neuron-inferences × several books) in one tick — after 2-3 books it hits CF's 10k/day cap, then FAL fallback is 403 billing-locked, so the whole lane stalls.
-2. **Wrong terminal state**: today's stuck books are `pipeline_status='queued'` with a `blocker_reason` string but **no scheduled retry** — the CF latch resumes CF at 00:00 UTC, but nothing wakes these specific books up.
-3. **Error classifier gap**: the shared `error-classifier.ts` doesn't yet emit dedicated `cloudflare_neuron_quota` / `fal_billing_locked` signatures; ops UI shows a raw provider string.
+## Rule 1 — Baked-title only (no overlay), enforced
 
-## Changes
+Current state: `coloring-book-cover/index.ts` has TWO accepted paths:
+- Tier-1 "ideogram integrated" → baked title, no overlay (correct)
+- Tier-2/rung-2 "textless_art_plus_svg_overlay" → composites an SVG title layer on top (violates owner's rule)
 
-### 1. New pipeline states + scheduled resume (no schema change; use existing columns)
-- Introduce two `pipeline_status` values by convention (string column, no enum): `awaiting_quota_reset` and `awaiting_billing`. Use `next_retry_at` (already on `ebooks_kids` per recovery.ts convention — verify; add via migration if missing) to store the wake time.
-- **`awaiting_quota_reset`** (Cloudflare 429 neuron cap, and FAL is also unavailable): `next_retry_at = next UTC midnight + 2 min jitter`. Automatic — no human needed.
-- **`awaiting_billing`** (FAL 403 billing-locked while CF is also latched): `next_retry_at = now + 30 min` (cheap re-check; the top-up is external and could happen any moment). Surface a persistent admin toast.
-- Extend `coloring-book-render` line ~452 halt branch so instead of leaving `pipeline_status='queued'`, it sets the correct awaiting state based on **which providers are dry** at that moment (`readImageProviderPolicy` return + `readCfBillingLockedUntil` + `provider_billing_blocked.fal.active`).
+Changes:
+- Remove the `textless_art_plus_svg_overlay` acceptance branches from `coloring-book-cover/index.ts`. Any cover that fails the integrated-typography verdict goes back through the integrated ladder or is flagged for regeneration — never falls back to overlay compositing.
+- Delete/quarantine the compositor call site (keep the file for the adult-ebook line but stop invoking it from the coloring path). Mark `_shared/coloring/coloring-cover-compositor.ts` as adult-only via export guard `assertNotColoring()`.
+- Extend `_shared/coloring/coloring-cover-proof.ts` with a `assertNoDoubleText()` check: if `typographySource !== "ideogram_integrated"` OR proof metadata contains `overlay_applied: true` → hard fail with reason `double_text_forbidden`.
+- Add hard-fail entry `double_text` to `gates.ts` `hard_fail` map.
+- New test `src/lib/coloringCoverBakedTitleOnly.test.ts` covering: overlay path rejected, integrated accepted, double-text metadata rejected.
 
-### 2. Quota-aware interior pacing (Cloudflare-primary path)
-- New `_shared/coloring/interior-pacer.ts`:
-  - Config in `generation_settings.coloring_autopilot.interior_pacing`:
-    `{ cf_daily_neuron_budget: 9500, cf_neurons_per_image: 12, safety_reserve_pct: 5 }` (defaults; safe buffer under the 10k cap).
-  - `estimateNeuronsSpentToday(db)` sums today's `cost_log` rows where `provider='cloudflare_direct'` × `neurons_per_image`.
-  - `neuronsRemainingToday(db)` returns budget minus spent.
-  - `maxCfImagesThisTick(db, requestedBatch)` clamps the per-tick batch to fit remaining budget; when 0, caller should either fall back to FAL for this tick (if fal has budget) or park the book in `awaiting_quota_reset`.
-- In `coloring-book-render` before the per-page dispatch loop, cap `plan` slice by `maxCfImagesThisTick` when policy primary is CF. Chain the rest via `selfInvoke` after 15 min (goes through worker-tick which already respects the latch).
+## Rule 2 — 8.5×11 trim lock everywhere
 
-### 3. Scheduler wakes up parked books
-- Extend the existing `coloring-worker-tick` (already cron-driven) to, in addition to its normal queued sweep, look for rows where `pipeline_status IN ('awaiting_quota_reset','awaiting_billing') AND next_retry_at <= now()` AND the relevant provider is no longer dry, then:
-  - Reset `pipeline_status='queued'`, `blocker_reason=null`, and immediately invoke `coloring-book-render` for that book.
-- If CF latch has passed (`cf_billing_locked_until < now`) and today is a new UTC day, clear `provider_billing_blocked.cloudflare.active`.
+Current: cover master is `1600×2071` (ratio 0.7725, off by 0.05% from 8.5:11 — acceptable). PDF page is 612×792pt (exact). Interior renderer needs audit.
 
-### 4. Shared error classifier signatures
-- Add to `_shared/error-classifier.ts` `KNOWN_SIGNATURES`:
-  - **cloudflare_neuron_quota**: matches `/daily free allocation/i`, `/neurons/i`, `/workers paid/i` with cloudflare in the message → `error_type: 'quota_wait'`, `suggested_status: 'awaiting_quota_reset'`, `next_retry_at` = next UTC midnight, `needs_code_fix: false`.
-  - **fal_billing_locked**: matches `/exhausted balance/i`, `/user is locked/i` → `error_type: 'quota_wait'` (or new `provider_billing_locked` if the union allows), `suggested_status: 'awaiting_billing'`, `needs_code_fix: false`, `user_friendly_message` "Top up fal.ai balance to resume".
-- This is the "permanent pattern registration" the owner asked for — future books of any type route through the same routing.
+Changes:
+- Add `_shared/coloring/trim-lock.ts` exporting `COLORING_TRIM = { widthIn: 8.5, heightIn: 11, pdfPtW: 612, pdfPtH: 792, coverPxW: 1600, coverPxH: 2071, interiorPxW: 1600, interiorPxH: 2071, ratio: 8.5/11, tolerance: 0.01 }` and `assertColoringTrim(kind, w, h)`.
+- Wire `assertColoringTrim` into: `coloring-book-cover` (post-fit), `coloring-book-render` interior page output, `coloring-book-assemble` (PDF page + every image drawn). Any mismatch = hard error, book stays queued with `blocker_reason: trim_mismatch`.
+- Test `src/lib/coloringTrimLock.test.ts`.
 
-### 5. Rescue the 10 currently-stuck books
-- One-shot script via `supabase--insert`:
-  - For each `ebook_kids` with `book_type='coloring_book'` AND `pipeline_status='queued'` AND `blocker_reason ILIKE '%daily free allocation%' OR '%user is locked%' OR '%Exhausted balance%'`:
-    - Set `pipeline_status='awaiting_quota_reset'` (CF class) or `'awaiting_billing'` (FAL class), `next_retry_at` per above, keep `blocker_reason` for audit trail.
-  - The `coloring-worker-tick` cron will then wake them the moment providers recover.
+## Rule 3 — Dedicated fitted thumbnail (new asset, distinct URL)
 
-### 6. Regression tests (vitest)
-- `src/lib/coloringInteriorPacing.test.ts` — pacer clamps batch, returns 0 when budget spent.
-- `src/lib/coloringQuotaStates.test.ts` — classifier maps CF-429-neurons → `awaiting_quota_reset` with `next_retry_at ≈ next UTC midnight`; fal-403-locked → `awaiting_billing`.
-- `src/lib/coloringAwaitingWake.test.ts` — worker-tick wake filter picks parked rows whose provider is healthy again and skips those still dry.
+Chosen thumbnail canvas: **600×776 px** (same 8.5:11 ratio, matches 2× the largest storefront card width `w-64`=256px + retina headroom, minimum for crisp product-page hero on mobile). Format: JPEG q=85 for smaller file (thumbnails, not print).
 
-### 7. Verification
-- Run `bun run test` (new tests must pass).
-- After deploy: read `ebooks_kids` where `book_type='coloring_book' AND pipeline_status IN ('awaiting_quota_reset','awaiting_billing')` and confirm all 10 formerly-stuck rows have `next_retry_at` set.
-- If FAL is still 403 at run time, that's expected — the owner needs to top up; the awaiting_billing state is the correct terminal-until-resume.
+New edge function `coloring-book-thumbnail`:
+- Input: `ebook_kids_id`.
+- Downloads the approved master `cover_url` from storage.
+- Renders on 600×776 canvas: white background, `object-contain` fit (letterbox if aspect drifts), 12px inner safe-margin. NO text overlay added — this is a pure re-derive from the already-baked cover art.
+- Runs a non-crop check: sample the 4 edges of the fitted image and confirm no non-white pixels within 4px of the letterbox edges (means nothing is bleeding/clipped).
+- Uploads to `ebook-covers` bucket at `kids/thumbnails/{id}-{hash}.jpg`.
+- Updates `ebooks_kids.thumbnail_url` (must be distinct from `cover_url`) and `store_thumbnail_url`.
 
-## Non-goals (explicit)
-- No QC threshold changes.
-- No brute-force retry loops.
-- No new secrets required (CF + FAL already configured).
-- No changes to picture-book pipeline behavior.
+Wire it into:
+- `coloring-book-cover` end-of-run (after cover accepted).
+- `kids-publish-if-qc-passed` as a pre-publish requirement.
+- A one-shot backfill invocation for every currently-live coloring book.
 
-## Files
-- **New**: `supabase/functions/_shared/coloring/interior-pacer.ts`, three `src/lib/coloring*.test.ts`.
-- **Edited**: `supabase/functions/_shared/error-classifier.ts`, `supabase/functions/coloring-book-render/index.ts` (halt branch + pacing cap), `supabase/functions/coloring-worker-tick/index.ts` (wake sweep + latch clear on new UTC day).
-- **Data**: one `UPDATE` on 10 stuck `ebooks_kids` rows.
-- **Migration** (only if `next_retry_at` missing on `ebooks_kids`): `ALTER TABLE public.ebooks_kids ADD COLUMN IF NOT EXISTS next_retry_at timestamptz`.
+## Release gate wiring (`gates.ts` / `kids-publish-if-qc-passed`)
+Add three pre-publish assertions:
+1. `cover_baked_title_only`: cover row's `typographySource === "ideogram_integrated"` AND no `overlay_applied`.
+2. `trim_verified`: cover master matches `COLORING_TRIM.coverPx*`, PDF page = 612×792pt.
+3. `thumbnail_distinct_and_fitted`: `thumbnail_url IS NOT NULL AND thumbnail_url != cover_url AND thumbnail_render_meta.non_crop_pass = true`.
+Any fail → block publish, set `blocker_reason` accordingly.
 
-Approve to proceed?
+## Persistence in `pipeline_skills`
+Upsert row `coloring-cover-thumbnail-contract-v1` with all three rules as machine-readable JSON so runtime gates read from DB, not just code constants.
+
+## Backfill pass (execute at end)
+Query `ebooks_kids WHERE book_type='coloring_book' AND listing_status='live'` at execution time. For each:
+1. Read cover proof metadata → if `typographySource !== "ideogram_integrated"` → flag for regeneration (do NOT auto-redraw in this pass; log to `blocker_reason='cover_style_violation_flagged'` and demote to draft).
+2. Assert trim on stored cover asset → if mismatch, re-fit to 1600×2071.
+3. Invoke `coloring-book-thumbnail` to generate the distinct thumbnail.
+4. Re-embed the (unchanged) cover in the PDF only if trim was corrected.
+
+## Docs
+- Append rules to `mem://design/kids-cover-prompt.md`.
+- Update `.agents/skills/secretpdf-production-suite/references/known-regressions.md` and `.claude/skills/.../known-regressions.md` with "coloring-cover: baked-title-only, overlay-forbidden" and "coloring-thumbnail: must be distinct asset".
+- Update `mem://index.md` if a new core rule emerges.
+
+## Files changed (expected)
+- edit `supabase/functions/coloring-book-cover/index.ts` (remove overlay branches)
+- edit `supabase/functions/_shared/coloring/coloring-cover-proof.ts` (add double-text assertion)
+- edit `supabase/functions/_shared/coloring/coloring-cover-compositor.ts` (adult-only guard)
+- edit `supabase/functions/_shared/coloring/gates.ts` (new hard fails + pre-publish assertions)
+- edit `supabase/functions/coloring-book-assemble/index.ts` (trim assertion)
+- edit `supabase/functions/coloring-book-render/index.ts` (trim assertion)
+- edit `supabase/functions/kids-publish-if-qc-passed/index.ts` (wire gates)
+- new `supabase/functions/_shared/coloring/trim-lock.ts`
+- new `supabase/functions/coloring-book-thumbnail/index.ts`
+- new tests: `coloringCoverBakedTitleOnly.test.ts`, `coloringTrimLock.test.ts`, `coloringThumbnailDistinct.test.ts`
+- new migration: seed `pipeline_skills` contract + `thumbnail_render_meta` JSONB column on `ebooks_kids` if not present
+- docs: `mem://design/kids-cover-prompt.md`, `known-regressions.md`
+
+## Report at end
+- Live count at execution time
+- How many needed cover-style flag (rule 1) vs already correct
+- Confirmed trim dimensions
+- Chosen thumbnail canvas (600×776) with reason
+- Confirmation every live book now has a distinct `thumbnail_url`
