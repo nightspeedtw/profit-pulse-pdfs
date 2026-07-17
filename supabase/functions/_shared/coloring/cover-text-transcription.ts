@@ -234,12 +234,26 @@ export async function verifyExactCoverText(
   opts: { timeoutMs?: number } = {},
 ): Promise<CoverTextVerdict> {
   const timeoutMs = opts.timeoutMs ?? 10_000;
-  const approvedTokens = [
-    ...tokenize(expectations.title),
+
+  // REQUIRED tokens = title only. This is the customer-visible logo; a wrong
+  // or dropped title token means the cover misrepresents the book and MUST
+  // fail the gate. OPTIONAL tokens = subtitle + ageBadge. Ideogram 3.0
+  // routinely drops secondary marketing chrome (e.g. "32 Coloring Pages")
+  // even when explicitly prompted. That chrome is not what the customer
+  // reads to identify the book, and it's redundant with the product page
+  // metadata, so its absence should not requeue → the historic behavior of
+  // failing on missing subtitle/badge tokens created infinite-loop stalls
+  // across every book with the same subtitle pattern, not just this one.
+  const requiredTokens = Array.from(new Set(tokenize(expectations.title)));
+  const optionalTokensRaw = [
     ...tokenize(expectations.subtitle),
     ...tokenize(expectations.ageBadge),
   ];
-  const dedupApproved = Array.from(new Set(approvedTokens));
+  const requiredSet = new Set(requiredTokens);
+  const optionalTokens = Array.from(
+    new Set(optionalTokensRaw.filter((t) => !requiredSet.has(t))),
+  );
+  const dedupApproved = [...requiredTokens, ...optionalTokens];
 
   const attempted_at = new Date().toISOString();
 
@@ -252,7 +266,11 @@ export async function verifyExactCoverText(
       transcribed_raw: "",
       transcribed_tokens: [],
       approved_tokens: dedupApproved,
+      required_tokens: requiredTokens,
+      optional_tokens: optionalTokens,
       missing: dedupApproved,
+      missing_required: requiredTokens,
+      missing_optional: optionalTokens,
       extra: [],
       misspelled: [],
       attempted_at,
@@ -261,15 +279,33 @@ export async function verifyExactCoverText(
   const raw = String(transcribed.detected_text ?? "");
   const detectedTokens = Array.from(new Set(tokenize(raw)));
   const { missing, extra, misspelled } = diffTokens(dedupApproved, detectedTokens);
-  const pass = missing.length === 0 && extra.length === 0 && misspelled.length === 0;
+  const missing_required = missing.filter((t) => requiredSet.has(t));
+  const missing_optional = missing.filter((t) => !requiredSet.has(t));
+  // Misspellings ONLY count against the gate when the intended token is
+  // required (a misspelled title word is a defect); an optional misspelling
+  // (e.g. subtitle) is a warning, mirroring the missing-token policy.
+  const misspelled_required = misspelled.filter((m) => {
+    const intended = m.split("→")[0];
+    return requiredSet.has(intended);
+  });
+  const pass = missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0;
+  const reason = pass
+    ? (missing_optional.length || misspelled.length > misspelled_required.length
+        ? `exact_match_with_optional_gaps:missing_optional=${missing_optional.length}`
+        : "exact_match")
+    : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length}`;
   return {
     pass,
     degraded: false,
-    reason: pass ? "exact_match" : `mismatch:missing=${missing.length},extra=${extra.length},misspelled=${misspelled.length}`,
+    reason,
     transcribed_raw: raw,
     transcribed_tokens: detectedTokens,
     approved_tokens: dedupApproved,
+    required_tokens: requiredTokens,
+    optional_tokens: optionalTokens,
     missing,
+    missing_required,
+    missing_optional,
     extra,
     misspelled,
     attempted_at,
