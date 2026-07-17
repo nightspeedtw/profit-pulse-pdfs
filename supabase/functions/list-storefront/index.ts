@@ -203,6 +203,7 @@ Deno.serve(async (req) => {
           subtitle: kid.subtitle,
           price: (kid.price_cents ?? 799) / 100,
           cover_url: kid.cover_url,
+          book_type: kid.book_type ?? null,
           store_thumbnail_url: kid.thumbnail_url,
           product_description: cc.product_description ?? kid.description,
           selling_hook: cc.selling_hook ?? null,
