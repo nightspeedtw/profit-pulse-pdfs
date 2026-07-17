@@ -79,3 +79,40 @@ Permanent fix:
 
 Regression fixture: `src/lib/coloringPublishContract.test.ts` extended so a
 NULL `coloring_cover_gate` fails the contract.
+
+## cover-generation-infinite-retry-loop-v1 (2026-07-17)
+Class: `state_machine_bug` (unbounded_cover_retry).
+
+Symptom: 1,935 `coloring_cover_ideogram` calls in a ~5.5-hour window
+(15:00–20:00 UTC 2026-07-17), $116.10 total on `ideogram:4@1` via Runware.
+Peak: 871 calls in a single hour at 17:00 UTC (~$52/hr). Cost_log rows all
+had `ebook_id=NULL` so per-book attribution was impossible without joining
+edge logs.
+
+Root cause: `coloring-book-cover` had a per-INVOCATION cap
+(`MAX_IDEOGRAM_ATTEMPTS=3`) but no per-BOOK invocation ceiling. When
+`verifyExactCoverText` kept rejecting all 3 Ideogram attempts, the function
+called `scheduleSelfAdvance` + set `pipeline_status='queued'`, and
+`coloring-worker-tick` immediately re-dispatched the same book. Loop rate ≈
+3 Ideogram calls every ~20s per book × N books = $10/hour lane-wide.
+`cover-upgrade-sweep`, `coloring-book-publish`, `kids-publish-if-qc-passed`,
+`coloring-book-render`, `coloring-book-assemble`, and `stall-watchdog` all
+also re-invoke `coloring-book-cover` with `force=true`, compounding the loop.
+
+Permanent fix:
+- `supabase/functions/coloring-book-cover/index.ts` — added
+  `MAX_COVER_INVOCATIONS_PER_BOOK = 5` + `COVER_RETRY_CEILING_REASON`.
+  Every non-upgrade invocation increments `metadata.coloring_cover_invocations`
+  BEFORE any provider call. When the ceiling is hit, book parks with
+  `blocker_reason='coloring_cover_retry_ceiling_reached:N'` and DOES NOT
+  call `scheduleSelfAdvance`. Human/admin resets by clearing
+  `metadata.coloring_cover_invocations` and the blocker.
+- `supabase/functions/coloring-worker-tick/index.ts` — extended
+  `LANE_BLOCKED` regex to include `coloring_cover_retry_ceiling_reached`
+  so parked books are skipped by the dispatcher forever.
+- Registered doctrine `unbounded_cover_retry_ceiling` in `pipeline_skills`.
+
+Owner rule: any repair loop that calls an external paid provider MUST have
+a per-subject invocation ceiling backed by a persisted counter, not just a
+per-invocation attempt cap. The attempt cap only bounds one call; the
+invocation ceiling bounds the loop.

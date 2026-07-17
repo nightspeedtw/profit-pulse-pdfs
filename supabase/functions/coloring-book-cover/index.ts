@@ -84,6 +84,17 @@ const COVER_VISION_TIMEOUT_MS = 8_000;
 const IDEOGRAM_VERIFY_TIMEOUT_MS = 12_000;
 const SINGLE_RUNG_VERSION = "coloring_cover_verified_typography_v2";
 const MAX_IDEOGRAM_ATTEMPTS = 3;
+// OWNER LAW (2026-07-17, added after $116 unbounded-retry incident):
+// hard ceiling on how many TIMES the cover function may be invoked per book.
+// Each invocation burns up to MAX_IDEOGRAM_ATTEMPTS × $0.06 = $0.18 on Runware
+// Ideogram. Without this ceiling, worker-tick + self-advance + upgrade-sweep
+// re-invoke the cover forever whenever text-verify keeps failing. When the
+// ceiling is hit, the book parks with a distinct terminal-ish blocker that
+// worker-tick's LANE_BLOCKED filter skips — permanent, non-waivable, non-self-
+// advancing. Human/admin resets by clearing metadata.coloring_cover_invocations.
+const MAX_COVER_INVOCATIONS_PER_BOOK = 5;
+const COVER_RETRY_CEILING_REASON = "coloring_cover_retry_ceiling_reached";
+
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -240,10 +251,38 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, skipped: "cover_exists", chained: "assemble" });
     }
 
-    // Build input once.
+    // ── HARD RETRY CEILING (owner law: unbounded_cover_retry_forbidden) ──
+    // Increment BEFORE any provider call so a crashing attempt still counts.
+    // Upgrade mode is exempt (it's a manual admin sweep, not the retry loop).
+    const priorInvocations = Number((meta as any).coloring_cover_invocations ?? 0);
+    if (!isUpgradeMode && priorInvocations >= MAX_COVER_INVOCATIONS_PER_BOOK) {
+      await patchMeta(db, ebook_id, {
+        coloring_current_step_label: `Cover retry ceiling reached (${priorInvocations}/${MAX_COVER_INVOCATIONS_PER_BOOK}). Parked for human review — admin must inspect and reset metadata.coloring_cover_invocations to resume.`,
+        coloring_blocker: {
+          class: "non_recoverable_config",
+          reason: COVER_RETRY_CEILING_REASON,
+          invocations: priorInvocations,
+          ceiling: MAX_COVER_INVOCATIONS_PER_BOOK,
+          detected_at: new Date().toISOString(),
+        },
+        awaiting: "human_review",
+      });
+      await db.from("ebooks_kids").update({
+        pipeline_status: "queued",
+        blocker_reason: `${COVER_RETRY_CEILING_REASON}:${priorInvocations}`,
+      }).eq("id", ebook_id);
+      // NO scheduleSelfAdvance — this is a terminal park until a human resets.
+      return json({ ok: false, parked: true, reason: COVER_RETRY_CEILING_REASON, invocations: priorInvocations }, 202);
+    }
+    if (!isUpgradeMode) {
+      await patchMeta(db, ebook_id, { coloring_cover_invocations: priorInvocations + 1 });
+    }
+
+
     const pages = (meta.coloring_pages as any[] | undefined) ?? [];
     const plan = ((meta.coloring_page_plan as any)?.plan ?? []) as any[];
     const totalPages = plan.length || pages.length || 32;
+
 
     // OWNER LAW `interior_first_cover_last_character_continuity` (2026-07-17):
     // the cover MUST be generated AFTER the interior so we can condition the
