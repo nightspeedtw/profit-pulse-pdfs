@@ -511,7 +511,8 @@ Deno.serve(async (req: Request) => {
           continue;
         }
         const overlayText = { ok: true, has_glyphs: true, detected_text: verdict.transcribed_raw, confidence: 1, degraded: false, reason: "ideogram_verified_integrated_typography" };
-        const heroVerdict = { ok: true, matches: true, detected_subjects: heroSubjects.slice(0, 6), forbidden_hit: null, degraded: true, reason: "ideogram_tier_hero_skip_due_to_verified_integrated_typography" };
+        // heroVerdict was already computed and passed both `.matches` and
+        // non-degraded checks above; it is the real vision result now.
         const measured = measuredCoverScorecard({
           title: row.title, subtitle, ageBadge, text: overlayText,
           rawArtText: { ok: true, has_glyphs: true, detected_text: verdict.transcribed_raw, confidence: 1, degraded: false, reason: "ideogram_integrated_verified_exact_match" },
