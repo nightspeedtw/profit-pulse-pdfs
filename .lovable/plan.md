@@ -1,44 +1,53 @@
-## Goal
-1. Give the Coloring Autopilot admin card the same age options shown on the storefront chips: **2–4, 4–6, 6–8, 8–12, 13–17, All Ages**.
-2. Fix the bug where selecting a non-default age reverts to **4–6** after clicking **Run now**.
 
-## Root cause of the reset
+# Goal
+Get **one brand-new coloring book** all the way to LIVE today, using Runware as the primary image provider, and hold it to **strict (not learning-mode)** QC so it's a genuinely high-quality release — not a Round-1 waivered one.
 
-Two compounding issues in `src/components/admin/ColoringAutopilotCard.tsx` + `supabase/functions/coloring-autopilot-config/index.ts`:
+# Why a focused single-book run
+The queue currently has 30+ books cycling with waived defects (learning mode) and Ideogram/Gemini cover typography exhausted. Trying to push all of them in strict mode today will re-stall on cover typography and defect ledgers. A single fresh book, on the healthy provider (Runware), through strict gates, is the fastest way to prove the pipeline end-to-end today and give you one clean live SKU.
 
-1. **Backend allowlist is too narrow.** `coloring-autopilot-config/index.ts:135` forces `age_band` back to `"4-6"` if it isn't one of `"3-5" | "4-6" | "6-8"`. Any new value silently reverts.
-2. **Polling clobbers unsaved edits.** `loadStatus` runs on a 10–20s interval and calls `setCfg({ ...DEFAULTS, ...data.config })`, so the currently-selected value in the UI is overwritten by whatever the server last persisted. `Run now` also triggers `loadStatus()` immediately after — that's the visible "jump back to 4–6" moment.
-3. **`Run now` does not persist the current picker value first.** It sends only `manual` + `override_batch`, so the tick uses whatever `age_band` was last saved, not what's currently on screen.
+# Plan
 
-## Changes
+## 1. Pre-flight (verify, don't assume)
+- Confirm Runware is currently primary in `generation_settings.coloring_autopilot.image_provider_policy` and no `provider_billing_blocked.runware.active` latch is set.
+- Confirm recent `cost_log` rows with `provider='runware_direct'` in the last hour (proves the provider path is actually flowing, not just configured).
+- Confirm Ideogram/Gemini cover-typography status. If still exhausted, the baked-title cover contract cannot be satisfied today for a strict-QC book — surface this before starting so you can decide: (a) top up, or (b) accept the run will park at cover-typography.
 
-### Frontend — `src/components/admin/ColoringAutopilotCard.tsx`
-- Widen the `ColoringConfig["age_band"]` union to `"2-4" | "4-6" | "6-8" | "8-12" | "13-17" | "all_ages"`.
-- Replace the 3 `<SelectItem>` entries with the 6 storefront-aligned options (labels use the en-dash, `all_ages` → "All Ages").
-- Stop clobbering in-progress edits: track a `dirty` ref/flag; when `loadStatus` returns, only merge server config into local state on the initial load or right after a successful `save`. On the polling path, update `status` and `cats` but leave `cfg` alone.
-- Make `Run now` save-then-run: `await save(cfg)` first (so the picked age is persisted), then invoke `coloring-autopilot-tick`. Keeps behavior obvious and matches user expectation.
+## 2. Pick / seed the one book
+- Pick a category with full species-anatomy coverage (e.g. Farm Animals or Dinosaurs — both have contracts registered) to avoid the coverage-gate blocker.
+- Enqueue exactly one new `ebooks_kids` row via the existing autopilot config path (age band of your choice from the chip UI), tagged with a run marker like `metadata.focus_run='2026-07-17-strict-1'` so we can track it distinctly from the 30 in-flight books.
 
-### Backend — `supabase/functions/coloring-autopilot-config/index.ts`
-- Update the DEFAULTS and the allowlist at line 135 to accept `"2-4" | "4-6" | "6-8" | "8-12" | "13-17" | "all_ages"`. Fallback stays `"4-6"` only for truly invalid input.
+## 3. Run this book in STRICT mode (per-book override)
+- Introduce a per-book `qc_mode_override` read by `readQcMode()` in `_shared/coloring/qc-mode.ts`: if `ebooks_kids.metadata.qc_mode_override === 'strict'`, use strict regardless of the global `coloring_autopilot.qc_mode`. This way the 30 in-flight learning-mode books are unaffected.
+- Set that override on the new row only.
 
-### Backend — `supabase/functions/coloring-autopilot-tick/index.ts` and any downstream age-band consumers (`_shared/coloring/*`, page-plan, concept generator)
-- Extend the type union / switch statements that map `age_band` → age-appropriate prompt clauses so `2-4`, `8-12`, `13-17`, `all_ages` route to sensible existing buckets:
-  - `2-4` → toddler/simple-shapes clause (reuses current `3-5` complexity floor).
-  - `8-12` → tween/detailed clause (reuses current `6-8` upper end, more intricate line-work).
-  - `13-17` → teen/advanced-intricate clause.
-  - `all_ages` → mixed-complexity clause (accepts wider line-weight range).
-- No lowering of QC gates — only prompt-side variation. Species/anatomy contracts unchanged.
+## 4. Prioritize this book in the dispatcher
+- `coloring-worker-tick` currently picks a widened candidate window with a 90s cooldown. Add a lightweight priority: rows with `metadata.focus_run` set are ordered first in the candidate query (single boolean order-by, no schema change). This guarantees Runware capacity spends on the focus book first each tick.
 
-### Types
-- Reuse `AgeChipSlug` from `src/lib/kidsCatalogTaxonomy.ts` for the picker options so storefront and admin stay in lock-step.
+## 5. Cover-typography contingency (decide up front)
+Two clean options — pick one before we start; do NOT invent a third:
+- **(a) Wait for Ideogram/Gemini top-up.** The book will complete interiors on Runware, then park at cover-typography until credit exists. Strict-QC preserved. Recommended if you can top up today.
+- **(b) Accept an Ideogram-free cover ladder for THIS one book only.** Requires an explicit, logged, one-book waiver of the baked-title-only contract. This violates the current cover contract and should not be done silently. I'd only do this on your explicit say-so.
 
-## Out of scope
-- Storefront chips (they already show the correct set — see the attached screenshot).
-- Any pipeline QC threshold changes.
-- Adding new species/anatomy contracts for the wider age range (contract gate still enforces coverage; if a category lacks coverage for the picked age, the existing `assertSpeciesCoverage` blocker fires as designed).
+## 6. Watch to LIVE
+- Poll the row every ~60s: render progress, cost_log runware rows, gate outcomes, publish-contract result.
+- On success: report `pdf_url`, `cover_url`, `thumbnail_url`, `listing_status='live'`, page count, and per-provider cost breakdown.
+- On any strict-gate failure: stop and surface the exact gate + evidence — do NOT auto-waive.
 
-## Verification
-- Pick `13–17`, click **Save settings** → reload page → picker still shows `13–17`.
-- Pick `8–12`, click **Run now** → toast reports queued book(s); picker stays on `8–12` (no revert after the post-run `loadStatus`).
-- Poll tick (20s) with `2–4` selected but unsaved → picker stays on `2–4`; only status pane refreshes.
-- New book row's `metadata.age_band` matches the picked value.
+## 7. Do NOT touch
+- The 30 in-flight learning-mode books.
+- Global `qc_mode`, provider policy defaults, or gate thresholds.
+- fal.ai routing (stays out of rotation per your prior order).
+
+# Technical details
+- Files that would change (small, contained):
+  - `supabase/functions/_shared/coloring/qc-mode.ts` — honor per-row `metadata.qc_mode_override`.
+  - `supabase/functions/coloring-worker-tick/index.ts` — order candidates by `metadata.focus_run IS NOT NULL DESC` before existing ordering.
+- No schema migration required (uses existing `metadata` jsonb).
+- No changes to publish contract, species anatomy, cover contract, or provider adapters.
+
+# Open decisions I need from you before I write the plan into code
+1. **Category for the focus book?** Farm Animals or Dinosaurs are safest (full anatomy coverage). Or pick another and I'll verify coverage first.
+2. **Age band?** (2–4, 4–6, 6–8, 8–12, 13–17, All Ages)
+3. **Cover-typography contingency: (a) wait for Ideogram/Gemini top-up, or (b) authorize a one-book baked-title waiver?**
+
+Once you answer those three, I'll switch to build mode and execute.
