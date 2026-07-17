@@ -104,6 +104,8 @@ export default function KidsCheckout() {
           <PaymentSection book={book} />
         </aside>
       </div>
+        );
+      })()}
     </div>
   );
 }
