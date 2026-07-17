@@ -9,7 +9,8 @@
 import { corsHeaders as baseCors } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { CURRENT_COLORING_REPAIR_REGIME } from "../_shared/coloring/repair-regime.ts";
-import { readLaneGuards, sumFalSpendToday, DEFAULT_FAL_DAILY_BUDGET_USD, patchLaneCfg } from "../_shared/fal-billing.ts";
+import { readLaneGuards, sumFalSpendToday, DEFAULT_FAL_DAILY_BUDGET_USD, patchLaneCfg, clearProviderBillingBlocked } from "../_shared/fal-billing.ts";
+import { readCfBillingLockedUntil } from "../_shared/image-providers.ts";
 import { fireAndForgetPost } from "../_shared/coloring/self-advance.ts";
 
 declare const Deno: any;
@@ -54,6 +55,49 @@ Deno.serve(async (req: Request) => {
     // FAL daily-BUDGET cap has been reached (spend safety, not health).
     const guards = await readLaneGuards(db);
     result.provider_billing_blocked = guards.provider_billing_blocked;
+
+    // ── AUTO-CLEAR CF LATCH ON NEW UTC DAY ─────────────────────────────
+    // Cloudflare's neuron pool resets at 00:00 UTC. If the latch time has
+    // passed, clear the per-provider billing_blocked.cloudflare flag so
+    // the failover dispatcher considers CF healthy again this tick.
+    const cfLatch = await readCfBillingLockedUntil(db);
+    if (!cfLatch && guards.provider_billing_blocked.cloudflare?.active) {
+      try { await clearProviderBillingBlocked(db, "cloudflare"); result.cf_latch_cleared = true; } catch (_e) { /* best-effort */ }
+    }
+
+    // ── WAKE SWEEP: parked (awaiting_*) rows whose next_retry_at arrived ─
+    // Coloring books parked with a scheduled wake time get requeued the
+    // moment their provider is healthy again. This is the class fix for
+    // "book sits silently in blocker_reason with no scheduled retry".
+    const nowIso = new Date().toISOString();
+    const { data: parkedRows } = await db
+      .from("ebooks_kids")
+      .select("id, pipeline_status, next_retry_at")
+      .eq("book_type", "coloring_book")
+      .in("pipeline_status", ["awaiting_quota_reset", "awaiting_billing"])
+      .lte("next_retry_at", nowIso)
+      .limit(20);
+    const woken: unknown[] = [];
+    const stillWaiting: unknown[] = [];
+    for (const row of parkedRows ?? []) {
+      const cfHealthy = !cfLatch && !guards.provider_billing_blocked.cloudflare?.active;
+      const falHealthy = !guards.provider_billing_blocked.fal?.active;
+      // At least one provider must be healthy to wake — otherwise re-park
+      // with a fresh wake time so we don't burn a dispatch.
+      if (!cfHealthy && !falHealthy) {
+        stillWaiting.push({ ebook_id: row.id, reason: "both_providers_still_dry" });
+        continue;
+      }
+      await db.from("ebooks_kids").update({
+        pipeline_status: "queued",
+        blocker_reason: null,
+        next_retry_at: null,
+      }).eq("id", row.id);
+      woken.push({ ebook_id: row.id, from: row.pipeline_status, cf_healthy: cfHealthy, fal_healthy: falHealthy });
+    }
+    result.woken = woken;
+    result.still_waiting = stillWaiting;
+
     const cap = Number((guards.cfg.fal_daily_budget_usd as number | undefined) ?? DEFAULT_FAL_DAILY_BUDGET_USD);
     if (cap > 0) {
       const spent = await sumFalSpendToday(db);

@@ -2112,6 +2112,7 @@ export type Database = {
           locked: boolean
           manuscript_md: string | null
           metadata: Json
+          next_retry_at: string | null
           overall_qc_score: number | null
           page_count: number | null
           pdf_byte_size: number | null
@@ -2168,6 +2169,7 @@ export type Database = {
           locked?: boolean
           manuscript_md?: string | null
           metadata?: Json
+          next_retry_at?: string | null
           overall_qc_score?: number | null
           page_count?: number | null
           pdf_byte_size?: number | null
@@ -2224,6 +2226,7 @@ export type Database = {
           locked?: boolean
           manuscript_md?: string | null
           metadata?: Json
+          next_retry_at?: string | null
           overall_qc_score?: number | null
           page_count?: number | null
           pdf_byte_size?: number | null
