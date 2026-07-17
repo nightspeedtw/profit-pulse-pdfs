@@ -13,12 +13,25 @@ import { appendDefectLedger, type DefectLedgerEntry } from "./defect-ledger.ts";
 
 export type QcMode = "learning" | "strict";
 
-export async function readQcMode(db: any): Promise<{ qcMode: QcMode; round: number; autopilotCfg: Record<string, unknown> }> {
+export async function readQcMode(db: any, ebookId?: string | null): Promise<{ qcMode: QcMode; round: number; autopilotCfg: Record<string, unknown> }> {
   const { data } = await db.from("generation_settings")
     .select("coloring_autopilot").eq("id", 1).maybeSingle();
   const cfg = (data?.coloring_autopilot ?? {}) as Record<string, unknown>;
-  const qcMode = ((cfg.qc_mode as string) ?? "learning") === "strict" ? "strict" : "learning";
+  let qcMode: QcMode = ((cfg.qc_mode as string) ?? "learning") === "strict" ? "strict" : "learning";
   const round = Number((cfg.learning_round as number | undefined) ?? 1);
+  // Per-book override: metadata.qc_mode_override='strict' pins this book to
+  // strict QC regardless of the lane-wide setting. Used for focus runs where
+  // we want a genuinely high-quality release while learning-mode batches
+  // continue in the background.
+  if (ebookId) {
+    try {
+      const { data: row } = await db.from("ebooks_kids")
+        .select("metadata").eq("id", ebookId).maybeSingle();
+      const override = (row?.metadata as any)?.qc_mode_override as string | undefined;
+      if (override === "strict") qcMode = "strict";
+      else if (override === "learning") qcMode = "learning";
+    } catch (_e) { /* best-effort */ }
+  }
   return { qcMode, round, autopilotCfg: cfg };
 }
 

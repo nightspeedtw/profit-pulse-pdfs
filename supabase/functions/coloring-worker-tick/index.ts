@@ -208,9 +208,18 @@ Deno.serve(async (req: Request) => {
         const ts = Date.parse(t);
         return !Number.isFinite(ts) || (now - ts) > COOLDOWN_MS;
       });
+      // Focus-run priority: rows tagged with metadata.focus_run jump the queue
+      // so a single high-QC book can complete today without waiting behind the
+      // learning-mode backlog. Stable within each priority band.
+      filtered.sort((a: any, b: any) => {
+        const af = (a.metadata as any)?.focus_run ? 1 : 0;
+        const bf = (b.metadata as any)?.focus_run ? 1 : 0;
+        return bf - af;
+      });
       queued = filtered.slice(0, slots);
       result.candidates_seen = (data ?? []).length;
       result.cooldown_skipped = (data ?? []).length - filtered.length;
+      result.focus_run_prioritized = queued.filter((r: any) => (r.metadata as any)?.focus_run).length;
     }
     result.queue_size = queued.length;
     result.focus = focusEbookId;
