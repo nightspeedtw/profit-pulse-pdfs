@@ -19,6 +19,7 @@ export interface StorefrontEbook {
   category_slug: string | null;
   listing_status: string | null;
   product_type: string | null;
+  book_type?: string | null;
   seo_title: string | null;
   seo_meta: string | null;
   tags: string[] | null;
