@@ -653,19 +653,41 @@ Deno.serve(async (req: Request) => {
       assembled_at: new Date().toISOString(),
     };
 
-    if (!bookGate.pass || !coverGate.pass) {
+    // Central QC-mode arbiter — no gate may hard-block in learning mode.
+    const { qcMode, round } = await readQcMode(db);
+    let currentMeta = (meta ?? {}) as Record<string, unknown>;
+    let anyWaived = false;
+    const combinedReasons: string[] = [];
+    for (const g of [
+      { name: "weighted", pass: bookGate.pass, reasons: bookGate.reasons },
+      { name: "cover", pass: coverGate.pass, reasons: coverGate.reasons },
+    ]) {
+      const w = waiveOrBlock({
+        qcMode, gatePass: g.pass, reasons: g.reasons ?? [],
+        meta: currentMeta, stage: "assemble", gate: g.name,
+        page: null, attempts: 1, evidence_url: signed?.signedUrl ?? null, round,
+      });
+      if (!w.proceed) { combinedReasons.push(...w.reasons); }
+      if (w.waived) { anyWaived = true; currentMeta = { ...currentMeta, defect_ledger: w.ledgerEntries }; }
+    }
+    const blocked = qcMode === "strict" && (!bookGate.pass || !coverGate.pass);
+    if (blocked) {
       await patchMeta(db, ebook_id, {
         coloring_assembly: assembly,
-        coloring_current_step_label: `PDF assembled but gate blocked: ${[...bookGate.reasons, ...coverGate.reasons].join("; ")}`,
+        coloring_current_step_label: `PDF assembled but gate blocked (strict): ${combinedReasons.join("; ")}`,
       });
       await db.from("ebooks_kids").update({
         pipeline_status: "queued",
-        blocker_reason: `coloring_assemble_gate_blocked: ${[...bookGate.reasons, ...coverGate.reasons].slice(0, 3).join(" | ")}`.slice(0, 300),
+        blocker_reason: `coloring_assemble_gate_blocked: ${combinedReasons.slice(0, 3).join(" | ")}`.slice(0, 300),
       }).eq("id", ebook_id);
-      // Self-advance with backoff so the book flows back through the tick
-      // dispatcher instead of parking until the next cron beat.
       await scheduleSelfAdvance(db, ebook_id, { delayMs: SELF_ADVANCE_DELAY_BACKOFF_MS, reason: "assemble_gate_blocked" });
       return json({ ok: false, gate_blocked: true, bookGate, coverGate, self_advance: true });
+    }
+    if (anyWaived) {
+      await patchMeta(db, ebook_id, {
+        defect_ledger: currentMeta.defect_ledger,
+        coloring_current_step_label: `Assemble gate waived (learning round ${round}) — proceeding with pdf+cover; defects logged`,
+      });
     }
 
     await db.from("ebooks_kids").update({
