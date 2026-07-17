@@ -1,84 +1,66 @@
-## Goal
-Make three coloring-book cover/thumbnail rules permanent and gated, then apply the re-render pass to every currently-live coloring book.
+## Permanent fix: coloring cover never gets cropped, anywhere
 
-## Rule 1 — Baked-title only (no overlay), enforced
+Two code paths still crop the 8.5:11 coloring cover. Both are fixed the same way the storefront card was: match the native aspect and use fit-CONTAIN, never fit-COVER.
 
-Current state: `coloring-book-cover/index.ts` has TWO accepted paths:
-- Tier-1 "ideogram integrated" → baked title, no overlay (correct)
-- Tier-2/rung-2 "textless_art_plus_svg_overlay" → composites an SVG title layer on top (violates owner's rule)
+### 1. Order summary thumbnail (`src/pages/KidsCheckout.tsx`)
 
-Changes:
-- Remove the `textless_art_plus_svg_overlay` acceptance branches from `coloring-book-cover/index.ts`. Any cover that fails the integrated-typography verdict goes back through the integrated ladder or is flagged for regeneration — never falls back to overlay compositing.
-- Delete/quarantine the compositor call site (keep the file for the adult-ebook line but stop invoking it from the coloring path). Mark `_shared/coloring/coloring-cover-compositor.ts` as adult-only via export guard `assertNotColoring()`.
-- Extend `_shared/coloring/coloring-cover-proof.ts` with a `assertNoDoubleText()` check: if `typographySource !== "ideogram_integrated"` OR proof metadata contains `overlay_applied: true` → hard fail with reason `double_text_forbidden`.
-- Add hard-fail entry `double_text` to `gates.ts` `hard_fail` map.
-- New test `src/lib/coloringCoverBakedTitleOnly.test.ts` covering: overlay path rejected, integrated accepted, double-text metadata rejected.
+Current (line 70-71):
+```tsx
+<div className="sm:w-52 aspect-square bg-muted flex-shrink-0">
+  {book.cover_url && <img src={book.cover_url} … className="w-full h-full object-cover" />}
+```
 
-## Rule 2 — 8.5×11 trim lock everywhere
+Change to a book-type-aware container:
+- coloring books → `aspect-[1600/2071]` + `object-contain` on white bg
+- picture books → keep `aspect-square` + `object-cover`
 
-Current: cover master is `1600×2071` (ratio 0.7725, off by 0.05% from 8.5:11 — acceptable). PDF page is 612×792pt (exact). Interior renderer needs audit.
+Detect via `book.storefront_meta.book_type === "coloring_book"` (already selected in the query) or by the row's `book_type` field — will add it to the select if not present.
 
-Changes:
-- Add `_shared/coloring/trim-lock.ts` exporting `COLORING_TRIM = { widthIn: 8.5, heightIn: 11, pdfPtW: 612, pdfPtH: 792, coverPxW: 1600, coverPxH: 2071, interiorPxW: 1600, interiorPxH: 2071, ratio: 8.5/11, tolerance: 0.01 }` and `assertColoringTrim(kind, w, h)`.
-- Wire `assertColoringTrim` into: `coloring-book-cover` (post-fit), `coloring-book-render` interior page output, `coloring-book-assemble` (PDF page + every image drawn). Any mismatch = hard error, book stays queued with `blocker_reason: trim_mismatch`.
-- Test `src/lib/coloringTrimLock.test.ts`.
+### 2. PDF cover page (`supabase/functions/coloring-book-assemble/index.ts` ~L461–472)
 
-## Rule 3 — Dedicated fitted thumbnail (new asset, distinct URL)
+Current uses `Math.max` (fit-COVER) — mathematically guarantees overflow whenever `iw/ih` isn't bit-exact with `PAGE_W/PAGE_H`. That's the source of the "Farm" letters and "Ages 4-6" badge being clipped in the PDF page 1.
 
-Chosen thumbnail canvas: **600×776 px** (same 8.5:11 ratio, matches 2× the largest storefront card width `w-64`=256px + retina headroom, minimum for crisp product-page hero on mobile). Format: JPEG q=85 for smaller file (thumbnails, not print).
+Change to fit-CONTAIN on a white page:
+```ts
+const p = doc.addPage([PAGE_W, PAGE_H]);
+p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1,1,1) }); // white letterbox
+const scale = Math.min(PAGE_W / iw, PAGE_H / ih);       // was Math.max
+const w = iw * scale, h = ih * scale;
+p.drawImage(coverImg, { x: (PAGE_W - w)/2, y: (PAGE_H - h)/2, width: w, height: h });
+```
 
-New edge function `coloring-book-thumbnail`:
-- Input: `ebook_kids_id`.
-- Downloads the approved master `cover_url` from storage.
-- Renders on 600×776 canvas: white background, `object-contain` fit (letterbox if aspect drifts), 12px inner safe-margin. NO text overlay added — this is a pure re-derive from the already-baked cover art.
-- Runs a non-crop check: sample the 4 edges of the fitted image and confirm no non-white pixels within 4px of the letterbox edges (means nothing is bleeding/clipped).
-- Uploads to `ebook-covers` bucket at `kids/thumbnails/{id}-{hash}.jpg`.
-- Updates `ebooks_kids.thumbnail_url` (must be distinct from `cover_url`) and `store_thumbnail_url`.
+The aspect gate already guarantees the ratio matches within 1%, so any letterbox is invisible (≤3pt). Baked title and edge characters are now mathematically impossible to clip.
 
-Wire it into:
-- `coloring-book-cover` end-of-run (after cover accepted).
-- `kids-publish-if-qc-passed` as a pre-publish requirement.
-- A one-shot backfill invocation for every currently-live coloring book.
+### 3. Lock it with a regression test
 
-## Release gate wiring (`gates.ts` / `kids-publish-if-qc-passed`)
-Add three pre-publish assertions:
-1. `cover_baked_title_only`: cover row's `typographySource === "ideogram_integrated"` AND no `overlay_applied`.
-2. `trim_verified`: cover master matches `COLORING_TRIM.coverPx*`, PDF page = 612×792pt.
-3. `thumbnail_distinct_and_fitted`: `thumbnail_url IS NOT NULL AND thumbnail_url != cover_url AND thumbnail_render_meta.non_crop_pass = true`.
-Any fail → block publish, set `blocker_reason` accordingly.
+Add `src/lib/coloringCoverPdfPlacement.test.ts` that asserts, for the assembler's placement math:
+- `Math.min(PAGE_W/iw, PAGE_H/ih)` is used (fit-CONTAIN)
+- for `iw,ih = 1600,2071` and page `612,792`, output width ≤ 612 and height ≤ 792
+- for a hypothetical drifted raster `1620,2071`, output still fits inside the page (no overflow), while the old `Math.max` would have overflowed — proving the fix.
 
-## Persistence in `pipeline_skills`
-Upsert row `coloring-cover-thumbnail-contract-v1` with all three rules as machine-readable JSON so runtime gates read from DB, not just code constants.
+Extract the tiny placement helper into `_shared/coloring/pdf-cover-fit.ts` (a pure function `fitContain(iw,ih,pw,ph) → {x,y,w,h}`) so the assembler and the test both call the same code.
 
-## Backfill pass (execute at end)
-Query `ebooks_kids WHERE book_type='coloring_book' AND listing_status='live'` at execution time. For each:
-1. Read cover proof metadata → if `typographySource !== "ideogram_integrated"` → flag for regeneration (do NOT auto-redraw in this pass; log to `blocker_reason='cover_style_violation_flagged'` and demote to draft).
-2. Assert trim on stored cover asset → if mismatch, re-fit to 1600×2071.
-3. Invoke `coloring-book-thumbnail` to generate the distinct thumbnail.
-4. Re-embed the (unchanged) cover in the PDF only if trim was corrected.
+### 4. Backfill existing live books
 
-## Docs
-- Append rules to `mem://design/kids-cover-prompt.md`.
-- Update `.agents/skills/secretpdf-production-suite/references/known-regressions.md` and `.claude/skills/.../known-regressions.md` with "coloring-cover: baked-title-only, overlay-forbidden" and "coloring-thumbnail: must be distinct asset".
-- Update `mem://index.md` if a new core rule emerges.
+No asset regen needed — the fix is display-side + PDF-assemble-side.
+- Storefront/checkout thumbnails: fixed on next page load.
+- PDF: re-invoke `coloring-book-assemble` for the 10 live coloring books; each will overwrite its `pdf_url` with the corrected cover page. Kick as one batch after deploy.
 
-## Files changed (expected)
-- edit `supabase/functions/coloring-book-cover/index.ts` (remove overlay branches)
-- edit `supabase/functions/_shared/coloring/coloring-cover-proof.ts` (add double-text assertion)
-- edit `supabase/functions/_shared/coloring/coloring-cover-compositor.ts` (adult-only guard)
-- edit `supabase/functions/_shared/coloring/gates.ts` (new hard fails + pre-publish assertions)
-- edit `supabase/functions/coloring-book-assemble/index.ts` (trim assertion)
-- edit `supabase/functions/coloring-book-render/index.ts` (trim assertion)
-- edit `supabase/functions/kids-publish-if-qc-passed/index.ts` (wire gates)
-- new `supabase/functions/_shared/coloring/trim-lock.ts`
-- new `supabase/functions/coloring-book-thumbnail/index.ts`
-- new tests: `coloringCoverBakedTitleOnly.test.ts`, `coloringTrimLock.test.ts`, `coloringThumbnailDistinct.test.ts`
-- new migration: seed `pipeline_skills` contract + `thumbnail_render_meta` JSONB column on `ebooks_kids` if not present
-- docs: `mem://design/kids-cover-prompt.md`, `known-regressions.md`
+### 5. Memory + regressions doc
 
-## Report at end
-- Live count at execution time
-- How many needed cover-style flag (rule 1) vs already correct
-- Confirmed trim dimensions
-- Chosen thumbnail canvas (600×776) with reason
-- Confirmation every live book now has a distinct `thumbnail_url`
+- Update `mem://design/kids-cover-prompt.md` core rule: "Any container/PDF page holding a coloring cover MUST use fit-CONTAIN (`Math.min` scale / `object-contain`). Never fit-COVER."
+- Append to `.agents/skills/secretpdf-production-suite/references/known-regressions.md` and its `.claude/` mirror: "cover-crop v3 — KidsCheckout + PDF assembler" with the fixture reference.
+
+### Files touched
+- `src/pages/KidsCheckout.tsx` (thumbnail container + image classes)
+- `supabase/functions/coloring-book-assemble/index.ts` (cover page placement)
+- `supabase/functions/_shared/coloring/pdf-cover-fit.ts` (new pure helper)
+- `src/lib/coloringCoverPdfPlacement.test.ts` (new regression test)
+- `mem/design/kids-cover-prompt.md`
+- `.agents/skills/secretpdf-production-suite/references/known-regressions.md` (+ `.claude/` mirror)
+
+### Report after build
+- Confirm KidsCheckout renders full cover with no crop.
+- Confirm regenerated PDF page 1 shows full title + badge inside trim.
+- Test suite green.
+- Batch re-assemble count for live coloring books.
