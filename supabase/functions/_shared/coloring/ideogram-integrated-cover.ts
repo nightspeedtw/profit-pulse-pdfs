@@ -81,6 +81,9 @@ export function buildIdeogramIntegratedCoverPrompt(input: IdeogramCoverRequest):
     `SCENE / BACKGROUND — ${bgHint}. The background MUST match the "${input.categoryName}" category. Do NOT reuse a generic ocean/water strip or template from other books.`,
     forbiddenBg.length ? `NEGATIVE SCENE — do NOT include: ${forbiddenBg.join(", ")}.` : "",
     forbiddenSubj.length ? `NEGATIVE SUBJECTS — do NOT include any of: ${forbiddenSubj.join(", ")}.` : "",
+    (input.referenceImageURLs && input.referenceImageURLs.length > 0)
+      ? "CHARACTER CONTINUITY — the attached reference images are pages from THIS book's interior. Reuse the SAME characters (same species, same proportions, same friendly faces, same palette family) so the cover cast matches the interior cast exactly. Do NOT invent new characters or restyle them."
+      : "",
     "Full-color painterly illustration, thick crayon-textured line art, soft warm palette, cozy natural light, clean uncluttered background, generous negative space at the top for the title.",
     // Integrated typography (this is what Ideogram excels at)
     "INTEGRATED HAND-LETTERED TYPOGRAPHY baked into the composition — MODEST, COMPACT scale (never oversized):",
