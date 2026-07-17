@@ -218,6 +218,8 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      <CanvaConnectionCard />
+
       {/* ===== Advanced sections (collapsibles) ===== */}
       {advanced && (
         <>
