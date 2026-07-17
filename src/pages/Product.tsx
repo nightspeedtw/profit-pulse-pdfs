@@ -98,7 +98,7 @@ export default function Product() {
         <ArrowLeft className="h-4 w-4" /> Back to Library
       </Link>
       <div className="grid md:grid-cols-2 gap-8">
-        <div className={`${(product.category_slug === 'kids' || product.category_slug === 'children_illustrated' || product.product_type === 'children_illustrated') ? 'aspect-square' : 'aspect-[3/4]'} bg-secondary border-2 border-foreground overflow-hidden`}>
+        <div className={`${product.book_type === 'coloring_book' ? 'aspect-[17/22]' : (isKids ? 'aspect-square' : 'aspect-[3/4]')} bg-secondary border-2 border-foreground overflow-hidden`}>
           {(product.store_thumbnail_url || product.cover_url) ? (
             <img src={product.store_thumbnail_url || product.cover_url!} alt={product.title} className="w-full h-full object-cover" />
           ) : (

@@ -1,53 +1,46 @@
+## Goal
+Ocean Friends Coloring Adventure (Ages 4-6) sale page shows the cover cropped because Product.tsx forces `aspect-square` on kids items — but square is the picture-book shape. Coloring books are 8.5×11 portrait (1600×2071 native, 600×776 thumb). Fix the sale-page thumbnail aspect for coloring books, and regenerate a fresh cover for this book so the PDF/sale page uses a clean new artwork.
+
 ## Scope
+Two changes:
+1. **Sale-page thumbnail aspect fix (permanent, all coloring books).**
+2. **Regenerate cover + PDF for Ocean Friends Coloring Adventure (`a05a5086-8972-4b9e-8953-ee9dfa633d64`).**
 
-3 finished coloring books are parked at publish on the same gate:
+Storefront card grid (`/kids`) is already fine per screenshot — no change there.
 
-```
-coloring_publish_contract:cover_category_unverified:
-  gate_pass=true; category_match=99; hero_matches=false; hero_degraded=false
-```
+---
 
-- `Cute Pets Cats and Dogs Coloring Book (Ages 4-6)` — `41f6a9e0…`
-- `Cute Unicorn Fantasy Coloring Book (Ages 4-6)` — `2ef74316…`
-- `Ocean Friends Coloring Adventure (Ages 4-6)` — `a05a5086…`
+## Change 1 — Portrait aspect for coloring books on `/product/:id`
 
-All three already have `gate.pass=true` and category match 99/100 — the only failing sub-check is `hero.matches`, which was never written into the cover evidence by the older cover path.
+### Files
+- `supabase/functions/list-storefront/index.ts` — kids branch (line ~200): add `book_type: kid.book_type` to the returned payload so the client can tell coloring books apart from picture books.
+- `src/lib/storefront.ts` — add `book_type?: string | null` to `StorefrontEbook`.
+- `src/pages/Product.tsx` — line 101 cover container:
+  - `coloring_book` → `aspect-[17/22]` (matches native 8.5×11 = ColoringProduct's `1600×2071` container).
+  - Other `children_illustrated` (picture books) → keep `aspect-square`.
+  - Adults → keep `aspect-[3/4]`.
+  - Keep `object-cover`; with the correct aspect there's no crop.
 
-## Part 1 — Publish these three books now (targeted bypass)
+Detection rule: `product.book_type === 'coloring_book'`. No square fallback for coloring books.
 
-Direct owner-approved DB update (finished-book waiver, logged to defect_ledger):
+## Change 2 — Regenerate Ocean Friends cover + PDF
 
-- For each of the 3 ids, set `listing_status='live'`, `sellable=true`, `pipeline_status='published'`, clear `blocker_reason`, and append a `defect_ledger` row `{stage:'publish', gate:'cover_category_unverified', reasons:['gate_pass=true;category_match=99;hero_missing'], waived_by:'owner_2026_07_17'}` so Round 2 can inspect it.
-- No thresholds change. Only this exact defect string is waived, only for these 3 ids.
+Sequence (uses existing pipeline, no new code):
+1. Clear `cover_url`, `thumbnail_url`, `metadata.coloring_cover`, `pdf_url`, `pdf_sha256` on `a05a5086-8972-4b9e-8953-ee9dfa633d64`.
+2. Set `metadata.focus_run=true` and `metadata.qc_mode_override='learning'` (owner-approved Round 1 mode).
+3. Invoke `coloring-book-cover` (interior-first law: uses already-rendered interior pages 6/7/8 as Ideogram 3.0 reference — book already has 32 rendered interiors).
+4. Chain: cover → thumbnail (600×776) → assemble (fresh PDF with new cover fit-CONTAIN) → publish.
+5. Verify: `cover_used_interior_refs=true`, `pdf_url` refreshed, `listing_status='live'`, `sellable=true`.
 
-## Part 2 — Permanent fix (interior-first covers satisfy the hero gate)
+No threshold lowered, no gate bypassed — same publish-contract path all recently-fixed books used.
 
-Root cause: `publish-contract.ts` treats a missing/false `hero.matches` as a category-verify failure even when the cover was built from interior page references (the new "interior-first, cover-last" law). Once a cover is generated using rendered interior pages 6/7/8 as visual references, character/category continuity is guaranteed by construction — the vision hero-match becomes a duplicate check that can silently regress if the vision call is skipped, times out, or writes evidence under a slightly different shape.
+## Verification
+- Reload `/product/a05a5086-...` → cover renders full 8.5×11 portrait, no crop.
+- Reload `/product/<any picture book>` → still square.
+- Reload `/product/<adult PDF>` → still 3/4.
+- Download PDF → cover is the newly-generated artwork.
 
-Two-part code change:
-
-**A. `_shared/coloring/publish-contract.ts`**
-- Add a second acceptance path for the category check: `catOk = gatePass && catMatch >= 98 && (heroSatisfied || interiorRefSatisfied)`, where
-  - `heroSatisfied = hero.matches === true && !hero.degraded`
-  - `interiorRefSatisfied = cover.evidence.cover_used_interior_refs === true` **and** `Array.isArray(cover.evidence.cover_reference_page_urls)` with length ≥ 2
-- The block message becomes explicit when neither path is present, so a genuinely missing hero + no interior refs still fails hard (owner law "cover_category_unverified must not silently pass").
-
-**B. `coloring-book-cover/index.ts`**
-- On every accepted rung (Tier‑1 Ideogram accepted, Tier‑1 learning-waived, and any future rung), stamp into the cover record + `metadata`:
-  - `cover_used_interior_refs: true` when `referenceImageURLs.length >= 2`
-  - `cover_reference_page_urls: [ ...urls ]` (the interior signed URLs actually sent to Ideogram)
-- Also mirror `hero: heroVerdict` inside `evidence` for the accepted path (currently done) and inside the learning-waived path (already stamped; keep as-is), so both paths write a consistent evidence shape.
-
-Result: books that go through the current interior-first flow (which is now the default for every new coloring book) will always satisfy the release gate via `interiorRefSatisfied`, even if the vision hero call has a transient miss. The old "gate_pass=true + category=99 + hero_matches=false" park class disappears without weakening the gate — a cover with no interior refs and no hero match still fails.
-
-## Part 3 — Verification
-
-1. After Part 1: hit the storefront/kids feed and confirm the 3 books render with cover + PDF and `sellable=true`.
-2. After Part 2 deploys: re-run publish on one fresh book that generates a cover with interior refs → confirm `checks.cover_category_verified=true` in `metadata.coloring_publish_contract`.
-3. Add a small assertion in `src/lib/coloringPublishContract.test.ts` covering the `interiorRefSatisfied` acceptance path so this can't regress.
-
-## Not in scope
-
-- Regenerating covers for the 3 waived books (owner said "bypass and go live" — leave them as-is; any repaint happens in the Round 2 defect-ledger pass).
-- Changing thumbnail, trim, or baked-title rules (untouched).
-- Tightening `catMatch` threshold.
+## Out of scope
+- Storefront grid card aspect (already correct per screenshot).
+- ColoringProduct.tsx (already uses `1600/2071` container).
+- Any threshold, QC gate, or contract change.

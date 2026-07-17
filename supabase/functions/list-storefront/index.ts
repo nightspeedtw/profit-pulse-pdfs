@@ -102,7 +102,7 @@ Deno.serve(async (req) => {
     if (id && (!data || data.length === 0)) {
       const { data: kid } = await supabase
         .from("ebooks_kids")
-        .select("id, title, subtitle, description, cover_url, thumbnail_url, price_cents, listing_status, storefront_meta, page_count, preview_page_urls, interior_illustrations, age_group_id, theme_ids, manuscript_md")
+        .select("id, title, subtitle, description, cover_url, thumbnail_url, price_cents, listing_status, storefront_meta, page_count, preview_page_urls, interior_illustrations, age_group_id, theme_ids, manuscript_md, book_type")
         .eq("id", id)
         .eq("listing_status", "live")
         .maybeSingle();
@@ -203,6 +203,7 @@ Deno.serve(async (req) => {
           subtitle: kid.subtitle,
           price: (kid.price_cents ?? 799) / 100,
           cover_url: kid.cover_url,
+          book_type: kid.book_type ?? null,
           store_thumbnail_url: kid.thumbnail_url,
           product_description: cc.product_description ?? kid.description,
           selling_hook: cc.selling_hook ?? null,
