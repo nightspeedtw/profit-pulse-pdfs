@@ -106,4 +106,25 @@ describe("assertColoringPublishContract", () => {
     expect(r.pass).toBe(false);
     expect(r.checks.cover_category_verified).toBe(false);
   });
+
+  it("passes when hero.matches is false but the cover used >=2 interior refs (interior-first law)", () => {
+    const i = baseInput() as any;
+    i.metadata.coloring_cover.evidence.hero = { matches: false, degraded: false };
+    i.metadata.coloring_cover.cover_used_interior_refs = true;
+    i.metadata.coloring_cover.cover_reference_page_urls = [
+      "https://cdn/p6.png", "https://cdn/p7.png", "https://cdn/p8.png",
+    ];
+    const r = assertColoringPublishContract(i);
+    expect(r.checks.cover_category_verified).toBe(true);
+    expect(r.pass).toBe(true);
+  });
+
+  it("still fails when hero.matches is false AND no interior refs are recorded", () => {
+    const i = baseInput() as any;
+    i.metadata.coloring_cover.evidence.hero = { matches: false, degraded: false };
+    const r = assertColoringPublishContract(i);
+    expect(r.pass).toBe(false);
+    expect(r.checks.cover_category_verified).toBe(false);
+    expect(r.reasons.join(";")).toContain("interior_refs=false");
+  });
 });
