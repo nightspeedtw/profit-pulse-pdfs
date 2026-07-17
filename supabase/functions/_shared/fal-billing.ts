@@ -54,12 +54,18 @@ const BILLING_PATTERNS: RegExp[] = [
   /account.*(locked|suspended|disabled)/i,
   /billing/i,
   /top.?up/i,
+  // Cloudflare Workers AI free-pool exhaustion wording:
+  /daily free allocation/i,
+  /neurons/i,
+  /workers paid/i,
+  /free (tier|allowance|allocation)/i,
 ];
 
 const QUOTA_PATTERNS: RegExp[] = [
   /quota/i,
   /rate.?limit/i,
   /too many requests/i,
+  /daily.*allocation/i,
 ];
 
 /** Return true iff this Fal response should be treated as provider_billing_locked. */
