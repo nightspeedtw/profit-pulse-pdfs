@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { Palette, Play, Save, Pause, PlayCircle, Cog, XCircle, X } from "lucide-react";
+import { CanvaBookActions } from "@/components/admin/CanvaBookActions";
 
 interface ColoringConfig {
   enabled: boolean;
@@ -313,6 +314,9 @@ export function ColoringAutopilotCard() {
                         {r.current_step_label}
                       </div>
                     )}
+                    {(isLive || r.pipeline_status === "published") && (
+                      <div className="pl-1"><CanvaBookActions ebookId={r.id} hasPdf compact /></div>
+                    )}
                   </li>
                 );
               })}
@@ -320,6 +324,8 @@ export function ColoringAutopilotCard() {
           )}
         </div>
       )}
+
+
 
       <div className="flex flex-wrap gap-2 mb-4">
         <Button size="sm" variant={cfg.paused ? "default" : "outline"} onClick={togglePause} disabled={loading || saving}>
