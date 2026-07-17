@@ -14,6 +14,7 @@ import TrustBadges from "@/components/product/TrustBadges";
 import StickyBuyBar from "@/components/product/StickyBuyBar";
 import StoryPreviewReader from "@/components/product/StoryPreviewReader";
 import StoryPreviewModule from "@/components/product/StoryPreviewModule";
+import ColoringPreviewModule from "@/components/product/ColoringPreviewModule";
 
 export default function Product() {
   const { handle } = useParams();
@@ -68,7 +69,8 @@ export default function Product() {
   const scrollToBuy = () => buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   const handleBuy = () => freeDownload(product.id, product.title);
 
-  const isKids = product.category_slug === 'kids' || product.category_slug === 'children_illustrated' || product.product_type === 'children_illustrated';
+  const isColoring = product.book_type === 'coloring_book' || product.product_type === 'coloring_book';
+  const isKids = !isColoring && (product.category_slug === 'kids' || product.category_slug === 'children_illustrated' || product.product_type === 'children_illustrated');
   const ageBand = (product.age_group_slugs?.[0]) ?? null;
   const themeLabel = product.ad_promise?.theme ?? product.theme_slugs?.[0] ?? null;
   const seoTitle = `${product.title} — Illustrated Children's Ebook | SecretPDF`;
@@ -193,6 +195,25 @@ export default function Product() {
       </div>
 
       <div className="mt-10 space-y-12">
+        {isColoring && (
+          <ColoringPreviewModule
+            title={product.title}
+            sellingHook={product.selling_hook ?? product.hook_description ?? null}
+            shortHook={product.short_hook ?? null}
+            ageBand={ageBand}
+            categoryLabel={themeLabel}
+            pageCount={product.page_count ?? totalPages ?? null}
+            trimSize={product.coloring_extras?.trim_size ?? null}
+            formatLabel={product.coloring_extras?.format_label ?? null}
+            spreads={previewSpreads}
+            priceLabel={priceText}
+            onBuy={handleBuy}
+            valueCards={product.value_cards ?? null}
+            digitalDeliveryNote={product.coloring_extras?.digital_delivery_note ?? null}
+            licenseNote={product.coloring_extras?.license_note ?? null}
+          />
+        )}
+
         {isKids && (
           <StoryPreviewModule
             title={product.title}
@@ -209,7 +230,7 @@ export default function Product() {
           />
         )}
 
-        {!isKids && (hasStoryPreview ? (
+        {!isKids && !isColoring && (hasStoryPreview ? (
           <StoryPreviewReader
             spreads={previewSpreads}
             totalPages={totalPages}

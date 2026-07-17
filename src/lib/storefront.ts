@@ -45,6 +45,13 @@ export interface StorefrontEbook {
     why_kids_love_it?: string[];
     perfect_for?: string[];
   } | null;
+  coloring_extras?: {
+    trim_size?: string;
+    format_label?: string;
+    digital_delivery_note?: string;
+    license_note?: string;
+    who_its_not_for?: string;
+  } | null;
 }
 
 export interface PreviewSpread {

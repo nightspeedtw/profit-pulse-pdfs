@@ -13,6 +13,7 @@ import { coloringReleaseGate } from "../_shared/coloring/gates.ts";
 import { DEFAULT_PRICING_CONFIG, computePrice, type PricingConfig } from "../_shared/coloring/pricing.ts";
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
 import { assertColoringPublishContract } from "../_shared/coloring/publish-contract.ts";
+import { buildColoringSalesCopy } from "../_shared/coloring/sales-copy.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -308,6 +309,13 @@ Deno.serve(async (req: Request) => {
       : priorHistory;
 
     const isMiniTest = plan.length <= 4;
+    const salesCopy = buildColoringSalesCopy({
+      title: row.title,
+      category_name: categoryName,
+      age_min: ageMin,
+      age_max: ageMax,
+      page_count: plan.length,
+    });
     const storefrontMeta = {
       ...(row.storefront_meta ?? {}),
       product_type: "coloring_book",
@@ -323,6 +331,11 @@ Deno.serve(async (req: Request) => {
       preview_page_urls: previewUrls,
       release_gate: gate,
       published_at: new Date().toISOString(),
+      // Owner law 2026-07-18: every coloring book ships with a full conversion
+      // copy pack (hooks, bullets, what's-inside, who-it's-for, value cards)
+      // derived from category + ages + page count. Storefront renders these
+      // via `list-storefront` regardless of when the row was published.
+      conversion_copy: salesCopy,
       pricing: {
         ...priceBreakdown,
         source: "owner_pricing_law_v1",
