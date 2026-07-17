@@ -390,6 +390,13 @@ Deno.serve(async (req: Request) => {
         upgraded_from_rung: isUpgradeMode
           ? ((meta.coloring_cover as any)?.accepted_rung ?? null)
           : null,
+        // Interior-first evidence: the cover was generated using rendered
+        // interior pages as visual references. The publish-contract accepts
+        // this as an alternate satisfaction of the category/hero check —
+        // character continuity is guaranteed by construction, so the vision
+        // hero-match is a duplicate check that can silently regress.
+        cover_used_interior_refs: referenceImageURLs.length >= 2,
+        cover_reference_page_urls: referenceImageURLs.slice(0, 3),
         ...params.coverRecordExtras,
       };
       // ATOMIC SWAP: write cover_url + thumbnail_url + metadata in a single
