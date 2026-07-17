@@ -324,12 +324,8 @@ export function ColoringAutopilotCard() {
           )}
         </div>
       )}
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      )}
+
+
 
       <div className="flex flex-wrap gap-2 mb-4">
         <Button size="sm" variant={cfg.paused ? "default" : "outline"} onClick={togglePause} disabled={loading || saving}>
