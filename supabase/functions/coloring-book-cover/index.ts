@@ -23,7 +23,7 @@ import { buildColoringCoverArtPrompt } from "../_shared/coloring/cover-prompt.ts
 import { transcribeGlyphs, verifyCategoryHero } from "../_shared/covers/cover-vision-guards.ts";
 import { MEASURED_COVER_GATE_VERSION, measuredCoverScorecard } from "../_shared/covers/cover-measured-gate.ts";
 import { coloringCoverGate } from "../_shared/coloring/gates.ts";
-import { generateImageWithFailover } from "../_shared/image-providers.ts";
+import { generateImageWithFailover, readImageProviderPolicy } from "../_shared/image-providers.ts";
 import { computeLuminance } from "../_shared/image-luminance.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 import { classifyProviderError } from "../_shared/covers/provider-errors.ts";
