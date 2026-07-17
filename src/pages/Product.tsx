@@ -14,6 +14,7 @@ import TrustBadges from "@/components/product/TrustBadges";
 import StickyBuyBar from "@/components/product/StickyBuyBar";
 import StoryPreviewReader from "@/components/product/StoryPreviewReader";
 import StoryPreviewModule from "@/components/product/StoryPreviewModule";
+import ColoringPreviewModule from "@/components/product/ColoringPreviewModule";
 
 export default function Product() {
   const { handle } = useParams();
