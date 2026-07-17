@@ -189,17 +189,23 @@ export async function latchCfBillingUntilNextUtcMidnight(db: any, ebook_id?: str
 
 /**
  * Read image_provider_policy from generation_settings.coloring_autopilot.
- * Applies the CF daily-quota latch: if `cf_billing_locked_until` is in the
- * future and the primary is CF, swap it out for the fallback (no CF
- * round-trips today). CF auto-reactivates the moment the latch expires.
+ * Applies per-provider health latches so a dry provider is transparently
+ * skipped:
+ *   - CF daily-quota latch (cf_billing_locked_until in future) → swap CF out.
+ *   - FAL per-provider billing_blocked (provider_billing_blocked.fal.active)
+ *     → swap FAL out.
+ * The policy returned always reflects only providers that are currently
+ * eligible to be called. If ALL configured providers are dry, primary stays
+ * as-is so the caller surfaces a real error instead of silent inaction.
  */
 // deno-lint-ignore no-explicit-any
 export async function readImageProviderPolicy(db: any): Promise<ImageProviderPolicy> {
   let base = DEFAULT_IMAGE_PROVIDER_POLICY;
+  let cfg: Record<string, unknown> = {};
   try {
     const { data } = await db.from("generation_settings")
       .select("coloring_autopilot").eq("id", 1).maybeSingle();
-    const cfg = (data?.coloring_autopilot ?? {}) as Record<string, unknown>;
+    cfg = (data?.coloring_autopilot ?? {}) as Record<string, unknown>;
     const policy = cfg.image_provider_policy as Partial<ImageProviderPolicy> | undefined;
     const interiors = policy?.interiors;
     if (interiors?.primary) {
@@ -212,14 +218,26 @@ export async function readImageProviderPolicy(db: any): Promise<ImageProviderPol
     }
   } catch (_e) { /* fall through */ }
 
-  const latch = await readCfBillingLockedUntil(db);
-  if (latch && base.interiors.primary === "cloudflare_flux_schnell") {
-    const alt = base.interiors.fallback && base.interiors.fallback !== "cloudflare_flux_schnell"
-      ? base.interiors.fallback
-      : "fal_flux_schnell";
-    return { interiors: { primary: alt, fallback: null } };
+  const cfLatch = await readCfBillingLockedUntil(db);
+  const cfBlocked = !!cfLatch
+    || !!((cfg.provider_billing_blocked as any)?.cloudflare?.active);
+  const falBlocked = !!((cfg.provider_billing_blocked as any)?.fal?.active)
+    || !!(cfg.billing_blocked as any)?.active; // legacy mirror
+
+  const dry = (p: ImageProviderId) =>
+    (p === "cloudflare_flux_schnell" && cfBlocked) ||
+    (p === "fal_flux_schnell" && falBlocked);
+
+  const ordered: ImageProviderId[] = [];
+  for (const p of [base.interiors.primary, base.interiors.fallback].filter(Boolean) as ImageProviderId[]) {
+    if (!ordered.includes(p) && !dry(p)) ordered.push(p);
   }
-  return base;
+  if (ordered.length === 0) {
+    // Every configured provider is dry — return the original policy so the
+    // caller sees the real provider error (don't fabricate a healthy path).
+    return base;
+  }
+  return { interiors: { primary: ordered[0], fallback: ordered[1] ?? null } };
 }
 
 /**
