@@ -4,6 +4,8 @@
 
 import type { ColoringCategory } from "./category.ts";
 import type { PagePlanEntry } from "./style-contract.ts";
+import { assertSpeciesCoverage } from "./species-anatomy.ts";
+
 
 // Scene taxonomy — every book distributes across these buckets so pages
 // feel like a real book, not eight rotations of the same subject.
