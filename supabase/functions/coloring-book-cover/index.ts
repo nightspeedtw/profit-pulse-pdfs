@@ -680,7 +680,33 @@ Deno.serve(async (req: Request) => {
         const verdict = best._verdict as any;
         const heroVerdict = { ok: true, matches: true, detected_subjects: heroSubjects, forbidden_hit: null, degraded: false, reason: "learning_mode_waived" };
 
+        // Uniqueness gate applies to the waiver path too — spelling ≠ art
+        // similarity. A learning-waived cover that duplicates a live book
+        // is still a duplicate and must not ship.
+        let waivedFp: any = null;
+        try {
+          waivedFp = await computeCoverFingerprint(rawBytes);
+          const dup = await findDuplicateCover(db, waivedFp, ebook_id);
+          if (dup) {
+            attempt.ended_at = new Date().toISOString();
+            attempt.status = "requeued_duplicate";
+            attempt.checks = {
+              ideogram_attempts: ideogramAttempts.map((a: any) => ({ ...a, _rawBytes: undefined, _verdict: undefined })),
+              rung: "tier1_ideogram_learning_waived",
+              duplicate_of: { id: dup.id, title: dup.title, distance: dup.distance },
+            };
+            return await markCoverBlocked(
+              db, ebook_id,
+              { coloring_cover_single_attempt: attempt, coloring_cover_ideogram_attempts: ideogramAttempts },
+              `duplicate_of:${dup.id}:hd=${dup.distance}`,
+            );
+          }
+        } catch (fpErr: any) {
+          console.error("[coloring-cover] waiver fingerprint failed", fpErr?.message);
+        }
+
         const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT);
+
         // Log defect to ledger
         const { data: rowMetaRow } = await db.from("ebooks_kids").select("metadata").eq("id", ebook_id).maybeSingle();
         const meta = (rowMetaRow?.metadata ?? {}) as Record<string, unknown>;
