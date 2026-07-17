@@ -12,6 +12,7 @@ import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 import { coloringReleaseGate } from "../_shared/coloring/gates.ts";
 import { DEFAULT_PRICING_CONFIG, computePrice, type PricingConfig } from "../_shared/coloring/pricing.ts";
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
+import { assertColoringPublishContract } from "../_shared/coloring/publish-contract.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
