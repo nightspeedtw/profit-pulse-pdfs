@@ -631,8 +631,10 @@ Deno.serve(async (req: Request) => {
             ideogram_prompt_used: ideo.prompt,
             typography_source: "ideogram_verified_integrated",
             overlay_skipped: true,
+            visual_fingerprint: coverFingerprint,
           },
         });
+
       } catch (e: any) {
         const rawReason = String(e?.message ?? e).slice(0, 240);
         const providerClass = classifyProviderError(rawReason);
