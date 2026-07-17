@@ -208,7 +208,7 @@ Deno.serve(async (req: Request) => {
       // are skipped by the dispatcher until the blocker_reason is cleared
       // by a code fix / lane recovery — same "never dead-end the whole
       // queue over one defect class" principle as the quota latch.
-      const LANE_BLOCKED = /provider_billing|provider_quota|provider_unavailable/;
+      const LANE_BLOCKED = /provider_billing|provider_quota|provider_unavailable|coloring_cover_retry_ceiling_reached/;
       let laneBlockedSkipped = 0;
       const dispatchable = (data ?? []).filter((r: any) => {
         if (r.blocker_reason && LANE_BLOCKED.test(String(r.blocker_reason))) {
