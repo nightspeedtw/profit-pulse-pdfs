@@ -55,9 +55,12 @@ export function buildIdeogramIntegratedCoverPrompt(input: IdeogramCoverRequest):
     "Spelling must be pixel-perfect. Do NOT paraphrase or abbreviate any word.",
     "Do NOT invent extra words, captions, taglines, credits, publisher names, page numbers, or watermarks.",
     "Only the three text elements above may appear anywhere in the image.",
+    // SAFE-AREA RULE (round_1 fix: baked-title clipping class).
+    "SAFE-AREA RULE — all lettering, glyphs and title strokes MUST sit inside the central 80% of the frame. Nothing (no letter, no stroke, no ornament) may touch or overlap the outer 10% band on any side. Leave a clean margin so the title reads whole even if trimmed 6% at print.",
+    "Hero subjects must also stay inside the central 88% of the frame — no animal or character may be cropped by the edge.",
     // Style
     "Style reference: modern picture-book cover, gouache texture, ideogram-integrated lettering, Crayola beauty, Sneeze-Powered Sock Sorter aesthetic.",
-    "Aspect ratio 3:4 portrait. High resolution, sharp lettering.",
+    "Aspect ratio 3:4 portrait, matches printed 8.5x11 book cover. High resolution, sharp lettering.",
   ].filter(Boolean);
   return parts.join(" ");
 }
