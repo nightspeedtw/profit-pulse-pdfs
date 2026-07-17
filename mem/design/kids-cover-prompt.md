@@ -115,3 +115,21 @@ no AI-cliché gradients.
 3. Each letter shows story-linked decoration
 4. Character invariants preserved
 5. Emotion word visually reflects meaning
+
+## Container aspect-ratio rule (mandatory — regression class)
+
+Every UI container and PDF frame that displays a cover MUST match the
+generated asset's native aspect ratio EXACTLY:
+
+- Coloring books: native 1600×2071 → use `aspect-[1600/2071]` (8.5:11).
+- Picture books: native 1024×1280 → use `aspect-[1024/1280]` (4:5).
+
+Rules:
+- NEVER apply `object-cover` (or PDF `Math.max` fit-COVER) on a baked-
+  title cover inside a mismatched frame — it clips the title art.
+- If a genuinely different ratio is required (e.g. a square social card),
+  derive it as its OWN asset with safe margins reserved at generation
+  time. Never crop the primary edge-to-edge cover.
+- The publish path enforces this via
+  `supabase/functions/_shared/coloring/cover-aspect-gate.ts`; do not
+  bypass or loosen its tolerance (±1% w/h).
