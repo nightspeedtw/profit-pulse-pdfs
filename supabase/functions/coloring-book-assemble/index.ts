@@ -36,6 +36,7 @@ import { drawFitText, drawFitParagraph } from "../_shared/pdf/shrink-to-fit.ts";
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
 import { appendDefectLedger, WAIVER_REPAIR_ATTEMPTS } from "../_shared/coloring/defect-ledger.ts";
 import { readQcMode, waiveOrBlock } from "../_shared/coloring/qc-mode.ts";
+import { checkCoverAspect } from "../_shared/coloring/cover-aspect-gate.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
