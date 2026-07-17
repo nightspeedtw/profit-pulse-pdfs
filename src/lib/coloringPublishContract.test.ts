@@ -80,4 +80,30 @@ describe("assertColoringPublishContract", () => {
     expect(r.pass).toBe(false);
     expect(r.checks.trim_verified).toBe(false);
   });
+
+  it("fails when coloring_cover_gate is missing (silent-pass bypass class)", () => {
+    const i = baseInput() as any;
+    delete i.metadata.coloring_cover_gate;
+    delete i.metadata.coloring_cover.evidence;
+    const r = assertColoringPublishContract(i);
+    expect(r.pass).toBe(false);
+    expect(r.checks.cover_category_verified).toBe(false);
+    expect(r.reasons.join(",")).toMatch(/cover_category_unverified/);
+  });
+
+  it("fails when hero verification is degraded (NULL vision result)", () => {
+    const i = baseInput() as any;
+    i.metadata.coloring_cover.evidence.hero = { matches: true, degraded: true };
+    const r = assertColoringPublishContract(i);
+    expect(r.pass).toBe(false);
+    expect(r.checks.cover_category_verified).toBe(false);
+  });
+
+  it("fails when cover_category_match < 98 (wrong-scene detected)", () => {
+    const i = baseInput() as any;
+    i.metadata.coloring_cover_gate.scorecard.cover_category_match = 40;
+    const r = assertColoringPublishContract(i);
+    expect(r.pass).toBe(false);
+    expect(r.checks.cover_category_verified).toBe(false);
+  });
 });
