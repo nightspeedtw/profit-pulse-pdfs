@@ -466,6 +466,7 @@ Deno.serve(async (req: Request) => {
             totalPages,
             forbiddenSubjects,
             forbiddenBackgrounds: forbiddenSubjects,
+            referenceImageURLs,
           }, { timeoutMs: IDEOGRAM_GEN_TIMEOUT_MS, seed: attemptIndex * 1009 }),
           IDEOGRAM_GEN_TIMEOUT_MS + 5_000,
           `ideogram_a${attemptIndex}`,
