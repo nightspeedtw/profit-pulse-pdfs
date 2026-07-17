@@ -129,6 +129,38 @@ Deno.serve(async (req: Request) => {
     if (!row.cover_url) return json({ error: "cover_missing" }, 422);
     if (pages.length !== plan.length) return json({ error: "interior_incomplete" }, 422);
 
+    // NON-WAIVABLE PUBLISH CONTRACT — enforced even in learning mode.
+    // Missing/NULL cover QC evidence is a hard FAIL (not a silent pass).
+    // This prevents cross-category cover art (unicorn on ocean, dinosaur
+    // on waves) from shipping just because the vision gate never ran.
+    const contract = assertColoringPublishContract({
+      book_type: row.book_type,
+      cover_url: row.cover_url ?? null,
+      thumbnail_url: row.thumbnail_url ?? null,
+      metadata: meta,
+    });
+    if (!contract.pass) {
+      const blocker = contract.reasons.join(" | ").slice(0, 480);
+      await db.from("ebooks_kids").update({
+        listing_status: "draft", status: "needs_revision", pipeline_status: "queued",
+        sellable: false,
+        blocker_reason: `coloring_publish_contract:${blocker}`.slice(0, 500),
+      }).eq("id", ebook_id);
+      await patchMeta(db, ebook_id, {
+        coloring_publish_contract: contract,
+        coloring_current_step_label: `Publish blocked (contract): ${contract.reasons.slice(0, 3).join("; ")}`,
+      });
+      // Force cover regeneration if the category/style check is what failed.
+      if (!contract.checks.cover_baked_title_only || !contract.checks.cover_category_verified) {
+        fetch(`${SUPABASE_URL}/functions/v1/coloring-book-cover`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY },
+          body: JSON.stringify({ ebook_id, force: true }),
+        }).catch(() => {});
+      }
+      return json({ ok: false, publish_contract_blocked: true, contract });
+    }
+
     // OWNER LAW batch_learning_rounds (v2 — full-live amendment):
     //   qc_mode = 'learning' (default): every book with pdf_url + cover_url
     //     goes LIVE regardless of defect_ledger. Ledger is still recorded
