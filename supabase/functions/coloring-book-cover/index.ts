@@ -36,6 +36,8 @@ import { generateIdeogramIntegratedCover, IDEOGRAM_INTEGRATED_COVER_VERSION } fr
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
 import { renderedColoringCoverProof } from "../_shared/coloring/coloring-cover-proof.ts";
 import { readQcMode, waiveOrBlock } from "../_shared/coloring/qc-mode.ts";
+import { computeCoverFingerprint, findDuplicateCover, DUPLICATE_HAMMING_THRESHOLD } from "../_shared/coloring/cover-uniqueness.ts";
+
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -524,7 +526,33 @@ Deno.serve(async (req: Request) => {
           ideogramAttempts.push(ideoReport);
           continue;
         }
+        // ═══════ COVER UNIQUENESS GATE (owner law 2026-07-18, permanent) ═══════
+        // No two coloring books may ship with visually near-identical covers.
+        // dHash the raw art and reject if the closest existing cover is
+        // within DUPLICATE_HAMMING_THRESHOLD bits. On duplicate we bump the
+        // seed and re-roll rather than accepting a knock-off composition.
+        let coverFingerprint: any = null;
+        try {
+          coverFingerprint = await computeCoverFingerprint(rawBytes);
+          const dup = await findDuplicateCover(db, coverFingerprint, ebook_id);
+          ideoReport.checks.uniqueness = {
+            fingerprint: coverFingerprint.hash,
+            duplicate_of: dup ? { id: dup.id, title: dup.title, distance: dup.distance } : null,
+            threshold: DUPLICATE_HAMMING_THRESHOLD,
+          };
+          if (dup) {
+            ideoReport.status = "duplicate_rejected";
+            ideoReport.reason = `duplicate_of:${dup.id}:hd=${dup.distance}:title="${String(dup.title).slice(0, 60)}"`;
+            ideogramAttempts.push(ideoReport);
+            continue;
+          }
+        } catch (fpErr: any) {
+          // Fingerprint failure is non-fatal (defense in depth: publish
+          // contract can also assert uniqueness). Log and proceed.
+          ideoReport.checks.uniqueness = { error: String(fpErr?.message ?? fpErr).slice(0, 120) };
+        }
         // ACCEPTED. Fit to portrait 8.5x11 canvas AND skip overlay typography.
+
         const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT);
         // Rendered proof still runs on the final PNG (art-region variance + frame safety)
         // but the approved-strings check is fed the VERIFIED transcript so
@@ -603,8 +631,10 @@ Deno.serve(async (req: Request) => {
             ideogram_prompt_used: ideo.prompt,
             typography_source: "ideogram_verified_integrated",
             overlay_skipped: true,
+            visual_fingerprint: coverFingerprint,
           },
         });
+
       } catch (e: any) {
         const rawReason = String(e?.message ?? e).slice(0, 240);
         const providerClass = classifyProviderError(rawReason);
@@ -650,7 +680,33 @@ Deno.serve(async (req: Request) => {
         const verdict = best._verdict as any;
         const heroVerdict = { ok: true, matches: true, detected_subjects: heroSubjects, forbidden_hit: null, degraded: false, reason: "learning_mode_waived" };
 
+        // Uniqueness gate applies to the waiver path too — spelling ≠ art
+        // similarity. A learning-waived cover that duplicates a live book
+        // is still a duplicate and must not ship.
+        let waivedFp: any = null;
+        try {
+          waivedFp = await computeCoverFingerprint(rawBytes);
+          const dup = await findDuplicateCover(db, waivedFp, ebook_id);
+          if (dup) {
+            attempt.ended_at = new Date().toISOString();
+            attempt.status = "requeued_duplicate";
+            attempt.checks = {
+              ideogram_attempts: ideogramAttempts.map((a: any) => ({ ...a, _rawBytes: undefined, _verdict: undefined })),
+              rung: "tier1_ideogram_learning_waived",
+              duplicate_of: { id: dup.id, title: dup.title, distance: dup.distance },
+            };
+            return await markCoverBlocked(
+              db, ebook_id,
+              { coloring_cover_single_attempt: attempt, coloring_cover_ideogram_attempts: ideogramAttempts },
+              `duplicate_of:${dup.id}:hd=${dup.distance}`,
+            );
+          }
+        } catch (fpErr: any) {
+          console.error("[coloring-cover] waiver fingerprint failed", fpErr?.message);
+        }
+
         const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT);
+
         // Log defect to ledger
         const { data: rowMetaRow } = await db.from("ebooks_kids").select("metadata").eq("id", ebook_id).maybeSingle();
         const meta = (rowMetaRow?.metadata ?? {}) as Record<string, unknown>;
@@ -700,7 +756,9 @@ Deno.serve(async (req: Request) => {
             evidence: { transcription: verdict, learning_mode_waived: true, defect_ledger_appended: true },
             typography_source: "ideogram_verified_integrated",
             overlay_skipped: true,
+            visual_fingerprint: waivedFp,
           },
+
         });
       }
     } catch (waiveErr) {
