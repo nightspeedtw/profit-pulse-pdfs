@@ -396,11 +396,18 @@ Deno.serve(async (req: Request) => {
       // In upgrade mode we do NOT re-run assembly (sale continuity: price and
       // listing unchanged, only the cover art + thumbnail change). Normal
       // (first-generation) flow continues to the assembly step as before.
+      // Chain the dedicated thumbnail render for every accepted cover so
+      // thumbnail_url becomes a DISTINCT fitted asset (never same-file as
+      // cover_url). Publish gate blocks otherwise.
+      fireAndForget("coloring-book-thumbnail", { ebook_id, force: true });
+      // In upgrade mode we do NOT re-run assembly (sale continuity: price and
+      // listing unchanged, only the cover art + thumbnail change). Normal
+      // (first-generation) flow continues to the assembly step as before.
       if (!isUpgradeMode) fireAndForget("coloring-book-assemble", { ebook_id, force: true });
       return json({
         ok: true,
         accepted_rung: params.acceptedRung,
-        chained: isUpgradeMode ? "none_upgrade_only" : "assemble",
+        chained: isUpgradeMode ? "thumbnail_only_upgrade" : "thumbnail+assemble",
         upgrade_pending: isRung2Fallback,
         upgraded: isUpgradeMode,
       });
