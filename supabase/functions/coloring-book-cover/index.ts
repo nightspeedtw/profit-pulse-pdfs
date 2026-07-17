@@ -396,11 +396,18 @@ Deno.serve(async (req: Request) => {
       // In upgrade mode we do NOT re-run assembly (sale continuity: price and
       // listing unchanged, only the cover art + thumbnail change). Normal
       // (first-generation) flow continues to the assembly step as before.
+      // Chain the dedicated thumbnail render for every accepted cover so
+      // thumbnail_url becomes a DISTINCT fitted asset (never same-file as
+      // cover_url). Publish gate blocks otherwise.
+      fireAndForget("coloring-book-thumbnail", { ebook_id, force: true });
+      // In upgrade mode we do NOT re-run assembly (sale continuity: price and
+      // listing unchanged, only the cover art + thumbnail change). Normal
+      // (first-generation) flow continues to the assembly step as before.
       if (!isUpgradeMode) fireAndForget("coloring-book-assemble", { ebook_id, force: true });
       return json({
         ok: true,
         accepted_rung: params.acceptedRung,
-        chained: isUpgradeMode ? "none_upgrade_only" : "assemble",
+        chained: isUpgradeMode ? "thumbnail_only_upgrade" : "thumbnail+assemble",
         upgrade_pending: isRung2Fallback,
         upgraded: isUpgradeMode,
       });
@@ -540,250 +547,30 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ═══════════════════ TIER 2 — FLUX TEXTLESS + PREMIUM OVERLAY (fallback) ═══════════════════
-    // v2 — per-provider health aware. Uses the configured interior policy
-    // (CF primary + FAL fallback by default) with per-provider latches so
-    // a dry FAL doesn't block Tier-2 when Cloudflare is healthy. The
-    // premium hand-lettered SVG overlay renders on top of the textless
-    // flux art from whichever provider serves.
-    const coverPolicy = (await readImageProviderPolicy(db)).interiors;
-    const MAX_FLUX_ATTEMPTS = 3;
-    const fluxAttempts: any[] = [];
-    for (let attemptIndex = 1; attemptIndex <= MAX_FLUX_ATTEMPTS; attemptIndex++) {
-      const attemptReport: any = { attempt: attemptIndex, started_at: new Date().toISOString(), status: "started" };
-      try {
-        const providerResult: any = await withTimeout(
-          generateImageWithFailover({
-            prompt,
-            image_size: "portrait_4_3",
-            num_inference_steps: 4,
-            ebook_id,
-            step: `coloring_cover_flux_schnell_a${attemptIndex}`,
-          }, coverPolicy, db),
-          COVER_GEN_TIMEOUT_MS,
-          `cover_flux_schnell_a${attemptIndex}`,
-        );
-        const rawBytes: Uint8Array = providerResult.bytes;
-        const luminance = await computeLuminance(rawBytes);
-        const color = await colorEvidence(rawBytes);
-        attemptReport.checks = { luminance, color };
-        if (luminance.dead || !color.pass) {
-          attemptReport.status = "art_rejected";
-          attemptReport.reason = luminance.dead ? `raw_art_dead:${luminance.reason}` : color.blank_background ? `raw_art_blank_background` : `raw_art_not_colorful`;
-          fluxAttempts.push(attemptReport);
-          continue;
-        }
-        const rawGlyph = await transcribeGlyphs(rawBytes, COVER_VISION_TIMEOUT_MS);
-        attemptReport.checks.raw_art_transcription = rawGlyph;
-        if (!rawGlyph.degraded && rawGlyph.has_glyphs) {
-          attemptReport.status = "art_rejected";
-          attemptReport.reason = `raw_art_has_text`;
-          fluxAttempts.push(attemptReport);
-          continue;
-        }
-        const hero = allowedSubjects.length
-          ? await verifyCategoryHero(rawBytes, {
-              category_name: categoryNameFinal,
-              allowed_subjects: allowedSubjects,
-              forbidden_subjects: forbiddenSubjects,
-            }, COVER_VISION_TIMEOUT_MS)
-          : { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined" };
-        attemptReport.checks.hero_verdict = hero;
-        if (!hero.degraded && !hero.matches) {
-          attemptReport.status = "art_rejected";
-          attemptReport.reason = `wrong_category_subject:${hero.reason}`;
-          fluxAttempts.push(attemptReport);
-          continue;
-        }
-
-        const composed = await composeColoringCover({
-          artBytes: rawBytes,
-          title: row.title,
-          subtitle,
-          palette: ["#FFF6E5", "#2A1A0A", "#E9B44C", "#6BAA75", "#4FA3D8"],
-          description: row.description ?? null,
-          ageBadge,
-        });
-        if (!composed.renderedProof.pass) {
-          attemptReport.status = "gate_rejected";
-          attemptReport.reason = `rendered_proof_failed:${composed.renderedProof.reasons.join(";").slice(0, 180)}`;
-          attemptReport.checks.rendered_proof = composed.renderedProof;
-          fluxAttempts.push(attemptReport);
-          continue;
-        }
-        const finalBytes = composed.finalBytes;
-        const treatmentMeta = composed.treatmentMeta as unknown as Record<string, unknown>;
-        const overlayText = constructedOverlayTranscription(row.title, subtitle, ageBadge);
-        const measured = measuredCoverScorecard({
-          title: row.title, subtitle, ageBadge, text: overlayText, rawArtText: rawGlyph,
-          typographySource: "textless_art_plus_svg_overlay",
-          hero,
-          frame: (treatmentMeta as any)?.overlay_frame ?? { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, safe_margin: 80, elements: [] },
-          logo: { present: (treatmentMeta as any)?.logo_present === true, rect: ((treatmentMeta as any)?.overlay_frame?.elements ?? []).find((e: any) => e.name === "secretpdf_kids_logo") ?? null },
-          artwork: { used_svg_fallback: false, synthesized_background: false, blank_background: composed.renderedProof.art_region.pass !== true, blank_ratio: composed.renderedProof.art_region.pass ? 0 : 1, region_stats: color.region_stats },
-          quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
-          pageCountMatchesFinalPdf: true,
-        });
-        const measuredGate = coloringCoverGate(measured);
-        if (!measuredGate.pass) {
-          attemptReport.status = "gate_rejected";
-          attemptReport.reason = `measured_cover_gate_failed:${measuredGate.reasons.join(";").slice(0, 180)}`;
-          attemptReport.checks.measured_gate = measuredGate;
-          fluxAttempts.push(attemptReport);
-          continue;
-        }
-        attemptReport.status = "accepted";
-        attemptReport.ended_at = new Date().toISOString();
-        fluxAttempts.push(attemptReport);
-        attempt.ended_at = new Date().toISOString();
-        attempt.status = "accepted";
-        attempt.checks = { flux_attempts: fluxAttempts, accepted_via: "flux_schnell_multi", rung: "rung1_flux" };
-        return await persistAcceptedCover({
-          finalBytes, artOnlyBytes: composed.artOnlyBytes, treatmentMeta, measured, renderedProof: composed.renderedProof, acceptedRung: `flux_schnell_a${attemptIndex}`,
-          coverRecordExtras: {
-            provider: providerResult.provider,
-            provider_attempts: providerResult.attempts,
-            evidence: { luminance, color, raw_art_transcription: rawGlyph, hero_verdict: hero, overlay_transcription: overlayText, rendered_proof: composed.renderedProof },
-            flux_attempts: fluxAttempts,
-          },
-        });
-      } catch (e: any) {
-        const rawReason = String(e?.message ?? e).slice(0, 240);
-        const providerClass = classifyProviderError(rawReason);
-        attemptReport.status = "provider_error";
-        attemptReport.reason = providerClass ? `provider_${providerClass}` : rawReason.includes("timeout") ? "provider_timeout" : `provider_error:${rawReason}`;
-        attemptReport.ended_at = new Date().toISOString();
-        fluxAttempts.push(attemptReport);
-        // Lane-blocked (billing/quota) — do NOT hammer the provider. Skip to
-        // rung 2 immediately; the self-art rung succeeds without providers.
-        if (providerClass === "billing_exhausted" || providerClass === "quota_exceeded") break;
-      }
-    }
-
-    // Upgrade mode: rung 1 is the ONLY acceptable outcome. If all 3 flux
-    // attempts failed, leave the existing (rung-2 fallback) cover untouched
-    // and stamp the attempt for the next day's sweep. Sale continuity: price,
-    // listing, thumbnail, PDF — all remain intact.
-    if (isUpgradeMode) {
-      await patchMeta(db, ebook_id, {
-        cover_upgrade_last_attempt_at: new Date().toISOString(),
-        cover_upgrade_history: [
-          ...((meta as any).cover_upgrade_history ?? []),
-          {
-            at: new Date().toISOString(),
-            outcome: "no_change_tier1_and_tier2_failed",
-            ideogram_attempts: ideogramAttempts.map((a) => ({ attempt: a.attempt, status: a.status, reason: a.reason })),
-            flux_attempts: fluxAttempts.map((a) => ({ attempt: a.attempt, status: a.status, reason: a.reason })),
-          },
-        ].slice(-10),
-      });
-      return json({ ok: true, upgraded: false, reason: "tier1_and_tier2_failed_existing_cover_untouched", ideogram_attempts: ideogramAttempts, flux_attempts: fluxAttempts });
-    }
-
-    // ═══════════════════ RUNG 2 — DETERMINISTIC SELF-ART COVER ═══════════════════
-    // Guaranteed success. Built from the book's own gate-passed interior pages.
-    // Cannot be blank, off-category, or text-contaminated.
-    await patchMeta(db, ebook_id, {
-      coloring_current_step_label: "Cover rung 2: deterministic self-art from interior pages",
-      coloring_progress_percent: 93,
-    });
-    const interiorPages = (pages as any[])
-      .filter((p) => p && typeof p.signed_url === "string" && typeof p.page === "number" && p.stage !== "calibration")
-      .sort((a, b) => a.page - b.page)
-      .map((p) => ({ page: p.page as number, url: p.signed_url as string }));
-
-    if (interiorPages.length === 0) {
-      // Extremely rare: no interior pages persisted yet. This IS a genuine
-      // missing_dependency (not a cover-quality failure). Requeue with clear
-      // evidence — self-art rung cannot invent art that doesn't exist.
-      attempt.ended_at = new Date().toISOString();
-      attempt.status = "requeued";
-      attempt.checks = { flux_attempts: fluxAttempts, rung2_error: "no_interior_pages_available" };
-      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, `self_art_missing_interior_pages`);
-    }
-
-    const selfArt = await renderColoringSelfArtCover({
-      categoryKey: categoryKey ?? null,
-      categoryName: categoryNameFinal,
-      pages: interiorPages,
-      maxHeroes: 3,
-      canvasWidth: COLORING_COVER_WIDTH,
-      canvasHeight: COLORING_COVER_HEIGHT,
-      seed: ebook_id,
-    });
-    const selfArtLuminance = await computeLuminance(selfArt.bytes);
-    const selfArtColor = await colorEvidence(selfArt.bytes);
-    // Synthetic evidence for rung 2 gates: rawGlyph is textless-by-construction
-    // (no font engine touches the raster before the SVG overlay); hero is
-    // provably on-category because every source page passed the anatomy /
-    // category-fit gate during interior rendering.
-    const rung2RawGlyph = {
-      ok: true, has_glyphs: false, detected_text: null, confidence: 1,
-      degraded: false, reason: "self_art_deterministic_textless_by_construction",
-    };
-    const rung2Hero = {
-      ok: true, matches: true, detected_subjects: selfArt.heroes_used.map((h) => `interior_page_${h.page}`),
-      forbidden_hit: null, degraded: false,
-      reason: `self_art_from_gate_passed_interior_pages:${selfArt.heroes_used.map((h) => h.page).join(",")}`,
-    };
-    const composed = await composeColoringCover({
-      artBytes: selfArt.bytes,
-      title: row.title,
-      subtitle,
-      palette: ["#FFF6E5", "#2A1A0A", "#E9B44C", "#6BAA75", "#4FA3D8"],
-      description: row.description ?? null,
-      ageBadge,
-    });
-    if (!composed.renderedProof.pass) {
-      attempt.ended_at = new Date().toISOString();
-      attempt.status = "requeued";
-      attempt.checks = { flux_attempts: fluxAttempts, accepted_via: SELF_ART_COVER_VERSION, rendered_proof: composed.renderedProof };
-      return await markCoverBlocked(db, ebook_id, { coloring_cover_single_attempt: attempt }, `rendered_proof_failed:${composed.renderedProof.reasons.join(";").slice(0, 180)}`);
-    }
-    const finalBytes = composed.finalBytes;
-    const treatmentMeta = composed.treatmentMeta as unknown as Record<string, unknown>;
-    const overlayText = constructedOverlayTranscription(row.title, subtitle, ageBadge);
-    const measured = measuredCoverScorecard({
-      title: row.title, subtitle, ageBadge, text: overlayText, rawArtText: rung2RawGlyph,
-      typographySource: "textless_art_plus_svg_overlay",
-      hero: rung2Hero,
-      frame: (treatmentMeta as any)?.overlay_frame ?? { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, safe_margin: 80, elements: [] },
-      logo: { present: (treatmentMeta as any)?.logo_present === true, rect: ((treatmentMeta as any)?.overlay_frame?.elements ?? []).find((e: any) => e.name === "secretpdf_kids_logo") ?? null },
-      artwork: {
-        used_svg_fallback: false,
-        synthesized_background: false, // self-art is REAL art from real pages, not a gradient
-        blank_background: composed.renderedProof.art_region.pass !== true,
-        blank_ratio: composed.renderedProof.art_region.pass ? 0 : 1,
-        region_stats: selfArtColor.region_stats,
-      },
-      quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
-      pageCountMatchesFinalPdf: true,
-    });
+    // ═══════════════════ OWNER LAW: NO OVERLAY FALLBACK ═══════════════════
+    // Coloring covers MUST have the title baked into the illustration by the
+    // integrated typography model (ideogram_verified_integrated). The
+    // historical Tier-2 (flux textless + SVG overlay) and Rung-2 (self-art
+    // + SVG overlay) paths violated the baked-title-only contract and have
+    // been REMOVED from the coloring lane. If all Ideogram attempts fail,
+    // the book parks in `awaiting_cover_retry` and the autopilot re-attempts
+    // Tier-1 on the next tick — never falls back to a flat text overlay.
+    // See `_shared/coloring/publish-contract.ts` for the release-gate check.
     attempt.ended_at = new Date().toISOString();
-    attempt.status = "accepted";
-    attempt.checks = { flux_attempts: fluxAttempts, accepted_via: SELF_ART_COVER_VERSION, rung: "rung2_self_art", self_art_evidence: selfArt };
-    return await persistAcceptedCover({
-      finalBytes, artOnlyBytes: composed.artOnlyBytes, treatmentMeta, measured, renderedProof: composed.renderedProof, acceptedRung: SELF_ART_COVER_VERSION,
-      coverRecordExtras: {
-        provider: "self_art_flood_fill",
-        provider_attempts: 0,
-        evidence: {
-          luminance: selfArtLuminance,
-          color: selfArtColor,
-          raw_art_transcription: rung2RawGlyph,
-          hero_verdict: rung2Hero,
-          overlay_transcription: overlayText,
-          self_art: {
-            version: selfArt.version,
-            palette: selfArt.palette,
-            canvas: selfArt.canvas,
-            heroes_used: selfArt.heroes_used,
-          },
-          rendered_proof: composed.renderedProof,
-        },
-        flux_attempts: fluxAttempts,
-      },
-    });
+    attempt.status = "requeued";
+    attempt.checks = {
+      ideogram_attempts: ideogramAttempts,
+      rung: "tier1_ideogram_only",
+      overlay_fallback_disabled: true,
+    };
+    const lastReason = ideogramAttempts.length
+      ? String(ideogramAttempts[ideogramAttempts.length - 1]?.reason ?? "ideogram_no_accept").slice(0, 180)
+      : "ideogram_no_attempts";
+    return await markCoverBlocked(
+      db, ebook_id,
+      { coloring_cover_single_attempt: attempt, coloring_cover_ideogram_attempts: ideogramAttempts },
+      `ideogram_only_park:${lastReason}`,
+    );
   } catch (e: any) {
     console.error("[coloring-cover] fatal", e?.message);
     return json({ error: e?.message ?? String(e) }, 500);

@@ -105,3 +105,32 @@ the PDF, keep the trim at 8.5×11 so `Math.max` fit-COVER is a no-op.
 Regression test: `src/lib/coloringCoverAspectGate.test.ts`.
 Runtime gate: `supabase/functions/_shared/coloring/cover-aspect-gate.ts`
 enforced from `coloring-book-assemble` before PDF embed.
+
+## coloring-cover: baked-title-only + trim-lock + distinct-thumbnail (v1)
+
+**Contract:** `pipeline_skills['coloring-cover-thumbnail-contract-v1']`
+**Enforced by:** `_shared/coloring/publish-contract.ts`, `kids-publish-if-qc-passed`,
+`coloring-book-cover`, `coloring-book-thumbnail`, `coloring-book-assemble`.
+
+Rules (all three are pre-publish HARD gates, no waiver):
+
+1. `cover_baked_title_only` — cover.title_treatment.typography_source MUST
+   equal `ideogram_verified_integrated`. Any `textless_art_plus_svg_overlay`
+   or `*_svg_overlay` typography source is REJECTED (owner rule: no flat
+   text stamped on baked art). Tier-2 (flux + overlay) and Rung-2
+   (self-art + overlay) branches were removed from
+   `coloring-book-cover/index.ts`. If Ideogram all attempts fail, park in
+   `awaiting_cover_retry` — never fall back to overlay.
+2. `trim_verified` — cover raster 1600×2071 px, interior raster 1600×2071 px,
+   thumbnail 600×776 px, PDF page 612×792 pt. See
+   `_shared/coloring/trim-lock.ts` (`assertColoringTrim`).
+3. `thumbnail_distinct_and_fitted` — `thumbnail_url` MUST be a different
+   asset from `cover_url`, produced by `coloring-book-thumbnail` on a
+   600×776 white canvas with fit-contain letterbox and
+   `thumbnail_render_meta.non_crop_pass = true`.
+
+Symptom that triggered the fix: 9 of 13 live coloring books had
+`typography_source: textless_art_plus_svg_overlay` (flat SVG title layer on
+top of the illustration), and every live book had `thumbnail_url === cover_url`.
+Storefront relied on frontend CSS to make the raw 1600×2071 cover look right
+in a small card — fragile.
