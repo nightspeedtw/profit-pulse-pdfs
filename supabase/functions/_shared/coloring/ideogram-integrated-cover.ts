@@ -96,9 +96,10 @@ export function buildIdeogramIntegratedCoverPrompt(input: IdeogramCoverRequest):
     `  in soft rounded lowercase script, calm dark color, single line, at most 45% of the frame width.`,
     `- A small round badge in a lower corner reads EXACTLY: "${input.ageBadge}"`,
     `  puffy sticker style, warm color-block, clearly legible, diameter AT MOST 14% of the frame width, fully inside the safe area, not clipped by the edge.`,
-    "Spelling must be pixel-perfect. Do NOT paraphrase or abbreviate any word.",
+    `SPELLING CONTRACT — every visible glyph must spell one of the exact approved strings above, letter-for-letter. The title MUST read exactly "${input.title}" — count the letters and check twice. Do NOT invent, drop, duplicate, transpose, hyphenate, split, join, or append any letter (no "Bookl", "Colorng", "Book-Fname", "Kdis", etc.). If a letter cannot be rendered cleanly, RE-RENDER it — never approximate.`,
     "STRICT TEXT CONTRACT — render ONLY the exact approved title and subtitle (and age-badge) text listed above. NO additional words, labels, banners, captions, taglines, credits, publisher names, page-count numbers, price tags, decorative headline chrome (e.g. \"COLORING BOOK\", \"FUN!\", \"NEW\", \"LOVE\", \"YAY\", \"WOW\", \"ROAR\"), watermarks, sound-effect words, signatures, character-name captions, or ANY letter-shaped ornament of any kind may appear anywhere in the image.",
     "If uncertain, LEAVE A WORD OUT rather than invent one. Only the three approved text elements above may appear anywhere in the image. Every ornament must be a pure graphic shape (star, dot, leaf, paw-print) — never a letter, glyph, or word-like scribble.",
+
     // SAFE-AREA RULE (tightened 2026-07-17: covers were still clipping title strokes and age badges).
     "SAFE-AREA RULE — every letter, glyph, stroke, ornament AND the age-badge circle MUST sit entirely inside the central 78% of the frame (i.e. leave an 11% clear margin on every side). Nothing text-like may touch or overlap that outer 11% band. Prefer to SHRINK the title and badge rather than push them toward the edge.",
     "Hero subjects must also stay inside the central 86% of the frame — no animal or character may be cropped by the edge. Prefer fewer, smaller heroes with room to breathe over a crowded edge-to-edge group.",
