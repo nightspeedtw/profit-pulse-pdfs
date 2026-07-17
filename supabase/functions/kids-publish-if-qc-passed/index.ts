@@ -105,8 +105,47 @@ Deno.serve(async (req) => {
         const { data: cost } = await db.from('ebook_costs').select('total_usd').eq('ebook_id', ebook_id).maybeSingle();
         production_cost_usd = cost?.total_usd != null ? Number(cost.total_usd) : null;
       } catch (e) { console.warn('cost lookup failed', (e as Error).message); }
-      const { data: k } = await db.from('ebooks_kids').select('storefront_meta, cover_url, pdf_url, thumbnail_url, customer_product_description_html, qc_scores, overall_qc_score, pdf_sha256, pdf_byte_size').eq('id', ebook_id).maybeSingle();
+      const { data: k } = await db.from('ebooks_kids').select('storefront_meta, cover_url, pdf_url, thumbnail_url, customer_product_description_html, qc_scores, overall_qc_score, pdf_sha256, pdf_byte_size, book_type, metadata').eq('id', ebook_id).maybeSingle();
       const nextMeta = { ...(k?.storefront_meta ?? {}), production_cost_usd };
+
+      // Coloring-book publish contract (baked-title only + 8.5x11 trim +
+      // distinct fitted thumbnail). Non-bypassable. Documented in
+      // pipeline_skills['coloring-cover-thumbnail-contract-v1'].
+      if (k?.book_type === 'coloring_book') {
+        const contract = assertColoringPublishContract({
+          book_type: k.book_type,
+          cover_url: k.cover_url ?? null,
+          thumbnail_url: k.thumbnail_url ?? null,
+          metadata: (k.metadata ?? {}) as Record<string, unknown>,
+        });
+        if (!contract.pass) {
+          const blocker = contract.reasons.join(' | ').slice(0, 480);
+          console.warn('[kids-publish-if-qc-passed] coloring_publish_contract_blocked', contract);
+          await db.from('ebooks_kids').update({
+            listing_status: 'draft', status: 'needs_revision', pipeline_status: 'queued',
+            sellable: false,
+            blocker_reason: `coloring_publish_contract:${blocker}`.slice(0, 500),
+          }).eq('id', ebook_id);
+          // If cover style is the violation, force cover regeneration; if only
+          // thumbnail, run the thumbnail render; both are safe/idempotent.
+          if (!contract.checks.cover_baked_title_only || !contract.checks.trim_verified) {
+            fetch(`${SUPABASE_URL}/functions/v1/coloring-book-cover`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+              body: JSON.stringify({ ebook_id, force: true }),
+            }).catch(() => {});
+          }
+          if (!contract.checks.thumbnail_distinct_and_fitted && contract.checks.cover_baked_title_only) {
+            fetch(`${SUPABASE_URL}/functions/v1/coloring-book-thumbnail`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+              body: JSON.stringify({ ebook_id, force: true }),
+            }).catch(() => {});
+          }
+          return json({ ok: false, ebook_id, publishState: 'coloring_contract_blocked', contract });
+        }
+      }
+
 
       // Phase 9 — release-gate assertion. Build the in-process release
       // manifest from persisted state and refuse to flip published if any
