@@ -435,6 +435,8 @@ Deno.serve(async (req: Request) => {
             ageBadge,
             ageMin, ageMax,
             totalPages,
+            forbiddenSubjects,
+            forbiddenBackgrounds: forbiddenSubjects,
           }, { timeoutMs: IDEOGRAM_GEN_TIMEOUT_MS, seed: attemptIndex * 1009 }),
           IDEOGRAM_GEN_TIMEOUT_MS + 5_000,
           `ideogram_a${attemptIndex}`,
@@ -455,6 +457,26 @@ Deno.serve(async (req: Request) => {
         if (!verdict.pass) {
           ideoReport.status = "text_rejected";
           ideoReport.reason = `text_verify_failed:${verdict.reason}`;
+          ideogramAttempts.push(ideoReport);
+          continue;
+        }
+        // HARD GUARD (b): category/hero verification — prevent cross-category
+        // background bleeding (unicorn on ocean, dinosaur on waves, etc.).
+        // NULL/degraded verdict is NOT a pass — retry until we have positive
+        // evidence the scene matches the category.
+        const heroVerdict = await withTimeout(
+          verifyCategoryHero(rawBytes, {
+            category_name: categoryNameFinal,
+            allowed_subjects: [...heroSubjects, ...allowedSubjects].slice(0, 20),
+            forbidden_subjects: forbiddenSubjects,
+          }, COVER_VISION_TIMEOUT_MS),
+          COVER_VISION_TIMEOUT_MS + 2_000,
+          `hero_verify_a${attemptIndex}`,
+        ).catch((e) => ({ ok: false, matches: false, detected_subjects: [], forbidden_hit: null, degraded: true, reason: `hero_verify_error:${String(e?.message ?? e).slice(0, 120)}` } as any));
+        ideoReport.checks.hero = heroVerdict;
+        if (!heroVerdict.matches || heroVerdict.degraded) {
+          ideoReport.status = "hero_rejected";
+          ideoReport.reason = `hero_verify_failed:${heroVerdict.reason ?? "unknown"}`;
           ideogramAttempts.push(ideoReport);
           continue;
         }
@@ -489,7 +511,8 @@ Deno.serve(async (req: Request) => {
           continue;
         }
         const overlayText = { ok: true, has_glyphs: true, detected_text: verdict.transcribed_raw, confidence: 1, degraded: false, reason: "ideogram_verified_integrated_typography" };
-        const heroVerdict = { ok: true, matches: true, detected_subjects: heroSubjects.slice(0, 6), forbidden_hit: null, degraded: true, reason: "ideogram_tier_hero_skip_due_to_verified_integrated_typography" };
+        // heroVerdict was already computed and passed both `.matches` and
+        // non-degraded checks above; it is the real vision result now.
         const measured = measuredCoverScorecard({
           title: row.title, subtitle, ageBadge, text: overlayText,
           rawArtText: { ok: true, has_glyphs: true, detected_text: verdict.transcribed_raw, confidence: 1, degraded: false, reason: "ideogram_integrated_verified_exact_match" },

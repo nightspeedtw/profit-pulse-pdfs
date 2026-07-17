@@ -37,10 +37,11 @@ export interface ColoringPublishContractResult {
     cover_baked_title_only: boolean;
     trim_verified: boolean;
     thumbnail_distinct_and_fitted: boolean;
+    cover_category_verified: boolean;
   };
 }
 
-export const COLORING_PUBLISH_CONTRACT_VERSION = "coloring_cover_thumbnail_contract_v1";
+export const COLORING_PUBLISH_CONTRACT_VERSION = "coloring_cover_thumbnail_contract_v2";
 
 export function assertColoringPublishContract(
   input: ColoringPublishContractInput,
@@ -48,9 +49,8 @@ export function assertColoringPublishContract(
   const reasons: string[] = [];
   const meta = (input.metadata ?? {}) as Record<string, any>;
   const cover = (meta.coloring_cover ?? {}) as Record<string, any>;
-  const gateSc = (meta.coloring_cover_gate?.scorecard
-    ?? cover?.measured_gate?.scorecard
-    ?? {}) as Record<string, any>;
+  const gate = (meta.coloring_cover_gate ?? cover?.measured_gate ?? {}) as Record<string, any>;
+  const gateSc = (gate?.scorecard ?? {}) as Record<string, any>;
   const treatment = cover.title_treatment ?? {};
   const thumbMeta = (meta.thumbnail_render_meta ?? {}) as Record<string, any>;
 
@@ -89,11 +89,29 @@ export function assertColoringPublishContract(
     && input.thumbnail_url !== input.cover_url;
   const nonCrop = thumbMeta.non_crop_pass === true;
   const canvasOk = Number(thumbMeta?.canvas?.width) === COLORING_TRIM.thumbnailPx.width
-    && Number(thumbMeta?.canvas?.height) === COLORING_TRIM.thumbnailPx.height;
+      && Number(thumbMeta?.canvas?.height) === COLORING_TRIM.thumbnailPx.height;
   const thumbOk = distinct && nonCrop && canvasOk;
   if (!thumbOk) {
     reasons.push(
       `thumbnail_contract_fail:distinct=${distinct};non_crop=${nonCrop};canvas_ok=${canvasOk}`,
+    );
+  }
+
+  // 4. Cover category verified — NULL / missing gate data is a HARD FAIL,
+  //    never a silent pass. Prevents the "unicorn on ocean waves" class of
+  //    defect from shipping when the vision QC never ran or never wrote
+  //    evidence. Required: (a) coloring_cover_gate.pass === true,
+  //    (b) scorecard.cover_category_match >= 98,
+  //    (c) hero verification recorded matches===true AND degraded===false.
+  const gatePass = gate?.pass === true;
+  const catMatch = Number(gateSc?.cover_category_match ?? -1);
+  const hero = (cover?.evidence?.hero ?? gateSc?.evidence?.hero ?? {}) as Record<string, any>;
+  const heroMatches = hero?.matches === true;
+  const heroDegraded = hero?.degraded === true;
+  const catOk = gatePass && catMatch >= 98 && heroMatches && !heroDegraded;
+  if (!catOk) {
+    reasons.push(
+      `cover_category_unverified:gate_pass=${gatePass};category_match=${catMatch};hero_matches=${heroMatches};hero_degraded=${heroDegraded}`,
     );
   }
 
@@ -105,6 +123,7 @@ export function assertColoringPublishContract(
       cover_baked_title_only: bakedOnly,
       trim_verified: trimOk,
       thumbnail_distinct_and_fitted: thumbOk,
+      cover_category_verified: catOk,
     },
   };
 }
