@@ -127,6 +127,7 @@ export function ColoringAutopilotCard() {
       if (error) throw error;
       if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
       setCfg({ ...DEFAULTS, ...(data?.config ?? next) });
+      dirtyRef.current = false;
       toast({ title: "Coloring autopilot saved" });
     } catch (e) {
       toast({ title: "Save failed", description: String(e), variant: "destructive" });
@@ -138,6 +139,12 @@ export function ColoringAutopilotCard() {
   const runNow = async () => {
     setRunning(true);
     try {
+      // Persist current picker values FIRST so the tick honors the age band /
+      // topic / page count showing on screen. Otherwise the tick reads the
+      // last-saved config and the UI appears to "reset" (age jumps back to 4-6).
+      if (dirtyRef.current) {
+        await save(cfg);
+      }
       const { data, error } = await supabase.functions.invoke("coloring-autopilot-tick", {
         body: { manual: true, override_batch: cfg.batch_size, passcode: passcode() },
         headers: { "x-admin-passcode": passcode() },
@@ -150,7 +157,8 @@ export function ColoringAutopilotCard() {
         title: `Queued ${ok}/${queued.length} coloring book${queued.length === 1 ? "" : "s"}`,
         description: data?.skipped ? `Skipped: ${data.skipped}` : queued.map((q) => q.title).join(" · ").slice(0, 200),
       });
-      await loadStatus();
+      // Refresh status counters but do NOT overwrite cfg with server state.
+      await loadStatus(false);
     } catch (e) {
       toast({ title: "Run failed", description: String(e), variant: "destructive" });
     } finally {
