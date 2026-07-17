@@ -26,8 +26,10 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { falFluxSchnell } from "../_shared/fal.ts";
-import { FalBillingLockedError, FalBudgetCapReachedError, assertLaneCanDispatch } from "../_shared/fal-billing.ts";
-import { generateImageWithFailover, readImageProviderPolicy, DEFAULT_IMAGE_PROVIDER_POLICY } from "../_shared/image-providers.ts";
+import { FalBillingLockedError, FalBudgetCapReachedError, assertLaneCanDispatch, readLaneGuards } from "../_shared/fal-billing.ts";
+import { generateImageWithFailover, readImageProviderPolicy, DEFAULT_IMAGE_PROVIDER_POLICY, readCfBillingLockedUntil } from "../_shared/image-providers.ts";
+import { parkColoringBook, pickParkState } from "../_shared/coloring/quota-park.ts";
+import { maxCfImagesThisTick } from "../_shared/coloring/interior-pacer.ts";
 import {
   assertPromptCompliant,
   buildInteriorPrompt,
@@ -256,6 +258,36 @@ Deno.serve(async (req: Request) => {
       stageLabel = "production";
     }
 
+    // ── QUOTA-AWARE PACING (Cloudflare-primary path) ─────────────────
+    // If CF is our primary provider, clamp this tick's batch to what fits
+    // within today's remaining CF free-neuron budget. When budget is 0 and
+    // FAL is also unavailable, park the book in awaiting_quota_reset with
+    // a scheduled wake at next UTC midnight (CF's pool reset).
+    if (toRender.length > 0 && imagePolicy.primary === "cloudflare_flux_schnell") {
+      const pacer = await maxCfImagesThisTick(db, toRender.length);
+      if (pacer.allowed < toRender.length) {
+        const falAvailable = imagePolicy.fallback === "fal_flux_schnell";
+        if (pacer.allowed === 0 && !falAvailable) {
+          // No CF budget + no healthy FAL → park until CF resets.
+          const wake = await parkColoringBook(
+            db, ebook_id, "awaiting_quota_reset",
+            `interior_pacer: CF daily budget exhausted (used_today=${pacer.used_today}, budget=${pacer.cfg.cf_daily_image_budget})`,
+          );
+          await patchMeta(db, ebook_id, {
+            coloring_current_step_label:
+              `Paused: cloudflare daily neuron budget exhausted — auto-resume at ${wake.toISOString()}`,
+          });
+          return json({ ok: false, halted: true, reason: "cf_daily_budget_paced", wake_at: wake.toISOString() });
+        }
+        if (pacer.allowed > 0) {
+          // Clamp this tick; remaining pages will be handled by the next
+          // self-invoke chain (or by worker-tick if we park later).
+          toRender = toRender.slice(0, pacer.allowed);
+        }
+        // else: fall through to dispatch; failover will route to FAL.
+      }
+    }
+
     if (toRender.length === 0) {
       // Everything done — hand off to post-P0 cover/PDF/publish chain.
       await patchMeta(db, ebook_id, {
@@ -464,12 +496,25 @@ Deno.serve(async (req: Request) => {
             coloring_repair_attempts: repairAttempts,
             coloring_replans: replans,
             coloring_page_plan: { ...planWrap, plan },
-            coloring_current_step_label: e instanceof FalBudgetCapReachedError
-              ? "Paused: fal_budget_cap_reached — waiting for next UTC day or higher cap"
-              : "Paused: provider_billing_locked — top up fal.ai balance to resume",
           });
-          await db.from("ebooks_kids").update({ pipeline_status: "queued" }).eq("id", ebook_id);
-          return json({ ok: false, halted: true, reason: e instanceof FalBudgetCapReachedError ? "fal_budget_cap_reached" : "provider_billing_locked", detail: e.message });
+          // Park in the correct awaiting_* state with next_retry_at so
+          // worker-tick will auto-resume us the moment the provider recovers.
+          const cfLatch = await readCfBillingLockedUntil(db);
+          const { provider_billing_blocked } = await readLaneGuards(db);
+          const health = {
+            cf_locked: !!cfLatch || !!provider_billing_blocked.cloudflare?.active,
+            fal_locked: !!provider_billing_blocked.fal?.active,
+          };
+          const parkState = e instanceof FalBudgetCapReachedError
+            ? "awaiting_billing" as const
+            : pickParkState(health, e.message);
+          const wake = await parkColoringBook(db, ebook_id, parkState, e.message);
+          await patchMeta(db, ebook_id, {
+            coloring_current_step_label: parkState === "awaiting_quota_reset"
+              ? `Paused: awaiting_quota_reset — cloudflare pool resets ${wake.toISOString()}`
+              : `Paused: awaiting_billing — top up fal.ai balance to resume (re-check ${wake.toISOString()})`,
+          });
+          return json({ ok: false, halted: true, reason: parkState, wake_at: wake.toISOString(), detail: e.message });
         }
         console.error(`[coloring-render] page ${page.canonical_page_number} failed`, e?.message);
         repairAttempts[String(page.canonical_page_number)] = attempt + 1;
@@ -651,6 +696,32 @@ Deno.serve(async (req: Request) => {
     }
 
     if (errors.length > 0 && newRecords.length === 0) {
+      // If the whole batch failed AND the underlying signature is a provider
+      // billing/quota class (e.g. legacy CF 429 that didn't route through
+      // the FalBillingLockedError instanceof branch), park cleanly instead
+      // of leaving the row silently queued with no scheduled retry.
+      const firstErr = String(errors[0].error ?? "");
+      const looksProviderQuota =
+        /daily free allocation|neurons|workers paid|exhausted balance|user is locked|provider_billing_locked|fal_budget_cap_reached/i
+          .test(firstErr);
+      if (looksProviderQuota) {
+        const cfLatch = await readCfBillingLockedUntil(db);
+        const { provider_billing_blocked } = await readLaneGuards(db);
+        const health = {
+          cf_locked: !!cfLatch || !!provider_billing_blocked.cloudflare?.active,
+          fal_locked: !!provider_billing_blocked.fal?.active,
+        };
+        const parkState = pickParkState(health, firstErr);
+        const wake = await parkColoringBook(db, ebook_id, parkState, firstErr);
+        await patchMeta(db, ebook_id, {
+          coloring_progress_percent: percent,
+          coloring_current_step_label: parkState === "awaiting_quota_reset"
+            ? `Paused: awaiting_quota_reset — cloudflare pool resets ${wake.toISOString()}`
+            : `Paused: awaiting_billing — top up fal.ai balance (re-check ${wake.toISOString()})`,
+          coloring_last_errors: perPageTrimmed,
+        });
+        return json({ ok: false, stage: stageLabel, reason: parkState, wake_at: wake.toISOString(), errors: perPageTrimmed }, 200);
+      }
       // Whole batch failed — surface as blocker but keep queued for retry.
       await db.from("ebooks_kids").update({
         pipeline_status: "queued",

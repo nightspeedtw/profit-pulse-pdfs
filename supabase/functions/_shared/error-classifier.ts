@@ -101,6 +101,60 @@ const KNOWN_SIGNATURES: Array<{
       fingerprint: "browserless_429",
     }),
   },
+  // Cloudflare Workers AI — daily free neuron pool exhausted (429).
+  // Auto-resume next UTC midnight when the pool resets. No human needed.
+  {
+    match: (m) => /(daily free allocation|workers paid|@cf\/|cloudflare)/i.test(m) && /(neurons|429|daily free allocation)/i.test(m),
+    build: (m, ctx) => {
+      const nextMidnight = new Date();
+      nextMidnight.setUTCHours(24, 2, 0, 0);
+      return {
+        error_type: "quota_wait" as const,
+        severity: "medium" as const,
+        recoverable: true,
+        affected_step: ctx.step,
+        user_friendly_message:
+          "Waiting for Cloudflare daily quota reset — will resume automatically at 00:00 UTC.",
+        technical_message: m,
+        detected_root_cause:
+          "Cloudflare Workers AI returned 429: daily free neuron allocation exhausted (10,000/day cap).",
+        auto_recovery_action:
+          "Latch Cloudflare provider until next 00:00 UTC, park book in awaiting_quota_reset with next_retry_at, worker-tick wakes it once CF is healthy again.",
+        next_retry_at: nextMidnight.toISOString(),
+        needs_code_fix: false,
+        lovable_fix_instruction: "",
+        affected_files: [],
+        test_to_confirm: "Parked book re-enters queued state after 00:00 UTC and reaches final PDF without manual intervention.",
+        suggested_status: "waiting_for_ai_budget" as const,
+        fingerprint: "cloudflare_neuron_quota",
+      };
+    },
+  },
+  // fal.ai billing-locked (403 "Exhausted balance" / "User is locked").
+  // Requires human top-up; re-check every 30 min.
+  {
+    match: (m) => /(fal|fal\.ai)/i.test(m) && /(exhausted balance|user is locked|top up your balance|insufficient (funds|credit|balance)|billing.*locked)/i.test(m),
+    build: (m, ctx) => ({
+      error_type: "quota_wait" as const,
+      severity: "high" as const,
+      recoverable: true,
+      affected_step: ctx.step,
+      user_friendly_message:
+        "Waiting for fal.ai balance top-up — visit fal.ai/dashboard/billing to resume immediately.",
+      technical_message: m,
+      detected_root_cause:
+        "fal.ai returned 403: account balance exhausted or user is locked.",
+      auto_recovery_action:
+        "Latch fal provider as billing_blocked, park book in awaiting_billing with 30-minute re-check cadence; when balance restored the next tick wakes the book automatically.",
+      next_retry_at: backoff(30),
+      needs_code_fix: false,
+      lovable_fix_instruction: "",
+      affected_files: [],
+      test_to_confirm: "After top-up at fal.ai/dashboard/billing, parked book returns to queued and completes without manual DB edits.",
+      suggested_status: "needs_admin_attention" as const,
+      fingerprint: "fal_billing_locked",
+    }),
+  },
   // Storefront daily cap / 402 / quota
   {
     match: (m) => /storefront/i.test(m) && /(quota|throttl|daily|cap|402)/i.test(m),
