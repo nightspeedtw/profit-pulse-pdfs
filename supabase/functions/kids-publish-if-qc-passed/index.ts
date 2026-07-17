@@ -7,6 +7,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { validateReleaseManifest, type ReleaseManifest } from '../_shared/release-gates.ts';
 import { assertFinalReleaseSkillEvidence, MissingRequiredSkillContract } from '../_shared/skill-router.ts';
 import { resolveStageOrThrow, logStageEvidence } from '../_shared/skill-evidence.ts';
+import { assertColoringPublishContract } from '../_shared/coloring/publish-contract.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
