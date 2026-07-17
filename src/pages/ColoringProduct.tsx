@@ -152,7 +152,6 @@ export default function ColoringProduct() {
     setPreview(true);
   };
 
-  const [downloading, setDownloading] = useState(false);
   const clickBuy = async () => {
     if (!book || downloading) return;
     void emitColoringEvent("click_buy", book.id, { force: true, extra: { price_cents: priceCents, bypass: true } });
