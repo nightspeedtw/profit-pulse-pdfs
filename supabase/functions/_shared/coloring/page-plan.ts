@@ -4,6 +4,8 @@
 
 import type { ColoringCategory } from "./category.ts";
 import type { PagePlanEntry } from "./style-contract.ts";
+import { assertSpeciesCoverage } from "./species-anatomy.ts";
+
 
 // Scene taxonomy — every book distributes across these buckets so pages
 // feel like a real book, not eight rotations of the same subject.
@@ -49,7 +51,8 @@ export interface PagePlanValidationIssue {
     | "DUPLICATE_CONCEPT"
     | "OVERUSED_SUBJECT"
     | "MISSING_FIELD"
-    | "SCENE_TAXONOMY_UNDERCOVERED";
+    | "SCENE_TAXONOMY_UNDERCOVERED"
+    | "SPECIES_CONTRACT_MISSING";
   message: string;
 }
 
@@ -216,5 +219,20 @@ export function validatePagePlan(
       }
     }
   }
+
+  // Species-coverage gate (owner mandate 2026-07-17 — chimera/extra-limb
+  // defect): every animate primary_subject must resolve to a specific
+  // species_anatomy contract, or be an explicit non-anatomical scene/
+  // object/pattern. Blocks a category from autopilot production when a
+  // subject would silently fall through to the generic anatomy pass.
+  const coverage = assertSpeciesCoverage(plan.map((p) => p.primary_subject ?? ""));
+  for (const m of coverage.missing) {
+    issues.push({
+      page: 0,
+      code: "SPECIES_CONTRACT_MISSING",
+      message: `'${m.subject}' has no species_anatomy contract and is not in NON_ANATOMY_SUBJECT_HINTS — add a species row or a non-anatomy hint before enabling this category`,
+    });
+  }
+
   return issues;
 }

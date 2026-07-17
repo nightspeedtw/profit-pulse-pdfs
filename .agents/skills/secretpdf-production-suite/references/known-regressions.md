@@ -145,3 +145,29 @@ in a small card — fragile.
 - Fix: `object-contain` on `aspect-[1600/2071]` for coloring in UI; new
   shared `fitContainCover()` helper (`Math.min`) in the assembler.
 - Regression test: `src/lib/coloringCoverPdfPlacement.test.ts`.
+
+## chimera-anatomy-v1 (2026-07-17)
+- Symptom: coloring pages sometimes rendered animals with extra legs,
+  fused hips, duplicated heads, or merged-species features (e.g. dog with
+  5 legs, elephant with 2 trunks) — a.k.a. "chimera defect".
+- Root cause: `species_anatomy` (both DB table and the TypeScript
+  `SPECIES_ANATOMY` in `_shared/coloring/species-anatomy.ts`) covered
+  only marine species. Every land/farm/pet/safari/dino subject fell
+  through to the generic anatomy pass with no leg-count contract, so
+  neither the interior prompt nor the anatomy verifier had a hard rule
+  to enforce.
+- Fix: (1) added explicit species rows for dog/cat/rabbit/bear/fox/
+  squirrel/deer/raccoon/hedgehog/owl/cow/pig/sheep/goat/chicken/duck/
+  horse/donkey/elephant/lion/tiger/giraffe/zebra/monkey plus
+  dinosaur/t-rex/triceratops/brachiosaurus/stegosaurus, every
+  quadruped explicitly stating "EXACTLY FOUR legs, no fusion, no
+  duplication". Fantasy creatures (unicorn, dragon, mermaid, etc.)
+  already existed with fantasy=true and are NOT rejected — malformed
+  variants of them still hard-fail on the same leg-count/head-count
+  contract. (2) Added `assertSpeciesCoverage()` + `NON_ANATOMY_SUBJECT_HINTS`
+  and wired into `validatePagePlan` as new `SPECIES_CONTRACT_MISSING`
+  issue so any category whose concept generator emits a creature-like
+  subject without a matching contract is blocked before render.
+- Note: `buildInteriorPrompt` and `coloring-book-render` repair path
+  already injected the contract via `speciesAnatomyPromptClause` /
+  `speciesAnatomyRepairClause` — the gap was contract data, not wiring.
