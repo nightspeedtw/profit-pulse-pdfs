@@ -63,13 +63,22 @@ Deno.serve(async (req: Request) => {
   const cutoff = new Date(now - STALL_THRESHOLD_MS).toISOString();
 
   // Load candidates: any non-terminal row not touched in threshold window.
-  const { data: rows, error } = await db
+  // AMENDMENT: pipeline_status='published' is only terminal when the book
+  // is FULLY LIVE (pdf_url + cover_url + listing_status='live'). A
+  // 'published' row missing pdf_url is non-terminal by DB invariant
+  // (ebooks_kids_live_assets_guard) — it MUST be scanned for stalls.
+  const nonPublishedTerminals = [...TERMINAL_STATUSES].filter((s) => s !== "published");
+  const { data: rowsA, error } = await db
     .from("ebooks_kids")
     .select("id, book_type, pipeline_status, metadata, cover_url, pdf_url, listing_status, updated_at")
-    .not("pipeline_status", "in", `(${[...TERMINAL_STATUSES].map(s => `"${s}"`).join(",")})`)
+    .not("pipeline_status", "in", `(${nonPublishedTerminals.map(s => `"${s}"`).join(",")})`)
     .lt("updated_at", cutoff)
     .limit(200);
   if (error) return json({ error: error.message }, 500);
+  // Filter out fully-live published rows (true terminal).
+  const rows = (rowsA ?? []).filter((r: any) => !(
+    r.pipeline_status === "published" && r.pdf_url && r.cover_url && r.listing_status === "live"
+  ));
 
   const detected: unknown[] = [];
   const reacted: unknown[] = [];
