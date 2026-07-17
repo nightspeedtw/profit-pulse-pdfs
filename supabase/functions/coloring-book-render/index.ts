@@ -516,7 +516,6 @@ Deno.serve(async (req: Request) => {
           });
           return json({ ok: false, halted: true, reason: parkState, wake_at: wake.toISOString(), detail: e.message });
         }
-        }
         console.error(`[coloring-render] page ${page.canonical_page_number} failed`, e?.message);
         repairAttempts[String(page.canonical_page_number)] = attempt + 1;
         errors.push({ page: page.canonical_page_number, error: e?.message ?? String(e) });
