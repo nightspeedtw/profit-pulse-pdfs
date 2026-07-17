@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, Trash2, ExternalLink, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { CanvaConnectionCard } from "@/components/admin/CanvaConnectionCard";
 
 type Settings = {
   id: number;
