@@ -1,20 +1,25 @@
-// Fal provider billing/lock/quota classifier + lane-level guard.
+// Per-provider image billing/lock/quota classifier + lane-level guards.
 //
-// PERMANENT CLASS FIX: fal 403 "Exhausted balance", 402, 429 quota, and
-// "user is locked" responses are PROVIDER-STATE errors, NOT page-content
-// failures. They must never:
-//   - increment coloring_repair_attempts
-//   - trigger the repair ladder (repair → revise → simplify → escalate)
-//   - burn a page's replan budget
-// Instead they FLIP a lane-level state (generation_settings.coloring_autopilot
-// .billing_blocked) and halt all further dispatch until cleared.
+// PERMANENT CLASS FIX (v2 — per-provider latch): provider 4xx billing/lock
+// responses (fal 403 "Exhausted balance", 402, 429 "quota", "user is
+// locked", Cloudflare 4006/quota) are PROVIDER-STATE errors and must
+// never burn page repair attempts or freeze the whole lane when another
+// healthy provider exists.
 //
-// The auto-resume path: any successful FAL call flips billing_blocked back
-// off. Admin can also POST to coloring-autopilot-config to clear it.
+// v1 stored ONE lane-wide `billing_blocked` bool. That was wrong once
+// interiors ran on multi-provider failover: a fal 403 froze the whole
+// lane even though Cloudflare was healthy and configured as primary.
 //
-// A daily-budget guard sums cost_log fal_direct spend for today and refuses
-// dispatch when it exceeds cfg.fal_daily_budget_usd (default $5) so the
-// balance never dies mid-book.
+// v2 stores per-provider state under
+//   generation_settings.coloring_autopilot.provider_billing_blocked = {
+//     fal: { active, status, provider_message, at, cleared_at? },
+//     cloudflare: { ... },
+//   }
+// Lane dispatch checks now consult ONLY the daily budget cap. Per-request
+// provider selection is handled by the failover dispatcher in
+// image-providers.ts (skips locked providers, keeps healthy ones).
+// Legacy `billing_blocked` is still mirrored to the FAL slot so older
+// readers keep working.
 
 export class FalBillingLockedError extends Error {
   readonly kind = "provider_billing_locked" as const;
