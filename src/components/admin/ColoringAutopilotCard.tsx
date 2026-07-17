@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ interface ColoringConfig {
   paused: boolean;
   topic_mode: "random" | "specific";
   specific_category_key: string | null;
-  age_band: "3-5" | "4-6" | "6-8";
+  age_band: "2-4" | "4-6" | "6-8" | "8-12" | "13-17" | "all_ages";
   page_count: 4 | 16 | 24 | 32 | 48;
   batch_size: number;
   daily_cap: number;
@@ -75,11 +75,16 @@ export function ColoringAutopilotCard() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  // When the user edits the form locally, background polling must NOT clobber
+  // their unsaved selection (this is what caused age_band to jump back to 4-6
+  // after clicking "Run now").
+  const dirtyRef = useRef(false);
+  const cfgLoadedRef = useRef(false);
 
   const passcode = () =>
     typeof window !== "undefined" && localStorage.getItem("admin_passcode_ok") === "1" ? "453451" : "";
 
-  const loadStatus = async () => {
+  const loadStatus = async (adoptConfig = false) => {
     try {
       const { data, error } = await supabase.functions.invoke("coloring-autopilot-config", {
         body: { passcode: passcode() },
@@ -87,7 +92,13 @@ export function ColoringAutopilotCard() {
       });
       if (error) throw error;
       if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
-      setCfg({ ...DEFAULTS, ...(data?.config ?? {}) });
+      // Only overwrite the form state on the initial load or right after a save.
+      // Background polls keep status/cats fresh without touching cfg.
+      if (adoptConfig || !cfgLoadedRef.current) {
+        setCfg({ ...DEFAULTS, ...(data?.config ?? {}) });
+        cfgLoadedRef.current = true;
+        dirtyRef.current = false;
+      }
       setCats(data?.categories ?? []);
       setStatus(data?.status ?? null);
     } catch (e) {
