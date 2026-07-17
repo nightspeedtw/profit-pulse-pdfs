@@ -219,7 +219,10 @@ export function ColoringAutopilotCard() {
     }
   };
 
-  const update = <K extends keyof ColoringConfig>(k: K, v: ColoringConfig[K]) => setCfg((p) => ({ ...p, [k]: v }));
+  const update = <K extends keyof ColoringConfig>(k: K, v: ColoringConfig[K]) => {
+    dirtyRef.current = true;
+    setCfg((p) => ({ ...p, [k]: v }));
+  };
 
   return (
     <Card className="p-4 border-2 border-foreground">
@@ -364,12 +367,16 @@ export function ColoringAutopilotCard() {
           <Select value={cfg.age_band} onValueChange={(v) => update("age_band", v as ColoringConfig["age_band"])}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="3-5">3–5</SelectItem>
+              <SelectItem value="2-4">2–4</SelectItem>
               <SelectItem value="4-6">4–6</SelectItem>
               <SelectItem value="6-8">6–8</SelectItem>
+              <SelectItem value="8-12">8–12</SelectItem>
+              <SelectItem value="13-17">13–17</SelectItem>
+              <SelectItem value="all_ages">All Ages</SelectItem>
             </SelectContent>
           </Select>
         </div>
+
 
         <div>
           <Label className="text-xs uppercase font-mono">Page count</Label>
