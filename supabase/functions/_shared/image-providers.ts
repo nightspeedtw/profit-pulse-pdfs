@@ -274,11 +274,21 @@ export async function generateImageWithFailover(
       const err = e as Error;
       attempts.push({ provider: providerId, ok: false, error: err?.message ?? String(e) });
       lastErr = e;
-      // Cloudflare billing lock → latch for the rest of the UTC day.
-      if (providerId === "cloudflare_flux_schnell" && e instanceof FalBillingLockedError && db) {
-        await latchCfBillingUntilNextUtcMidnight(db, opts.ebook_id);
+      // Provider billing/quota lock → mark the specific provider blocked so
+      // the next dispatch (and readImageProviderPolicy) skips it entirely
+      // instead of freezing the lane. Cloudflare also latches for the day.
+      if (e instanceof FalBillingLockedError && db) {
+        if (providerId === "cloudflare_flux_schnell") {
+          await latchCfBillingUntilNextUtcMidnight(db, opts.ebook_id);
+          try { await markProviderBillingBlocked(db, "cloudflare", e); } catch (_e) { /* best-effort */ }
+        } else if (providerId === "fal_flux_schnell") {
+          try { await markProviderBillingBlocked(db, "fal", e); } catch (_e) { /* best-effort */ }
+        }
       }
       if (e instanceof ProviderUnconfiguredError) continue;
+      // A provider-billing lock on THIS provider is not fatal — keep trying
+      // the next configured fallback rather than propagating up.
+      if (e instanceof FalBillingLockedError) continue;
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
