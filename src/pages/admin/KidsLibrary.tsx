@@ -140,6 +140,7 @@ export default function KidsLibrary() {
             <Button size="sm" onClick={() => publish(b.id)} disabled={busy || !canPublish}>Publish live</Button>
           )}
         </div>
+        <CanvaBookActions ebookId={b.id} hasPdf={!!b.cover_url} compact />
       </Card>
     );
   };
