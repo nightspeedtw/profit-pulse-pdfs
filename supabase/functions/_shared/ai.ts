@@ -277,6 +277,26 @@ export async function aiText(opts: {
     }
   }
 
+  // --- openai direct path (activates when OPENAI_API_KEY is set) ---
+  if (isOpenAIModel(opts.model) && hasOpenAIDirect()) {
+    try {
+      const r = await openaiDirectChat({
+        system: opts.system, user: opts.user, model: opts.model,
+        maxTokens: opts.maxTokens, timeoutMs: opts.timeoutMs,
+      });
+      const rate = RATES[opts.model] ?? { in: 0.1, out: 0.4 };
+      const cost = (r.input_tokens / 1_000_000) * rate.in + (r.output_tokens / 1_000_000) * rate.out;
+      logAiCost(costDb(), {
+        ebook_id: opts.ebook_id ?? null, step: stepTag, model: opts.model,
+        input_tokens: r.input_tokens, output_tokens: r.output_tokens,
+        cost_usd: cost, provider: "openai_direct",
+      });
+      return { data: r.text, usage: { input_tokens: r.input_tokens, output_tokens: r.output_tokens, cost_usd: cost }, model: opts.model };
+    } catch (e) {
+      console.warn(`[ai-router] openai-direct text failed, falling back to gateway: ${(e as Error).message}`);
+    }
+  }
+
   if (!key) throw new Error("LOVABLE_API_KEY not configured");
   const controller = opts.timeoutMs ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort("ai_text_timeout"), opts.timeoutMs) : null;
