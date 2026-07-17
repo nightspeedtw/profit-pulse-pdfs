@@ -25,6 +25,16 @@ export interface IdeogramCoverRequest {
   ageMin: number;
   ageMax: number;
   totalPages: number;
+  /**
+   * Category-appropriate scene guidance. `backgroundHint` describes the ONLY
+   * environment the model may paint (e.g. "enchanted forest with soft
+   * meadow"). `forbiddenBackgrounds` is a hard negative list (e.g. ocean
+   * waves, coral reef) so cross-category templates cannot leak in — this is
+   * the fix for the "unicorn standing on ocean waves" defect class.
+   */
+  backgroundHint?: string;
+  forbiddenBackgrounds?: string[];
+  forbiddenSubjects?: string[];
 }
 
 export interface IdeogramCoverResult {
@@ -35,12 +45,35 @@ export interface IdeogramCoverResult {
   request_id?: string | null;
 }
 
+// Category-family → allowed background clause. Used to positively steer the
+// scene when the caller hasn't supplied an explicit backgroundHint.
+export function defaultBackgroundHintFor(categoryName: string): string {
+  const c = (categoryName ?? "").toLowerCase();
+  if (/ocean|sea|mermaid|underwater|reef|marine/.test(c)) return "soft underwater seascape with gentle wavy water, coral hints, bubbles";
+  if (/farm|woodland|forest|barn/.test(c)) return "sunny farm meadow or cozy woodland clearing with grass, trees, wooden fence — NO water";
+  if (/dinosaur|prehistoric/.test(c)) return "prehistoric jungle or volcanic plain with ferns and rocks — NO ocean, NO waves, NO water";
+  if (/unicorn|fairy|princess|fantasy|magic|mermaid/.test(c) && !/mermaid|ocean/.test(c)) return "enchanted magical meadow, rainbow sky, sparkles, distant castle or flower field — NO ocean, NO waves";
+  if (/pet|cat|dog|puppy|kitten/.test(c)) return "cozy home yard, living room, or park lawn — NO ocean, NO wild jungle";
+  if (/safari|wild|jungle/.test(c)) return "African savanna or jungle with acacia trees, grass, rocks — NO ocean, NO snow";
+  if (/space|astronaut|planet/.test(c)) return "starry outer space with planets and nebulae — NO ocean, NO forest";
+  if (/holiday|christmas|halloween|season/.test(c)) return "seasonal indoor/outdoor holiday scene appropriate to the theme — NO ocean waves";
+  if (/floral|flower|botanical|garden/.test(c)) return "flower garden with leaves, petals, butterflies — NO ocean, NO waves";
+  if (/preschool|toddler/.test(c)) return "simple friendly playroom or meadow scene — NO ocean unless a specific sea hero is shown";
+  return "a scene environment that clearly belongs to the book's category — NO ocean waves for non-ocean books, NO castles for non-fantasy, NO snow for non-winter";
+}
+
 export function buildIdeogramIntegratedCoverPrompt(input: IdeogramCoverRequest): string {
   const heroes = (input.heroSubjects ?? []).filter(Boolean).slice(0, 6).join(", ");
+  const bgHint = (input.backgroundHint ?? "").trim() || defaultBackgroundHintFor(input.categoryName);
+  const forbiddenBg = (input.forbiddenBackgrounds ?? []).filter(Boolean).slice(0, 10);
+  const forbiddenSubj = (input.forbiddenSubjects ?? []).filter(Boolean).slice(0, 12);
   const parts = [
     // Composition
     `A joyful children's coloring-book cover for ages ${input.ageMin}-${input.ageMax}, "${input.categoryName}" theme.`,
     heroes ? `Front and center: charming friendly ${heroes}, warm playful expressions, storybook composition.` : "",
+    `SCENE / BACKGROUND — ${bgHint}. The background MUST match the "${input.categoryName}" category. Do NOT reuse a generic ocean/water strip or template from other books.`,
+    forbiddenBg.length ? `NEGATIVE SCENE — do NOT include: ${forbiddenBg.join(", ")}.` : "",
+    forbiddenSubj.length ? `NEGATIVE SUBJECTS — do NOT include any of: ${forbiddenSubj.join(", ")}.` : "",
     "Full-color painterly illustration, thick crayon-textured line art, soft warm palette, cozy natural light, clean uncluttered background, generous negative space at the top for the title.",
     // Integrated typography (this is what Ideogram excels at)
     "INTEGRATED HAND-LETTERED TYPOGRAPHY baked into the composition:",
