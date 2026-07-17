@@ -20,7 +20,7 @@
 // logs $0.003/img — the sum is what the cap enforces).
 
 import { falFluxSchnell } from "./fal.ts";
-import { FalBillingLockedError, isFalBillingLocked } from "./fal-billing.ts";
+import { FalBillingLockedError, isFalBillingLocked, markProviderBillingBlocked } from "./fal-billing.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
 
 export type ImageProviderId = "cloudflare_flux_schnell" | "fal_flux_schnell";
