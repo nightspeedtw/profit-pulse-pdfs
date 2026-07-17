@@ -32,7 +32,13 @@ export interface CoverTextVerdict {
   transcribed_raw: string;
   transcribed_tokens: string[];
   approved_tokens: string[];
+  /** Subset that MUST render (derived from title). */
+  required_tokens: string[];
+  /** Subset that is nice-to-have (subtitle/badge) — missing → warning, not fail. */
+  optional_tokens: string[];
   missing: string[];
+  missing_required: string[];
+  missing_optional: string[];
   extra: string[];
   misspelled: string[];
   attempted_at: string;
