@@ -193,7 +193,7 @@ describe("cover rendered-proof: FINAL raster contract", () => {
   });
 
   it("rejects extra/unapproved transcribed text", () => {
-    const tx = verifyApprovedTranscription(approved, `${approved.join(" | ")} | SALE 50% OFF | random AI letters`);
+    const tx = verifyApprovedTranscription(approved, [], `${approved.join(" | ")} | SALE 50% OFF | random AI letters`);
     expect(tx.pass).toBe(false);
     expect(tx.extra_unapproved.length).toBeGreaterThan(0);
   });

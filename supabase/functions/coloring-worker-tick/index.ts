@@ -195,14 +195,29 @@ Deno.serve(async (req: Request) => {
       // the top-N are stuck bouncing on the same terminal-ish stage.
       const { data } = await db
         .from("ebooks_kids")
-        .select("id, title, metadata, pdf_url, cover_url")
+        .select("id, title, metadata, pdf_url, cover_url, blocker_reason")
         .eq("book_type", "coloring_book")
         .eq("pipeline_status", "queued")
         .order("created_at", { ascending: true })
-        .limit(Math.max(slots * 4, 12));
+        .limit(Math.max(slots * 6, 24));
       const now = Date.now();
       const COOLDOWN_MS = 90_000;
-      const filtered = (data ?? []).filter((r: any) => {
+      // Owner ruling 2026-07-17: books parked on a lane-blocked provider
+      // signal (billing exhausted / quota / provider_unavailable) must NOT
+      // monopolize worker slots. They stay in `queued` for visibility but
+      // are skipped by the dispatcher until the blocker_reason is cleared
+      // by a code fix / lane recovery — same "never dead-end the whole
+      // queue over one defect class" principle as the quota latch.
+      const LANE_BLOCKED = /provider_billing|provider_quota|provider_unavailable/;
+      let laneBlockedSkipped = 0;
+      const dispatchable = (data ?? []).filter((r: any) => {
+        if (r.blocker_reason && LANE_BLOCKED.test(String(r.blocker_reason))) {
+          laneBlockedSkipped += 1;
+          return false;
+        }
+        return true;
+      });
+      const filtered = dispatchable.filter((r: any) => {
         const t = (r.metadata as any)?.coloring_last_dispatched_at;
         if (!t) return true;
         const ts = Date.parse(t);
@@ -218,7 +233,8 @@ Deno.serve(async (req: Request) => {
       });
       queued = filtered.slice(0, slots);
       result.candidates_seen = (data ?? []).length;
-      result.cooldown_skipped = (data ?? []).length - filtered.length;
+      result.lane_blocked_skipped = laneBlockedSkipped;
+      result.cooldown_skipped = dispatchable.length - filtered.length;
       result.focus_run_prioritized = queued.filter((r: any) => (r.metadata as any)?.focus_run).length;
     }
     result.queue_size = queued.length;

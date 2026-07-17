@@ -86,8 +86,8 @@ export function buildIdeogramIntegratedCoverPrompt(input: IdeogramCoverRequest):
     `- A small round badge in a lower corner reads EXACTLY: "${input.ageBadge}"`,
     `  puffy sticker style, warm color-block, clearly legible.`,
     "Spelling must be pixel-perfect. Do NOT paraphrase or abbreviate any word.",
-    "Do NOT invent extra words, captions, taglines, credits, publisher names, page numbers, or watermarks.",
-    "Only the three text elements above may appear anywhere in the image.",
+    "STRICT TEXT CONTRACT — render ONLY the exact approved title and subtitle (and age-badge) text listed above. NO additional words, labels, banners, captions, taglines, credits, publisher names, page-count numbers, price tags, decorative headline chrome (e.g. \"COLORING BOOK\", \"FUN!\", \"NEW\"), watermarks, or signatures of any kind may appear anywhere in the image.",
+    "If uncertain, LEAVE A WORD OUT rather than invent one. Only the three approved text elements above may appear anywhere in the image.",
     // SAFE-AREA RULE (round_1 fix: baked-title clipping class).
     "SAFE-AREA RULE — all lettering, glyphs and title strokes MUST sit inside the central 80% of the frame. Nothing (no letter, no stroke, no ornament) may touch or overlap the outer 10% band on any side. Leave a clean margin so the title reads whole even if trimmed 6% at print.",
     "Hero subjects must also stay inside the central 88% of the frame — no animal or character may be cropped by the edge.",
