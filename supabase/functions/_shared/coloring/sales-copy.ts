@@ -8,12 +8,17 @@
 // re-derived on-the-fly by `list-storefront` for older books so retroactive
 // upgrades don't require a backfill migration.
 
+import { bandProfileForAges, resolveBandProfileForDbBand, type AgeBandProfile, type MarketingTone } from "./age-bands.ts";
+
 export interface ColoringSalesCopyInput {
   title: string;
   category_name: string | null;
   age_min: number | null;
   age_max: number | null;
   page_count: number;
+  /** Optional DB age band ("2_3","3_5","4_6","6_8","8_12","13_17") — when
+   * present, marketing tone is derived from AGE_BAND_PROFILE. */
+  db_band?: string | null;
 }
 
 export interface ColoringSalesCopy {
