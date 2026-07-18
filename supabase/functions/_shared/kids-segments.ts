@@ -203,7 +203,12 @@ export interface WriteSegmentsOpts {
   extraCraftBlock?: string; // e.g. loadStoryCraftBlock output
   model?: string;
   timeoutMs?: number;
+  // For cost accounting (right-first-time verification). Optional so legacy
+  // callers keep compiling; when set every writer attempt is logged to cost_log.
+  ebookId?: string | null;
+  ideaId?: string | null;
 }
+
 
 // RIGHT-FIRST-TIME ARCHITECTURE (2026-07-18):
 // Writer defaults to the TOP text tier with the complete story_gate rubric
