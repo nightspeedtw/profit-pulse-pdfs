@@ -57,6 +57,18 @@ export interface IdeogramCoverRequest {
   referenceImageURLs?: string[];
   /** Book row id, used for cost_log attribution. */
   ebook_id?: string;
+  /**
+   * Per-book trim dims (Phase A 2026-07-19). When omitted, defaults to
+   * legacy letter_portrait 8.5:11 values. New callers MUST resolve from
+   * the row's trim_profile so square books actually generate square.
+   */
+  dims?: {
+    runwareWidth: number;
+    runwareHeight: number;
+    runwareFallbackWidth: number;
+    runwareFallbackHeight: number;
+    gptImageSize: "1024x1024" | "1024x1536" | "1536x1024";
+  };
 }
 
 export interface IdeogramCoverResult {
@@ -219,13 +231,14 @@ async function generateViaRunware(
   opts: { timeoutMs?: number; seed?: number },
 ): Promise<IdeogramCoverResult> {
   if (!RUNWARE_API_KEY) throw new Error("provider_unconfigured:RUNWARE_API_KEY_missing");
-  // Native-trim-ratio order: try 896×1152 first (closest to 0.7727); if the
-  // Ideogram grid rejects it as unsupported, retry once at 832×1088 (already
-  // known-good) — still native, still ≤1.05% ratio deviation.
-  const attempts: Array<[number, number]> = [
-    [RUNWARE_IDEOGRAM_WIDTH, RUNWARE_IDEOGRAM_HEIGHT],
-    [RUNWARE_IDEOGRAM_WIDTH_FALLBACK, RUNWARE_IDEOGRAM_HEIGHT_FALLBACK],
-  ];
+  const d = request.dims;
+  const primaryW = d?.runwareWidth ?? RUNWARE_IDEOGRAM_WIDTH;
+  const primaryH = d?.runwareHeight ?? RUNWARE_IDEOGRAM_HEIGHT;
+  const fallbackW = d?.runwareFallbackWidth ?? RUNWARE_IDEOGRAM_WIDTH_FALLBACK;
+  const fallbackH = d?.runwareFallbackHeight ?? RUNWARE_IDEOGRAM_HEIGHT_FALLBACK;
+  const attempts: Array<[number, number]> = primaryW === fallbackW && primaryH === fallbackH
+    ? [[primaryW, primaryH]]
+    : [[primaryW, primaryH], [fallbackW, fallbackH]];
   let lastErr: unknown = null;
   for (let i = 0; i < attempts.length; i++) {
     const [w, h] = attempts[i];
@@ -234,8 +247,6 @@ async function generateViaRunware(
     } catch (e) {
       lastErr = e;
       const msg = String((e as Error)?.message ?? "");
-      // Only fall through on dimension/validation rejections. Billing or
-      // network errors propagate immediately.
       if (i < attempts.length - 1 && /dimension|resolution|invalid|not supported|422/i.test(msg)) {
         continue;
       }
@@ -385,7 +396,7 @@ async function generateViaGptImage(
   const { bytes, model } = await openaiDirectImage({
     prompt: prompt.slice(0, 3000),
     model: "gpt-image-1",
-    size: "1024x1536",
+    size: request.dims?.gptImageSize ?? "1024x1536",
     quality: "medium",
     timeoutMs: opts.timeoutMs ?? 90_000,
   });
