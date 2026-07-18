@@ -37,52 +37,42 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
   const buyHref = isColoring ? `/kids/coloring/${book.id}` : `/kids/checkout/${book.id}`;
   const buyLabel = isColoring ? `SHOP · ${priceLabel}` : `BUY · ${priceLabel}`;
 
+  const image = (isColoring && book.thumbnail_url) ? book.thumbnail_url : book.cover_url;
+
+  // Aspect ratios locked to the actual cover asset shipped by the pipeline.
+  // Coloring: 1600×2071 (gpt-image-1 output, letterbox-trimmed thumbnail).
+  // Illustrated: 1024×1280. object-contain protects legacy covers.
+  const aspectClass = isColoring ? "aspect-[1600/2071]" : "aspect-[1024/1280]";
+
   return (
-    <div
+    <Link
+      to={productHref}
+      aria-label={`ดูรายละเอียด ${book.title}`}
       className={[
-        "group flex flex-col rounded-2xl border-2 border-border bg-card overflow-hidden",
-        "transition-all hover:-translate-y-1 hover:shadow-brand hover:border-accent/50 animate-fade-in-up",
-        isStrip ? "flex-shrink-0 w-56 md:w-64" : "",
+        "group brutal-card flex flex-col overflow-hidden animate-fade-in-up",
+        isStrip ? "flex-shrink-0 w-64 md:w-72" : "",
       ].join(" ")}
       style={{ animationDelay: `${Math.min(index * 60, 400)}ms` }}
     >
-      <Link
-        to={productHref}
-        aria-label={`ดูรายละเอียด ${book.title}`}
-        // Container aspect tracks the actual art aspect. Coloring covers'
-        // display asset (thumbnail_url) is now trimmed to source content
-        // (gpt-image-1 = 2:3), so the frame hugs the raster with no white
-        // letterbox bars on the storefront. Fallback object-contain still
-        // protects legacy covers.
-        className={[
-          "relative bg-muted overflow-hidden block cursor-pointer",
-          isColoring ? "aspect-[2/3]" : "aspect-[1024/1280]",
-        ].join(" ")}
-      >
-        {(isColoring && book.thumbnail_url) || book.cover_url ? (
+      <div className={`relative bg-white overflow-hidden border-b-2 border-foreground ${aspectClass}`}>
+        {image ? (
           <img
-            src={(isColoring && book.thumbnail_url) ? book.thumbnail_url : book.cover_url}
+            src={image}
             alt={book.title}
             loading="lazy"
-            // object-contain is the safety net: even if a legacy cover of a
-            // different ratio sneaks in, we letterbox instead of clipping the
-            // baked title. Aspect-matched containers above make this a no-op
-            // for correctly-sized covers.
-            className="w-full h-full object-contain group-hover:scale-[1.03] transition-transform duration-500"
+            className="absolute inset-0 w-full h-full object-contain object-center group-hover:scale-[1.04] transition-transform duration-500"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <FileText className="h-10 w-10 text-muted-foreground" />
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+            <FileText className="h-16 w-16" strokeWidth={1.5} />
           </div>
         )}
 
-        {/* Theme chip */}
-        <span className="absolute top-2 left-2 px-2.5 py-1 rounded-full bg-accent/90 text-accent-foreground font-mono uppercase tracking-widest text-[10px] shadow-soft">
-          {chipLabel}
-        </span>
+        {/* Theme chip — sticker style, matches storefront */}
+        <span className="absolute top-3 left-3 sticker z-20">{chipLabel}</span>
 
-        {/* Price badge — boxed */}
-        <span className="absolute top-2 right-2 border-2 border-foreground bg-background px-2 py-0.5 rounded-md font-display text-sm shadow-soft">
+        {/* Price badge — boxed like ProductCard */}
+        <span className="absolute top-3 right-3 z-20 font-display text-lg px-3 py-1 border-2 border-foreground bg-white text-foreground">
           {priceLabel}
         </span>
 
@@ -90,35 +80,33 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
           <button
             type="button"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPreview(); }}
-            className="absolute inset-x-2 bottom-2 py-1.5 rounded-lg bg-background/95 backdrop-blur text-xs font-mono uppercase tracking-wide opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center gap-1"
+            className="absolute inset-x-3 bottom-3 z-20 py-2 border-2 border-foreground bg-background/95 backdrop-blur text-xs font-mono uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center gap-1.5"
           >
             <Eye className="h-3.5 w-3.5" /> ดูตัวอย่างข้างใน
           </button>
         )}
-      </Link>
+      </div>
 
-      <div className="p-4 flex flex-col gap-2 flex-1 border-t-2 border-border">
-        <Link to={productHref} className="hover:text-accent transition-colors">
-          <h3 className="font-display uppercase text-base md:text-lg leading-tight tracking-tight line-clamp-2">
-            {book.title}
-          </h3>
-        </Link>
+      <div className="p-4 flex flex-col flex-1 gap-2">
+        <p className="text-[10px] font-mono uppercase tracking-widest text-accent-foreground font-bold line-clamp-1">
+          {chipLabel}
+        </p>
+        <h3 className="font-display text-lg uppercase leading-tight line-clamp-2">{book.title}</h3>
         {tagline && (
-          <p className="text-sm text-muted-foreground line-clamp-2 italic">{tagline}</p>
+          <p className="text-sm text-muted-foreground line-clamp-2 italic flex-1">{tagline}</p>
         )}
-        <div className="text-xs text-muted-foreground leading-relaxed mt-1">
+        <div className="text-xs text-muted-foreground leading-relaxed">
           <div>{isColoring ? "Printable coloring pages" : "32 illustrated pages"}</div>
           <div>{isColoring ? "Ages-tuned line thickness" : "Original character"}</div>
         </div>
-        <div className="mt-auto pt-3">
-          <Link
-            to={buyHref}
-            className="block w-full text-center py-2.5 rounded-md bg-foreground text-background font-display tracking-wide text-sm hover:bg-accent transition-colors"
-          >
-            {buyLabel}
-          </Link>
-        </div>
+        <span
+          className="mt-auto w-full h-11 bg-foreground text-background font-display uppercase text-sm tracking-wider border-2 border-foreground group-hover:bg-accent group-hover:text-accent-foreground transition-colors flex items-center justify-center gap-2"
+          onClick={(e) => { e.stopPropagation(); window.location.href = buyHref; }}
+          role="button"
+        >
+          {buyLabel}
+        </span>
       </div>
-    </div>
+    </Link>
   );
 };
