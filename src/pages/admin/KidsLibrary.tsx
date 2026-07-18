@@ -161,6 +161,12 @@ export default function KidsLibrary() {
         <div className="border-2 border-destructive p-3 text-sm text-destructive">Load failed: {err}</div>
       )}
 
+      {degraded.length > 0 && (
+        <div className="border-2 border-amber-500 p-3 text-sm text-amber-700 bg-amber-50">
+          Backend degraded — some panels unavailable: {degraded.map((d) => `${d.slice} (${d.error})`).join("; ")}
+        </div>
+      )}
+
       {candidates.length > 0 && (
         <section className="space-y-2">
           <h2 className="font-display uppercase text-lg text-amber-600">Publish Candidates · Awaiting Audit ({candidates.length})</h2>
