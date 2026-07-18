@@ -29,17 +29,22 @@ export interface ColoringPublishContractInput {
   metadata: Record<string, unknown> | null;
 }
 
-// Owner law (2026-07-18, retro-unpublish-graded-severity-v1):
-// Only CRITICAL defects justify auto-unpublishing a book that is already
-// live. Cosmetic asset-spec drift (thumbnail canvas size, trim ratio drift
-// within tolerance, etc.) may block a first-time publish but MUST NOT yank
-// live inventory off the shelf — the row is marked needs_asset_repair
-// instead and the asset is regenerated asynchronously.
+// Owner law v5 (2026-07-18, spelling-only-critical-unpublish-v1):
+// The ONLY reason a live book comes off the shelf automatically is a
+// customer-visible SPELLING / TEXT defect (misspelled cover title,
+// hallucinated title glyphs, wrong storefront copy).
+// EVERYTHING ELSE — cover style, category vision, aspect ratio, canvas
+// spec, trim drift, thumbnail cosmetics, cover_baked_title_only — is now
+// treated as `cosmetic` = fix-in-place while live, never demote.
+// First-time publish also proceeds under this rule: if only cosmetic
+// reasons remain, the book publishes LIVE and the drift is queued as
+// asset-repair. Only a spelling failure blocks initial publish.
 export type ContractSeverity = "critical" | "cosmetic";
-const COSMETIC_PREFIXES = ["thumbnail_contract_fail", "trim_mismatch"];
+const CRITICAL_PREFIXES = ["cover_spelling_unverified", "marketing_thumbnail_spelling_unverified", "storefront_copy_spelling"];
 export function classifyContractReason(reason: string): ContractSeverity {
-  return COSMETIC_PREFIXES.some((p) => reason.startsWith(p)) ? "cosmetic" : "critical";
+  return CRITICAL_PREFIXES.some((p) => reason.startsWith(p)) ? "critical" : "cosmetic";
 }
+
 
 export interface ColoringPublishContractResult {
   pass: boolean;
@@ -56,7 +61,7 @@ export interface ColoringPublishContractResult {
   };
 }
 
-export const COLORING_PUBLISH_CONTRACT_VERSION = "coloring_cover_thumbnail_contract_v4_graded_severity";
+export const COLORING_PUBLISH_CONTRACT_VERSION = "coloring_publish_contract_v5_spelling_only_critical";
 
 // Chrome/marketing tokens that are OK to appear even if not part of the
 // approved title/subtitle/age-badge. Mirrors CHROME_TOKENS in

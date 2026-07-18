@@ -162,16 +162,12 @@ Deno.serve(async (req: Request) => {
       metadata: meta,
     });
     if (!contract.pass) {
-      const wasLive = (row as any).sellable === true
-        || (row as any).listing_status === "live";
-      const criticalReasons = contract.critical_reasons ?? contract.reasons;
+      const criticalReasons = contract.critical_reasons ?? [];
       const cosmeticReasons = contract.cosmetic_reasons ?? [];
       const hasCritical = criticalReasons.length > 0;
-      const cosmeticOnly = !hasCritical && cosmeticReasons.length > 0;
 
-      // Fire the appropriate async repair for whichever assets are drifted.
+      // Fire the appropriate async repair for whichever assets drifted.
       const fireRepair = () => {
-        // Cover regen for style/category defects
         if (!contract.checks.cover_baked_title_only || !contract.checks.cover_category_verified) {
           fetch(`${SUPABASE_URL}/functions/v1/coloring-book-cover`, {
             method: "POST",
@@ -179,9 +175,8 @@ Deno.serve(async (req: Request) => {
             body: JSON.stringify({ ebook_id, force: true }),
           }).catch(() => {});
         }
-        // Thumbnail regen for canvas/spec defects
         if (!contract.checks.thumbnail_distinct_and_fitted) {
-          fetch(`${SUPABASE_URL}/functions/v1/coloring-book-thumbnail`, {
+          fetch(`${SUPABASE_URL}/functions/v1/coloring-marketing-thumbnail`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY },
             body: JSON.stringify({ ebook_id, force: true }),
@@ -189,35 +184,38 @@ Deno.serve(async (req: Request) => {
         }
       };
 
-      if (wasLive && cosmeticOnly) {
-        // GRADED SEVERITY: keep live, mark for async repair.
+      if (!hasCritical) {
+        // POLICY v5: only SPELLING/text defects are critical. Cosmetic-only
+        // drift (canvas, aspect, style source, category vision) NEVER blocks
+        // publish and NEVER demotes live inventory. Publish live + repair.
         const blocker = `needs_asset_repair:${cosmeticReasons.join(" | ")}`.slice(0, 500);
+        // Fall through to normal publish path below with a marker; we still
+        // set listing_status=live but leave a blocker_reason for async work.
+        await patchMeta(db, ebook_id, {
+          coloring_publish_contract: contract,
+          coloring_current_step_label: `Publishing live with async asset repair: ${cosmeticReasons.slice(0, 2).join("; ")}`,
+          needs_asset_repair_reasons: cosmeticReasons,
+        });
+        (row as any)._publish_needs_repair_blocker = blocker;
+        fireRepair();
+        // continue below (do NOT return) → falls into main publish flow
+      } else {
+        // Critical (spelling) → demote / block first-time publish.
+        const blocker = criticalReasons.join(" | ").slice(0, 480);
         await db.from("ebooks_kids").update({
-          blocker_reason: blocker,
-          // Do NOT touch listing_status / sellable / pipeline_status.
+          listing_status: "draft", status: "needs_revision", pipeline_status: "queued",
+          sellable: false,
+          blocker_reason: `coloring_publish_contract_spelling:${blocker}`.slice(0, 500),
         }).eq("id", ebook_id);
         await patchMeta(db, ebook_id, {
           coloring_publish_contract: contract,
-          coloring_current_step_label: `Live — asset repair pending: ${cosmeticReasons.slice(0, 2).join("; ")}`,
+          coloring_current_step_label: `Publish blocked (spelling): ${criticalReasons.slice(0, 3).join("; ")}`,
         });
         fireRepair();
-        return json({ ok: true, needs_asset_repair: true, kept_live: true, contract });
+        return json({ ok: false, publish_contract_blocked: true, critical: true, contract });
       }
-
-      // First-time publish OR any critical reason → demote as before.
-      const blocker = contract.reasons.join(" | ").slice(0, 480);
-      await db.from("ebooks_kids").update({
-        listing_status: "draft", status: "needs_revision", pipeline_status: "queued",
-        sellable: false,
-        blocker_reason: `coloring_publish_contract:${blocker}`.slice(0, 500),
-      }).eq("id", ebook_id);
-      await patchMeta(db, ebook_id, {
-        coloring_publish_contract: contract,
-        coloring_current_step_label: `Publish blocked (contract): ${contract.reasons.slice(0, 3).join("; ")}`,
-      });
-      fireRepair();
-      return json({ ok: false, publish_contract_blocked: true, contract });
     }
+
 
     // OWNER LAW batch_learning_rounds (v2 — full-live amendment):
     //   qc_mode = 'learning' (default): every book with pdf_url + cover_url
@@ -386,6 +384,7 @@ Deno.serve(async (req: Request) => {
       },
     };
 
+    const repairBlocker = (row as any)._publish_needs_repair_blocker as string | undefined;
     await db.from("ebooks_kids").update({
       listing_status: publishLive ? "live" : "published_candidate",
       status: publishLive ? "live" : "ready_to_publish",
@@ -400,7 +399,9 @@ Deno.serve(async (req: Request) => {
       storefront_subtitle: row.subtitle,
       sales_copy_sanitized_at: new Date().toISOString(),
       overall_qc_score: Math.round(assembly.weighted_gate?.weighted_avg ?? 92),
+      blocker_reason: repairBlocker ?? null,
     }).eq("id", ebook_id);
+
 
     await patchMeta(db, ebook_id, {
       coloring_progress_percent: 100,
