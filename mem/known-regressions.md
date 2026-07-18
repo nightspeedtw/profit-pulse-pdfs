@@ -1,3 +1,41 @@
+## generating-status-zombie-v1 (2026-07-18)
+
+Class: `state_machine_bug` — "silently dead in 'generating'". A
+`coloring-book-render` invocation that dies mid-batch (edge timeout,
+crashed anatomy vision verifier, killed worker) leaves the ebook row at
+`pipeline_status='generating'` with `updated_at` frozen at the pre-batch
+progress marker, no `selfInvoke` fired, and no `patchMeta` after the
+successful renders. Observed on `c2839b88-d900-…-Fierce Floral`: five
+Runware production pages (16–20) billed at 05:59:19–32 UTC after
+`updated_at=05:59:16`; row sat unchanged for 45+ min. Runs consumed a
+`max_parallel` slot forever; no watchdog picked them up because both
+watchdogs excluded coloring or required `'failed'`.
+
+Detection heuristic (SQL): `pipeline_status='generating' AND book_type='coloring_book' AND updated_at < now() - interval '15 minutes'`.
+
+Permanent fix (`supabase/functions/coloring-worker-tick/index.ts`):
+scan for stuck-'generating' coloring rows older than 15 min, reset to
+`'queued'` with `blocker_reason='zombie_generating_recovered'`, stamp
+`coloring_zombie_recoveries` counter + `coloring_last_zombie_recovery_at`,
+and let the same tick re-dispatch them via the queued scan. Runs before
+the `inFlight` count so revived rows immediately free their slot.
+Idempotent (successful pages are already persisted; unpersisted renders
+re-run, cost bounded by MAX_COVER_INVOCATIONS-style ceilings on the
+render side).
+
+Root cause: edge function `CPU Time exceeded` mid-batch. `BATCH_SIZE=6`
+with per-page Runware download + sharpness + upload + subsequent anatomy
+vision batch exceeded the 150s edge CPU budget. Fix (paired with the
+watchdog): dropped `BATCH_SIZE` from 6 → 3 in
+`coloring-book-render/index.ts` so a batch reliably completes and
+`updatePages` persists before CPU is spent. The watchdog is the safety
+net if this recurs (larger images, slower anatomy model, etc.).
+
+Follow-up (not blocking): tighten `coloring-book-render` to
+incrementally persist newRecords after each successful upload so a
+mid-batch death loses at most one page instead of the whole batch. The
+zombie watchdog is the safety net either way.
+
 ## silent-no-op-after-provider-fallback-v1 (2026-07-18)
 
 Class: `observability_bug` + `state_machine_bug` — "failure without a
