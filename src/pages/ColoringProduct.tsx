@@ -438,9 +438,9 @@ export default function ColoringProduct() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {siblings.map((s) => (
               <Link key={s.id} to={`/kids/coloring/${s.id}`} className="group block">
-                <div className="aspect-square bg-muted border-2 border-border overflow-hidden">
-                  {s.cover_url && (
-                    <img src={s.cover_url} alt={s.title} loading="lazy" className="w-full h-full object-contain group-hover:scale-[1.03] transition-transform duration-500" />
+                <div className="aspect-square bg-white border-2 border-border overflow-hidden">
+                  {(s.thumbnail_url || s.cover_url) && (
+                    <img src={s.thumbnail_url || s.cover_url!} alt={s.title} loading="lazy" className="w-full h-full object-contain group-hover:scale-[1.03] transition-transform duration-500" />
                   )}
                 </div>
                 <div className="mt-2 text-xs font-display uppercase line-clamp-2 group-hover:text-accent">{s.title}</div>
