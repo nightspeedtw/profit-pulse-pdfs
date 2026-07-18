@@ -14,6 +14,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadColoringCategory } from "../_shared/coloring/category.ts";
 import { DEFAULT_KIDS_4_6_STYLE } from "../_shared/coloring/style-contract.ts";
+import { resolveStyleContractForDbBand } from "../_shared/coloring/age-bands.ts";
 import { generatePagePlan, validatePagePlan } from "../_shared/coloring/page-plan.ts";
 
 declare const Deno: any;
@@ -60,7 +61,50 @@ Deno.serve(async (req: Request) => {
     if (blocking.length > 0) {
       return json({ error: "page_plan_invalid", issues: blocking }, 422);
     }
-    const styleContract = DEFAULT_KIDS_4_6_STYLE;
+    // Age-band contract resolution (owner directive, 2026-07-19 wave):
+    // Every book must ship the contract calibrated for its band. Bands
+    // without a distinct contract PARK as `band_defaults_missing` — no
+    // silent fallback to 4_6. Callers may pass `age_band` as a DB band
+    // key (e.g. "2_3") or a library key (e.g. "2-4"); we try DB-map first.
+    let styleContract = DEFAULT_KIDS_4_6_STYLE;
+    let resolvedBandKey: string = age_band;
+    const dbResolved = resolveStyleContractForDbBand(age_band);
+    if (dbResolved) {
+      styleContract = dbResolved.contract;
+      resolvedBandKey = dbResolved.band_key;
+    } else if (String(age_band).includes("_")) {
+      // Looked like a DB band key but no calibrated contract → PARK row.
+      const { data: parked, error: parkErr } = await sb
+        .from("ebooks_kids")
+        .insert({
+          title,
+          book_type: "coloring_book",
+          pipeline_status: "parked_rotated",
+          blocker_reason: "band_defaults_missing",
+          metadata: {
+            trim_profile,
+            coloring_category_key: category.category_key,
+            coloring_age_band: age_band,
+            coloring_page_count: page_count,
+            coloring_current_step_label: `Parked: no calibrated contract for band ${age_band}`,
+            band_defaults_missing: {
+              requested_band: age_band,
+              at: new Date().toISOString(),
+              note: "AGE_BAND_DEFAULTS has no distinct contract for this DB band; add one before re-dispatching.",
+            },
+          },
+        })
+        .select("id")
+        .single();
+      if (parkErr) throw parkErr;
+      return json({
+        ok: true,
+        parked: true,
+        ebook_id: parked.id,
+        blocker_reason: "band_defaults_missing",
+        note: `no calibrated style contract for band '${age_band}' — parked honestly`,
+      });
+    }
 
     const { data, error } = await sb
       .from("ebooks_kids")
@@ -71,7 +115,8 @@ Deno.serve(async (req: Request) => {
         metadata: {
           trim_profile,
           coloring_category_key: category.category_key,
-          coloring_age_band: age_band,
+          coloring_age_band: resolvedBandKey,
+          coloring_age_band_input: age_band,
           coloring_page_count: page_count,
           coloring_angle: angle,
           coloring_variant: variant_number,

@@ -114,3 +114,29 @@ export function normalizeAdminAgeBand(slug: string | null | undefined): AgeBandK
 export function defaultStyleForAges(minAge: number, maxAge: number): LineArtStyleContract {
   return AGE_BAND_DEFAULTS[ageBandForAges(minAge, maxAge)];
 }
+
+/**
+ * Explicit DB-band → calibrated-contract map. Honest: only bands that have
+ * a distinct, tuned contract in AGE_BAND_DEFAULTS appear here. Anything not
+ * mapped MUST park with blocker_reason='band_defaults_missing' — never
+ * silently fall back to 4_6. (Owner directive, 2026-07-19 age-band wave.)
+ */
+export const STYLE_CONTRACT_FOR_DB_BAND: Record<string, AgeBandKey | null> = {
+  "2_3":    "2-4",          // extra-thick minimal (nearest calibrated band)
+  "3_5":    null,           // no distinct preschool contract yet → PARK
+  "4_6":    "4-6",
+  "6_8":    "6-8",
+  "8_12":   "8-12",
+  "13_17":  "teen_adult",
+  "18_plus":"teen_adult",
+  "60_plus":"teen_adult",
+  "all_ages": null,         // multi-band bundle needs its own contract → PARK
+};
+
+export function resolveStyleContractForDbBand(
+  bandKey: string | null | undefined,
+): { contract: LineArtStyleContract; band_key: AgeBandKey } | null {
+  const mapped = STYLE_CONTRACT_FOR_DB_BAND[String(bandKey ?? "").toLowerCase()];
+  if (!mapped) return null;
+  return { contract: AGE_BAND_DEFAULTS[mapped], band_key: mapped };
+}
