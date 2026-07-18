@@ -14,6 +14,7 @@
 
 import { FalBillingLockedError, isFalBillingLocked } from "./fal-billing.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
+import { coerceForProviderPayload } from "./coloring/payload-guard.ts";
 
 // One place for model IDs — anything scattered elsewhere is a bug.
 // Runware uses the AIR identifier system: <ecosystem>:<modelId>@<version>.
