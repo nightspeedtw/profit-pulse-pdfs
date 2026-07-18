@@ -33,10 +33,26 @@ export async function fitCoverArtToPortraitCanvas(
   // identical to before; on colored backgrounds (yellow, teal, etc.) it
   // eliminates the white bars entirely.
   const src = await Image.decode(artBytes);
+  // OWNER LAW native-trim-ratio-only (2026-07-18): the raw provider art
+  // MUST already be at (or within 2% of) 8.5:11 = 0.7727 so this fit is a
+  // near-identity scale. If the provider returns a wildly off-ratio
+  // composition (e.g. 2:3 = 0.667 from GPT-Image), we must NOT silently
+  // pad it with edge-colored bars — that produces the "solid side bars
+  // flanking the artwork" the owner rejected. Refuse loudly instead so the
+  // caller retries against a ratio-native provider.
+  const srcRatio = src.width / src.height;
+  const trimRatio = width / height;
+  const ratioDelta = Math.abs(srcRatio - trimRatio) / trimRatio;
+  if (ratioDelta > 0.02) {
+    throw new Error(
+      `cover_art_off_trim_ratio:${src.width}x${src.height}(r=${srcRatio.toFixed(4)})_vs_trim(${trimRatio.toFixed(4)})_delta=${(ratioDelta * 100).toFixed(1)}%_would_require_padding_fill`,
+    );
+  }
   const scale = Math.min(width / src.width, height / src.height);
   const sw = Math.max(1, Math.round(src.width * scale));
   const sh = Math.max(1, Math.round(src.height * scale));
   const resized = (src as any).resize(sw, sh);
+
 
   // Sample the outer border of the resized art (1px inset) to get the
   // dominant background color. Averaging is robust to gradients and

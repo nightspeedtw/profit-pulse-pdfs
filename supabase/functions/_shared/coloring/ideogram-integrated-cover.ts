@@ -76,35 +76,19 @@ export interface IdeogramCoverResult {
  * cheap path is presumed healthy until evidence says otherwise).
  */
 export async function pickCoverPrimaryProvider(
-  db: any | null | undefined,
+  _db: any | null | undefined,
 ): Promise<{ primary: "gpt_image" | "ideogram"; reason: string; sample: number; pass_rate: number | null }> {
-  if (DISABLE_GPT_IMAGE || !hasOpenAIDirect()) {
-    return { primary: "ideogram", reason: DISABLE_GPT_IMAGE ? "flag_disabled" : "openai_key_missing", sample: 0, pass_rate: null };
-  }
-  if (!db) return { primary: "gpt_image", reason: "no_db_fail_open", sample: 0, pass_rate: null };
-  try {
-    const since = new Date(Date.now() - GPT_IMAGE_STATS_WINDOW_HOURS * 3600 * 1000).toISOString();
-    const { data } = await db
-      .from("coloring_book_events")
-      .select("metadata")
-      .eq("event_type", "cover_provider_attempt")
-      .gte("created_at", since)
-      .order("created_at", { ascending: false })
-      .limit(120);
-    const gpt = (data ?? []).filter((r: any) => r?.metadata?.provider === "openai_gpt_image_1");
-    if (gpt.length < GPT_IMAGE_MIN_SAMPLE) {
-      return { primary: "gpt_image", reason: `insufficient_sample(${gpt.length}/${GPT_IMAGE_MIN_SAMPLE})`, sample: gpt.length, pass_rate: null };
-    }
-    const passed = gpt.filter((r: any) => r?.metadata?.pass === true).length;
-    const rate = passed / gpt.length;
-    if (rate < GPT_IMAGE_PASS_FLOOR) {
-      return { primary: "ideogram", reason: `gpt_image_pass_rate_below_floor(${rate.toFixed(2)}<${GPT_IMAGE_PASS_FLOOR})`, sample: gpt.length, pass_rate: rate };
-    }
-    return { primary: "gpt_image", reason: `gpt_image_healthy(${rate.toFixed(2)})`, sample: gpt.length, pass_rate: rate };
-  } catch (_e) {
-    return { primary: "gpt_image", reason: "stats_query_failed_fail_open", sample: 0, pass_rate: null };
-  }
+  // OWNER LAW 2026-07-18 (native-trim-ratio-only): the cover art MUST be
+  // generated at (or within 1% of) the 8.5:11 PDF trim ratio so the raw
+  // composition natively fills the page — no post-hoc padding/letterbox
+  // fills allowed. GPT-Image only offers 1024×1536 (=0.667, ~14% off
+  // 0.7727) and cannot satisfy that contract, so it is REMOVED from the
+  // cover primary/fallback chain regardless of pass-rate. Ideogram via
+  // Runware runs at 896×1152 (=0.7778, 0.66% off) — inside tolerance and
+  // safe for fit-COVER full-bleed with imperceptible crop.
+  return { primary: "ideogram", reason: "native_trim_ratio_only", sample: 0, pass_rate: null };
 }
+
 
 // Category-family → allowed background clause. Used to positively steer the
 // scene when the caller hasn't supplied an explicit backgroundHint.
@@ -138,7 +122,7 @@ export function buildIdeogramIntegratedCoverPrompt(input: IdeogramCoverRequest):
     (input.referenceImageURLs && input.referenceImageURLs.length > 0)
       ? "CHARACTER CONTINUITY — the attached reference images are pages from THIS book's interior. Reuse the SAME characters (same species, same proportions, same friendly faces, same palette family) so the cover cast matches the interior cast exactly. Do NOT invent new characters or restyle them."
       : "",
-    "Full-color painterly illustration, thick crayon-textured line art, soft warm palette, cozy natural light, clean uncluttered background, generous negative space at the top for the title.",
+    "FULL-BLEED COMPOSITION — the illustration MUST extend edge-to-edge on ALL FOUR SIDES of the frame; the painted scene, foliage, sky/ground, and background color reach every edge with NO white borders, NO solid-color side bars, NO framing rectangles, NO letterbox strips. Fill the top 25% of the canvas with continuous painted scenery (sky/ceiling/foliage) that HOSTS the title in-scene rather than sitting above blank space. Full-color painterly illustration, thick crayon-textured line art, soft warm palette, cozy natural light.",
     // Integrated typography (this is what Ideogram excels at)
     "INTEGRATED HAND-LETTERED TYPOGRAPHY baked into the composition — MODEST, COMPACT scale (never oversized):",
     `- The main title reads EXACTLY: "${input.title}"`,
@@ -159,7 +143,7 @@ export function buildIdeogramIntegratedCoverPrompt(input: IdeogramCoverRequest):
     "Hero subjects must also stay inside the central 86% of the frame — no animal or character may be cropped by the edge. Prefer fewer, smaller heroes with room to breathe over a crowded edge-to-edge group.",
     // Style
     "Style reference: modern picture-book cover, gouache texture, ideogram-integrated lettering, Crayola beauty, Sneeze-Powered Sock Sorter aesthetic.",
-    "Aspect ratio 3:4 portrait, matches printed 8.5x11 book cover. High resolution, sharp lettering.",
+    "Aspect ratio 8.5:11 portrait (=0.7727), pixel-native at generation — matches the printed 8.5×11 book cover EXACTLY so no post-processing padding or cropping is needed. High resolution, sharp lettering.",
   ].filter(Boolean);
   return parts.join(" ");
 }
@@ -217,17 +201,55 @@ async function pollFalQueue(statusUrl: string, responseUrl: string, deadlineMs: 
 const RUNWARE_API_KEY = Deno.env.get("RUNWARE_API_KEY");
 const ALLOW_FAL_FALLBACK = (Deno.env.get("COLORING_COVER_ALLOW_FAL_IDEOGRAM") ?? "0") === "1";
 const RUNWARE_IDEOGRAM_MODEL = "ideogram:4@1"; // Ideogram 3.0 text-to-image
-// Ideogram 3.0 on Runware only accepts a fixed grid of portrait dimensions.
-// 832x1088 is the closest ~3:4 portrait that the endpoint actually honors
-// (smoke-tested; the 864x1152 combo advertised in the docs is rejected).
-const RUNWARE_IDEOGRAM_WIDTH = 832;
-const RUNWARE_IDEOGRAM_HEIGHT = 1088;
+// Owner law native-trim-ratio-only (2026-07-18): target the 8.5:11 PDF trim
+// (=0.7727). Runware's Ideogram grid must be multiples of 64.
+//   896×1152 = 0.7778 → delta 0.66% (well inside the ±1% trim tolerance)
+//   832×1088 = 0.7647 → delta 1.05% (fallback if 896×1152 is rejected)
+// This gives the compositor an already-full-bleed raster — fit-COVER crops
+// <1% off one axis (invisible), zero letterbox padding.
+const RUNWARE_IDEOGRAM_WIDTH = 896;
+const RUNWARE_IDEOGRAM_HEIGHT = 1152;
+const RUNWARE_IDEOGRAM_WIDTH_FALLBACK = 832;
+const RUNWARE_IDEOGRAM_HEIGHT_FALLBACK = 1088;
+
 
 async function generateViaRunware(
   request: IdeogramCoverRequest,
   opts: { timeoutMs?: number; seed?: number },
 ): Promise<IdeogramCoverResult> {
   if (!RUNWARE_API_KEY) throw new Error("provider_unconfigured:RUNWARE_API_KEY_missing");
+  // Native-trim-ratio order: try 896×1152 first (closest to 0.7727); if the
+  // Ideogram grid rejects it as unsupported, retry once at 832×1088 (already
+  // known-good) — still native, still ≤1.05% ratio deviation.
+  const attempts: Array<[number, number]> = [
+    [RUNWARE_IDEOGRAM_WIDTH, RUNWARE_IDEOGRAM_HEIGHT],
+    [RUNWARE_IDEOGRAM_WIDTH_FALLBACK, RUNWARE_IDEOGRAM_HEIGHT_FALLBACK],
+  ];
+  let lastErr: unknown = null;
+  for (let i = 0; i < attempts.length; i++) {
+    const [w, h] = attempts[i];
+    try {
+      return await runwareIdeogramOnce(request, opts, w, h);
+    } catch (e) {
+      lastErr = e;
+      const msg = String((e as Error)?.message ?? "");
+      // Only fall through on dimension/validation rejections. Billing or
+      // network errors propagate immediately.
+      if (i < attempts.length - 1 && /dimension|resolution|invalid|not supported|422/i.test(msg)) {
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr as Error;
+}
+
+async function runwareIdeogramOnce(
+  request: IdeogramCoverRequest,
+  opts: { timeoutMs?: number; seed?: number },
+  width: number,
+  height: number,
+): Promise<IdeogramCoverResult> {
   const prompt = buildIdeogramIntegratedCoverPrompt(request);
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const controller = new AbortController();
@@ -239,8 +261,8 @@ async function generateViaRunware(
     taskUUID,
     positivePrompt: prompt.slice(0, 3000),
     model: RUNWARE_IDEOGRAM_MODEL,
-    width: RUNWARE_IDEOGRAM_WIDTH,
-    height: RUNWARE_IDEOGRAM_HEIGHT,
+    width,
+    height,
     numberResults: 1,
     outputType: ["URL"],
     outputFormat: "JPEG",
@@ -258,7 +280,6 @@ async function generateViaRunware(
     });
     const bodyText = await res.text();
     if (!res.ok) {
-      // 402/insufficient-credit style responses → billing exhausted
       if (res.status === 402 || /balance|credit|insufficient|billing|payment required/i.test(bodyText)) {
         throw new Error(`provider_billing_exhausted:runware_ideogram:${bodyText.slice(0, 200)}`);
       }
@@ -280,9 +301,6 @@ async function generateViaRunware(
     const imgRes = await fetch(first.imageURL);
     if (!imgRes.ok) throw new Error(`runware_ideogram_download_http_${imgRes.status}`);
     const bytes = new Uint8Array(await imgRes.arrayBuffer());
-
-    // Best-effort cost logging — runware billing lives in the same key so
-    // this shows up in the same cost_log stream as interior generation.
     try {
       const { logAiCost, costDb } = await import("../cost-log.ts");
       logAiCost(costDb(), {
@@ -294,10 +312,9 @@ async function generateViaRunware(
         provider: "runware_ideogram_cover",
       });
     } catch (_e) { /* non-fatal */ }
-
     return {
       bytes,
-      provider: "fal_ideogram_v3", // kept for scorecard back-compat; actual host is runware
+      provider: "fal_ideogram_v3",
       prompt,
       seed: first?.seed ?? opts.seed,
       request_id: taskUUID,
@@ -306,6 +323,7 @@ async function generateViaRunware(
     clearTimeout(timer);
   }
 }
+
 
 async function generateViaFalEmergency(
   request: IdeogramCoverRequest,
