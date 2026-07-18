@@ -194,10 +194,9 @@ Deno.serve(async (req: Request) => {
 
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
     // Phase A trim profile → interior image_size.
-    const { resolveTrimProfileKey: _resolveTP, TRIM_PROFILES: _TP } = await import("../_shared/coloring/trim-lock.ts");
     let profileKey: "letter_portrait" | "square_8_5";
     try {
-      profileKey = _resolveTP({ metadata: meta, created_at: (row as any).created_at ?? null });
+      profileKey = resolveTrimProfileKey({ metadata: meta, created_at: (row as any).created_at ?? null });
     } catch (e) {
       const reason = `trim_profile_unresolved:${String((e as Error)?.message ?? e).slice(0, 200)}`;
       await db.from("ebooks_kids").update({ pipeline_status: "queued", blocker_reason: reason }).eq("id", ebook_id);
@@ -205,7 +204,7 @@ Deno.serve(async (req: Request) => {
     }
     const INTERIOR_GEN_PARAMS = Object.freeze({
       model: INTERIOR_GEN_MODEL,
-      image_size: _TP[profileKey].interiorImageSize,
+      image_size: TRIM_PROFILES[profileKey].interiorImageSize,
     });
     let planWrap = meta.coloring_page_plan as { plan?: PagePlanEntry[]; category_key?: string } | undefined;
     let plan = planWrap?.plan;
