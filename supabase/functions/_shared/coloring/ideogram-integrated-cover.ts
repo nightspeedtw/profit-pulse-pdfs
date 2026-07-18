@@ -443,23 +443,26 @@ import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 
 async function buildTextRegionMaskPng(width: number, height: number): Promise<Uint8Array> {
   const img = new Image(width, height);
-  // Fill with BLACK (0x000000FF) = keep.
+  // ImageScript setPixelAt expects an unsigned 32-bit *Number* RGBA packed
+  // color. NEVER pass a BigInt literal (0x...n) — the library does numeric
+  // bitwise ops on the input and Deno throws "Cannot convert a BigInt value
+  // to a number". Use `>>> 0` to force an unsigned Number.
+  const BLACK = (0x000000ff) >>> 0;      // keep
+  const WHITE = (0xffffffff) >>> 0;      // regenerate
   for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) img.setPixelAt(x + 1, y + 1, 0x000000ffn as unknown as number);
+    for (let x = 0; x < width; x++) img.setPixelAt(x + 1, y + 1, BLACK);
   }
-  // Top 40% band = WHITE = regenerate (title + subtitle live here).
   const topBand = Math.floor(height * 0.4);
   for (let y = 0; y < topBand; y++) {
-    for (let x = 0; x < width; x++) img.setPixelAt(x + 1, y + 1, 0xffffffffn as unknown as number);
+    for (let x = 0; x < width; x++) img.setPixelAt(x + 1, y + 1, WHITE);
   }
-  // Bottom-left circular-ish region for the age badge (~18% of the frame).
   const badgeR = Math.floor(Math.min(width, height) * 0.14);
   const cx = Math.floor(width * 0.18);
   const cy = Math.floor(height * 0.86);
   for (let y = Math.max(0, cy - badgeR); y < Math.min(height, cy + badgeR); y++) {
     for (let x = Math.max(0, cx - badgeR); x < Math.min(width, cx + badgeR); x++) {
       const dx = x - cx, dy = y - cy;
-      if (dx * dx + dy * dy <= badgeR * badgeR) img.setPixelAt(x + 1, y + 1, 0xffffffffn as unknown as number);
+      if (dx * dx + dy * dy <= badgeR * badgeR) img.setPixelAt(x + 1, y + 1, WHITE);
     }
   }
   return await img.encode();
