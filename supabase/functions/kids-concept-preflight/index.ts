@@ -111,6 +111,7 @@ interface Concept {
   twelve_spread_visual_plan_seed: VisualBeat[];
   forbidden_similarity_check: string[];
   lane: string;
+  story_engine_type?: string;
 }
 
 interface ConceptScores {
@@ -171,7 +172,19 @@ function json(body: unknown, status = 200) {
   });
 }
 
-async function callGemini(system: string, user: string, model = 'google/gemini-2.5-flash'): Promise<string> {
+import { hasGeminiDirect, geminiDirectChat } from '../_shared/gemini-direct.ts';
+
+async function callGemini(system: string, user: string, model = 'google/gemini-flash-lite-latest'): Promise<string> {
+  // Tier 1: google_direct (bypasses Lovable Gateway credit cap).
+  if (hasGeminiDirect()) {
+    try {
+      const r = await geminiDirectChat({ system, user, model, responseJson: true });
+      return String(r.text ?? '').replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+    } catch (e) {
+      console.warn(`[concept-preflight] gemini-direct failed (${(e as Error).message}) — falling back to gateway`);
+    }
+  }
+  // Tier 2: Lovable Gateway.
   const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
@@ -220,6 +233,48 @@ interface RecentConceptSignal {
   quirks: string[];        // hero_specificity / adjective+noun signatures
   settings: string[];
   refrains: string[];
+  engines: string[];       // core_story_engine text from recent briefs
+}
+
+// Story-engine diversity: force rotation across these five archetypes so we
+// don't ship five "skill/quirk" books in a row. The generator MUST pick a
+// `story_engine_type` from this list, and it must NOT match any of the
+// last-3 attempted engine types.
+const STORY_ENGINE_TYPES = ['mystery', 'friendship', 'journey', 'seasonal', 'skill'] as const;
+type StoryEngineType = typeof STORY_ENGINE_TYPES[number];
+
+function classifyEngineType(text: string): StoryEngineType | null {
+  const t = text.toLowerCase();
+  if (/\b(mystery|detective|clue|missing|whodunit|investigate|evidence|solve)\b/.test(t)) return 'mystery';
+  if (/\b(friend|friendship|team|share|together|rival|reconcile|misunderstand)\b/.test(t)) return 'friendship';
+  if (/\b(journey|quest|adventure|route|map|travel|expedition|trek|voyage|delivery|errand)\b/.test(t)) return 'journey';
+  if (/\b(season|winter|spring|summer|autumn|fall|holiday|festival|harvest|snow|rain|solstice)\b/.test(t)) return 'seasonal';
+  if (/\b(learn|practice|skill|master|teach|first time|try|attempt|training|lesson|technique|craft)\b/.test(t)) return 'skill';
+  return null;
+}
+
+function pickTargetEngineType(recentEngines: string[]): StoryEngineType {
+  const recentTypes = recentEngines.slice(0, 5).map(classifyEngineType).filter(Boolean) as StoryEngineType[];
+  const counts = new Map<StoryEngineType, number>(STORY_ENGINE_TYPES.map((t) => [t, 0]));
+  for (const t of recentTypes) counts.set(t, (counts.get(t) ?? 0) + 1);
+  // pick least-used, tiebreak by STORY_ENGINE_TYPES order for determinism-ish
+  let best: StoryEngineType = STORY_ENGINE_TYPES[0];
+  let bestCount = Infinity;
+  for (const t of STORY_ENGINE_TYPES) {
+    const c = counts.get(t) ?? 0;
+    if (c < bestCount) { best = t; bestCount = c; }
+  }
+  return best;
+}
+
+function engineTypeGuidance(t: StoryEngineType): string {
+  switch (t) {
+    case 'mystery': return 'the hero investigates a small, concrete puzzle (missing thing, odd trail, weird sound) with clues that pay off; NOT a personal quirk/skill story.';
+    case 'friendship': return 'two specific characters navigate a concrete misunderstanding, rivalry, or shared project; the story engine is the RELATIONSHIP shift, not one hero\'s quirk.';
+    case 'journey': return 'the hero moves through a concrete route/map/errand with escalating stops; the engine is the JOURNEY beats, not a stationary problem.';
+    case 'seasonal': return 'the story is anchored to a specific season/holiday/weather event that drives escalating events (first snow, harvest day, festival prep); NOT a generic quirk.';
+    case 'skill': return 'the hero learns/practices a concrete named skill through repeated escalating attempts with a payoff — but the title must describe the skill and the mechanism, NEVER "Name\'s [Adjective-Quirk] X".';
+  }
 }
 
 async function loadRecentConceptSignals(db: ReturnType<typeof createClient>, limit = 25): Promise<RecentConceptSignal> {
@@ -238,6 +293,7 @@ async function loadRecentConceptSignals(db: ReturnType<typeof createClient>, lim
   const quirks: string[] = [];
   const settings: string[] = [];
   const refrains: string[] = [];
+  const engines: string[] = [];
   for (const row of data ?? []) {
     const t = String((row as { title?: string }).title ?? '').trim();
     if (t && !/preflight in progress|coloring book/i.test(t)) titles.push(t);
@@ -251,8 +307,10 @@ async function loadRecentConceptSignals(db: ReturnType<typeof createClient>, lim
     if (set) settings.push(set.slice(0, 80));
     const ref = String(brief.refrain ?? '').trim();
     if (ref) refrains.push(ref);
+    const eng = String(brief.core_story_engine ?? brief.story_engine ?? '').trim();
+    if (eng) engines.push(eng.slice(0, 240));
   }
-  return { titles, heroes, quirks, settings, refrains };
+  return { titles, heroes, quirks, settings, refrains, engines };
 }
 
 // Extract the "protagonist quirk template" (e.g. "wobbly X", "sneezy X",
@@ -308,6 +366,9 @@ async function generateConcept(ageBand: string, avoidList: string[], attemptLabe
   const recentNames = extractProtagonistNames(recent);
   const recentSettingList = Array.from(new Set(recent.settings)).slice(0, 15);
   const recentRefrainList = Array.from(new Set(recent.refrains)).slice(0, 15);
+  const recentEngineList = recent.engines.slice(0, 5);
+  const recentEngineTypes = recentEngineList.map(classifyEngineType).filter(Boolean) as StoryEngineType[];
+  const targetEngineType = pickTargetEngineType(recent.engines);
   // Signature quirk WORDS to ban outright (in title, subtitle, hero, refrain).
   // The extracted adjectives already surface wobble/wiggle/jiggle/etc. — we
   // additionally forbid a hardcoded core set of the "cutesy-adjective" family
@@ -320,13 +381,15 @@ async function generateConcept(ageBand: string, avoidList: string[], attemptLabe
 - FORBIDDEN settings (already tried, pick a genuinely different one): ${recentSettingList.length ? recentSettingList.join(' | ') : '(none yet)'}
 - FORBIDDEN titles (do not riff on, echo, or vary these): ${recentTitleList.length ? recentTitleList.map(t => `"${t}"`).join(', ') : '(none yet)'}
 - FORBIDDEN premise skeletons — do NOT rehash any of these prior refrains or riff on their meter/rhyme scheme: ${recentRefrainList.length ? recentRefrainList.map(r => `"${r}"`).join(' | ') : '(none yet)'}
-- FORBIDDEN TITLE TEMPLATE OUTRIGHT: possessive-name + quirk/adjective/sound compound + object/problem, including "Name's Wobbly X", "Name's Sticky Sticky X", "Name's Rumble-Roar X", "Chef Pip's Sticky Sticky Jam", and all variants.
+- FORBIDDEN TITLE TEMPLATE OUTRIGHT: possessive-name + quirk/adjective/sound compound + object/problem, including "Name's Wobbly X", "Name's Sticky Sticky X", "Name's Rumble-Roar X", "Chef Pip's Sticky Sticky Jam", and all variants. Any title matching the regex /^[A-Z][a-z]+(\\s+[A-Z][a-z]+)?'s\\s+/ followed by an alliterative or reduplicated sound-word will be REJECTED mechanically.
+- STORY-ENGINE DIVERSITY (HARD): recent story-engine types used = [${recentEngineTypes.join(', ') || 'none'}]. Your \`story_engine_type\` field MUST be "${targetEngineType}" (one of: ${STORY_ENGINE_TYPES.join(', ')}). Do NOT pick a type that appears in the recent list. A ${targetEngineType} engine means: ${engineTypeGuidance(targetEngineType)}
 
-Your concept must be distinct on ALL FOUR axes:
-  1) premise (different core mechanic / story engine),
-  2) protagonist name (not on the forbidden list, no "-y" adjective-quirk template like "Wobbly ___", "Sleepy ___", "Sticky ___", "Sneezy ___", "Dizzy ___", "Bouncy ___"),
-  3) setting (different physical world),
-  4) quirk (the hero's problem/skill is not an adjective-noun template).
+Your concept must be distinct on ALL FIVE axes:
+  1) engine type (must be "${targetEngineType}", different from recent),
+  2) premise (different core mechanic within that engine type),
+  3) protagonist name (not on the forbidden list, no "-y" adjective-quirk template like "Wobbly ___", "Sleepy ___", "Sticky ___", "Sneezy ___", "Dizzy ___", "Bouncy ___"),
+  4) setting (different physical world),
+  5) quirk (the hero's problem/skill is not an adjective-noun template).
 
 If your first idea rhymes with, echoes, alliterates on, or shares a template with anything on the forbidden list above, THROW IT OUT and invent a fresh one before writing the JSON. The generic_risk gate will reject anchor-clones.`;
 
@@ -376,7 +439,8 @@ Reply as STRICT JSON only (no markdown fences), matching EXACTLY this schema:
     {"spread": 12, "visual_beat": "", "callback_seed": ""}
   ],
   "forbidden_similarity_check": [],
-  "lane": ""
+  "lane": "",
+  "story_engine_type": "${targetEngineType}"
 }
 
 REQUIREMENTS (all mandatory):
@@ -422,6 +486,8 @@ Attempt label: ${attemptLabel}.`;
   console.log(`[concept-preflight] anti_anchor forbidden_names: [${recentNames.join(', ')}]`);
   console.log(`[concept-preflight] anti_anchor forbidden_quirks: [${recentQuirkList.join(', ')}]`);
   console.log(`[concept-preflight] anti_anchor forbidden_titles: [${recentTitleList.slice(0,10).map(t=>`"${t}"`).join(', ')}]`);
+  console.log(`[concept-preflight] engine_rotation target=${targetEngineType} recent_types=[${recentEngineTypes.join(',')}]`);
+  console.log(`[concept-preflight] system_prompt_len=${system.length} template_ban_present=${system.includes('FORBIDDEN TITLE TEMPLATE OUTRIGHT')} engine_diversity_present=${system.includes('STORY-ENGINE DIVERSITY')}`);
   const raw = await callGemini(system, user);
   return safeJson<Concept>(raw);
 }
@@ -458,7 +524,7 @@ BE STRICT. If the refrain is not truly chantable → reread_mechanism_score <80.
   return safeJson<ConceptScores>(raw);
 }
 
-function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): {
+function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept, targetEngineType?: StoryEngineType, recentEngineTypes: StoryEngineType[] = []): {
   passed: boolean;
   blockers: string[];
   weak_dimensions: Array<{ dimension: string; score: number; note: string }>;
@@ -485,6 +551,18 @@ function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): {
   if (bannedHits.length) blockers.push(`banned_lane_hits=[${bannedHits.join(',')}]`);
   const possessiveTemplateHits = detectPossessiveQuirkTemplateHits(c);
   if (possessiveTemplateHits.length) blockers.push(`possessive_quirk_reduplicated_template=[${possessiveTemplateHits.join(',')}]`);
+  if (targetEngineType) {
+    const declared = String(c.story_engine_type ?? '').toLowerCase().trim() as StoryEngineType;
+    const classified = classifyEngineType(String(c.core_story_engine ?? '') + ' ' + String(c.central_problem ?? ''));
+    const effectiveType = (STORY_ENGINE_TYPES as readonly string[]).includes(declared) ? declared : classified;
+    if (!effectiveType) {
+      blockers.push(`story_engine_type_missing (expected "${targetEngineType}")`);
+    } else if (effectiveType !== targetEngineType) {
+      blockers.push(`story_engine_type=${effectiveType}!=${targetEngineType} (diversity rotation)`);
+    } else if (recentEngineTypes.slice(0, 3).includes(effectiveType)) {
+      blockers.push(`story_engine_type=${effectiveType} was used in last 3 attempts (diversity rotation)`);
+    }
+  }
   if (!c.twelve_spread_visual_plan_seed || c.twelve_spread_visual_plan_seed.length < 12) {
     blockers.push(`visual_plan_seed<12 (got ${c.twelve_spread_visual_plan_seed?.length ?? 0})`);
   }
@@ -560,6 +638,10 @@ Deno.serve(async (req) => {
     // system anti-anchor block and the user-message avoid list.
     for (const t of recent.titles) if (!triedTitles.includes(t)) triedTitles.push(t);
 
+    const recentEngineTypes = recent.engines.slice(0, 5).map(classifyEngineType).filter(Boolean) as StoryEngineType[];
+    const targetEngineType = pickTargetEngineType(recent.engines);
+    console.log(`[concept-preflight] engine_rotation target=${targetEngineType} recent=[${recentEngineTypes.join(',')}]`);
+
     // Attempt 1
     let c1: Concept;
     try {
@@ -570,7 +652,7 @@ Deno.serve(async (req) => {
     triedTitles.push(c1.title);
     const s1 = await scoreConcept(c1, ageBand);
     const b1 = detectBannedLaneHits(c1);
-    const e1 = evaluate(s1, b1, c1);
+    const e1 = evaluate(s1, b1, c1, targetEngineType, recentEngineTypes);
     judged.push({ concept: c1, concept_scores: s1, decision: e1.decision, passed: e1.passed, blockers: e1.blockers, banned_lane_hits: b1, weak_dimensions: e1.weak_dimensions });
 
     // Exactly TWO alternatives if first fails
@@ -581,7 +663,7 @@ Deno.serve(async (req) => {
           triedTitles.push(cN.title);
           const sN = await scoreConcept(cN, ageBand);
           const bN = detectBannedLaneHits(cN);
-          const eN = evaluate(sN, bN, cN);
+          const eN = evaluate(sN, bN, cN, targetEngineType, recentEngineTypes);
           judged.push({ concept: cN, concept_scores: sN, decision: eN.decision, passed: eN.passed, blockers: eN.blockers, banned_lane_hits: bN, weak_dimensions: eN.weak_dimensions });
           if (eN.passed) break;
         } catch (e) {
