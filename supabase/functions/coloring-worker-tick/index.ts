@@ -23,11 +23,15 @@ const corsHeaders = {
 
 const PASSCODE = Deno.env.get("ADMIN_PASSCODE") ?? "453451";
 
+// Module-scope singleton: warm invocations reuse this client (no pooler slot
+// consumed — supabase-js uses PostgREST over HTTPS, not pgbouncer).
+const _SB_URL = Deno.env.get("SUPABASE_URL")!;
+const _SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const db = createClient(_SB_URL, _SB_KEY, { auth: { persistSession: false } });
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  const url = Deno.env.get("SUPABASE_URL")!;
-  const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const db = createClient(url, service, { auth: { persistSession: false } });
+  const result: Record<string, unknown> = { tick_at: new Date().toISOString(), dispatched: [] };
   const result: Record<string, unknown> = { tick_at: new Date().toISOString(), dispatched: [] };
 
   try {
