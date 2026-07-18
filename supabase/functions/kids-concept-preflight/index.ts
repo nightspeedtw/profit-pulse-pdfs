@@ -765,6 +765,9 @@ Deno.serve(async (req) => {
       thresholds: T,
       floor: { final_concept_score: CONCEPT_SCORE_FLOOR, generic_risk_score: CONCEPT_GENERIC_MAX },
       selection_mode: 'best_of_floor',
+      pre_judge_rejections: allPreRejections,
+      writer_model: STRONG_WRITER_MODEL,
+      judge_model: CHEAP_JUDGE_MODEL,
     });
   } catch (e) {
     console.error('kids-concept-preflight error', e);
