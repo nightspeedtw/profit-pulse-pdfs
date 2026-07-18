@@ -571,3 +571,18 @@ while the title and edge elements remain intact.
 Applies to every coloring book from this deploy forward. No threshold
 change, no gate bypass — the compositor version bump propagates through
 `cover-aspect-gate` and `coloring-cover-proof` unchanged.
+
+## thumbnail-contract-canvas-mismatch-v1 (2026-07-18)
+
+Class: `persistence_contract_bug` — publish contract required the
+storefront thumbnail canvas to equal COLORING_TRIM.thumbnailPx exactly
+(600x776, 8.5:11). Yesterday's fix for cover-pdf-embed-crop-v1 changed
+`coloring-book-thumbnail` to letterbox-trim to the art's native aspect
+(≈2:3 for gpt-image-1 covers), so previously-live books flipped back to
+`listing_status=draft` with blocker
+`coloring_publish_contract:thumbnail_contract_fail:canvas_ok=false`. Fix:
+`publish-contract.ts` `canvas_ok` now asserts a real retina-sized canvas
+(shortest side ≥ 500px) and relies on `non_crop_pass` for the no-clip
+guarantee. Trim-lock still governs cover master + interior + PDF pages.
+Regression symptom: book already reached LIVE, then silently reverted
+after a thumbnail regen.
