@@ -6,6 +6,8 @@ export interface MatchedBook {
   id: string;
   title: string;
   cover_url: string | null;
+  thumbnail_url?: string | null;
+  book_type?: string | null;
   price_cents: number;
   age_group_id: string | null;
   theme_ids: string[];
