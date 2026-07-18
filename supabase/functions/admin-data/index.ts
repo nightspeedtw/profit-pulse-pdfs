@@ -398,32 +398,35 @@ Deno.serve(async (req) => {
 
     if (resource === "kids_runs") {
       const [runsRes, weightsRes, statsRes, slowRes, regressionRes] = await Promise.all([
-        supabase
+        safeQuery("runs", supabase
           .from("autopilot_kids_runs")
           .select("id, status, current_step_label, progress_percent, blocker_reason, ebook_kids_id, created_at, metadata")
           .is("archived_at", null)
           .order("created_at", { ascending: false })
-          .limit(30),
-        supabase.from("kids_category_weights").select("*"),
-        supabase.rpc("kids_cycle_stats", { p_days: 30 }),
-        supabase.from("production_slowdowns")
+          .limit(30)),
+        safeQuery("weights", supabase.from("kids_category_weights").select("*")),
+        safeQuery("cycle_stats", supabase.rpc("kids_cycle_stats", { p_days: 30 })),
+        safeQuery("slowdowns", supabase.from("production_slowdowns")
           .select("id, ebook_kids_id, total_minutes, slowest_stage, slowest_stage_minutes, watchdog_rescues, created_at")
           .order("created_at", { ascending: false })
-          .limit(10),
-        supabase.from("kids_batch_orders")
+          .limit(10)),
+        safeQuery("regression_pause", supabase.from("kids_batch_orders")
           .select("id, status, notes, updated_at")
           .eq("status", "paused")
           .order("updated_at", { ascending: false })
-          .limit(1),
+          .limit(1)),
       ]);
-      if (runsRes.error) throw runsRes.error;
       const statsRow = Array.isArray(statsRes.data) ? statsRes.data[0] : null;
+      const degraded = [runsRes, weightsRes, statsRes, slowRes, regressionRes]
+        .filter((r) => r.error).map((r) => ({ slice: r.slice, error: r.error }));
       return json({
         runs: runsRes.data ?? [],
         weights: weightsRes.data ?? [],
         cycle_stats: statsRow ?? null,
         recent_slowdowns: slowRes.data ?? [],
-        regression_pause: regressionRes.data?.[0] ?? null,
+        regression_pause: (regressionRes.data as unknown[] | null)?.[0] ?? null,
+        partial: degraded.length > 0,
+        degraded,
       });
     }
 
@@ -462,25 +465,28 @@ Deno.serve(async (req) => {
 
     if (resource === "kids_library") {
       const [booksRes, runsRes, costsRes] = await Promise.all([
-        supabase
+        safeQuery("books", supabase
           .from("ebooks_kids")
           .select("id,title,status,listing_status,pipeline_status,cover_url,blocker_reason,updated_at")
           .order("updated_at", { ascending: false })
-          .limit(60),
-        supabase
+          .limit(60)),
+        safeQuery("runs", supabase
           .from("autopilot_kids_runs")
           .select("id,ebook_kids_id,status,current_step_label,progress_percent,blocker_reason,updated_at")
           .order("updated_at", { ascending: false })
-          .limit(60),
+          .limit(60)),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (supabase.from("ebook_costs" as any) as any)
-          .select("ebook_id,total_usd,image_usd,text_usd,n_images,n_calls"),
+        safeQuery("costs", (supabase.from("ebook_costs" as any) as any)
+          .select("ebook_id,total_usd,image_usd,text_usd,n_images,n_calls")),
       ]);
-      if (booksRes.error) throw booksRes.error;
+      const degraded = [booksRes, runsRes, costsRes]
+        .filter((r) => r.error).map((r) => ({ slice: r.slice, error: r.error }));
       return json({
         books: booksRes.data ?? [],
         runs: runsRes.data ?? [],
         costs: costsRes.data ?? [],
+        partial: degraded.length > 0,
+        degraded,
       });
     }
 
@@ -501,9 +507,49 @@ Deno.serve(async (req) => {
 
 
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    return json({ error: serializeError(err) }, 500);
   }
 });
+
+function serializeError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const e = err as any;
+    if (typeof e.message === "string") {
+      const parts = [e.message];
+      if (e.code) parts.push(`code=${e.code}`);
+      if (e.hint) parts.push(`hint=${e.hint}`);
+      if (e.details) parts.push(`details=${e.details}`);
+      return parts.join(" | ");
+    }
+    try { return JSON.stringify(err); } catch { /* ignore */ }
+  }
+  return String(err);
+}
+
+// Run a Supabase query builder with an 8s timeout and per-slice error isolation
+// so one degraded table cannot fail the whole aggregate response.
+async function safeQuery<T = unknown>(
+  slice: string,
+  builder: PromiseLike<{ data: T | null; error: unknown }>,
+  timeoutMs = 8000,
+): Promise<{ slice: string; data: T | null; error: string | null }> {
+  try {
+    const res = await Promise.race<{ data: T | null; error: unknown } | { __timeout: true }>([
+      Promise.resolve(builder),
+      new Promise((resolve) => setTimeout(() => resolve({ __timeout: true } as const), timeoutMs)),
+    ]);
+    if ((res as { __timeout?: boolean }).__timeout) {
+      return { slice, data: null, error: `timeout after ${timeoutMs}ms` };
+    }
+    const r = res as { data: T | null; error: unknown };
+    if (r.error) return { slice, data: null, error: serializeError(r.error) };
+    return { slice, data: r.data ?? null, error: null };
+  } catch (err) {
+    return { slice, data: null, error: serializeError(err) };
+  }
+}
 
 function statusToAutopilotState(status: string): string {
   if (["starting", "running", "auto_fixing"].includes(status)) return "running";

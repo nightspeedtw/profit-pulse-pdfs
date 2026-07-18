@@ -66,6 +66,7 @@ export default function KidsAutopilot() {
   const [cycleStats, setCycleStats] = useState<{ n_live: number; p50_min: number | null; p90_min: number | null; n_sla_breach: number } | null>(null);
   const [slowdowns, setSlowdowns] = useState<Array<{ id: string; ebook_kids_id: string | null; total_minutes: number; slowest_stage: string | null; created_at: string }>>([]);
   const [regressionPause, setRegressionPause] = useState<{ id: string; notes: string | null; updated_at: string } | null>(null);
+  const [degraded, setDegraded] = useState<Array<{ slice: string; error: string }>>([]);
 
   const load = useCallback(async () => {
     setLoadingRuns(true);
@@ -88,6 +89,8 @@ export default function KidsAutopilot() {
           cycle_stats: { n_live: number; p50_min: number | null; p90_min: number | null; n_sla_breach: number } | null;
           recent_slowdowns: Array<{ id: string; ebook_kids_id: string | null; total_minutes: number; slowest_stage: string | null; created_at: string }>;
           regression_pause: { id: string; notes: string | null; updated_at: string } | null;
+          partial?: boolean;
+          degraded?: Array<{ slice: string; error: string }>;
         }>("kids_runs"),
       ]);
       setAges(a); setThemes(t);
@@ -95,6 +98,7 @@ export default function KidsAutopilot() {
       setCycleStats(adminData.cycle_stats ?? null);
       setSlowdowns(adminData.recent_slowdowns ?? []);
       setRegressionPause(adminData.regression_pause ?? null);
+      setDegraded(adminData.partial ? adminData.degraded ?? [] : []);
       const rows = ((adminData.runs ?? []) as KidsRun[]).filter(row => !row.metadata?.parent_run_id);
       setRuns(rows);
 
@@ -338,6 +342,11 @@ export default function KidsAutopilot() {
         <h2 className="font-display text-xl uppercase mb-3 flex items-center gap-2">
           <Zap className="size-5" /> Recent runs
         </h2>
+        {degraded.length > 0 && (
+          <div className="mb-3 border-2 border-amber-500 p-2 text-xs text-amber-700 bg-amber-50">
+            Backend degraded: {degraded.map((d) => `${d.slice} (${d.error})`).join("; ")}
+          </div>
+        )}
         {loadingRuns ? (
           <p className="text-sm text-muted-foreground">Loading recent runs…</p>
         ) : authState === "signed_out" ? (
