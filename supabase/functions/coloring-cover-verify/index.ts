@@ -27,6 +27,7 @@ import { transcribeGlyphsByUrl, verifyCategoryHeroByUrl } from "../_shared/cover
 import { verifyExactCoverTextByUrl } from "../_shared/coloring/cover-text-transcription.ts";
 import { renderedColoringCoverProof } from "../_shared/coloring/coloring-cover-proof.ts";
 import { fitCoverArtToPortraitCanvas, COLORING_COVER_COMPOSITOR_VERSION, COLORING_COVER_HEIGHT, COLORING_COVER_WIDTH } from "../_shared/coloring/coloring-cover-compositor.ts";
+import { resolveTrimProfileKey, TRIM_PROFILES } from "../_shared/coloring/trim-lock.ts";
 import { computeCoverFingerprint, findDuplicateCover, DUPLICATE_HAMMING_THRESHOLD } from "../_shared/coloring/cover-uniqueness.ts";
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS, fireAndForgetPost } from "../_shared/coloring/self-advance.ts";
 
@@ -110,10 +111,23 @@ Deno.serve(async (req: Request) => {
     ebookId = body?.ebook_id ?? null;
     if (!ebookId) return json({ error: "ebook_id required" }, 400);
 
-    const { data: row, error } = await db.from("ebooks_kids").select("id, title, metadata, cover_url").eq("id", ebookId).maybeSingle();
+    const { data: row, error } = await db.from("ebooks_kids").select("id, title, metadata, cover_url, created_at").eq("id", ebookId).maybeSingle();
     if (error) throw error;
     if (!row) return json({ error: "not_found" }, 404);
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    // Phase A trim profile → target canvas dims.
+    let profileKey: "letter_portrait" | "square_8_5";
+    try {
+      profileKey = resolveTrimProfileKey({ metadata: meta, created_at: (row as any).created_at ?? null });
+    } catch (e) {
+      const reason = `trim_profile_unresolved:${String((e as Error)?.message ?? e).slice(0, 200)}`;
+      await patchMeta(db, ebookId, { coloring_current_step_label: `Cover verify blocked — ${reason}` });
+      await db.from("ebooks_kids").update({ pipeline_status: "queued", blocker_reason: reason }).eq("id", ebookId);
+      return json({ error: reason }, 422);
+    }
+    const profile = TRIM_PROFILES[profileKey];
+    const CANVAS_W = profile.coverPx.width;
+    const CANVAS_H = profile.coverPx.height;
     const pending = (meta as any).cover_pending_verify as any;
     if (!pending?.signed_url) {
       // Nothing to verify — fall back to generate.
@@ -191,7 +205,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── STEP 6: fit to canvas + one more downsampled decode for rendered proof ──
-    const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT);
+    const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, CANVAS_W, CANVAS_H);
     const { img: finalImg, w: finalW, h: finalH } = await decodeDownsampled(finalBytes);
     const finalRgba = new Uint8Array(finalW * finalH * 4);
     for (let py = 0; py < finalH; py++) {
@@ -207,7 +221,7 @@ Deno.serve(async (req: Request) => {
     const baseTitle = String(row.title).replace(/\s*\(ages?[^)]*\)\s*$/i, "").trim();
     const renderedProof = renderedColoringCoverProof({
       rgba: finalRgba, width: finalW, height: finalH,
-      frame: { width: finalW, height: finalH, safe_margin: Math.max(8, Math.floor(60 * finalW / COLORING_COVER_WIDTH)), elements: [] },
+      frame: { width: finalW, height: finalH, safe_margin: Math.max(8, Math.floor(60 * finalW / CANVAS_W)), elements: [] },
       requiredStrings: [baseTitle],
       optionalStrings: [pSubtitle, pAgeBadge, pTitle, row.title].filter((s) => Boolean(s) && s !== baseTitle),
       detectedText: textVerdict.transcribed_raw,
@@ -229,7 +243,7 @@ Deno.serve(async (req: Request) => {
       rawArtText: { ok: true, has_glyphs: true, detected_text: textVerdict.transcribed_raw, confidence: 1, degraded: false, reason: "ideogram_integrated_verified_exact_match" },
       typographySource: "ideogram_verified_integrated",
       hero: heroVerdict.matches ? heroVerdict : { ok: true, matches: true, detected_subjects: pHeroSubjects ?? [], forbidden_hit: null, degraded: false, reason: "interior_refs_waiver" },
-      frame: { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, safe_margin: 60, elements: [] },
+      frame: { width: CANVAS_W, height: CANVAS_H, safe_margin: 60, elements: [] },
       logo: { present: false, rect: null },
       artwork: { used_svg_fallback: false, synthesized_background: false, blank_background: false, blank_ratio: 0, region_stats: color.region_stats },
       quality: { produced_bytes: finalBytes.length > 1024, luminance_dead: false, byte_size: finalBytes.length },
@@ -244,7 +258,7 @@ Deno.serve(async (req: Request) => {
       url: up.signedUrl, storage_path: up.path,
       final_composed_url: up.signedUrl, final_composed_storage_path: up.path,
       art_only_url: artUp.signedUrl, art_only_storage_path: artUp.path,
-      art_canvas: { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, aspect: "8.5x11_portrait" },
+      art_canvas: { width: CANVAS_W, height: CANVAS_H, aspect: profile.aspectLabel },
       accepted_rung: acceptedRung,
       generated_at: new Date().toISOString(),
       subtitle_used: pSubtitle,

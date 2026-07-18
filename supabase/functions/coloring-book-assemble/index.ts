@@ -38,14 +38,17 @@ import { appendDefectLedger, WAIVER_REPAIR_ATTEMPTS } from "../_shared/coloring/
 import { readQcMode, waiveOrBlock } from "../_shared/coloring/qc-mode.ts";
 import { checkCoverAspect } from "../_shared/coloring/cover-aspect-gate.ts";
 import { fitContainCover, fitCoverFullBleed } from "../_shared/coloring/pdf-cover-fit.ts";
+import { getTrimProfile, TRIM_PROFILES, resolveTrimProfileKey } from "../_shared/coloring/trim-lock.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-// US Letter portrait, 72dpi PDF-lib units (points).
-const PAGE_W = 612;   // 8.5"
-const PAGE_H = 792;   // 11"
+// Per-invocation PDF page geometry — reassigned from the row's trim
+// profile at the top of each handler run. Default = letter_portrait so
+// pre-Phase-A imports (module-level references) stay correct.
+let PAGE_W = TRIM_PROFILES.letter_portrait.pdf.widthPt;
+let PAGE_H = TRIM_PROFILES.letter_portrait.pdf.heightPt;
 const SAFE_MARGIN = 36;
 const COLORING_PAGE_FLOOR_FROM_SHARPNESS = 88;
 
@@ -139,13 +142,27 @@ Deno.serve(async (req: Request) => {
     const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
     const { data: row, error } = await db.from("ebooks_kids")
-      .select("id, book_type, title, subtitle, metadata, cover_url, pdf_url")
+      .select("id, book_type, title, subtitle, metadata, cover_url, pdf_url, created_at")
       .eq("id", ebook_id).maybeSingle();
     if (error) throw error;
     if (!row) return json({ error: "not_found" }, 404);
     if (row.book_type !== "coloring_book") return json({ error: "wrong_lane" }, 400);
 
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    // Phase A: resolve trim profile at handler top. Missing/unknown on
+    // post-cutoff row throws → surface as hard blocker.
+    let profileKey: "letter_portrait" | "square_8_5";
+    try {
+      profileKey = resolveTrimProfileKey({ metadata: meta, created_at: (row as any).created_at ?? null });
+    } catch (e) {
+      const reason = `trim_profile_unresolved:${String((e as Error)?.message ?? e).slice(0, 200)}`;
+      await patchMeta(db, ebook_id, { coloring_current_step_label: `Assembly blocked — ${reason}` });
+      await db.from("ebooks_kids").update({ pipeline_status: "queued", blocker_reason: reason }).eq("id", ebook_id);
+      return json({ error: reason }, 422);
+    }
+    const profile = TRIM_PROFILES[profileKey];
+    PAGE_W = profile.pdf.widthPt;
+    PAGE_H = profile.pdf.heightPt;
     // Owner-side audit is release-blocking: assembly hands off to a
     // publish-candidate record, never live storefront, until owner flips live.
     const publishMode = "candidate";
@@ -446,7 +463,7 @@ Deno.serve(async (req: Request) => {
     // MUST match the PDF trim ratio (8.5:11). If it doesn't, fit-COVER
     // below will clip the baked title/edge glyphs. In learning mode we
     // ledger and continue; in strict mode we block the assemble.
-    const aspect = checkCoverAspect(coverBytes);
+    const aspect = checkCoverAspect(coverBytes, profileKey);
     if (!aspect.pass) {
       const mode = await readQcMode(db, ebookId);
       const outcome = await waiveOrBlock(db, ebookId, {
