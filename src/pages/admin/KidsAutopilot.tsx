@@ -342,6 +342,11 @@ export default function KidsAutopilot() {
         <h2 className="font-display text-xl uppercase mb-3 flex items-center gap-2">
           <Zap className="size-5" /> Recent runs
         </h2>
+        {degraded.length > 0 && (
+          <div className="mb-3 border-2 border-amber-500 p-2 text-xs text-amber-700 bg-amber-50">
+            Backend degraded: {degraded.map((d) => `${d.slice} (${d.error})`).join("; ")}
+          </div>
+        )}
         {loadingRuns ? (
           <p className="text-sm text-muted-foreground">Loading recent runs…</p>
         ) : authState === "signed_out" ? (
