@@ -149,8 +149,12 @@ Return ONLY the new manuscript body in markdown. English only.`;
   return { system, user };
 }
 
-async function rewriteManuscript(system: string, user: string, ebook_id?: string): Promise<string> {
-  const model = 'google/gemini-2.5-pro';
+async function rewriteManuscript(system: string, user: string, ebook_id: string | undefined, attempt: number): Promise<string> {
+  // COST FIX: cheap-tier-first. Attempts 1-2 run on gemini-2.5-flash
+  // (~$0.0009/call vs $0.068 on pro — 75x cheaper per RATES table in ai.ts).
+  // Only the final attempt escalates to pro. This drops story-gate rewrite
+  // spend by ~90% while preserving the "final polish on the best model" path.
+  const model = attempt >= MAX_ATTEMPTS ? 'google/gemini-2.5-pro' : 'google/gemini-2.5-flash';
   const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
