@@ -6,6 +6,7 @@ export interface KidsBookCardData {
   id: string;
   title: string;
   cover_url: string | null;
+  thumbnail_url?: string | null;
   price_cents: number;
   theme_ids: string[];
   storefront_meta: Record<string, unknown> | null;
