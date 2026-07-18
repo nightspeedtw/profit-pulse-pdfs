@@ -44,15 +44,17 @@ export default function KidsLibrary() {
   const [costs, setCosts] = useState<Record<string, CostRow>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [degraded, setDegraded] = useState<Array<{ slice: string; error: string }>>([]);
 
   const load = async () => {
     try {
-      const data = await fetchAdminData<{ books: KidsBook[]; runs: Run[]; costs: CostRow[] }>("kids_library");
+      const data = await fetchAdminData<{ books: KidsBook[]; runs: Run[]; costs: CostRow[]; partial?: boolean; degraded?: Array<{ slice: string; error: string }> }>("kids_library");
       setBooks(data.books ?? []);
       setRuns(data.runs ?? []);
       const map: Record<string, CostRow> = {};
       for (const row of data.costs ?? []) map[row.ebook_id] = row;
       setCosts(map);
+      setDegraded(data.partial ? data.degraded ?? [] : []);
       setErr(null);
     } catch (e) {
       setErr((e as Error).message);
