@@ -173,7 +173,7 @@ export async function aiJSON<T>(opts: {
       const r = await openaiDirectChat({
         system: sys,
         user: opts.user + schemaSuffix,
-        model: opts.model,
+        model: oaModel,
         responseJson: true,
         maxTokens: opts.maxTokens,
         timeoutMs: opts.timeoutMs,
