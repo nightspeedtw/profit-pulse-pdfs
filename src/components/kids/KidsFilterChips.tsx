@@ -30,11 +30,12 @@ export function KidsFilterChips({ hidden }: Props) {
   const anyActive = Boolean(current.age || current.theme || current.type);
 
   const chipClass = (active: boolean) =>
-    `px-3 py-1.5 rounded-full border text-xs font-mono uppercase tracking-wide transition-colors ${
+    `px-3 py-1 rounded-full border text-xs transition-colors whitespace-nowrap ${
       active
         ? "bg-foreground text-background border-foreground"
         : "bg-background text-foreground border-border hover:border-foreground"
     }`;
+  const labelClass = "text-[11px] uppercase tracking-wide text-muted-foreground w-12 shrink-0";
 
   // The "All" chip is chip.kind==="all" (null slug in URL). Every other chip
   // (including all_ages) is a real filter with its slug in the URL.
@@ -42,11 +43,11 @@ export function KidsFilterChips({ hidden }: Props) {
   const ageOtherChips = AGE_CHIPS.filter((c) => c.kind !== "all");
 
   return (
-    <div className="w-full border-y border-border bg-muted/30 py-4">
-      <div className="max-w-6xl mx-auto px-4 space-y-3">
+    <div className="w-full border-y border-border bg-background py-3">
+      <div className="max-w-6xl mx-auto px-4 space-y-2">
         {!hidden?.age && (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground w-16 shrink-0">Age</span>
+            <span className="text-[11px] uppercase tracking-wide text-muted-foreground w-12 shrink-0">Age</span>
             <button
               type="button"
               onClick={() => setParam("age", null)}
@@ -69,7 +70,7 @@ export function KidsFilterChips({ hidden }: Props) {
 
         {!hidden?.theme && (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground w-16 shrink-0">Theme</span>
+            <span className="text-[11px] uppercase tracking-wide text-muted-foreground w-12 shrink-0">Theme</span>
             <button type="button" onClick={() => setParam("theme", null)} className={chipClass(!current.theme)}>All</button>
             {THEMES.map((t) => (
               <button
@@ -86,7 +87,7 @@ export function KidsFilterChips({ hidden }: Props) {
 
         {!hidden?.type && (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground w-16 shrink-0">Type</span>
+            <span className="text-[11px] uppercase tracking-wide text-muted-foreground w-12 shrink-0">Type</span>
             <button type="button" onClick={() => setParam("type", null)} className={chipClass(!current.type)}>All</button>
             {BOOK_TYPES.map((b) => (
               <button
@@ -103,7 +104,7 @@ export function KidsFilterChips({ hidden }: Props) {
 
         {anyActive && (
           <div className="flex items-center gap-3 pt-1">
-            <Link to="/kids" className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+            <Link to="/kids" className="text-[11px] uppercase tracking-wide text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
               <X className="h-3 w-3" /> Clear filters
             </Link>
           </div>

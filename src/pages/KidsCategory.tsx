@@ -17,6 +17,7 @@ interface Row {
   id: string;
   title: string;
   cover_url: string | null;
+  thumbnail_url: string | null;
   price_cents: number;
   age_band: string | null;
   age_min: number | null;
@@ -45,7 +46,7 @@ export default function KidsCategory() {
       const [{ data }, th] = await Promise.all([
         supabase
           .from("ebooks_kids")
-          .select("id,title,cover_url,price_cents,age_band,age_min,age_max,book_type,theme_ids,theme_slugs,buyer_job_tags,storefront_meta")
+          .select("id,title,cover_url,thumbnail_url,price_cents,age_band,age_min,age_max,book_type,theme_ids,theme_slugs,buyer_job_tags,storefront_meta")
           .eq("listing_status", "live")
           .eq("sellable", true)
           .order("created_at", { ascending: false })
@@ -119,15 +120,16 @@ export default function KidsCategory() {
           </div>
         ) : (
           <>
-            <div className="mb-4 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+            <div className="mb-4 text-xs text-muted-foreground">
               {filtered.length} book{filtered.length === 1 ? "" : "s"}
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-3 gap-y-6 md:gap-x-5 md:gap-y-8">
               {filtered.map((b, i) => {
                 const card: KidsBookCardData = {
                   id: b.id,
                   title: b.title,
                   cover_url: b.cover_url,
+                  thumbnail_url: b.thumbnail_url,
                   price_cents: b.price_cents,
                   theme_ids: b.theme_ids ?? [],
                   storefront_meta: b.storefront_meta,
