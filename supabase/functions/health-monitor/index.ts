@@ -258,7 +258,7 @@ async function runChecks(sb: any): Promise<Alert[]> {
     .select("id, title, blocker_reason, updated_at")
     .gte("updated_at", lastCheckAt)
     .not("blocker_reason", "is", null)
-    .neq("pipeline_status", "retired")
+    .not("pipeline_status", "in", "(retired,archived_legacy)")
     .limit(50);
   if ((newParks?.length ?? 0) > 0) {
     alerts.push({

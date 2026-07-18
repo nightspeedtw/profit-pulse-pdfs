@@ -45,6 +45,7 @@ export default function KidsLibrary() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [degraded, setDegraded] = useState<Array<{ slice: string; error: string }>>([]);
+  const [showArchived, setShowArchived] = useState(false);
 
   const load = async () => {
     try {
@@ -91,9 +92,10 @@ export default function KidsLibrary() {
     }
   };
 
-  const candidates = books.filter((b) => b.listing_status === "published_candidate" || PUBLISHABLE_STATUSES.has(b.status));
+  const candidates = books.filter((b) => b.pipeline_status !== "archived_legacy" && (b.listing_status === "published_candidate" || PUBLISHABLE_STATUSES.has(b.status)));
   const live = books.filter((b) => b.listing_status === "live" && !candidates.includes(b));
-  const others = books.filter((b) => !candidates.includes(b) && !live.includes(b));
+  const archived = books.filter((b) => b.pipeline_status === "archived_legacy");
+  const others = books.filter((b) => !candidates.includes(b) && !live.includes(b) && !archived.includes(b));
 
   const renderCard = (b: KidsBook) => {
     const run = runById.get(b.id);
@@ -193,6 +195,24 @@ export default function KidsLibrary() {
           </div>
         </section>
       )}
+
+      {archived.length > 0 && (
+        <section className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setShowArchived((v) => !v)}
+            className="font-display uppercase text-lg text-muted-foreground hover:text-foreground flex items-center gap-2"
+          >
+            {showArchived ? "▼" : "▶"} Archived Legacy ({archived.length}) — hidden from workers & alerts
+          </button>
+          {showArchived && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-60">
+              {archived.map(renderCard)}
+            </div>
+          )}
+        </section>
+      )}
+
 
       {books.length === 0 && !err && (
         <div className="border-2 border-dashed border-foreground p-10 text-center text-sm text-muted-foreground">
