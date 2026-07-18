@@ -15,6 +15,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadColoringCategory } from "../_shared/coloring/category.ts";
 import { DEFAULT_KIDS_4_6_STYLE } from "../_shared/coloring/style-contract.ts";
 import { resolveStyleContractForDbBand } from "../_shared/coloring/age-bands.ts";
+import { validateCategoryForBand } from "../_shared/coloring/band-theme-validator.ts";
 import { generatePagePlan, validatePagePlan } from "../_shared/coloring/page-plan.ts";
 
 declare const Deno: any;
