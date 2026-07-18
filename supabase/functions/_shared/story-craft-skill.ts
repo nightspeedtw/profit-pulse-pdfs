@@ -505,20 +505,44 @@ export async function loadStoryCraftBlock(
     if (error || !Array.isArray(data) || data.length === 0) {
       return storyCraftBlock(ageBand);
     }
-    // Latest version per skill_key.
-    const latest = new Map<string, DbSkillRow>();
+    // FROZEN skill_keys (2026-07-18, right-first-time architecture): the
+    // auto-learner minted 119+ versions across these keys without moving the
+    // story_gate pass rate. Pin to the earliest seed version (owner-approved
+    // freeze) so the writer receives a stable, hand-authored craft block.
+    // Non-frozen keys still resolve to their latest version.
+    const FROZEN_SKILL_KEYS = new Set([
+      'playbook_reread_value',
+      'playbook_parent_buyer_value',
+      'playbook_emotional_payoff',
+      'craft_rules',
+      'anti_preachy',
+    ]);
+    const rowsByKey = new Map<string, DbSkillRow[]>();
     for (const row of data as DbSkillRow[]) {
-      if (!latest.has(row.skill_key)) latest.set(row.skill_key, row);
+      const list = rowsByKey.get(row.skill_key) ?? [];
+      list.push(row);
+      rowsByKey.set(row.skill_key, list);
     }
-    // Filter by age band: keep rows with age_band = null (universal) or matching.
+    const chosen = new Map<string, DbSkillRow>();
+    for (const [key, rows] of rowsByKey) {
+      if (FROZEN_SKILL_KEYS.has(key)) {
+        // Prefer earliest source='seed' row; fall back to the lowest version.
+        const seeds = rows.filter(r => r.source === 'seed').sort((a, b) => a.version - b.version);
+        chosen.set(key, seeds[0] ?? rows.slice().sort((a, b) => a.version - b.version)[0]);
+      } else {
+        // Latest (rows already came back version DESC).
+        chosen.set(key, rows[0]);
+      }
+    }
     const wanted = String(ageBand ?? '4-6');
-    const rows = Array.from(latest.values())
+    const rows = Array.from(chosen.values())
       .filter(r => r.age_band === null || r.age_band === wanted)
       .sort((a, b) => a.sort_index - b.sort_index);
     if (rows.length === 0) return storyCraftBlock(ageBand);
 
+    const frozenCount = rows.filter(r => FROZEN_SKILL_KEYS.has(r.skill_key)).length;
     const header = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STORY CRAFT SKILL (live from pipeline_skills · ${rows.filter(r => r.source === 'learned').length} learned upgrades applied)
+STORY CRAFT SKILL (right-first-time · ${frozenCount} frozen seed sections + ${rows.length - frozenCount} live sections)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
     const body = rows.map(r => r.content_md).join('\n\n');
     return `${header}\n\n${body}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
