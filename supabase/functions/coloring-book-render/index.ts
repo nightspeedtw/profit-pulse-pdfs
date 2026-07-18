@@ -38,6 +38,7 @@ import {
   type PagePlanEntry,
 } from "../_shared/coloring/style-contract.ts";
 import { verifyImageAtBirth, type ImageKind } from "../_shared/coloring/image-kind.ts";
+import { rehydratePagePlan } from "../_shared/coloring/plan-rehydrate.ts";
 import { analyzeSolidBlack, DEFAULT_SOLID_BLACK_TH } from "../_shared/coloring/solid-black.ts";
 import { computeSharpness } from "../_shared/coloring/sharpness-gate.ts";
 import { decideRepair, replanEscalatedPage, sanitizeSceneForColorability } from "../_shared/coloring/repair-ladder.ts";
