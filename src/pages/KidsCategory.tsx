@@ -46,7 +46,7 @@ export default function KidsCategory() {
       const [{ data }, th] = await Promise.all([
         supabase
           .from("ebooks_kids")
-          .select("id,title,cover_url,price_cents,age_band,age_min,age_max,book_type,theme_ids,theme_slugs,buyer_job_tags,storefront_meta")
+          .select("id,title,cover_url,thumbnail_url,price_cents,age_band,age_min,age_max,book_type,theme_ids,theme_slugs,buyer_job_tags,storefront_meta")
           .eq("listing_status", "live")
           .eq("sellable", true)
           .order("created_at", { ascending: false })
