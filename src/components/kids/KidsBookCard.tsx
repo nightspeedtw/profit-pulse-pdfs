@@ -41,20 +41,23 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
 
   // Aspect ratios locked to the actual cover asset shipped by the pipeline.
   // Coloring: 1600×2071 (gpt-image-1 output, letterbox-trimmed thumbnail).
-  // Illustrated: 1024×1280. object-contain protects legacy covers.
+  // Illustrated: 1024×1280. object-contain protects legacy covers so we never
+  // clip a baked title — bigger card, same no-crop guarantee.
   const aspectClass = isColoring ? "aspect-[1600/2071]" : "aspect-[1024/1280]";
 
   return (
-    <Link
-      to={productHref}
-      aria-label={`ดูรายละเอียด ${book.title}`}
+    <div
       className={[
         "group brutal-card flex flex-col overflow-hidden animate-fade-in-up",
         isStrip ? "flex-shrink-0 w-64 md:w-72" : "",
       ].join(" ")}
       style={{ animationDelay: `${Math.min(index * 60, 400)}ms` }}
     >
-      <div className={`relative bg-white overflow-hidden border-b-2 border-foreground ${aspectClass}`}>
+      <Link
+        to={productHref}
+        aria-label={`ดูรายละเอียด ${book.title}`}
+        className={`relative bg-white overflow-hidden border-b-2 border-foreground block ${aspectClass}`}
+      >
         {image ? (
           <img
             src={image}
@@ -85,13 +88,15 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
             <Eye className="h-3.5 w-3.5" /> ดูตัวอย่างข้างใน
           </button>
         )}
-      </div>
+      </Link>
 
       <div className="p-4 flex flex-col flex-1 gap-2">
         <p className="text-[10px] font-mono uppercase tracking-widest text-accent-foreground font-bold line-clamp-1">
           {chipLabel}
         </p>
-        <h3 className="font-display text-lg uppercase leading-tight line-clamp-2">{book.title}</h3>
+        <Link to={productHref} className="hover:text-accent transition-colors">
+          <h3 className="font-display text-lg uppercase leading-tight line-clamp-2">{book.title}</h3>
+        </Link>
         {tagline && (
           <p className="text-sm text-muted-foreground line-clamp-2 italic flex-1">{tagline}</p>
         )}
@@ -99,14 +104,13 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
           <div>{isColoring ? "Printable coloring pages" : "32 illustrated pages"}</div>
           <div>{isColoring ? "Ages-tuned line thickness" : "Original character"}</div>
         </div>
-        <span
-          className="mt-auto w-full h-11 bg-foreground text-background font-display uppercase text-sm tracking-wider border-2 border-foreground group-hover:bg-accent group-hover:text-accent-foreground transition-colors flex items-center justify-center gap-2"
-          onClick={(e) => { e.stopPropagation(); window.location.href = buyHref; }}
-          role="button"
+        <Link
+          to={buyHref}
+          className="mt-auto w-full h-11 bg-foreground text-background font-display uppercase text-sm tracking-wider border-2 border-foreground hover:bg-accent hover:text-accent-foreground transition-colors flex items-center justify-center gap-2"
         >
           {buyLabel}
-        </span>
+        </Link>
       </div>
-    </Link>
+    </div>
   );
 };
