@@ -699,10 +699,15 @@ Deno.serve(async (req) => {
     const targetEngineType = pickTargetEngineType(recent.engines);
     console.log(`[concept-preflight] engine_rotation target=${targetEngineType} recent=[${recentEngineTypes.join(',')}]`);
 
+    const recentNames = extractProtagonistNames(recent);
+    const allPreRejections: Array<{ slot: string; attempt: number; title: string; hits: string[] }> = [];
+
     // Attempt 1
     let c1: Concept;
     try {
-      c1 = await generateConcept(ageBand, triedTitles, 'primary', skillBlock, batchLane, recent);
+      const r1 = await generateConceptPreChecked(ageBand, triedTitles, 'primary', skillBlock, batchLane, recent, recentNames);
+      c1 = r1.concept;
+      for (const p of r1.preRejections) allPreRejections.push({ slot: 'primary', ...p });
     } catch (e) {
       return json({ ok: false, error: `concept1_gen_failed: ${(e as Error).message.slice(0, 200)}` }, 500);
     }
@@ -716,7 +721,9 @@ Deno.serve(async (req) => {
     if (!e1.passed) {
       for (let i = 0; i < 2; i++) {
         try {
-          const cN = await generateConcept(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`, skillBlock, batchLane, recent);
+          const rN = await generateConceptPreChecked(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`, skillBlock, batchLane, recent, recentNames);
+          const cN = rN.concept;
+          for (const p of rN.preRejections) allPreRejections.push({ slot: `alt${i + 1}`, ...p });
           triedTitles.push(cN.title);
           const sN = await scoreConcept(cN, ageBand);
           const bN = detectBannedLaneHits(cN);
@@ -739,6 +746,9 @@ Deno.serve(async (req) => {
           });
         }
       }
+    }
+    if (allPreRejections.length) {
+      console.log(`[concept-preflight] pre_judge_rejections total=${allPreRejections.length} details=${JSON.stringify(allPreRejections).slice(0, 500)}`);
     }
 
     const passedList = judged.filter(j => j.passed);
