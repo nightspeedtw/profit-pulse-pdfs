@@ -157,13 +157,12 @@ Deno.serve(async (req: Request) => {
       ...meta,
       thumbnail_render_meta: {
         ...renderMeta,
-        version: "coloring_thumbnail_v1",
+        version: "coloring_thumbnail_v2_trimmed",
         source_cover_url: row.cover_url,
         source_hash: hash,
         rendered_at: new Date().toISOString(),
         storage_path: up.path,
         signed_url: up.signedUrl,
-        trim_assertion: trim,
       },
     };
     await db.from("ebooks_kids").update({
