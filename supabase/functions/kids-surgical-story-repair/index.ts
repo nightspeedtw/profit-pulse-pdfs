@@ -203,9 +203,14 @@ Deno.serve(async (req) => {
       };
     }
 
+    const finalBlockers = blockersFromReport(finalReport);
+    const derivedPassed = finalReport.story_qc_passed === true && finalBlockers.length === 0;
     const sc = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
     sc.story_gate = {
-      passed,
+      passed: derivedPassed,
+      judge_self_verdict: finalReport.story_qc_passed,
+      blockers: finalBlockers,
+      threshold_version: 'v5.1-2026-07-18-single-source-of-truth',
       scores: {
         age: finalReport.age_appropriateness_score,
         coh: finalReport.story_coherence_score,
@@ -234,13 +239,15 @@ Deno.serve(async (req) => {
       storefront_meta: existingMeta,
       qc_scorecard: sc,
       // Never make it sellable here — measured QC owns that decision.
-      pipeline_status: passed ? 'illustrating' : 'human_review_required',
-      status: passed ? 'illustrating' : 'needs_revision',
-      blocker_reason: passed ? null : `story_gate: ${blockersFromReport(finalReport).join(', ')}`,
+      // Never enter an art status here. The canonical pipeline must re-read
+      // qc_scorecard.story_gate.passed === true before any cover/interior spend.
+      pipeline_status: derivedPassed ? 'writing' : 'human_review_required',
+      status: derivedPassed ? 'writing' : 'needs_revision',
+      blocker_reason: derivedPassed ? null : `story_gate: ${finalBlockers.join(', ')}`,
     }).eq('id', ebook_id);
 
     let resumed = false;
-    if (passed && resume_pipeline) {
+    if (derivedPassed && resume_pipeline) {
       let targetRunId = run_id;
       if (!targetRunId) {
         const { data: newRun } = await db.from('autopilot_kids_runs').insert({

@@ -59,6 +59,40 @@ const STEPS: Step[] = [
   { name: 'dispatch_pdf_qc_publish', label: 'Dispatch multi-stage PDF → QC → publish', critical: true, run: dispatchPdfQcPublish },
 ];
 
+const STORY_GATE_STEP_INDEX = STEPS.findIndex((s) => s.name === 'story_gate');
+const POST_STORY_GATE_STEPS = new Set(STEPS.slice(STORY_GATE_STEP_INDEX + 1).map((s) => s.name));
+
+function storedStoryGate(ebook: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  return ((ebook?.qc_scorecard as Record<string, unknown> | null | undefined)?.story_gate as Record<string, unknown> | null | undefined) ?? null;
+}
+
+async function readAndAssertStoredStoryGatePassed(
+  db: ReturnType<typeof createClient>,
+  ebookId: string,
+  stage: string,
+): Promise<Record<string, unknown>> {
+  const { data: fresh, error } = await db
+    .from('ebooks_kids')
+    .select('id,title,status,pipeline_status,listing_status,qc_scorecard')
+    .eq('id', ebookId)
+    .single();
+  if (error || !fresh) throw new Error(`${STORY_GATE_BLOCK}: unable_to_read_stored_story_gate_before_${stage}: ${error?.message ?? 'missing ebook'}`);
+
+  const sg = storedStoryGate(fresh as Record<string, unknown>);
+  if (sg?.passed !== true) {
+    const blockers = Array.isArray(sg?.blockers) ? (sg!.blockers as unknown[]).map(String).join(', ') : 'stored verdict missing/false';
+    await db.from('ebooks_kids').update({
+      listing_status: 'draft',
+      status: 'needs_revision',
+      pipeline_status: 'retired',
+      blocker_reason: `story_gate_failed_before_${stage}: ${blockers.slice(0, 180)}`,
+      human_review_reason: `Stored qc_scorecard.story_gate.passed was not true before ${stage}. ${blockers}`.slice(0, 500),
+    }).eq('id', ebookId);
+    throw new Error(`${STORY_GATE_BLOCK}: stored_qc_scorecard.story_gate.passed !== true before ${stage}: ${blockers}`);
+  }
+  return fresh as Record<string, unknown>;
+}
+
 // -----------------------------------------------------------------------------
 // UNIFIED STEP-FAILURE POLICY (one_shot_fix_never_repeat, rule 1e)
 // Every step declares what happens when it fails. Fixes to this table apply to
@@ -162,6 +196,9 @@ Deno.serve(async (req) => {
 
       let outcome: { status: string; output: Record<string, unknown>; error?: string };
       try {
+        if (POST_STORY_GATE_STEPS.has(step.name)) {
+          ctx.ebook = await readAndAssertStoredStoryGatePassed(supabase, ctx.ebookId, step.name);
+        }
         const result = await withRetry(() => step.run(ctx), 3);
         outcome = {
           status: result.fallbackUsed ? 'completed_with_fallback' : 'completed',
@@ -388,8 +425,8 @@ async function generateManuscript(ctx: Ctx): Promise<StepResult> {
     manuscript_md: md,
     word_count: wordCount,
     storefront_meta: nextMeta,
-    status: 'illustrating',
-    pipeline_status: 'illustrating',
+    status: 'writing',
+    pipeline_status: 'writing',
   }).eq('id', ctx.ebookId);
   ctx.ebook.manuscript_md = md;
   ctx.ebook.storefront_meta = nextMeta;
@@ -624,6 +661,8 @@ async function bibleCheck(ctx: Ctx): Promise<StepResult> {
 }
 
 async function generateCover(ctx: Ctx): Promise<StepResult> {
+  const db = ctx.supabase;
+  ctx.ebook = await readAndAssertStoredStoryGatePassed(db, ctx.ebookId, 'generate_cover');
   // Resolve required skill contracts BEFORE any generation. If a mandatory
   // contract is missing/disabled, this throws MissingRequiredSkillContract
   // and the outer loop escalates via error_class.
@@ -632,8 +671,6 @@ async function generateCover(ctx: Ctx): Promise<StepResult> {
   // 2. Build character bible via AI
   // 3. Generate character reference sheet with Fal Flux Schnell (fast, cheap)
   // 4. Generate final cover with Fal Recraft V3 using ref image (i2i for consistency)
-  const db = ctx.supabase;
-
   // Load or create bible row
   const { data: existingBible } = await db.from('kids_book_bibles')
     .select('*').eq('ebook_id', ctx.ebookId).maybeSingle();
@@ -934,6 +971,7 @@ Return JSON only: {"line_quality":"","palette":["#","#","#","#","#"],"lighting":
 // force_finish so thumbnail/previews/PDF steps continue automatically.
 async function generateInterior(ctx: Ctx): Promise<StepResult> {
   const db = ctx.supabase;
+  ctx.ebook = await readAndAssertStoredStoryGatePassed(db, ctx.ebookId, 'generate_interior');
   // Character-lock guard: interior cannot dispatch without the four canonical
   // reference fields (story_bible_id, character_bible_id,
   // character_reference_id, style_version) being persisted by generate_cover.
