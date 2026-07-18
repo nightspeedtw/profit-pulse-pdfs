@@ -10,6 +10,8 @@ import { Loader2, Download, Eye, Printer, ShieldCheck, Sparkles, Home } from "lu
 import { supabase } from "@/integrations/supabase/client";
 import { emitColoringEvent } from "@/lib/coloringFunnelEvents";
 import { ColoringPreviewLightbox } from "@/components/kids/ColoringPreviewLightbox";
+import ProductRating from "@/components/product/ProductRating";
+import { deriveSalePricing } from "@/lib/storefrontPricing";
 
 interface Row {
   id: string;
@@ -257,11 +259,33 @@ export default function ColoringProduct() {
             <p className="text-base md:text-lg text-muted-foreground">{book.subtitle}</p>
           )}
 
-          <div className="inline-block border-2 border-foreground bg-background px-4 py-2">
-            <p className="font-display text-3xl md:text-4xl font-black text-foreground tracking-tight">
-              {priceText}
-            </p>
-          </div>
+          <ProductRating ebookId={book.id} />
+
+          {(() => {
+            const sp = deriveSalePricing(book.id, priceCents, book.storefront_meta);
+            return (
+              <div className="space-y-1">
+                <div className="inline-flex items-baseline flex-wrap gap-x-3 gap-y-1 border-2 border-foreground bg-background px-4 py-2">
+                  <span className="font-display text-3xl md:text-4xl font-black text-foreground tracking-tight">
+                    {sp.priceLabel}
+                  </span>
+                  {sp.originalLabel && (
+                    <span className="font-mono text-sm text-muted-foreground line-through">
+                      {sp.originalLabel}
+                    </span>
+                  )}
+                  {sp.discountPct != null && (
+                    <span className="font-mono text-xs text-accent-foreground font-bold">
+                      ({sp.discountPct}% off)
+                    </span>
+                  )}
+                </div>
+                <p className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+                  <Download className="h-3.5 w-3.5" /> Digital Download · Instant PDF
+                </p>
+              </div>
+            );
+          })()}
 
           <button
             type="button"
