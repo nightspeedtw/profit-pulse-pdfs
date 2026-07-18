@@ -83,7 +83,14 @@ const IDEOGRAM_GEN_TIMEOUT_MS = 70_000;
 const COVER_VISION_TIMEOUT_MS = 8_000;
 const IDEOGRAM_VERIFY_TIMEOUT_MS = 12_000;
 const SINGLE_RUNG_VERSION = "coloring_cover_verified_typography_v2";
-const MAX_IDEOGRAM_ATTEMPTS = 3;
+// OOM defense (cover-function-worker-oom-v1): dropped from 3 → 1. Even
+// with downsampled analysis buffers, 3 attempts × (rawBytes ~2 MB kept
+// alive on text_rejected + decoded ~13 MB during compositor + base64-
+// encoded vision request bodies) stacks past the 256 MB isolate cap.
+// One attempt fits; if it fails, the outer worker-tick retries with a
+// fresh isolate (own heap). Same effective retry budget, no stacking.
+const MAX_IDEOGRAM_ATTEMPTS = 1;
+
 // OWNER LAW (2026-07-17, added after $116 unbounded-retry incident):
 // hard ceiling on how many TIMES the cover function may be invoked per book.
 // Each invocation burns up to MAX_IDEOGRAM_ATTEMPTS × $0.06 = $0.18 on Runware
@@ -140,13 +147,32 @@ function compactLearnedClause(clause: string): string {
     .slice(0, 420);
 }
 
-async function colorEvidence(bytes: Uint8Array) {
+// OOM defense (cover-function-worker-oom-v1): every full-res decode of an
+// Ideogram/GPT cover (~1600×2071) plus a matching Uint8Array RGBA buffer is
+// ~13 MB. Doing that 3-4× per attempt inside a Deno edge isolate (256 MB
+// heap) reliably OOMs. Downsample the decoded image to `MAX_ANALYSIS_DIM`
+// on the long edge BEFORE allocating the RGBA buffer — the QC math
+// (saturation, chroma, blank-region detection, dHash) doesn't need 2 MP
+// resolution; 512 px is plenty and drops the biggest allocation ~10×.
+const MAX_ANALYSIS_DIM = 512;
+
+async function decodeDownsampled(bytes: Uint8Array): Promise<{ img: any; w: number; h: number }> {
   const img = await Image.decode(bytes);
-  const w = img.width, h = img.height;
+  const longEdge = Math.max(img.width, img.height);
+  if (longEdge <= MAX_ANALYSIS_DIM) return { img, w: img.width, h: img.height };
+  const scale = MAX_ANALYSIS_DIM / longEdge;
+  const w = Math.max(8, Math.floor(img.width * scale));
+  const h = Math.max(8, Math.floor(img.height * scale));
+  const resized = (img as any).resize(w, h);
+  return { img: resized, w, h };
+}
+
+async function colorEvidence(bytes: Uint8Array) {
+  const { img, w, h } = await decodeDownsampled(bytes);
   // Pack imagescript's RGBA-in-uint32 pixels into a flat RGBA byte buffer
-  // so the pure detectBlankRegions() helper (unit-tested in
-  // coloringCoverRenderedProof.test.ts) can operate on it. Same code path
-  // in production and in the rendered-proof regression suite.
+  // so detectBlankRegions() (unit-tested) can operate on it. Now on the
+  // DOWNSAMPLED canvas (~512 px long edge), so ~340k iters instead of
+  // ~3.3M — fits inside the isolate CPU budget.
   const rgba = new Uint8Array(w * h * 4);
   let n = 0, satSum = 0, chromaSum = 0;
   const stepX = Math.max(1, Math.floor(w / 48));
@@ -182,8 +208,12 @@ async function colorEvidence(bytes: Uint8Array) {
     pass: avg_saturation >= 0.08 && avg_chroma >= 12 && !blank.blank_background,
     min_saturation: 0.08,
     min_chroma: 12,
+    _downsampled_from: `${bytes.length}b`,
   };
 }
+
+
+
 
 function constructedOverlayTranscription(title: string, subtitle: string, ageBadge: string) {
   return {
@@ -560,19 +590,23 @@ Deno.serve(async (req: Request) => {
         // HARD GUARD (a): vision transcription must match {title, subtitle, ageBadge} exactly.
         const verdict = await verifyExactCoverText(rawBytes, { title: row.title, subtitle, ageBadge }, { timeoutMs: IDEOGRAM_VERIFY_TIMEOUT_MS });
         ideoReport.checks.transcription = verdict;
-        // Stash raw bytes so a learning-mode waiver at the end of the loop
-        // can accept the best-of art even if OCR text-verify keeps failing
-        // (owner ruling 2026-07-17: focus books must reach live; extras log
-        // to defect_ledger for the next round).
-        ideoReport._rawBytes = rawBytes;
+        // Stash raw bytes ONLY on the waivable text-reject path so a
+        // learning-mode waiver can accept the best-of art later. Holding
+        // rawBytes on every attempt (previous behavior) blew the isolate
+        // heap — 3-4 attempts × ~2 MB PNG = 6-8 MB kept alive for the
+        // whole loop, on top of decode/rgba buffers. See known-regressions
+        // `cover-function-worker-oom-v1`.
         ideoReport._verdict = verdict;
+
         if (!verdict.pass) {
           ideoReport.status = "text_rejected";
           ideoReport.reason = `text_verify_failed:${verdict.reason}`;
           // Owner order: art passed luminance+color but text failed → keep
           // these bytes as the base for the next attempt's inpaint retry
-          // rather than re-rolling the whole cover.
+          // rather than re-rolling the whole cover. Also retained here for
+          // the learning-mode waiver path (see best-of pick below).
           lastPassingArtBytes = rawBytes;
+          ideoReport._rawBytes = rawBytes;
           ideogramAttempts.push(ideoReport);
           continue;
         }
@@ -627,27 +661,34 @@ Deno.serve(async (req: Request) => {
         // Rendered proof still runs on the final PNG (art-region variance + frame safety)
         // but the approved-strings check is fed the VERIFIED transcript so
         // detected text stays in-bounds of what we already proved matches.
-        const { rgba: finalRgba } = await (async () => {
-          const { Image } = await import("https://deno.land/x/imagescript@1.2.17/mod.ts");
-          const img = await Image.decode(finalBytes);
-          // Fast path: imagescript stores pixels as packed RGBA in a Uint32Array
-          // (`.bitmap`). Reinterpret as a byte buffer instead of running a
-          // per-pixel JS loop (~3.3M iterations on 1600×2071 blew the
-          // Deno isolate compute limit). This drops the extraction from
-          // ~O(3M ops) to a single memcpy.
-          const buf = new Uint8Array((img.bitmap as Uint32Array).buffer.slice(0));
-          return { rgba: buf, width: img.width, height: img.height };
-        })();
+        // OOM defense: previously this path decoded finalBytes at full
+        // resolution (~1600×2071 → 13 MB Uint32Array + 13 MB Uint8Array
+        // copy via .buffer.slice(0)) and kept the buffer alive until
+        // renderedColoringCoverProof returned. Downsample first — variance
+        // + region-blank math needs pixels, not megapixels.
+        const { img: finalImg, w: finalW, h: finalH } = await decodeDownsampled(finalBytes);
+        const finalRgba = new Uint8Array(finalW * finalH * 4);
+        for (let py = 0; py < finalH; py++) {
+          for (let px = 0; px < finalW; px++) {
+            const p = finalImg.getPixelAt(px + 1, py + 1);
+            const i = (py * finalW + px) * 4;
+            finalRgba[i] = (p >>> 24) & 0xff;
+            finalRgba[i + 1] = (p >>> 16) & 0xff;
+            finalRgba[i + 2] = (p >>> 8) & 0xff;
+            finalRgba[i + 3] = 255;
+          }
+        }
         // Owner ruling 2026-07-17: title = REQUIRED, subtitle + age badge =
         // OPTIONAL (Ideogram consistently drops secondary marketing chrome).
         // `extra_unapproved` remains a HARD FAIL — no uncontrolled baked text.
         const renderedProof = renderedColoringCoverProof({
-          rgba: finalRgba, width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT,
-          frame: { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, safe_margin: 60, elements: [] },
+          rgba: finalRgba, width: finalW, height: finalH,
+          frame: { width: finalW, height: finalH, safe_margin: Math.max(8, Math.floor(60 * finalW / COLORING_COVER_WIDTH)), elements: [] },
           requiredStrings: [row.title],
           optionalStrings: [subtitle, ageBadge],
           detectedText: verdict.transcribed_raw,
         });
+
         if (!renderedProof.pass) {
           ideoReport.status = "gate_rejected";
           ideoReport.reason = `rendered_proof_failed:${renderedProof.reasons.join(";").slice(0, 180)}`;

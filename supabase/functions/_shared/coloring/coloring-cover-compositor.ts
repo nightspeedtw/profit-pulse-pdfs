@@ -27,13 +27,13 @@ export async function fitCoverArtToPortraitCanvas(
   const resized = (src as any).resize(sw, sh);
   const cropX = Math.floor((sw - width) / 2);
   const cropY = Math.floor((sh - height) / 2);
-  const canvas = new Image(width, height);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      canvas.setPixelAt(x + 1, y + 1, (resized as any).getPixelAt(cropX + x + 1, cropY + y + 1));
-    }
-  }
-  return await canvas.encode();
+  // CPU defense (cover-function-worker-oom-v1): a per-pixel getPixelAt +
+  // setPixelAt loop over 1600×2071 = 3.3M iterations blew the Deno edge
+  // CPU budget. `.crop(x, y, w, h)` is a native buffer slice — O(1) JS
+  // dispatch, drops the compositor from ~30 s to <1 s.
+  const cropped = (resized as any).crop(cropX, cropY, width, height);
+  return await cropped.encode();
+
 }
 
 async function decodeToImage(bytes: Uint8Array) {
