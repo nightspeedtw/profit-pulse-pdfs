@@ -129,6 +129,7 @@ export default function KidsCategory() {
                   id: b.id,
                   title: b.title,
                   cover_url: b.cover_url,
+                  thumbnail_url: b.thumbnail_url,
                   price_cents: b.price_cents,
                   theme_ids: b.theme_ids ?? [],
                   storefront_meta: b.storefront_meta,
