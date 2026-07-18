@@ -681,9 +681,10 @@ export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise
 
   const parseFailures: WriterParseDiagnostics[] = [];
   let recovered: SegmentedManuscript | null = null;
+  const costCtx = { ebookId: opts.ebookId ?? null, ideaId: opts.ideaId ?? null, step: "kids_manuscript_writer" };
 
   // Attempt 1 — primary model, fresh prompt.
-  const raw1 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts), primary, timeoutMs);
+  const raw1 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts), primary, timeoutMs, costCtx);
   if (!raw1.ok || raw1.partial || raw1.diagnostics.errors.length > 0) parseFailures.push(raw1.diagnostics);
   let manuscript = raw1.ok ? coerceSegmented(raw1.value, opts) : coerceSegmented({}, opts);
   if (raw1.partial && manuscript.pages.length > 0) recovered = manuscript;
@@ -692,10 +693,7 @@ export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise
   console.warn(`[kids-segments] attempt 1 (${primary}) failed gate:\n- ${validation.violations.join("\n- ")}`);
 
   // Attempt 2 — same model, violations quoted back with fix demand.
-  // CRITICAL: pass manuscript.refrain so the rewrite prompt re-embeds the
-  // exact refrain string (previous runs failed because the rewrite prompt
-  // only quoted the VIOLATION and the model invented a fresh refrain).
-  const raw2 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, [...parseFailureViolations(parseFailures), ...validation.violations], recovered?.pages, manuscript.refrain), primary, timeoutMs);
+  const raw2 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, [...parseFailureViolations(parseFailures), ...validation.violations], recovered?.pages, manuscript.refrain), primary, timeoutMs, costCtx);
   if (!raw2.ok || raw2.partial || raw2.diagnostics.errors.length > 0) parseFailures.push(raw2.diagnostics);
   manuscript = raw2.ok ? mergeRecoveredPages(recovered, coerceSegmented(raw2.value, opts), opts) : (recovered ?? coerceSegmented({}, opts));
   if (raw2.partial && manuscript.pages.length > 0) recovered = manuscript;
@@ -703,12 +701,12 @@ export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise
   if (validation.ok) return { ok: true, manuscript, validation, attempts: 2, model: primary, parseFailures };
   console.warn(`[kids-segments] attempt 2 (${primary}) failed gate:\n- ${validation.violations.join("\n- ")}`);
 
-  // Attempt 3 — stronger model with all accumulated violations. Last chance
-  // before the pipeline retires the concept and rotates.
-  const raw3 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, [...parseFailureViolations(parseFailures), ...validation.violations], recovered?.pages, manuscript.refrain), fallback, timeoutMs);
+  // Attempt 3 — stronger model with all accumulated violations.
+  const raw3 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, [...parseFailureViolations(parseFailures), ...validation.violations], recovered?.pages, manuscript.refrain), fallback, timeoutMs, costCtx);
   if (!raw3.ok || raw3.partial || raw3.diagnostics.errors.length > 0) parseFailures.push(raw3.diagnostics);
   manuscript = raw3.ok ? mergeRecoveredPages(recovered, coerceSegmented(raw3.value, opts), opts) : (recovered ?? coerceSegmented({}, opts));
   validation = validateSegments(manuscript, { target: opts.target });
   return { ok: validation.ok, manuscript, validation, attempts: 3, model: fallback, parseFailures };
 }
+
 
