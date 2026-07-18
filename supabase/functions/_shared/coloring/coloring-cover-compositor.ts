@@ -20,20 +20,26 @@ export async function fitCoverArtToPortraitCanvas(
   width = COLORING_COVER_WIDTH,
   height = COLORING_COVER_HEIGHT,
 ): Promise<Uint8Array> {
+  // Round_3 CLASS: cover-pdf-embed-crop-v1.
+  // Fit-CONTAIN (Math.min) with a white letterbox — NEVER fit-COVER (Math.max)
+  // with a hard crop. Providers like gpt-image-1 emit 1024x1536 (2:3, ratio
+  // 0.667); the target canvas is 1600x2071 (8.5:11, ratio 0.773). Scaling by
+  // Math.max on a taller-than-target source overshoots height and crops
+  // top+bottom — which chops the top of the baked title. Fit-CONTAIN
+  // guarantees the full art (title, edge elements) is preserved; a slim
+  // white letterbox is acceptable and invisible in most containers.
   const src = await Image.decode(artBytes);
-  const scale = Math.max(width / src.width, height / src.height);
-  const sw = Math.max(width, Math.round(src.width * scale));
-  const sh = Math.max(height, Math.round(src.height * scale));
+  const scale = Math.min(width / src.width, height / src.height);
+  const sw = Math.max(1, Math.round(src.width * scale));
+  const sh = Math.max(1, Math.round(src.height * scale));
   const resized = (src as any).resize(sw, sh);
-  const cropX = Math.floor((sw - width) / 2);
-  const cropY = Math.floor((sh - height) / 2);
-  // CPU defense (cover-function-worker-oom-v1): a per-pixel getPixelAt +
-  // setPixelAt loop over 1600×2071 = 3.3M iterations blew the Deno edge
-  // CPU budget. `.crop(x, y, w, h)` is a native buffer slice — O(1) JS
-  // dispatch, drops the compositor from ~30 s to <1 s.
-  const cropped = (resized as any).crop(cropX, cropY, width, height);
-  return await cropped.encode();
-
+  const canvas = new Image(width, height);
+  // Fill with opaque white (RGBA packed as 0xRRGGBBAA in imagescript).
+  (canvas as any).fill(0xffffffff);
+  const offX = Math.floor((width - sw) / 2);
+  const offY = Math.floor((height - sh) / 2);
+  (canvas as any).composite(resized, offX, offY);
+  return await canvas.encode();
 }
 
 async function decodeToImage(bytes: Uint8Array) {
