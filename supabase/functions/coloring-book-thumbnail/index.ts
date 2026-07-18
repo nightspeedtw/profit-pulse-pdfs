@@ -15,7 +15,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
-// (trim-lock no longer enforced on thumbnail: canvas tracks trimmed art aspect)
+import { resolveTrimProfileKey, TRIM_PROFILES } from "../_shared/coloring/trim-lock.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -65,16 +65,16 @@ function detectContentBounds(img: any): { x: number; y: number; w: number; h: nu
 }
 
 /**
- * Render the thumbnail to the EXACT publish-contract spec (600×776 =
- * COLORING_TRIM.thumbnailPx), fit-CONTAIN so no artwork is clipped, with
- * the letterbox filled from the art's own sampled edge color (never white
- * bars). Owner directive 2026-07-18: match `coloring_publish_contract`
- * canvas_ok exactly, keep full artwork visible.
+ * Render the thumbnail to the EXACT publish-contract spec for the book's
+ * trim profile (letter_portrait = 600×776, square_8_5 = 600×600),
+ * fit-CONTAIN so no artwork is clipped, with the letterbox filled from
+ * the art's own sampled edge color (never white bars).
  */
-const THUMB_W = 600;
-const THUMB_H = 776;
-
-async function renderThumbnail(coverBytes: Uint8Array): Promise<{
+async function renderThumbnail(
+  coverBytes: Uint8Array,
+  THUMB_W: number,
+  THUMB_H: number,
+): Promise<{
   bytes: Uint8Array;
   meta: {
     canvas: { width: number; height: number };
@@ -145,7 +145,7 @@ Deno.serve(async (req: Request) => {
     const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
     const { data: row, error } = await db.from("ebooks_kids")
-      .select("id, book_type, cover_url, thumbnail_url, metadata")
+      .select("id, book_type, cover_url, thumbnail_url, metadata, created_at")
       .eq("id", ebook_id).maybeSingle();
     if (error) throw error;
     if (!row) return json({ error: "not_found" }, 404);
@@ -153,9 +153,19 @@ Deno.serve(async (req: Request) => {
     if (!row.cover_url) return json({ error: "no_cover_url" }, 422);
 
     const meta = (row.metadata ?? {}) as Record<string, any>;
+    let profileKey: "letter_portrait" | "square_8_5";
+    try {
+      profileKey = resolveTrimProfileKey({ metadata: meta, created_at: (row as any).created_at ?? null });
+    } catch (e) {
+      return json({ error: `trim_profile_unresolved:${String((e as Error)?.message ?? e).slice(0, 200)}` }, 422);
+    }
+    const profile = TRIM_PROFILES[profileKey];
+    const THUMB_W = profile.thumbnailPx.width;
+    const THUMB_H = profile.thumbnailPx.height;
+    const versionTag = `coloring_thumbnail_v4_profile_${profileKey}_${THUMB_W}x${THUMB_H}`;
     const existing = meta.thumbnail_render_meta ?? null;
     if (!force
-      && existing?.version === "coloring_thumbnail_v3_spec_600x776"
+      && existing?.version === versionTag
       && row.thumbnail_url
       && row.thumbnail_url !== row.cover_url) {
       return json({ ok: true, skipped: "already_fitted", thumbnail_url: row.thumbnail_url });
@@ -165,7 +175,7 @@ Deno.serve(async (req: Request) => {
     if (!r.ok) return json({ error: `fetch_cover_${r.status}` }, 502);
     const coverBytes = new Uint8Array(await r.arrayBuffer());
 
-    const { bytes, meta: renderMeta } = await renderThumbnail(coverBytes);
+    const { bytes, meta: renderMeta } = await renderThumbnail(coverBytes, THUMB_W, THUMB_H);
     // No fixed trim assertion: the thumbnail canvas now tracks the actual
     // art aspect (letterbox trimmed) so the storefront frame matches the
     // raster edge-to-edge.
