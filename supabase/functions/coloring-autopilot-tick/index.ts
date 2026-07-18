@@ -18,6 +18,7 @@ import { corsHeaders as baseCors } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { anglesFor } from "../_shared/coloring/angles.ts";
 import { GOLDEN_PATH_WHITELIST, GOLDEN_PATH_VERSION, GOLDEN_PATH_DEFAULTS } from "../_shared/coloring/golden-path.ts";
+import { filterCategoriesForBand, normalizeBandKey } from "../_shared/coloring/band-theme-validator.ts";
 
 declare const Deno: any;
 
