@@ -149,7 +149,8 @@ async function ensureWasm() {
 
 const FONT_URLS: Record<string, string> = {
   // Fredoka 700 — rounded, playful bubble display face (Google Fonts, MIT).
-  fredoka:   "https://cdn.jsdelivr.net/npm/@fontsource/fredoka@5.0.20/files/fredoka-latin-700-normal.woff2",
+  // Version-less jsdelivr path resolves to the latest published tag.
+  fredoka:   "https://cdn.jsdelivr.net/npm/@fontsource/fredoka/files/fredoka-latin-700-normal.woff2",
   // Nunito 700 — clean rounded sans for the pill / small labels.
   nunito:    "https://cdn.jsdelivr.net/npm/@fontsource/nunito@5.0.20/files/nunito-latin-700-normal.woff2",
 };
