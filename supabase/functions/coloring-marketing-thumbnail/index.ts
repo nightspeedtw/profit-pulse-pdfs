@@ -90,7 +90,7 @@ function buildTextlessPrompt(variant: typeof STYLE_VARIANTS[number]): string {
 }
 
 // ── Runware call ─────────────────────────────────────────────────────
-async function generateCollage(refs: string[], prompt: string): Promise<{ bytes: Uint8Array; cost: number }> {
+async function callRunware(refs: string[], prompt: string): Promise<{ bytes: Uint8Array; cost: number }> {
   if (!RUNWARE_API_KEY) throw new Error("provider_unconfigured:RUNWARE_API_KEY_missing");
   const taskUUID = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const task = {
@@ -121,7 +121,7 @@ async function generateCollage(refs: string[], prompt: string): Promise<{ bytes:
     if (!res.ok) throw new Error(`runware_marketing_http_${res.status}:${txt.slice(0, 300)}`);
     const j = JSON.parse(txt);
     if (Array.isArray(j?.errors) && j.errors.length > 0) {
-      throw new Error(`runware_marketing_errors:${JSON.stringify(j.errors).slice(0, 300)}`);
+      throw new Error(`runware_marketing_errors:${JSON.stringify(j.errors).slice(0, 400)}`);
     }
     const first = (j?.data ?? [])[0];
     if (!first?.imageURL) throw new Error(`runware_marketing_no_image:${txt.slice(0, 200)}`);
@@ -132,6 +132,30 @@ async function generateCollage(refs: string[], prompt: string): Promise<{ bytes:
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function generateCollage(refs: string[], prompt: string): Promise<{ bytes: Uint8Array; cost: number }> {
+  // Runware validates every reference-image URL up-front for width/height in
+  // [128, 2048]. Interior page renders may be outside that band. If the
+  // multi-ref call fails on a validation error, fall back to cover-only,
+  // then to zero refs (pure prompt).
+  const attempts: string[][] = [];
+  attempts.push(refs);
+  if (refs.length > 1) attempts.push(refs.slice(0, 1));
+  attempts.push([]);
+  let lastErr: unknown = null;
+  for (const set of attempts) {
+    try {
+      return await callRunware(set, prompt);
+    } catch (e) {
+      lastErr = e;
+      const msg = (e as Error).message ?? String(e);
+      // Retry only when the error is validation of reference images or their download.
+      if (!/invalidReferenceImage|referenceImages|reference_image|http_400/i.test(msg)) throw e;
+      console.warn(`[marketing-thumb] runware ref-set len=${set.length} failed → falling back`, msg.slice(0, 200));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 // ── SVG overlay renderer (Fredoka bubble-style headline) ─────────────
