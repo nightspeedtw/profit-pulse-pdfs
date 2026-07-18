@@ -155,8 +155,55 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // ---- Stage-level zombie sweep: autopilot_kids_runs stuck >2h ----
+  // Row-level watchdog above only fires on ebooks_kids.updated_at. Runs can
+  // stall at a specific stage (e.g. "Design cover") while the ebooks_kids
+  // row is idle-terminal to that scan. Sweep them explicitly so stage-level
+  // zombies (see 15+ 24h+ "Design cover" runs from Jul 16-17) get retired.
+  const RUN_ZOMBIE_MS = 2 * 60 * 60 * 1000;
+  const runCutoff = new Date(now - RUN_ZOMBIE_MS).toISOString();
+  const zombieReacted: unknown[] = [];
+  try {
+    const { data: zombies } = await db.from("autopilot_kids_runs")
+      .select("id, ebook_kids_id, status, current_step_label, updated_at, started_at, attempts")
+      .in("status", ["running", "queued"])
+      .lt("updated_at", runCutoff)
+      .limit(200);
+    for (const r of (zombies ?? []) as any[]) {
+      const ageMs = now - new Date(r.updated_at).getTime();
+      const ageMin = Math.round(ageMs / 60_000);
+      try {
+        await db.from("stall_events").insert({
+          ebook_id: r.ebook_kids_id,
+          book_type: null,
+          pipeline_status: null,
+          awaiting: r.current_step_label ?? "unknown",
+          step_label: r.current_step_label ?? "unknown",
+          blocker_class: "run_stage_zombie",
+          reaction: "supersede_run",
+          repeat_after_fix: false,
+          regime_version: null,
+          evidence: { run_id: r.id, step: r.current_step_label, updated_at: r.updated_at, age_min: ageMin },
+          stall_age_seconds: Math.round(ageMs / 1000),
+        });
+      } catch (e) { console.warn("stall_event insert failed", (e as Error).message); }
+      await db.from("autopilot_kids_runs").update({
+        status: "superseded",
+        updated_at: new Date().toISOString(),
+        blocker_reason: `zombie_stage_reset:${r.current_step_label ?? "unknown"}:${ageMin}m`,
+        human_review_reason: `run_stage_zombie: no progress at "${r.current_step_label}" for ${ageMin}m`,
+      }).eq("id", r.id);
+      zombieReacted.push({ run_id: r.id, ebook_id: r.ebook_kids_id, step: r.current_step_label, age_min: ageMin });
+      console.warn(`[stall-watchdog] superseded zombie run ${r.id} step="${r.current_step_label}" age=${ageMin}m`);
+    }
+  } catch (e) {
+    console.error("[stall-watchdog] zombie-run sweep failed", (e as Error).message);
+  }
+
   return json({
     ok: true, scanned: rows?.length ?? 0, detected: detected.length,
     threshold_ms: STALL_THRESHOLD_MS, events: detected, reacted,
+    zombie_runs_superseded: zombieReacted.length, zombie_runs: zombieReacted,
   });
 });
+

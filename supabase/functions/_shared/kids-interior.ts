@@ -17,10 +17,11 @@ import { parseModelJson } from './model-json.ts';
 // added scene-specific detail and, for reference-conditioned, a small nudge
 // in composition guidance).
 
-import { falFluxSchnell } from "./fal.ts";
+import { generateImageWithFailover, readImageProviderPolicy } from "./image-providers.ts";
 import { generateWithReference } from "./kids-image-gen.ts";
 import { generateLiveImage } from "./image-luminance.ts";
 import { TEXTLESS_DIRECTIVE } from "./textless-illustration-policy.ts";
+
 
 export interface SceneRecord {
   index: number;
@@ -208,23 +209,34 @@ async function renderOneReference(
 }
 
 
-async function renderOneFal(
+async function renderOneTextOnly(
   s: ScenePlan["scenes"][number],
   charDesc: string,
   styleSuffix: string,
-  negativePrompt: string,
+  _negativePrompt: string,
   attempt: number,
+  // deno-lint-ignore no-explicit-any
+  db: any,
+  ebookId?: string,
+  step = "kids_interior_page_textonly",
 ): Promise<{ bytes: Uint8Array; model: string; prompt: string }> {
   const nudge = attempt > 0
     ? `Distinct composition ${attempt + 1}: unique camera angle and framing, unique background details for: ${s.scene}. Keep the 1:1 square shape.`
     : "";
   const prompt = buildScenePrompt(s, charDesc, styleSuffix, nudge);
-  const bytes = await falFluxSchnell({
-    prompt, image_size: "square_hd",
-    negative_prompt: `${negativePrompt}, text, letters, words, caption, watermark, logo, deformed hands, six fingers, extra fingers, off-model character, letterbox, black bars`,
-  });
-  return { bytes, model: "fal-ai/flux/schnell", prompt };
+  // Route through the shared failover chain (Runware→Cloudflare→Fal) so a
+  // billing-blocked provider (per provider_billing_blocked latches) is
+  // skipped instead of hard-crashing every page. Hardcoded fal here was the
+  // provider-monoculture defect from provider_resilience_character_reference.
+  const policy = (await readImageProviderPolicy(db)).interiors;
+  const { bytes, provider } = await generateImageWithFailover(
+    { prompt, image_size: "square_hd", num_inference_steps: 4, ebook_id: ebookId, step },
+    policy,
+    db,
+  );
+  return { bytes, model: provider, prompt };
 }
+
 
 export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Promise<SceneRecord[]> {
   const records: SceneRecord[] = new Array(opts.scenes.length);
@@ -242,11 +254,12 @@ export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Pro
       try {
         return await renderOneReference(s, opts.characterDescription, opts.styleSuffix, refs, attempt);
       } catch (e) {
-        console.warn(`ref-gen page ${i + 1} failed, falling back to fal:`, (e as Error).message);
-        return await renderOneFal(s, opts.characterDescription, opts.styleSuffix, opts.negativePrompt, attempt);
+        console.warn(`ref-gen page ${i + 1} failed, falling back to shared failover chain:`, (e as Error).message);
+        return await renderOneTextOnly(s, opts.characterDescription, opts.styleSuffix, opts.negativePrompt, attempt, opts.db, opts.ebookId);
       }
     }
-    return await renderOneFal(s, opts.characterDescription, opts.styleSuffix, opts.negativePrompt, attempt);
+
+    return await renderOneTextOnly(s, opts.characterDescription, opts.styleSuffix, opts.negativePrompt, attempt, opts.db, opts.ebookId);
   }
 
   async function persistOne(i: number, bytes: Uint8Array, model: string, prompt: string, hash: string) {
@@ -346,11 +359,13 @@ export async function renderAndUploadOne(o: RenderOneOpts): Promise<SceneRecord>
       out = await renderOneReference(o.scene, o.characterDescription, o.styleSuffix, refs, attempt + 1, o.ebookId, step);
     }
   } else {
-    // No cover reference yet (should never happen after cover step) — fall back
-    // to Fal so the pipeline doesn't hard-block, and log loudly.
-    console.warn(`[kids-interior] no cover reference for page ${o.sceneIndex + 1} — using Fal fallback (character drift risk)`);
-    out = await renderOneFal(o.scene, o.characterDescription, o.styleSuffix, o.negativePrompt, attempt);
+    // No cover reference yet — route through the shared failover chain
+    // (Runware→Cloudflare→Fal, skipping any billing-locked provider) so the
+    // pipeline doesn't hard-block on a monoculture provider outage.
+    console.warn(`[kids-interior] no cover reference for page ${o.sceneIndex + 1} — using shared failover chain (character drift risk)`);
+    out = await renderOneTextOnly(o.scene, o.characterDescription, o.styleSuffix, o.negativePrompt, attempt, o.db, o.ebookId, step);
   }
+
 
   const hash = await sha256Hex(out.bytes);
   const path = versionedKidsInteriorPath(o.ebookId, o.sceneIndex);
