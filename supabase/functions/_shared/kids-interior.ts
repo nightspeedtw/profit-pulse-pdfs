@@ -259,7 +259,7 @@ export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Pro
       }
     }
 
-    return await renderOneFal(s, opts.characterDescription, opts.styleSuffix, opts.negativePrompt, attempt);
+    return await renderOneTextOnly(s, opts.characterDescription, opts.styleSuffix, opts.negativePrompt, attempt, opts.db, opts.ebookId);
   }
 
   async function persistOne(i: number, bytes: Uint8Array, model: string, prompt: string, hash: string) {
@@ -359,11 +359,13 @@ export async function renderAndUploadOne(o: RenderOneOpts): Promise<SceneRecord>
       out = await renderOneReference(o.scene, o.characterDescription, o.styleSuffix, refs, attempt + 1, o.ebookId, step);
     }
   } else {
-    // No cover reference yet (should never happen after cover step) — fall back
-    // to Fal so the pipeline doesn't hard-block, and log loudly.
-    console.warn(`[kids-interior] no cover reference for page ${o.sceneIndex + 1} — using Fal fallback (character drift risk)`);
-    out = await renderOneFal(o.scene, o.characterDescription, o.styleSuffix, o.negativePrompt, attempt);
+    // No cover reference yet — route through the shared failover chain
+    // (Runware→Cloudflare→Fal, skipping any billing-locked provider) so the
+    // pipeline doesn't hard-block on a monoculture provider outage.
+    console.warn(`[kids-interior] no cover reference for page ${o.sceneIndex + 1} — using shared failover chain (character drift risk)`);
+    out = await renderOneTextOnly(o.scene, o.characterDescription, o.styleSuffix, o.negativePrompt, attempt, o.db, o.ebookId, step);
   }
+
 
   const hash = await sha256Hex(out.bytes);
   const path = versionedKidsInteriorPath(o.ebookId, o.sceneIndex);
