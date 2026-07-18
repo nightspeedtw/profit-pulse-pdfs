@@ -229,3 +229,33 @@ constants in `_shared/coloring/golden-path.ts`.
   `coloring_autopilot.category_whitelist_extra: [key,...]` in generation_settings.
 
 Doctrine: `pipeline_skills.skill='golden_path_coloring_v1'`.
+
+## provider-payload-bigint-serialization (2026-07-18)
+Defect class: **DB bigint → provider HTTP payload**. `JSON.stringify` throws
+`Cannot convert a BigInt value to a number` when any BigInt (from a
+Postgres `bigint`/`int8` column, a `0x...n` literal, or `crypto` bignum)
+sneaks into a request body. The stack trace names `JSON.stringify`, not the
+offending field, so the crash looks like a generic provider bug.
+
+Trigger this turn: `_shared/coloring/ideogram-integrated-cover.ts`
+`buildTextRegionMaskPng()` used `0x000000ffn` / `0xffffffffn` BigInt
+literals for ImageScript `setPixelAt`. ImageScript did numeric bitwise ops
+on the BigInt and threw. Every inpaint-retry attempt on the cover crashed
+before the HTTP request even fired, which chewed through the 5-invocation
+cover ceiling on book `c2839b88` and parked it at 92%.
+
+**Permanent fix:**
+1. Replaced the three BigInt literals with `(0x000000ff) >>> 0` /
+   `(0xffffffff) >>> 0` Number constants.
+2. Added `_shared/coloring/payload-guard.ts` `coerceForProviderPayload()`
+   — walks the outgoing task object, converts BigInt → Number (with a
+   safe-integer check), rejects `Uint8Array`/functions with a message
+   that NAMES the field path (`payload_guard[runware_ideogram_cover]:
+   BigInt at $.seed exceeds safe integer range`).
+3. Applied the guard at all three Runware POST sites: runware.ts
+   interior, ideogram-integrated-cover cover, ideogram-integrated-cover
+   inpaint. Future non-serializable values fail loudly at the boundary
+   instead of crashing `JSON.stringify` with an anonymous stack.
+
+Detection rule: `rg "0x[0-9a-fA-F]+n\b" supabase/functions/` must return
+zero hits inside anything passed to `JSON.stringify`.
