@@ -547,3 +547,27 @@ never sees the pixels it just uploaded.
 - **Fix:** `_shared/coloring/coloring-cover-compositor.ts` now uses Math.min scale, white letterbox via `Image.fill(0xffffffff) + composite(x,y)`. Full art always preserved; slim bars are acceptable and invisible in most containers. Sibling of the storefront container fix (aspect-[1600/2071]).
 - **Repair:** deployed `coloring-cover-refit` one-shot to re-fit the existing raw pending art through the new compositor without regenerating cover art, then re-run thumbnail + assemble.
 - **Verification:** book `c2839b88` PDF page 1 rasterized at 100dpi shows complete "Fierce Floral and Botanical Coloring Book / A Coloring Adventure / Ages 4-6" with all edge elements intact.
+
+## cover-pdf-full-bleed-rule-v1 (2026-07-18)
+
+Class: `content_quality_failure` (permanent rule, not a bug fix).
+User directive (Thai): "ปกใน PDF Gen ให้เต็ม กระดาษขาว และใช้กฎนี้
+ตลอดไปสำหรับหนังสือระบายสี" — the coloring-book PDF cover page must be
+full-bleed with NO visible white paper (letterbox bars) around the art.
+
+Prior state (round_3 `cover-pdf-embed-crop-v1` fix): fit-CONTAIN with an
+opaque-white letterbox. Preserved the baked title but left visible white
+bars on the left/right of every 2:3 gpt-image-1 cover on the 8.5:11
+page. On yellow/teal/warm backgrounds those bars are jarring.
+
+Permanent rule (`_shared/coloring/coloring-cover-compositor.ts`,
+`fitCoverArtToPortraitCanvas`): still fit-CONTAIN (never fit-COVER —
+that reintroduces the title-crop class), but replace the white canvas
+fill with the SAMPLED AVERAGE EDGE COLOR of the resized art (1-px inset
+border, top+bottom rows + left+right columns). The bars now blend into
+the artwork's own background so the sheet reads as one continuous page,
+while the title and edge elements remain intact.
+
+Applies to every coloring book from this deploy forward. No threshold
+change, no gate bypass — the compositor version bump propagates through
+`cover-aspect-gate` and `coloring-cover-proof` unchanged.
