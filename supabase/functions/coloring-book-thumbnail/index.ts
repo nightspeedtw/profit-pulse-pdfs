@@ -130,11 +130,9 @@ Deno.serve(async (req: Request) => {
     const meta = (row.metadata ?? {}) as Record<string, any>;
     const existing = meta.thumbnail_render_meta ?? null;
     if (!force
-      && existing?.non_crop_pass === true
+      && existing?.version === "coloring_thumbnail_v2_trimmed"
       && row.thumbnail_url
-      && row.thumbnail_url !== row.cover_url
-      && Number(existing?.canvas?.width) === COLORING_TRIM.thumbnailPx.width
-      && Number(existing?.canvas?.height) === COLORING_TRIM.thumbnailPx.height) {
+      && row.thumbnail_url !== row.cover_url) {
       return json({ ok: true, skipped: "already_fitted", thumbnail_url: row.thumbnail_url });
     }
 
