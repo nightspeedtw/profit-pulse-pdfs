@@ -248,14 +248,53 @@ Deno.serve(async (req: Request) => {
       // by a code fix / lane recovery — same "never dead-end the whole
       // queue over one defect class" principle as the quota latch.
       const LANE_BLOCKED = /provider_billing|provider_quota|provider_unavailable|coloring_cover_retry_ceiling_reached/;
+      // Cover-invocation ceiling: a limit that doesn't act is not a limit.
+      // If cover invocations >= 5 and there's no cover_url yet, PARK the row
+      // (stamp blocker_reason) and skip dispatch — regardless of whether
+      // blocker_reason was previously cleared by a race, watchdog, or the
+      // render/assemble path resetting it. This is the class fix for
+      // "ceiling reached but no park" (known-regressions.md).
+      const COVER_INVOCATION_CEILING = 5;
+      let ceilingParked = 0;
       let laneBlockedSkipped = 0;
-      const dispatchable = (data ?? []).filter((r: any) => {
+      const dispatchable: any[] = [];
+      for (const r of (data ?? [])) {
         if (r.blocker_reason && LANE_BLOCKED.test(String(r.blocker_reason))) {
           laneBlockedSkipped += 1;
-          return false;
+          continue;
         }
-        return true;
-      });
+        const rMeta = (r.metadata ?? {}) as Record<string, unknown>;
+        const invocations = Number(rMeta.coloring_cover_invocations ?? 0);
+        const awaiting = rMeta.awaiting as string | undefined;
+        const needsCover = !r.cover_url && (awaiting === "cover_pdf_publish" || awaiting == null);
+        if (needsCover && invocations >= COVER_INVOCATION_CEILING) {
+          const reason = `coloring_cover_retry_ceiling_reached:${invocations}`;
+          try {
+            await db.from("ebooks_kids").update({
+              blocker_reason: reason,
+              metadata: {
+                ...rMeta,
+                coloring_current_step_label:
+                  `Cover retry ceiling reached (${invocations}/${COVER_INVOCATION_CEILING}) — parked by tick guard. Human must reset metadata.coloring_cover_invocations to resume.`,
+                coloring_blocker: {
+                  class: "non_recoverable_config",
+                  reason,
+                  invocations,
+                  ceiling: COVER_INVOCATION_CEILING,
+                  parked_by: "worker_tick_ceiling_guard",
+                  detected_at: new Date().toISOString(),
+                },
+                awaiting: "human_review",
+              },
+            }).eq("id", r.id);
+          } catch (_e) { /* best-effort */ }
+          ceilingParked += 1;
+          continue;
+        }
+        dispatchable.push(r);
+      }
+      result.cover_ceiling_parked = ceilingParked;
+
       const filtered = dispatchable.filter((r: any) => {
         const t = (r.metadata as any)?.coloring_last_dispatched_at;
         if (!t) return true;
