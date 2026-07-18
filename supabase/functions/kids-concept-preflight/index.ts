@@ -154,7 +154,12 @@ const T = {
 // HARD gate: concept stage is a best-of selector, not a product-grade gate.
 // Real quality bars live at story_gate (>=85 per dim) and final QC (>=90).
 const CONCEPT_SCORE_FLOOR = 85;   // final_concept_score must be >= this
-const CONCEPT_GENERIC_MAX = 40;   // generic_risk_score must be <= this
+// 2026-07-19: aligned to manuscript-stage generic_risk gate (<=25). Rationale:
+// concept judge previously used <=40 while story_gate rejects anything >25 —
+// so "bedtime-template"-class concepts (e.g. "Sweet Dreams, Little Star")
+// slipped past concept, then burned a $0.05-0.10 gemini-2.5-pro manuscript
+// before dying at story_gate. Filter at the cheap stage instead.
+const CONCEPT_GENERIC_MAX = 25;   // generic_risk_score must be <= this (matches manuscript story_gate)
 
 // Permanently retired clone-template family:
 //   "Name's Wobbly Wobble-Fruit", "Chef Pip's Sticky Sticky Jam",
@@ -571,10 +576,21 @@ Polarity:
 - emotional_payoff_seed_score: higher = specific warm payoff (not generic)
 - visual_spread_potential_score: higher = 12 varied visual beats with comic payoff
 - age_fit_score: higher = perfect for ${ageBand}
-- generic_risk_score: HIGHER = MORE GENERIC (BAD). Penalize lost-object/dance-party/teamwork/bedtime/tooth/portal/moon lanes.
+- generic_risk_score: HIGHER = MORE GENERIC (BAD). Aligned with the manuscript story_gate rubric — same polarity, same anchor scale, same ≤25 bar. Penalize lost-object / dance-party / teamwork / bedtime / naptime / sleep / tooth / portal / moon / stars / rainbow / friendship-lesson lanes.
 - final_concept_score: overall weighted score (25% distinctiveness, 20% reread, 20% parent_buyer, 15% story_engine, 10% visual, 10% emotional_payoff)
 
-BE STRICT. If the refrain is not truly chantable → reread_mechanism_score <80. If callbacks don't tie together on the final page → distinctiveness AND reread mechanism <80. If buyer hook is vague → parent_buyer_value_score <80. If title could belong to any generic kids book → distinctiveness <70 and generic_risk >60.`;
+GENERIC_RISK anchor scale (identical to the manuscript story_gate judge — use it as your calibration reference so concepts that would fail at story_gate fail HERE at the cheap stage):
+--- generic_story_risk 0-25 (distinctive / low risk, the ONLY passing band) ---
+  Concept has an unswappable premise + a specific story engine (mechanism, not theme). Title telegraphs a specific fun. Refrain + callbacks are premise-specific. Buyer hook names a specific developmental moment. No generic lane cue.
+--- generic_story_risk 40-60 (moderate risk — REJECT at concept stage) ---
+  Concept sits on a safe familiar template (bedtime routine, naptime, "friends learn to share", lost-object hunt, colors of the rainbow, dance party). Title could belong to any generic kids book. Refrain is a stock chant. Buyer hook is a generic virtue ("kindness", "friendship") rather than a specific developmental moment.
+--- generic_story_risk 75-100 (high risk / generic — REJECT) ---
+  Title + premise + hook are all lane-clichés with no unique engine.
+Derive generic_risk_score from your subscores. Rough formula (same as manuscript judge):
+  generic_risk ≈ round( (100 - distinctiveness_score)*0.35 + (100 - story_engine_score)*0.30 + (100 - reread_mechanism_score)*0.20 + lane_cliché_penalty*0.15 )
+Adjust ±10 based on evidence. NEVER assign a mid-range score by default — commit to distinctive (≤25) or generic (≥40).
+
+BE STRICT. If the refrain is not truly chantable → reread_mechanism_score <80. If callbacks don't tie together on the final page → distinctiveness AND reread mechanism <80. If buyer hook is vague → parent_buyer_value_score <80. If title could belong to any generic kids book → distinctiveness <70 and generic_risk >60. If premise is a bedtime/naptime/sleep/rainbow/friendship-lesson/lost-object template → generic_risk ≥ 40 regardless of prose polish.`;
 
   const user = `CONCEPT:\n${JSON.stringify(c, null, 2)}\n\nReturn strict JSON only.`;
   const raw = await callGemini(system, user);

@@ -210,12 +210,19 @@ export interface WriteSegmentsOpts {
 }
 
 
-// RIGHT-FIRST-TIME ARCHITECTURE (2026-07-18):
+// RIGHT-FIRST-TIME ARCHITECTURE (2026-07-18, locked 2026-07-19):
 // Writer defaults to the TOP text tier with the complete story_gate rubric
 // baked into the system prompt so the FIRST draft is written TO the rubric,
 // not graded against it blind. This deprecates the repair ladder: pipeline
 // does one regeneration with judge feedback and retires the concept otherwise.
-const DEFAULT_MODEL = "google/gemini-2.5-pro";
+//
+// 2026-07-19 SPLIT-BRAIN LOCK: every manuscript-producing call — primary,
+// retry, "stronger fallback" — routes through the SAME constant so the
+// pipeline can never silently fork onto a cheaper tier. The mechanical
+// word-count-only patcher below is the only exception (it does not write
+// prose, only expands under-count pages by a few words).
+export const MANUSCRIPT_WRITER_MODEL = "google/gemini-2.5-pro";
+const DEFAULT_MODEL = MANUSCRIPT_WRITER_MODEL;
 
 const STORY_GATE_RUBRIC_ADDENDUM = `
 
@@ -676,8 +683,16 @@ function parseFailureViolations(parseFailures: WriterParseDiagnostics[]): string
 }
 
 export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise<WriteSegmentsResult> {
-  const primary = opts.model ?? DEFAULT_MODEL;
-  const fallback = "google/gemini-2.5-pro";  // stronger model for the last-chance rewrite
+  // 2026-07-19 split-brain lock: ignore any opts.model override for the
+  // primary + retry + "stronger fallback" — every manuscript-producing call
+  // uses the same top-tier model constant so a downstream caller cannot
+  // silently downgrade to flash. If the caller supplied a model, we log the
+  // override attempt but do not honor it.
+  if (opts.model && opts.model !== MANUSCRIPT_WRITER_MODEL) {
+    console.warn(`[kids-segments] IGNORING model override="${opts.model}" — locked to ${MANUSCRIPT_WRITER_MODEL}`);
+  }
+  const primary = MANUSCRIPT_WRITER_MODEL;
+  const fallback = MANUSCRIPT_WRITER_MODEL;  // intentionally identical — no cheap-tier fallback
   const timeoutMs = opts.timeoutMs ?? 180_000;
 
   const parseFailures: WriterParseDiagnostics[] = [];
@@ -685,6 +700,7 @@ export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise
   const costCtx = { ebookId: opts.ebookId ?? null, ideaId: opts.ideaId ?? null, step: "kids_manuscript_writer" };
 
   // Attempt 1 — primary model, fresh prompt.
+  console.log(`[kids-segments] writer_call attempt=1 writer_model=${primary} ebook=${opts.ebookId ?? 'n/a'}`);
   const raw1 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts), primary, timeoutMs, costCtx);
   if (!raw1.ok || raw1.partial || raw1.diagnostics.errors.length > 0) parseFailures.push(raw1.diagnostics);
   let manuscript = raw1.ok ? coerceSegmented(raw1.value, opts) : coerceSegmented({}, opts);
@@ -694,6 +710,7 @@ export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise
   console.warn(`[kids-segments] attempt 1 (${primary}) failed gate:\n- ${validation.violations.join("\n- ")}`);
 
   // Attempt 2 — same model, violations quoted back with fix demand.
+  console.log(`[kids-segments] writer_call attempt=2 writer_model=${primary} ebook=${opts.ebookId ?? 'n/a'}`);
   const raw2 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, [...parseFailureViolations(parseFailures), ...validation.violations], recovered?.pages, manuscript.refrain), primary, timeoutMs, costCtx);
   if (!raw2.ok || raw2.partial || raw2.diagnostics.errors.length > 0) parseFailures.push(raw2.diagnostics);
   manuscript = raw2.ok ? mergeRecoveredPages(recovered, coerceSegmented(raw2.value, opts), opts) : (recovered ?? coerceSegmented({}, opts));
@@ -702,12 +719,14 @@ export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise
   if (validation.ok) return { ok: true, manuscript, validation, attempts: 2, model: primary, parseFailures };
   console.warn(`[kids-segments] attempt 2 (${primary}) failed gate:\n- ${validation.violations.join("\n- ")}`);
 
-  // Attempt 3 — stronger model with all accumulated violations.
+  // Attempt 3 — same top-tier model (fallback is intentionally identical) with all accumulated violations.
+  console.log(`[kids-segments] writer_call attempt=3 writer_model=${fallback} ebook=${opts.ebookId ?? 'n/a'}`);
   const raw3 = await callWriter(WRITER_SYSTEM, buildWriterUser(opts, [...parseFailureViolations(parseFailures), ...validation.violations], recovered?.pages, manuscript.refrain), fallback, timeoutMs, costCtx);
   if (!raw3.ok || raw3.partial || raw3.diagnostics.errors.length > 0) parseFailures.push(raw3.diagnostics);
   manuscript = raw3.ok ? mergeRecoveredPages(recovered, coerceSegmented(raw3.value, opts), opts) : (recovered ?? coerceSegmented({}, opts));
   validation = validateSegments(manuscript, { target: opts.target });
   if (validation.ok) return { ok: true, manuscript, validation, attempts: 3, model: fallback, parseFailures };
+
 
   // MECHANICAL WORD-COUNT FIX (2026-07-18): if the ONLY remaining violations
   // are per-page word-count shortfalls of 1-5 words (e.g. page 7 has 13/15,
