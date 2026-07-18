@@ -104,7 +104,7 @@ export default function KidsLibrary() {
       <Card key={b.id} className="p-3 border-2 border-foreground space-y-2">
         <div className="flex gap-3">
           {b.cover_url ? (
-            <img src={b.cover_url} alt={b.title} className="w-20 h-28 object-cover border-2 border-foreground" />
+            <img src={b.cover_url} alt={b.title} className="w-24 h-24 object-contain bg-white border-2 border-foreground" />
           ) : (
             <div className="w-20 h-28 bg-muted border-2 border-foreground" />
           )}
