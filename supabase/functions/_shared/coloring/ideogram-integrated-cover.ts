@@ -16,6 +16,18 @@ const FAL_KEY = Deno.env.get("FAL_KEY") ?? Deno.env.get("FAL_API_KEY");
 
 export const IDEOGRAM_INTEGRATED_COVER_VERSION = "coloring_cover_ideogram_v3_integrated_v1";
 
+import { hasOpenAIDirect, openaiDirectImage } from "../openai-direct.ts";
+
+// gpt-image-1 medium 1024x1536 ≈ $0.04/image (benchmark 2026-07-18).
+const GPT_IMAGE_COVER_COST_USD = 0.04;
+// Auto-degrade thresholds: if we have at least N attempts and pass-rate
+// falls below FLOOR, prefer Ideogram until GPT Image recovers. Matches the
+// provider-resilience-single-funded-path doctrine registered 2026-07-17.
+const GPT_IMAGE_MIN_SAMPLE = 20;
+const GPT_IMAGE_PASS_FLOOR = 0.75;
+const GPT_IMAGE_STATS_WINDOW_HOURS = 72;
+const DISABLE_GPT_IMAGE = (Deno.env.get("COLORING_COVER_DISABLE_GPT_IMAGE") ?? "0") === "1";
+
 export interface IdeogramCoverRequest {
   categoryName: string;
   heroSubjects: string[];
