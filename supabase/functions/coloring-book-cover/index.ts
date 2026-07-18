@@ -712,6 +712,29 @@ Deno.serve(async (req: Request) => {
         ideogramAttempts.push(ideoReport);
         if (providerClass === "billing_exhausted" || providerClass === "quota_exceeded") break;
         if (rawReason.startsWith("provider_unconfigured")) break;
+      } finally {
+        // ═══════ COVER PROVIDER PASS-RATE TELEMETRY (owner order 2026-07-18) ═══════
+        // Records every cover attempt outcome so pickCoverPrimaryProvider()
+        // can auto-degrade GPT Image → Ideogram if the rolling pass-rate on
+        // real books drops below the floor. Provider is read from
+        // ideoReport.checks.provider (set right after generation).
+        try {
+          const provider = (ideoReport?.checks as any)?.provider ?? null;
+          if (provider) {
+            await db.from("coloring_book_events").insert({
+              ebook_kids_id: ebook_id,
+              event_type: "cover_provider_attempt",
+              metadata: {
+                provider,
+                pass: ideoReport?.status === "accepted",
+                status: ideoReport?.status ?? "unknown",
+                reason: ideoReport?.reason ?? null,
+                mode: ideoReport?.mode ?? "full",
+                attempt: attemptIndex,
+              },
+            });
+          }
+        } catch (_e) { /* telemetry is fire-and-forget */ }
       }
     }
 
