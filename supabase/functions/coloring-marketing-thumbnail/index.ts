@@ -51,13 +51,23 @@ function pickVariant(seed: string) {
 }
 
 function categoryWord(row: any): string {
-  const raw = String(row?.metadata?.coloring_category_label ?? row?.metadata?.coloring_category ?? row?.category ?? "").trim();
-  return raw ? raw.replace(/coloring/i, "").replace(/book/i, "").replace(/\s+/g, " ").trim() : "Fun";
+  const meta = row?.metadata ?? {};
+  const raw = String(
+    meta.coloring_category_label
+      ?? meta.coloring_theme_bible?.category
+      ?? (meta.coloring_category_key ? String(meta.coloring_category_key).replace(/_/g, " ") : "")
+      ?? "",
+  ).trim();
+  const cleaned = raw.replace(/coloring/ig, "").replace(/book/ig, "").replace(/botanical/ig, "").replace(/\s+/g, " ").trim();
+  // Title-case a single friendly word for the headline.
+  const first = cleaned.split(/\s+/)[0] || "Fun";
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
 }
 function ageBand(row: any): string {
   const b = String(row?.metadata?.coloring_age_band ?? row?.age_band ?? "").trim();
   return b || "4-6";
 }
+
 
 function buildPrompt(row: any, pageCount: number, variant: typeof STYLE_VARIANTS[number]): {
   prompt: string;
