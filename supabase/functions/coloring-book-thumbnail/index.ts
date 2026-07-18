@@ -190,7 +190,7 @@ Deno.serve(async (req: Request) => {
       ...meta,
       thumbnail_render_meta: {
         ...renderMeta,
-        version: "coloring_thumbnail_v3_spec_600x776",
+        version: versionTag,
         source_cover_url: row.cover_url,
         source_hash: hash,
         rendered_at: new Date().toISOString(),
