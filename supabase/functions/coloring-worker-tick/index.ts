@@ -363,14 +363,24 @@ Deno.serve(async (req: Request) => {
     const dispatchPromises = queued.map(async (row) => {
       const meta = (row.metadata ?? {}) as Record<string, unknown>;
       const awaiting = meta.awaiting as string | undefined;
+      const invocations = Number(meta.coloring_cover_invocations ?? 0);
       let target = "coloring-book-render";
       if (awaiting === "cover_verify") {
         target = "coloring-cover-verify";
-      } else if (awaiting === "cover_pdf_publish") {
-        target = row.cover_url ? (row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble") : "coloring-cover-generate";
+      } else if (awaiting === "cover_pdf_publish" || awaiting === "human_review") {
+        if (row.cover_url) {
+          target = row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble";
+        } else if (invocations >= 5) {
+          // ESCALATION: fast Ideogram path exhausted → route to the
+          // interior-refs + learning-mode-waiver path in coloring-book-cover.
+          target = "coloring-book-cover";
+        } else {
+          target = "coloring-cover-generate";
+        }
       } else if (awaiting === "publish" || awaiting === "publish_candidate" || awaiting === "owner_final_verification") {
         target = row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble";
       }
+
       const outcome = await fireAndForgetPost(
         `${_SB_URL}/functions/v1/${target}`,
         { Authorization: `Bearer ${_SB_KEY}`, apikey: _SB_KEY },
