@@ -134,11 +134,15 @@ async function runChecks(sb: any): Promise<Alert[]> {
     alerts.push({
       alert_class: "book_stuck",
       severity: "critical",
-      title: `${stuck!.length} book(s) stuck in active status >30 min with no blocker`,
-      body: stuck!.map((b: any) => `• ${b.title ?? b.id} — ${b.pipeline_status} (updated ${b.updated_at})`).join("\n") + `\n\nAdmin: ${ADMIN_URL}`,
-      evidence: { stuck_ids: stuck!.map((b: any) => b.id) },
+      title: `${stuck!.length} book(s) stuck in active status >30 min — auto-requeue in progress`,
+      body:
+        stuck!.map((b: any) => `• ${b.title ?? b.id} — ${b.pipeline_status} (updated ${b.updated_at})`).join("\n") +
+        `\n\nAuto-heal: stall-watchdog will requeue these next tick (per-book ceiling 3; escalates to human_review after that). No action needed unless this alert persists >1h.` +
+        `\nAdmin: ${ADMIN_URL}`,
+      evidence: { stuck_ids: stuck!.map((b: any) => b.id), self_heal: "stall_watchdog_auto_requeue" },
     });
   }
+
 
   // (c) provider billing-block flags newly active.
   const { data: gsRow } = await sb

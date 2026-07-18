@@ -130,18 +130,49 @@ Deno.serve(async (req: Request) => {
       reacted.push({ ebook_id: row.id, reaction: "advance_regime" });
     } else if (decision.reaction === "resume_checkpoint") {
       const meta = (row.metadata ?? {}) as Record<string, unknown>;
+      const requeuedCount = Number((meta as any).stall_auto_requeued_count ?? 0);
+      const AUTO_REQUEUE_CEILING = 3;
+      // Ceiling: after 3 auto-requeues the row escalates to human review
+      // instead of looping forever (same class-fix as the ceiling-without-
+      // consequence bug).
+      if (requeuedCount >= AUTO_REQUEUE_CEILING) {
+        await db.from("ebooks_kids").update({
+          pipeline_status: "human_review_required",
+          blocker_reason: `stall_auto_requeue_ceiling_reached:${requeuedCount}x:${row.pipeline_status}`,
+          metadata: { ...meta, stall_auto_requeue_ceiling_reached_at: new Date().toISOString() },
+        }).eq("id", row.id);
+        reacted.push({ ebook_id: row.id, reaction: "escalate_to_human", requeue_count: requeuedCount });
+        continue;
+      }
       const awaiting = meta.awaiting as string | undefined;
-      const target = row.book_type === "coloring_book"
-        ? (awaiting === "cover_pdf_publish"
-            ? (row.cover_url ? (row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble") : "coloring-book-cover")
-            : (awaiting === "publish" ? "coloring-book-publish" : "coloring-book-render"))
-        : "kids-repair-supervisor";
+      // Explicit status → owner mapping (fixes "state nobody owns" bug where
+      // awaiting_cover / publishing rows were never picked up by the
+      // dispatcher whose eligibility filter is pipeline_status='queued').
+      let target: string;
+      if (row.book_type === "coloring_book") {
+        if (row.pipeline_status === "awaiting_cover") target = "coloring-book-cover";
+        else if (row.pipeline_status === "publishing" || row.pipeline_status === "awaiting_publish") target = "coloring-book-publish";
+        else if (row.pipeline_status === "awaiting_render" || row.pipeline_status === "generating") target = "coloring-book-render";
+        else if (awaiting === "cover_pdf_publish") {
+          target = row.cover_url ? (row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble") : "coloring-book-cover";
+        } else if (awaiting === "publish") target = "coloring-book-publish";
+        else target = "coloring-book-render";
+      } else {
+        target = "kids-repair-supervisor";
+      }
       await db.from("ebooks_kids").update({
         pipeline_status: "queued", blocker_reason: null,
-        metadata: { ...meta, coloring_current_step_label: `Stall-SLA resume → ${target}` },
+        metadata: {
+          ...meta,
+          coloring_current_step_label: `Stall-SLA auto-requeue → ${target} (${requeuedCount + 1}/${AUTO_REQUEUE_CEILING})`,
+          stall_auto_requeued_count: requeuedCount + 1,
+          stall_auto_requeued_at: new Date().toISOString(),
+          stall_auto_requeued_from_status: row.pipeline_status,
+          stall_auto_requeued_target: target,
+        },
       }).eq("id", row.id);
       await fireAndForget(target, { ebook_id: row.id });
-      reacted.push({ ebook_id: row.id, reaction: "resume_checkpoint", target });
+      reacted.push({ ebook_id: row.id, reaction: "resume_checkpoint", target, requeue_count: requeuedCount + 1 });
     } else {
       // surface_blocker: persist machine-readable blocker; do not silently retry.
       await db.from("ebooks_kids").update({
@@ -149,6 +180,7 @@ Deno.serve(async (req: Request) => {
       }).eq("id", row.id);
       reacted.push({ ebook_id: row.id, reaction: "surface_blocker" });
     }
+
 
     if (repeat && inserted?.id) {
       console.warn(`[stall-watchdog] repeat_after_fix class=${decision.blocker_class} ebook=${row.id}`);

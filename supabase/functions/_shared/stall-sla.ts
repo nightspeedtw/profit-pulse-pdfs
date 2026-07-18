@@ -114,18 +114,39 @@ export function decideReaction(
     };
   }
 
-  // Class 2: build stage with partial output that can be resumed.
-  const inBuild = ["queued", "generating", "pdf_building"].includes(row.pipeline_status);
+  // Class 2: mid-pipeline active status with no blocker AND no in-flight
+  // owner — the "state nobody owns" family. This includes both partial
+  // build stages (queued/generating/pdf_building with checkpoint data) and
+  // handoff statuses (awaiting_cover / publishing / running) that a batch
+  // update parked the row into but the dispatcher never picks up because
+  // its eligibility filter is `pipeline_status='queued'` only.
+  const inBuild = [
+    "queued",
+    "generating",
+    "pdf_building",
+    "awaiting_cover",
+    "awaiting_render",
+    "awaiting_publish",
+    "publishing",
+    "running",
+  ].includes(row.pipeline_status);
   const hasPartial =
     (row.book_type === "coloring_book" && (
       ((meta as any).coloring_pages as unknown[] | undefined)?.length ??
         (meta as any).coloring_cover_ladder != null
     )) ||
-    row.cover_url != null;
-  if (inBuild && hasPartial) {
+    row.cover_url != null ||
+    row.pdf_url != null;
+  // For handoff statuses (awaiting_*, publishing, running) the row IS the
+  // partial output — no extra evidence required to resume.
+  const isHandoffStatus = ["awaiting_cover","awaiting_render","awaiting_publish","publishing","running"]
+    .includes(row.pipeline_status);
+  if (inBuild && (hasPartial || isHandoffStatus)) {
     return {
       is_stalled, age_ms,
-      blocker_class: "build_stage_stale_heartbeat",
+      blocker_class: isHandoffStatus
+        ? `handoff_status_no_owner:${row.pipeline_status}`
+        : "build_stage_stale_heartbeat",
       reaction: "resume_checkpoint",
       step_label: step, awaiting,
       regime_version: (meta as any).coloring_regime_version ?? null,
@@ -139,6 +160,7 @@ export function decideReaction(
       },
     };
   }
+
 
   // Class 3: everything else that has stalled — surface as blocker.
   return {
