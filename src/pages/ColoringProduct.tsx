@@ -27,7 +27,7 @@ interface Row {
   metadata: Record<string, any> | null;
 }
 
-interface Sibling { id: string; title: string; cover_url: string | null; price_cents: number | null; }
+interface Sibling { id: string; title: string; cover_url: string | null; thumbnail_url: string | null; price_cents: number | null; }
 
 function centsToUsd(n: number | null | undefined): string {
   if (n == null || n <= 0) return "—";
