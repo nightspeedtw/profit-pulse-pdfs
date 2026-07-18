@@ -1,49 +1,49 @@
+
 ## Goal
+Complete the 3 unblocked coloring books (Fierce Sea Animals, Cute Cozy, Fierce Floral) to LIVE, then report total token/credit usage including Lovable credits.
 
-Re-cover, rebuild thumbnail, re-assemble PDF for these 6 books under the latest cover rules (interior-first refs, spelling verify, uniqueness gate, per-provider fallback), then drive to `listing_status=live, sellable=true`.
+## Provider tiering (per your directive)
 
-**Draft (need first-time cover + PDF + thumb):**
-- d243bb53 — Fierce Sea Animals Coloring Book (Ages 4-6)
-- ab1f0b77 — Cute Cozy Coloring Coloring Book (Ages 4-6)
-- c2839b88 — Fierce Floral and Botanical Coloring Book (Ages 4-6)
+**Covers (high accuracy required):**
+- Tier 1: `gpt-image-1` (OpenAI direct) — $0.04/img, 3/3 spelling pass
+- Tier 2: Ideogram via Runware (`ideogram:4@1`) — $0.06/img
+- Tier 3: Runware base model / Cloudflare — emergency
 
-**Live but parked on `provider_billing_exhausted` (need refresh cover in PDF + new thumb):**
-- 83ffcf21 — Cute Floral and Botanical (Ages 4-6)
-- 53883c93 — Cute Princess Fairy and Magic (Ages 4-6)
-- d4e77e5b — Fierce Dinosaurs (Ages 4-6)
-- e86fe400 — Cute Dinosaurs (Ages 4-6)
+**Interior coloring pages (line art, cheaper models fine):**
+- Tier 1: Runware (fast, cheap ~$0.005-0.01/img)
+- Tier 2: Cloudflare Workers AI (flux-schnell, near-free)
+- Tier 3: fal.ai (only if others exhausted)
 
-(4 live books actually surfaced; will apply the same treatment to all four.)
+This matches your instruction: coloring interiors are simple line art and don't need premium models — reserve GPT Image budget for covers only.
 
-## Root cause
+## Execution steps
 
-Books parked because the cover single-rung (Ideogram-only via Runware) hit `provider_billing_exhausted` / `text_verify_failed` / `runware_ideogram_http_400 failedToTransferImage` / `transcription_mismatch` and the per-book `MAX_COVER_INVOCATIONS_PER_BOOK=5` ceiling latched them. Latest cover contract (interior-first refs, spelling gate, uniqueness) + Runware→CF→FAL per-provider latches are already deployed; the parked books never got a fresh attempt under those rules.
+1. **Verify interior routing already prefers cheap tier.** Read `_shared/coloring/page-generator.ts` (or equivalent) + `_shared/image-providers.ts` to confirm interior lane = Runware → Cloudflare → fal, and cover lane = GPT Image → Ideogram/Runware → fal. Patch if the interior lane is accidentally hitting GPT Image.
 
-## Steps
+2. **Kick the 3 books through the pipeline sequentially** (one at a time to avoid retry storms):
+   - Reset `coloring_cover_invocations=0`, clear `blocker_reason`, set `focus_run=true`, `qc_mode='learning'` on each (already done for the 3).
+   - Invoke `coloring-worker-tick` with `{ focus: true }` in a loop, polling `ebooks_kids` status every ~60s.
+   - Cap total wait at ~15 min per book. If a book stalls on a specific gate, log the reason and move on (Batch Learning Mode already permits this).
 
-1. **Unpark migration** (single SQL migration):
-   - Reset `metadata.coloring_cover_invocations = 0` for the 7 book IDs.
-   - Clear `blocker_reason` on the 3 draft books.
-   - For the 4 live books: keep them live, set `metadata.cover_upgrade_pending=true`, `metadata.focus_run=true`, `metadata.qc_mode_override='learning'`.
-   - For the 3 drafts: set `metadata.focus_run=true`, `metadata.qc_mode_override='learning'`, null out `cover_url` / `thumbnail_url` / `pdf_url` to force full rebuild.
-   - Insert `coloring_book_events` row per book: `event='owner_recover_relaunch'`.
+3. **Verify LIVE state for each book:**
+   - `listing_status='live'`, `sellable=true`, `pdf_url`, `cover_url`, `thumbnail_url` all populated.
+   - Cover uniqueness (dHash) + spelling (v3) gates passed or waived-with-defect logged.
 
-2. **Force provider re-latch check** — reset any expired per-provider daily latches touched by these books (Runware / Cloudflare / FAL rows in `generation_settings.provider_latches` older than today's UTC boundary).
+4. **Report token/credit usage** in a single summary:
+   - **Lovable credits**: `credits--get_credit_balance` — current balance, used this period, delta vs before this run.
+   - **Runtime AI $ cost**: `cost_log` grouped by provider (gpt_image_direct, runware_direct, cloudflare, ideogram, gemini_direct, openai_direct, lovable_gateway) for the last 24h and specifically the window of this run.
+   - **Per-book breakdown**: cost per book (cover attempts, interior pages, QC calls).
+   - **Cover Tier-1 pass rate**: fresh sample of GPT Image attempts from `coloring_book_events`.
 
-3. **Dispatch** — enqueue via `coloring-worker-tick` with focus flag; drafts run interior-first→cover; live books run `coloring-book-cover` (uses first 3 interior pages as `referenceImageURLs`) → thumbnail regen → PDF re-assemble (cover swap only, interior pages preserved via existing page manifest hashes) → publish-contract v3 with `cover_spelling_verified` + `cover_uniqueness` gates.
+## Guardrails
+- Retry ceiling (5 cover invocations/book) stays enforced — no new $118 storm.
+- If GPT Image fails 2× on a book, auto-fallback to Ideogram (already wired).
+- No threshold lowering; waived defects logged to ledger per Batch Learning Mode.
+- One book at a time through the worker (dispatcher cooldown 90s already active).
 
-4. **Verify** — poll every 30 s up to 20 min. Success = `listing_status='live' AND sellable=true AND cover_url IS NOT NULL AND thumbnail_url IS NOT NULL AND pdf_url IS NOT NULL AND blocker_reason IS NULL`. Report per-book final state and cover/thumbnail URLs.
-
-5. **If any book re-parks**: capture the exact `blocker_reason`, do NOT force-publish, surface it back for owner decision (per non-negotiable rule: no gate bypass).
-
-## Technical details
-
-- Migration file: `supabase/migrations/<ts>_recover_6_parked_covers.sql` — pure UPDATE/INSERT on `ebooks_kids` + `coloring_book_events`, no schema changes.
-- No edge-function code changes — the latest rules (interior-first refs, spelling gate, uniqueness, per-provider latches, invocation ceiling, learning-mode waivers) are already live from prior turns.
-- Assembly path for the 4 live books uses the existing `coloring-book-assemble` cover-only swap branch (does not re-render interior pages, preserving cost).
-- Publish contract remains v3 (non-waivable `cover_spelling_verified`). If a book fails spelling verify after 5 fresh invocations, it re-parks — expected and correct behavior.
-
-## Out of scope
-
-- Lowering thresholds, bypassing gates, or manually flipping to live without contract pass.
-- Changes to interior page generation, sales-page copy, or storefront UI.
+## Deliverable
+Chat reply with:
+- LIVE/blocked status for each of the 3 books.
+- Full cost table (Lovable credits + runtime $ by provider + per-book).
+- GPT Image pass-rate update.
+- Next recommendation.
