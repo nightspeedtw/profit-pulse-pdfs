@@ -237,6 +237,8 @@ export default function Production() {
         </div>
       </div>
 
+      <HealthIncidentBanner />
+
       <SystemHeartbeatCard />
 
       <AiProvidersCard />
