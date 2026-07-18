@@ -58,23 +58,50 @@ export interface IdeogramCoverRequest {
 
 export interface IdeogramCoverResult {
   bytes: Uint8Array;
-  provider: "fal_ideogram_v3";
+  provider: "fal_ideogram_v3" | "openai_gpt_image_1";
   prompt: string;
   seed?: number;
   request_id?: string | null;
 }
 
-// Category-family → allowed background clause. Used to positively steer the
-// scene when the caller hasn't supplied an explicit backgroundHint.
-export function defaultBackgroundHintFor(categoryName: string): string {
-  const c = (categoryName ?? "").toLowerCase();
-  if (/ocean|sea|mermaid|underwater|reef|marine/.test(c)) return "soft underwater seascape with gentle wavy water, coral hints, bubbles";
-  if (/farm|woodland|forest|barn/.test(c)) return "sunny farm meadow or cozy woodland clearing with grass, trees, wooden fence — NO water";
-  if (/dinosaur|prehistoric/.test(c)) return "prehistoric jungle or volcanic plain with ferns and rocks — NO ocean, NO waves, NO water";
-  if (/unicorn|fairy|princess|fantasy|magic|mermaid/.test(c) && !/mermaid|ocean/.test(c)) return "enchanted magical meadow, rainbow sky, sparkles, distant castle or flower field — NO ocean, NO waves";
-  if (/pet|cat|dog|puppy|kitten/.test(c)) return "cozy home yard, living room, or park lawn — NO ocean, NO wild jungle";
-  if (/safari|wild|jungle/.test(c)) return "African savanna or jungle with acacia trees, grass, rocks — NO ocean, NO snow";
-  if (/space|astronaut|planet/.test(c)) return "starry outer space with planets and nebulae — NO ocean, NO forest";
+/**
+ * Decide whether the next cover attempt should try GPT Image first or fall
+ * back to Ideogram. Reads recent `coloring_book_events` rows written by the
+ * cover worker after each attempt outcome; if GPT Image's rolling pass rate
+ * on ≥ GPT_IMAGE_MIN_SAMPLE attempts drops below GPT_IMAGE_PASS_FLOOR,
+ * Ideogram is preferred. Any DB error → default to GPT Image (fail-open;
+ * cheap path is presumed healthy until evidence says otherwise).
+ */
+export async function pickCoverPrimaryProvider(
+  db: any | null | undefined,
+): Promise<{ primary: "gpt_image" | "ideogram"; reason: string; sample: number; pass_rate: number | null }> {
+  if (DISABLE_GPT_IMAGE || !hasOpenAIDirect()) {
+    return { primary: "ideogram", reason: DISABLE_GPT_IMAGE ? "flag_disabled" : "openai_key_missing", sample: 0, pass_rate: null };
+  }
+  if (!db) return { primary: "gpt_image", reason: "no_db_fail_open", sample: 0, pass_rate: null };
+  try {
+    const since = new Date(Date.now() - GPT_IMAGE_STATS_WINDOW_HOURS * 3600 * 1000).toISOString();
+    const { data } = await db
+      .from("coloring_book_events")
+      .select("metadata")
+      .eq("event_type", "cover_provider_attempt")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(120);
+    const gpt = (data ?? []).filter((r: any) => r?.metadata?.provider === "openai_gpt_image_1");
+    if (gpt.length < GPT_IMAGE_MIN_SAMPLE) {
+      return { primary: "gpt_image", reason: `insufficient_sample(${gpt.length}/${GPT_IMAGE_MIN_SAMPLE})`, sample: gpt.length, pass_rate: null };
+    }
+    const passed = gpt.filter((r: any) => r?.metadata?.pass === true).length;
+    const rate = passed / gpt.length;
+    if (rate < GPT_IMAGE_PASS_FLOOR) {
+      return { primary: "ideogram", reason: `gpt_image_pass_rate_below_floor(${rate.toFixed(2)}<${GPT_IMAGE_PASS_FLOOR})`, sample: gpt.length, pass_rate: rate };
+    }
+    return { primary: "gpt_image", reason: `gpt_image_healthy(${rate.toFixed(2)})`, sample: gpt.length, pass_rate: rate };
+  } catch (_e) {
+    return { primary: "gpt_image", reason: "stats_query_failed_fail_open", sample: 0, pass_rate: null };
+  }
+}
   if (/holiday|christmas|halloween|season/.test(c)) return "seasonal indoor/outdoor holiday scene appropriate to the theme — NO ocean waves";
   if (/floral|flower|botanical|garden/.test(c)) return "flower garden with leaves, petals, butterflies — NO ocean, NO waves";
   if (/preschool|toddler/.test(c)) return "simple friendly playroom or meadow scene — NO ocean unless a specific sea hero is shown";
