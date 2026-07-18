@@ -15,6 +15,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { runKidsStoryJudge, type StoryReport } from '../_shared/kids-story-judge.ts';
 import { computeManuscriptHash } from '../_shared/manuscript-hash.ts';
 import { logAiCost, costDb } from '../_shared/cost-log.ts';
+import { STORY_GATE } from '../_shared/story-gate-thresholds.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -28,13 +29,13 @@ function json(body: unknown, status = 200) {
 
 function blockersFromReport(r: StoryReport): string[] {
   const b: string[] = [];
-  if (r.age_appropriateness_score < 90) b.push(`age=${r.age_appropriateness_score}<90`);
-  if (r.story_coherence_score < 90) b.push(`coh=${r.story_coherence_score}<90`);
-  if (r.emotional_payoff_score < 85) b.push(`emo=${r.emotional_payoff_score}<85`);
-  if (r.reread_value_score < 85) b.push(`rer=${r.reread_value_score}<85`);
-  if (r.language_level_score < 90) b.push(`lang=${r.language_level_score}<90`);
-  if (r.parent_buyer_value_score < 85) b.push(`buyer=${r.parent_buyer_value_score}<85`);
-  if (r.generic_story_risk_score > 25) b.push(`generic_risk=${r.generic_story_risk_score}>25`);
+  if (r.age_appropriateness_score < STORY_GATE.age_appropriateness) b.push(`age=${r.age_appropriateness_score}<${STORY_GATE.age_appropriateness}`);
+  if (r.story_coherence_score < STORY_GATE.story_coherence) b.push(`coh=${r.story_coherence_score}<${STORY_GATE.story_coherence}`);
+  if (r.emotional_payoff_score < STORY_GATE.emotional_payoff) b.push(`emo=${r.emotional_payoff_score}<${STORY_GATE.emotional_payoff}`);
+  if (r.reread_value_score < STORY_GATE.reread_value) b.push(`rer=${r.reread_value_score}<${STORY_GATE.reread_value}`);
+  if (r.language_level_score < STORY_GATE.language_level) b.push(`lang=${r.language_level_score}<${STORY_GATE.language_level}`);
+  if (r.parent_buyer_value_score < STORY_GATE.parent_buyer_value) b.push(`buyer=${r.parent_buyer_value_score}<${STORY_GATE.parent_buyer_value}`);
+  if (r.generic_story_risk_score > STORY_GATE.generic_story_risk_max) b.push(`generic_risk=${r.generic_story_risk_score}>${STORY_GATE.generic_story_risk_max}`);
   return b;
 }
 

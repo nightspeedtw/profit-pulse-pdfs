@@ -18,6 +18,7 @@ import { computeLuminance, generateLiveImage } from '../_shared/image-luminance.
 import { resolveStageOrThrow, logStageEvidence, assertCoverOrInteriorReady } from '../_shared/skill-evidence.ts';
 import { callAndParseModelJson, type ModelJsonSchema } from '../_shared/model-json.ts';
 import { smartChat } from '../_shared/direct-fallback.ts';
+import { STORY_GATE } from '../_shared/story-gate-thresholds.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -443,13 +444,13 @@ async function storyGate(ctx: Ctx): Promise<StepResult> {
     };
     await ctx.supabase.from('ebooks_kids').update({ qc_scorecard: sc }).eq('id', ctx.ebookId);
     const blockers: string[] = [];
-    if (report.age_appropriateness_score < 90) blockers.push(`age=${report.age_appropriateness_score}<90`);
-    if (report.story_coherence_score < 90) blockers.push(`coh=${report.story_coherence_score}<90`);
-    if (report.emotional_payoff_score < 85) blockers.push(`emo=${report.emotional_payoff_score}<85`);
-    if (report.reread_value_score < 85) blockers.push(`rer=${report.reread_value_score}<85`);
-    if (report.language_level_score < 90) blockers.push(`lang=${report.language_level_score}<90`);
-    if (report.parent_buyer_value_score < 85) blockers.push(`buyer=${report.parent_buyer_value_score}<85`);
-    if (report.generic_story_risk_score > 25) blockers.push(`generic_risk=${report.generic_story_risk_score}>25`);
+    if (report.age_appropriateness_score < STORY_GATE.age_appropriateness) blockers.push(`age=${report.age_appropriateness_score}<${STORY_GATE.age_appropriateness}`);
+    if (report.story_coherence_score < STORY_GATE.story_coherence) blockers.push(`coh=${report.story_coherence_score}<${STORY_GATE.story_coherence}`);
+    if (report.emotional_payoff_score < STORY_GATE.emotional_payoff) blockers.push(`emo=${report.emotional_payoff_score}<${STORY_GATE.emotional_payoff}`);
+    if (report.reread_value_score < STORY_GATE.reread_value) blockers.push(`rer=${report.reread_value_score}<${STORY_GATE.reread_value}`);
+    if (report.language_level_score < STORY_GATE.language_level) blockers.push(`lang=${report.language_level_score}<${STORY_GATE.language_level}`);
+    if (report.parent_buyer_value_score < STORY_GATE.parent_buyer_value) blockers.push(`buyer=${report.parent_buyer_value_score}<${STORY_GATE.parent_buyer_value}`);
+    if (report.generic_story_risk_score > STORY_GATE.generic_story_risk_max) blockers.push(`generic_risk=${report.generic_story_risk_score}>${STORY_GATE.generic_story_risk_max}`);
     return { passed: report.story_qc_passed, report, scorecard: sc, blockers };
   }
 

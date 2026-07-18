@@ -11,6 +11,7 @@ import type { RawFinding } from "./pdf-preflight.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
 import { parseModelJson } from "./model-json.ts";
 import { smartChat } from "./direct-fallback.ts";
+import { STORY_GATE } from "./story-gate-thresholds.ts";
 
 
 // Cheapest capable tier — right-first-time architecture (2026-07-18). Judge runs
@@ -314,13 +315,13 @@ ${SCHEMA_HINT}`;
   applyDeterministicScoreCalibration(report, opts.manuscript_md);
 
   report.story_qc_passed =
-    report.age_appropriateness_score >= 90 &&
-    report.story_coherence_score >= 90 &&
-    report.emotional_payoff_score >= 85 &&
-    report.reread_value_score >= 85 &&
-    report.language_level_score >= 90 &&
-    report.parent_buyer_value_score >= 85 &&
-    report.generic_story_risk_score <= 25;
+    report.age_appropriateness_score >= STORY_GATE.age_appropriateness &&
+    report.story_coherence_score >= STORY_GATE.story_coherence &&
+    report.emotional_payoff_score >= STORY_GATE.emotional_payoff &&
+    report.reread_value_score >= STORY_GATE.reread_value &&
+    report.language_level_score >= STORY_GATE.language_level &&
+    report.parent_buyer_value_score >= STORY_GATE.parent_buyer_value &&
+    report.generic_story_risk_score <= STORY_GATE.generic_story_risk_max;
   return report;
 }
 
@@ -408,12 +409,12 @@ function applyDeterministicScoreCalibration(report: StoryReport, manuscript: str
 export function storyReportToFindings(s: StoryReport): RawFinding[] {
   const out: RawFinding[] = [];
   const gate = [
-    { key: "age_appropriateness_score", cat: "age_appropriateness", rule: "STORY_AGE_APPROPRIATENESS", min: 90 },
-    { key: "story_coherence_score", cat: "story_structure", rule: "STORY_COHERENCE", min: 90 },
-    { key: "emotional_payoff_score", cat: "story_structure", rule: "STORY_EMOTIONAL_PAYOFF", min: 85 },
-    { key: "reread_value_score", cat: "story_structure", rule: "STORY_REREAD_VALUE", min: 85 },
-    { key: "language_level_score", cat: "grammar", rule: "STORY_LANGUAGE_LEVEL", min: 90 },
-    { key: "parent_buyer_value_score", cat: "commercial_metadata", rule: "STORY_PARENT_BUYER_VALUE", min: 85 },
+    { key: "age_appropriateness_score", cat: "age_appropriateness", rule: "STORY_AGE_APPROPRIATENESS", min: STORY_GATE.age_appropriateness },
+    { key: "story_coherence_score", cat: "story_structure", rule: "STORY_COHERENCE", min: STORY_GATE.story_coherence },
+    { key: "emotional_payoff_score", cat: "story_structure", rule: "STORY_EMOTIONAL_PAYOFF", min: STORY_GATE.emotional_payoff },
+    { key: "reread_value_score", cat: "story_structure", rule: "STORY_REREAD_VALUE", min: STORY_GATE.reread_value },
+    { key: "language_level_score", cat: "grammar", rule: "STORY_LANGUAGE_LEVEL", min: STORY_GATE.language_level },
+    { key: "parent_buyer_value_score", cat: "commercial_metadata", rule: "STORY_PARENT_BUYER_VALUE", min: STORY_GATE.parent_buyer_value },
   ] as const;
   for (const g of gate) {
     const v = (s as unknown as Record<string, number>)[g.key];

@@ -21,6 +21,7 @@ import { computeManuscriptHash } from '../_shared/manuscript-hash.ts';
 import { logAiCost, costDb } from '../_shared/cost-log.ts';
 import { loadRepairGuidanceForDimension, loadStoryCraftBlock, repairGuidanceForDimension } from '../_shared/story-craft-skill.ts';
 import { smartChat } from '../_shared/direct-fallback.ts';
+import { STORY_GATE } from '../_shared/story-gate-thresholds.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -42,13 +43,13 @@ function json(body: unknown, status = 200) {
 
 function blockersFromReport(r: StoryReport): string[] {
   const b: string[] = [];
-  if (r.age_appropriateness_score < 90) b.push(`age=${r.age_appropriateness_score}<90`);
-  if (r.story_coherence_score < 90) b.push(`coh=${r.story_coherence_score}<90`);
-  if (r.emotional_payoff_score < 85) b.push(`emo=${r.emotional_payoff_score}<85`);
-  if (r.reread_value_score < 85) b.push(`rer=${r.reread_value_score}<85`);
-  if (r.language_level_score < 90) b.push(`lang=${r.language_level_score}<90`);
-  if (r.parent_buyer_value_score < 85) b.push(`buyer=${r.parent_buyer_value_score}<85`);
-  if (r.generic_story_risk_score > 25) b.push(`generic_risk=${r.generic_story_risk_score}>25`);
+  if (r.age_appropriateness_score < STORY_GATE.age_appropriateness) b.push(`age=${r.age_appropriateness_score}<${STORY_GATE.age_appropriateness}`);
+  if (r.story_coherence_score < STORY_GATE.story_coherence) b.push(`coh=${r.story_coherence_score}<${STORY_GATE.story_coherence}`);
+  if (r.emotional_payoff_score < STORY_GATE.emotional_payoff) b.push(`emo=${r.emotional_payoff_score}<${STORY_GATE.emotional_payoff}`);
+  if (r.reread_value_score < STORY_GATE.reread_value) b.push(`rer=${r.reread_value_score}<${STORY_GATE.reread_value}`);
+  if (r.language_level_score < STORY_GATE.language_level) b.push(`lang=${r.language_level_score}<${STORY_GATE.language_level}`);
+  if (r.parent_buyer_value_score < STORY_GATE.parent_buyer_value) b.push(`buyer=${r.parent_buyer_value_score}<${STORY_GATE.parent_buyer_value}`);
+  if (r.generic_story_risk_score > STORY_GATE.generic_story_risk_max) b.push(`generic_risk=${r.generic_story_risk_score}>${STORY_GATE.generic_story_risk_max}`);
   return b;
 }
 
@@ -77,32 +78,32 @@ function buildRewritePrompt(
   }
 
   const dimensionalGuidance: string[] = [];
-  if (report.generic_story_risk_score > 25) {
+  if (report.generic_story_risk_score > STORY_GATE.generic_story_risk_max) {
     dimensionalGuidance.push(
-      `**Distinctiveness (generic_risk=${report.generic_story_risk_score}, must be <=25)**: Replace the generic tropes (${genericDetails.join('; ') || 'missing-object mystery, generic dance party, teamwork-solves-problem'}) with a specific, weird, memorable STORY ENGINE unique to this book. Keep the distinctive bits (${distinctiveDetails.join('; ') || 'the plink clue, the donkey wearing the fiddle as a hat'}) but make them the SPINE, not a garnish. The title should be un-swappable with any other animal book.\n  Craft moves that lift this dimension:\n${liveRepairGuidance.generic_risk || repairGuidanceForDimension('generic_risk')}`,
+      `**Distinctiveness (generic_risk=${report.generic_story_risk_score}, must be <=${STORY_GATE.generic_story_risk_max})**: Replace the generic tropes (${genericDetails.join('; ') || 'missing-object mystery, generic dance party, teamwork-solves-problem'}) with a specific, weird, memorable STORY ENGINE unique to this book. Keep the distinctive bits (${distinctiveDetails.join('; ') || 'the plink clue, the donkey wearing the fiddle as a hat'}) but make them the SPINE, not a garnish. The title should be un-swappable with any other animal book.\n  Craft moves that lift this dimension:\n${liveRepairGuidance.generic_risk || repairGuidanceForDimension('generic_risk')}`,
     );
   }
-  if (report.reread_value_score < 85) {
+  if (report.reread_value_score < STORY_GATE.reread_value) {
     const c = critiqueFor('reread');
     dimensionalGuidance.push(
-      `**Reread value (rer=${report.reread_value_score}, must be >=85)**: Add ONE chantable refrain (4-8 words) repeated at least 4 times with escalation. Plant 2 callback moments early that pay off on the final page. Add a final-page joke or reveal that only lands on the second read.\n  Judge said:\n${c || '    · (no specific evidence — assume prior attempt lacked a chant + callback structure)'}\n  Craft moves that lift this dimension:\n${liveRepairGuidance.reread_value || repairGuidanceForDimension('reread_value')}`,
+      `**Reread value (rer=${report.reread_value_score}, must be >=${STORY_GATE.reread_value})**: Add ONE chantable refrain (4-8 words) repeated at least 4 times with escalation. Plant 2 callback moments early that pay off on the final page. Add a final-page joke or reveal that only lands on the second read.\n  Judge said:\n${c || '    · (no specific evidence — assume prior attempt lacked a chant + callback structure)'}\n  Craft moves that lift this dimension:\n${liveRepairGuidance.reread_value || repairGuidanceForDimension('reread_value')}`,
     );
   }
-  if (report.emotional_payoff_score < 85) {
+  if (report.emotional_payoff_score < STORY_GATE.emotional_payoff) {
     const c = critiqueFor('emotion') || critiqueFor('payoff');
     dimensionalGuidance.push(
-      `**Emotional payoff (emo=${report.emotional_payoff_score}, must be >=85)**: Give the hero a tiny, felt want on page 1 that gets a warmer, specific answer at the end. Show it with a small physical gesture, not a speech.\n  Judge said:\n${c || '    · (no specific evidence — the ending felt generic/detached; make the final image emotionally specific)'}\n  Craft moves that lift this dimension:\n${liveRepairGuidance.emotional_payoff || repairGuidanceForDimension('emotional_payoff')}`,
+      `**Emotional payoff (emo=${report.emotional_payoff_score}, must be >=${STORY_GATE.emotional_payoff})**: Give the hero a tiny, felt want on page 1 that gets a warmer, specific answer at the end. Show it with a small physical gesture, not a speech.\n  Judge said:\n${c || '    · (no specific evidence — the ending felt generic/detached; make the final image emotionally specific)'}\n  Craft moves that lift this dimension:\n${liveRepairGuidance.emotional_payoff || repairGuidanceForDimension('emotional_payoff')}`,
     );
   }
-  if (report.language_level_score < 90) {
+  if (report.language_level_score < STORY_GATE.language_level) {
     dimensionalGuidance.push(
-      `**Language level (lang=${report.language_level_score}, must be >=90)**: Cap sentences at ~12 words. Punchy verbs. Read-aloud rhythm. Kindergarten cadence.\n  Craft moves that lift this dimension:\n${liveRepairGuidance.language_level || repairGuidanceForDimension('language_level')}`,
+      `**Language level (lang=${report.language_level_score}, must be >=${STORY_GATE.language_level})**: Cap sentences at ~12 words. Punchy verbs. Read-aloud rhythm. Kindergarten cadence.\n  Craft moves that lift this dimension:\n${liveRepairGuidance.language_level || repairGuidanceForDimension('language_level')}`,
     );
   }
-  if (report.parent_buyer_value_score < 85) {
+  if (report.parent_buyer_value_score < STORY_GATE.parent_buyer_value) {
     const c = critiqueFor('parent') || critiqueFor('buyer');
     dimensionalGuidance.push(
-      `**Parent value (buyer=${report.parent_buyer_value_score}, must be >=85)**: Anchor the whole book to ONE developmental theme a parent instantly recognizes (first-day fears, sharing, big feelings, kindness, helping others, a milestone). The final spread must land that theme as a warm specific payoff — a completed ritual, a small reveal, or a quiet gesture — never a moral speech.\n  Judge said:\n${c || '    · (no specific evidence — prior attempts felt formulaic; make the parent-facing payoff distinctive)'}\n  Craft moves that lift this dimension:\n${liveRepairGuidance.parent_buyer_value || repairGuidanceForDimension('parent_buyer_value')}`,
+      `**Parent value (buyer=${report.parent_buyer_value_score}, must be >=${STORY_GATE.parent_buyer_value})**: Anchor the whole book to ONE developmental theme a parent instantly recognizes (first-day fears, sharing, big feelings, kindness, helping others, a milestone). The final spread must land that theme as a warm specific payoff — a completed ritual, a small reveal, or a quiet gesture — never a moral speech.\n  Judge said:\n${c || '    · (no specific evidence — prior attempts felt formulaic; make the parent-facing payoff distinctive)'}\n  Craft moves that lift this dimension:\n${liveRepairGuidance.parent_buyer_value || repairGuidanceForDimension('parent_buyer_value')}`,
     );
   }
   // Attempts 2+ tend to oscillate on the same 80s. Force a structural break.

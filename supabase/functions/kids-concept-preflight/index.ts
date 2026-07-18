@@ -204,7 +204,79 @@ const LANE_DIRECTIVES: Record<string, string> = {
   shop_library_museum_logic: 'ALL candidates must sit in the shop/library/museum mishap lane with a visual logic game (mislabeled shelves, out-of-order exhibits, price-tag swap).',
 };
 
-async function generateConcept(ageBand: string, avoidList: string[], attemptLabel: string, skillBlock: string, batchLane?: string): Promise<Concept> {
+interface RecentConceptSignal {
+  titles: string[];
+  heroes: string[];
+  quirks: string[];        // hero_specificity / adjective+noun signatures
+  settings: string[];
+  refrains: string[];
+}
+
+async function loadRecentConceptSignals(db: ReturnType<typeof createClient>, limit = 25): Promise<RecentConceptSignal> {
+  // Pull the last N attempted concepts (successful OR failed, published OR not)
+  // so the generator sees the FULL recent minting history and doesn't rediscover
+  // the same protagonist template. Live/sellable titles are the strongest anchors
+  // — include them all regardless of age.
+  const { data } = await db
+    .from('ebooks_kids')
+    .select('title, storefront_meta, updated_at')
+    .not('title', 'is', null)
+    .order('updated_at', { ascending: false })
+    .limit(limit);
+  const titles: string[] = [];
+  const heroes: string[] = [];
+  const quirks: string[] = [];
+  const settings: string[] = [];
+  const refrains: string[] = [];
+  for (const row of data ?? []) {
+    const t = String((row as { title?: string }).title ?? '').trim();
+    if (t && !/preflight in progress|coloring book/i.test(t)) titles.push(t);
+    const meta = (row as { storefront_meta?: Record<string, unknown> }).storefront_meta ?? {};
+    const brief = (meta.concept_brief ?? meta.locked_concept ?? {}) as Record<string, unknown>;
+    const hero = String(brief.hero ?? '').trim();
+    if (hero) heroes.push(hero);
+    const spec = String(brief.hero_specificity ?? '').trim();
+    if (spec) quirks.push(spec.slice(0, 140));
+    const set = String(brief.setting ?? '').trim();
+    if (set) settings.push(set.slice(0, 80));
+    const ref = String(brief.refrain ?? '').trim();
+    if (ref) refrains.push(ref);
+  }
+  return { titles, heroes, quirks, settings, refrains };
+}
+
+// Extract the "protagonist quirk template" (e.g. "wobbly X", "sneezy X",
+// "sticky X", "sleepy X") from recent titles/heroes so we can explicitly
+// forbid the writer from producing another one.
+function extractQuirkTemplates(recent: RecentConceptSignal): string[] {
+  const adjRx = /\b(wobbly|wobble|sticky|sneezy|sneez|sleepy|dizzy|bouncy|bounce|wiggly|wiggle|jiggly|floppy|grumpy|itchy|scratchy|crumbly|fluffy|squishy|squeaky|silly|giggly|whispery|bumpy|clumsy|hiccupy|hiccup|drowsy|snuffly|creaky|shaky|chubby|tiny|little|wobbling|wandering|lost|missing|magical|curious|peculiar|puzzling|mystery|mysterious)\b/gi;
+  const set = new Set<string>();
+  const seed = [...recent.titles, ...recent.heroes, ...recent.quirks];
+  for (const s of seed) {
+    const m = s.toLowerCase().match(adjRx);
+    if (m) for (const a of m) set.add(a);
+  }
+  return Array.from(set);
+}
+
+// Extract the recurring proper-name protagonists (Pip, Leo, Barnaby, ...)
+// so the writer is forced to pick a fresh name.
+function extractProtagonistNames(recent: RecentConceptSignal): string[] {
+  const nameRx = /\b([A-Z][a-z]{2,12})\b/g;
+  const stop = new Set(['The','And','But','With','Little','Big','Chef','Detective','Captain','Miss','Mister','Mr','Mrs','Ms','Doctor','Dr','A','An','It','Its','Not','No','Yes','On','In','At','To','From','For','Of','By','As','My','Your','His','Her','Their','This','That','These','Those','Peculiar','Curious','Puzzling','Mystery','Mysterious','Wobbly','Sticky','Sneezy','Sleepy','Dizzy','Bouncy','Wiggly','Fluffy','Squishy']);
+  const counts = new Map<string, number>();
+  for (const t of [...recent.titles, ...recent.heroes]) {
+    let m: RegExpExecArray | null;
+    while ((m = nameRx.exec(t)) !== null) {
+      const n = m[1];
+      if (stop.has(n)) continue;
+      counts.set(n, (counts.get(n) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts.entries()).filter(([, c]) => c >= 1).map(([n]) => n).slice(0, 30);
+}
+
+async function generateConcept(ageBand: string, avoidList: string[], attemptLabel: string, skillBlock: string, batchLane: string | undefined, recent: RecentConceptSignal): Promise<Concept> {
   const avoidBlock = avoidList.length
     ? `\n\nDo NOT repeat/rehash these previously-tried concepts:\n${avoidList.map(a => `- ${a}`).join('\n')}`
     : '';
@@ -212,6 +284,33 @@ async function generateConcept(ageBand: string, avoidList: string[], attemptLabe
   const laneDirective = batchLane && LANE_DIRECTIVES[batchLane]
     ? `\n\nBATCH LANE (STRICT): ${LANE_DIRECTIVES[batchLane]} If your concept does not fit this lane, REGENERATE inside the lane.`
     : '';
+
+  // --- ANTI-ANCHORING BLOCK ---------------------------------------------
+  // The recent runs proved the generator anchors on the shape of the last
+  // published success (protagonist-name + adjective-quirk template, e.g.
+  // "Barnaby's Wobbly Problem" → "Leo's Wobbly Bicycle" / "Wobbly Wobbles").
+  // We force the model to (a) see the exact recent list, (b) forbid re-using
+  // any hero name or adjective-quirk template, (c) require a distinct
+  // premise/setting/name axis.
+  const recentTitleList = recent.titles.slice(0, 20);
+  const recentHeroList = Array.from(new Set(recent.heroes)).slice(0, 20);
+  const recentQuirkList = extractQuirkTemplates(recent);
+  const recentNames = extractProtagonistNames(recent);
+  const recentSettingList = Array.from(new Set(recent.settings)).slice(0, 15);
+  const antiAnchorBlock = `\n\nANTI-ANCHORING (HARD): the previous batch produced near-clones by anchoring on the shape of the last published success. You MUST break every one of these anchors:
+- FORBIDDEN protagonist NAMES (already used in the last ${recent.titles.length} attempts — pick a fresh name, not on this list): ${recentNames.length ? recentNames.join(', ') : '(none yet)'}
+- FORBIDDEN quirk adjectives in the title, subtitle, hero, or hero_specificity (the "adjective-noun template" template is over-used — DO NOT reuse ANY of these): ${recentQuirkList.length ? recentQuirkList.join(', ') : '(none yet)'}
+- FORBIDDEN hero archetypes (already tried): ${recentHeroList.length ? recentHeroList.join(' | ') : '(none yet)'}
+- FORBIDDEN settings (already tried, pick a genuinely different one): ${recentSettingList.length ? recentSettingList.join(' | ') : '(none yet)'}
+- FORBIDDEN titles (do not riff on, echo, or vary these): ${recentTitleList.length ? recentTitleList.map(t => `"${t}"`).join(', ') : '(none yet)'}
+
+Your concept must be distinct on ALL FOUR axes:
+  1) premise (different core mechanic / story engine),
+  2) protagonist name (not on the forbidden list, no "-y" adjective-quirk template like "Wobbly ___", "Sleepy ___", "Sticky ___", "Sneezy ___", "Dizzy ___", "Bouncy ___"),
+  3) setting (different physical world),
+  4) quirk (the hero's problem/skill is not an adjective-noun template).
+
+If your first idea rhymes with, echoes, alliterates on, or shares a template with anything on the forbidden list above, THROW IT OUT and invent a fresh one before writing the JSON. The generic_risk gate will reject anchor-clones.`;
 
   const system = `You are a bestselling picture-book concept designer for ages ${ageBand}. Invent ONE original, distinctive, giftable picture-book concept.
 
@@ -223,7 +322,7 @@ CRITICAL ORDER OF INVENTION (do not skip):
 3. Invent the CALLBACKS — two concrete planted objects that pay off.
 4. Invent the FINAL PAGE PAYOFF that lands the parent hook in ONE warm specific image.
 5. Only THEN write the TITLE. The title must describe the mechanism, not just a funny name.
-Reject concepts that are funny-name-first with no mechanism, or concepts with no parent hook.${laneDirective}
+Reject concepts that are funny-name-first with no mechanism, or concepts with no parent hook.${laneDirective}${antiAnchorBlock}
 
 Reply as STRICT JSON only (no markdown fences), matching EXACTLY this schema:
 {
@@ -417,11 +516,15 @@ Deno.serve(async (req) => {
 
     const db = createClient(SUPABASE_URL, SERVICE_KEY);
     const skillBlock = await loadStoryCraftBlock(db, ageBand);
+    const recent = await loadRecentConceptSignals(db, 25);
+    // Seed avoid list with recent titles so the writer sees them in BOTH the
+    // system anti-anchor block and the user-message avoid list.
+    for (const t of recent.titles) if (!triedTitles.includes(t)) triedTitles.push(t);
 
     // Attempt 1
     let c1: Concept;
     try {
-      c1 = await generateConcept(ageBand, triedTitles, 'primary', skillBlock, batchLane);
+      c1 = await generateConcept(ageBand, triedTitles, 'primary', skillBlock, batchLane, recent);
     } catch (e) {
       return json({ ok: false, error: `concept1_gen_failed: ${(e as Error).message.slice(0, 200)}` }, 500);
     }
@@ -435,7 +538,7 @@ Deno.serve(async (req) => {
     if (!e1.passed) {
       for (let i = 0; i < 2; i++) {
         try {
-          const cN = await generateConcept(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`, skillBlock, batchLane);
+          const cN = await generateConcept(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`, skillBlock, batchLane, recent);
           triedTitles.push(cN.title);
           const sN = await scoreConcept(cN, ageBand);
           const bN = detectBannedLaneHits(cN);
