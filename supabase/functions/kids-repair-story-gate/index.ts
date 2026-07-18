@@ -78,32 +78,32 @@ function buildRewritePrompt(
   }
 
   const dimensionalGuidance: string[] = [];
-  if (report.generic_story_risk_score > 25) {
+  if (report.generic_story_risk_score > STORY_GATE.generic_story_risk_max) {
     dimensionalGuidance.push(
-      `**Distinctiveness (generic_risk=${report.generic_story_risk_score}, must be <=25)**: Replace the generic tropes (${genericDetails.join('; ') || 'missing-object mystery, generic dance party, teamwork-solves-problem'}) with a specific, weird, memorable STORY ENGINE unique to this book. Keep the distinctive bits (${distinctiveDetails.join('; ') || 'the plink clue, the donkey wearing the fiddle as a hat'}) but make them the SPINE, not a garnish. The title should be un-swappable with any other animal book.\n  Craft moves that lift this dimension:\n${liveRepairGuidance.generic_risk || repairGuidanceForDimension('generic_risk')}`,
+      `**Distinctiveness (generic_risk=${report.generic_story_risk_score}, must be <=${STORY_GATE.generic_story_risk_max})**: Replace the generic tropes (${genericDetails.join('; ') || 'missing-object mystery, generic dance party, teamwork-solves-problem'}) with a specific, weird, memorable STORY ENGINE unique to this book. Keep the distinctive bits (${distinctiveDetails.join('; ') || 'the plink clue, the donkey wearing the fiddle as a hat'}) but make them the SPINE, not a garnish. The title should be un-swappable with any other animal book.\n  Craft moves that lift this dimension:\n${liveRepairGuidance.generic_risk || repairGuidanceForDimension('generic_risk')}`,
     );
   }
-  if (report.reread_value_score < 85) {
+  if (report.reread_value_score < STORY_GATE.reread_value) {
     const c = critiqueFor('reread');
     dimensionalGuidance.push(
-      `**Reread value (rer=${report.reread_value_score}, must be >=85)**: Add ONE chantable refrain (4-8 words) repeated at least 4 times with escalation. Plant 2 callback moments early that pay off on the final page. Add a final-page joke or reveal that only lands on the second read.\n  Judge said:\n${c || '    · (no specific evidence — assume prior attempt lacked a chant + callback structure)'}\n  Craft moves that lift this dimension:\n${liveRepairGuidance.reread_value || repairGuidanceForDimension('reread_value')}`,
+      `**Reread value (rer=${report.reread_value_score}, must be >=${STORY_GATE.reread_value})**: Add ONE chantable refrain (4-8 words) repeated at least 4 times with escalation. Plant 2 callback moments early that pay off on the final page. Add a final-page joke or reveal that only lands on the second read.\n  Judge said:\n${c || '    · (no specific evidence — assume prior attempt lacked a chant + callback structure)'}\n  Craft moves that lift this dimension:\n${liveRepairGuidance.reread_value || repairGuidanceForDimension('reread_value')}`,
     );
   }
-  if (report.emotional_payoff_score < 85) {
+  if (report.emotional_payoff_score < STORY_GATE.emotional_payoff) {
     const c = critiqueFor('emotion') || critiqueFor('payoff');
     dimensionalGuidance.push(
-      `**Emotional payoff (emo=${report.emotional_payoff_score}, must be >=85)**: Give the hero a tiny, felt want on page 1 that gets a warmer, specific answer at the end. Show it with a small physical gesture, not a speech.\n  Judge said:\n${c || '    · (no specific evidence — the ending felt generic/detached; make the final image emotionally specific)'}\n  Craft moves that lift this dimension:\n${liveRepairGuidance.emotional_payoff || repairGuidanceForDimension('emotional_payoff')}`,
+      `**Emotional payoff (emo=${report.emotional_payoff_score}, must be >=${STORY_GATE.emotional_payoff})**: Give the hero a tiny, felt want on page 1 that gets a warmer, specific answer at the end. Show it with a small physical gesture, not a speech.\n  Judge said:\n${c || '    · (no specific evidence — the ending felt generic/detached; make the final image emotionally specific)'}\n  Craft moves that lift this dimension:\n${liveRepairGuidance.emotional_payoff || repairGuidanceForDimension('emotional_payoff')}`,
     );
   }
-  if (report.language_level_score < 90) {
+  if (report.language_level_score < STORY_GATE.language_level) {
     dimensionalGuidance.push(
-      `**Language level (lang=${report.language_level_score}, must be >=90)**: Cap sentences at ~12 words. Punchy verbs. Read-aloud rhythm. Kindergarten cadence.\n  Craft moves that lift this dimension:\n${liveRepairGuidance.language_level || repairGuidanceForDimension('language_level')}`,
+      `**Language level (lang=${report.language_level_score}, must be >=${STORY_GATE.language_level})**: Cap sentences at ~12 words. Punchy verbs. Read-aloud rhythm. Kindergarten cadence.\n  Craft moves that lift this dimension:\n${liveRepairGuidance.language_level || repairGuidanceForDimension('language_level')}`,
     );
   }
-  if (report.parent_buyer_value_score < 85) {
+  if (report.parent_buyer_value_score < STORY_GATE.parent_buyer_value) {
     const c = critiqueFor('parent') || critiqueFor('buyer');
     dimensionalGuidance.push(
-      `**Parent value (buyer=${report.parent_buyer_value_score}, must be >=85)**: Anchor the whole book to ONE developmental theme a parent instantly recognizes (first-day fears, sharing, big feelings, kindness, helping others, a milestone). The final spread must land that theme as a warm specific payoff — a completed ritual, a small reveal, or a quiet gesture — never a moral speech.\n  Judge said:\n${c || '    · (no specific evidence — prior attempts felt formulaic; make the parent-facing payoff distinctive)'}\n  Craft moves that lift this dimension:\n${liveRepairGuidance.parent_buyer_value || repairGuidanceForDimension('parent_buyer_value')}`,
+      `**Parent value (buyer=${report.parent_buyer_value_score}, must be >=${STORY_GATE.parent_buyer_value})**: Anchor the whole book to ONE developmental theme a parent instantly recognizes (first-day fears, sharing, big feelings, kindness, helping others, a milestone). The final spread must land that theme as a warm specific payoff — a completed ritual, a small reveal, or a quiet gesture — never a moral speech.\n  Judge said:\n${c || '    · (no specific evidence — prior attempts felt formulaic; make the parent-facing payoff distinctive)'}\n  Craft moves that lift this dimension:\n${liveRepairGuidance.parent_buyer_value || repairGuidanceForDimension('parent_buyer_value')}`,
     );
   }
   // Attempts 2+ tend to oscillate on the same 80s. Force a structural break.
