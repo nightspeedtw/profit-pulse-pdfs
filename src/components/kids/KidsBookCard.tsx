@@ -48,13 +48,14 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
       <Link
         to={productHref}
         aria-label={`ดูรายละเอียด ${book.title}`}
-        // Container aspect MUST match the native cover asset ratio exactly.
-        // Coloring covers ship at 1600×2071 (8.5:11 portrait). Using any
-        // other ratio with object-cover clips the baked title/art at the
-        // edges (round_2 regression fix: title/edge glyph crop).
+        // Container aspect tracks the actual art aspect. Coloring covers'
+        // display asset (thumbnail_url) is now trimmed to source content
+        // (gpt-image-1 = 2:3), so the frame hugs the raster with no white
+        // letterbox bars on the storefront. Fallback object-contain still
+        // protects legacy covers.
         className={[
           "relative bg-muted overflow-hidden block cursor-pointer",
-          isColoring ? "aspect-[1600/2071]" : "aspect-[1024/1280]",
+          isColoring ? "aspect-[2/3]" : "aspect-[1024/1280]",
         ].join(" ")}
       >
         {book.cover_url ? (
