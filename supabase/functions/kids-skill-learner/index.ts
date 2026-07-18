@@ -183,9 +183,9 @@ Rewrite the playbook so a manuscript following it would score ≥85 on ${dimensi
       prior_version: currentVersion,
       new_version: nextVersion,
       new_length: newContent.length,
-    });
   } catch (e) {
     console.error('kids-skill-learner error', e);
     return json({ ok: false, error: String((e as Error)?.message ?? e) }, 500);
   }
-});
+}
+void _legacyHandler;
