@@ -383,6 +383,9 @@ Deno.serve(async (req: Request) => {
     // The app overlay (renderKidsTitleTreatment + age badge + logo) is the
     // only typography source on a coloring cover. Any attempt to add a
     // titled/ideogram rung here will throw at build time.
+    const { resolveBandProfileForDbBand, bandProfileForAges } = await import("../_shared/coloring/age-bands.ts");
+    const bandKey = (meta.age_band as string | undefined) ?? (row as any).age_band;
+    const bandProfile = resolveBandProfileForDbBand(bandKey) ?? bandProfileForAges(ageMin, ageMax);
     const prompt = buildColoringCoverArtPrompt({
       categoryName: categoryNameFinal,
       ageMin, ageMax,
@@ -390,6 +393,7 @@ Deno.serve(async (req: Request) => {
       forbiddenSubjects,
       extraClauses: [anatomyClauses, learnedClause],
       bannedTitle: row.title,
+      bandProfile,
     });
     const promptHash = await sha256Hex(prompt);
 
