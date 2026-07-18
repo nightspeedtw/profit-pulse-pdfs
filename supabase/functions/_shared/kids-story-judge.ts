@@ -11,6 +11,7 @@ import type { RawFinding } from "./pdf-preflight.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
 import { parseModelJson } from "./model-json.ts";
 import { smartChat } from "./direct-fallback.ts";
+import { STORY_GATE } from "./story-gate-thresholds.ts";
 
 
 // Cheapest capable tier — right-first-time architecture (2026-07-18). Judge runs
