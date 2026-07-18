@@ -244,46 +244,54 @@ Deno.serve(async (req: Request) => {
         .limit(Math.max(slots * 6, 24));
       const now = Date.now();
       const COOLDOWN_MS = 90_000;
-      // Owner ruling 2026-07-17: books parked on a lane-blocked provider
-      // signal (billing exhausted / quota / provider_unavailable) must NOT
-      // monopolize worker slots. They stay in `queued` for visibility but
-      // are skipped by the dispatcher until the blocker_reason is cleared
-      // by a code fix / lane recovery — same "never dead-end the whole
-      // queue over one defect class" principle as the quota latch.
-      const LANE_BLOCKED = /provider_billing|provider_quota|provider_unavailable|coloring_cover_retry_ceiling_reached/;
-      // Cover-invocation ceiling: a limit that doesn't act is not a limit.
-      // If cover invocations >= 5 and there's no cover_url yet, PARK the row
-      // (stamp blocker_reason) and skip dispatch — regardless of whether
-      // blocker_reason was previously cleared by a race, watchdog, or the
-      // render/assemble path resetting it. This is the class fix for
-      // "ceiling reached but no park" (known-regressions.md).
-      const COVER_INVOCATION_CEILING = 5;
+      // Owner ruling 2026-07-18 (overnight-run per-provider-health):
+      // A candidate is dispatchable when the provider chain for its NEXT
+      // STEP has any healthy provider. The old regex-based `LANE_BLOCKED`
+      // gate skipped rows whenever their blocker_reason mentioned ANY
+      // provider outage — even when a healthy provider (CF for interiors,
+      // GPT-Image / CF-tier2 for covers) was ready to run.
+      //
+      // - `coloring_cover_retry_ceiling_reached:N` is a PER-BOOK ceiling,
+      //   not a lane state. Ceiling-reached books are ROUTED to
+      //   `coloring-book-cover` (waiver-mode / interior-refs path) as an
+      //   escape, not skipped.
+      // - `provider_billing|quota|unavailable` blockers are skipped ONLY
+      //   when NO provider in the chain is healthy. Since the failover
+      //   dispatcher routes around a locked provider automatically, one
+      //   healthy provider is enough to try again.
+      const LANE_PROVIDER_BLOCKED = /provider_billing|provider_quota|provider_unavailable/;
+      const cfLaneHealthy = !cfLatch && !guards.provider_billing_blocked?.cloudflare?.active;
+      const runwareLaneHealthy = !guards.provider_billing_blocked?.runware?.active;
+      const anyLaneHealthy = cfLaneHealthy || runwareLaneHealthy;
+      // Cover invocation ceiling: raised to 8 total (5 fast Ideogram + 3
+      // waiver-mode). At >=5, dispatcher escalates to `coloring-book-cover`
+      // which has learning-mode text-verify waiver + interior-refs.
+      const COVER_INVOCATION_CEILING = 8;
+      const COVER_ESCALATION_AT = 5;
       let ceilingParked = 0;
       let laneBlockedSkipped = 0;
       const dispatchable: any[] = [];
       for (const r of (data ?? [])) {
-        if (r.blocker_reason && LANE_BLOCKED.test(String(r.blocker_reason))) {
-          laneBlockedSkipped += 1;
-          continue;
-        }
         const rMeta = (r.metadata ?? {}) as Record<string, unknown>;
         const invocations = Number(rMeta.coloring_cover_invocations ?? 0);
         const awaiting = rMeta.awaiting as string | undefined;
-        const needsCover = !r.cover_url && (awaiting === "cover_pdf_publish" || awaiting == null);
+        const needsCover = !r.cover_url && (awaiting === "cover_pdf_publish" || awaiting == null || awaiting === "human_review");
+        const reason = String(r.blocker_reason ?? "");
+        const isCeilingReason = /coloring_cover_retry_ceiling_reached/.test(reason);
+        // Ceiling handling: if under CEILING, escalate; if >= CEILING, park.
         if (needsCover && invocations >= COVER_INVOCATION_CEILING) {
-          const reason = `coloring_cover_retry_ceiling_reached:${invocations}`;
+          // Only park permanently at absolute ceiling (8+).
           try {
             await db.from("ebooks_kids").update({
-              blocker_reason: reason,
+              blocker_reason: `coloring_cover_retry_ceiling_reached:${invocations}`,
               metadata: {
                 ...rMeta,
                 coloring_current_step_label:
-                  `Cover retry ceiling reached (${invocations}/${COVER_INVOCATION_CEILING}) — parked by tick guard. Human must reset metadata.coloring_cover_invocations to resume.`,
+                  `Cover retry ceiling reached (${invocations}/${COVER_INVOCATION_CEILING}) — parked. Reset metadata.coloring_cover_invocations to resume.`,
                 coloring_blocker: {
                   class: "non_recoverable_config",
-                  reason,
-                  invocations,
-                  ceiling: COVER_INVOCATION_CEILING,
+                  reason: `coloring_cover_retry_ceiling_reached:${invocations}`,
+                  invocations, ceiling: COVER_INVOCATION_CEILING,
                   parked_by: "worker_tick_ceiling_guard",
                   detected_at: new Date().toISOString(),
                 },
@@ -294,9 +302,31 @@ Deno.serve(async (req: Request) => {
           ceilingParked += 1;
           continue;
         }
+        // Lane skip: only when the whole lane is dry.
+        if (LANE_PROVIDER_BLOCKED.test(reason) && !anyLaneHealthy) {
+          laneBlockedSkipped += 1;
+          continue;
+        }
+        // Under CEILING, always dispatchable. If ceiling-reason is stamped
+        // but invocations < CEILING (e.g. an old legacy stamp), clear it so
+        // the row can be re-tried; the router below will pick the escalated
+        // target when invocations >= COVER_ESCALATION_AT.
+        if (isCeilingReason && invocations < COVER_INVOCATION_CEILING) {
+          try {
+            await db.from("ebooks_kids").update({
+              blocker_reason: null,
+              metadata: { ...rMeta, awaiting: "cover_pdf_publish" },
+            }).eq("id", r.id);
+            r.blocker_reason = null;
+          } catch (_e) { /* best-effort */ }
+        }
+        (r as any)._needsCover = needsCover;
+        (r as any)._invocations = invocations;
         dispatchable.push(r);
       }
       result.cover_ceiling_parked = ceilingParked;
+      result.cover_escalation_at = COVER_ESCALATION_AT;
+
 
       const filtered = dispatchable.filter((r: any) => {
         const t = (r.metadata as any)?.coloring_last_dispatched_at;
