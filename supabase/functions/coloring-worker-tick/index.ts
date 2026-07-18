@@ -32,7 +32,6 @@ const db = createClient(_SB_URL, _SB_KEY, { auth: { persistSession: false } });
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const result: Record<string, unknown> = { tick_at: new Date().toISOString(), dispatched: [] };
-  const result: Record<string, unknown> = { tick_at: new Date().toISOString(), dispatched: [] };
 
   try {
     let body: any = {};
