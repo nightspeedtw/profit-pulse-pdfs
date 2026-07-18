@@ -875,13 +875,60 @@ Deno.serve(async (req: Request) => {
     const lastReason = ideogramAttempts.length
       ? String(ideogramAttempts[ideogramAttempts.length - 1]?.reason ?? "ideogram_no_accept").slice(0, 180)
       : "ideogram_no_attempts";
-    return await markCoverBlocked(
+    const tailResp = await markCoverBlocked(
       db, ebook_id,
       { coloring_cover_single_attempt: attempt, coloring_cover_ideogram_attempts: ideogramAttempts },
       `ideogram_only_park:${lastReason}`,
     );
+    if (!(tailResp instanceof Response)) {
+      // Structural tripwire (owner doctrine 2026-07-18,
+      // silent-no-op-after-provider-fallback). Every exit path of this
+      // function MUST return a Response tied to (a) success + asset URLs,
+      // (b) explicit failure with strike + blocker_reason, or (c) explicit
+      // park. If markCoverBlocked ever returns undefined we FAIL LOUDLY
+      // naming the site rather than letting the worker see a happy 200.
+      throw new Error("silent_no_op:cover_tail_markCoverBlocked_returned_non_response");
+    }
+    return tailResp;
+    // Unreachable by design. If a future edit inserts code below this
+    // line that forgets to return, this throw guarantees the failure is
+    // observable rather than becoming a silent no-op.
+    // eslint-disable-next-line no-unreachable
+    throw new Error("silent_no_op:cover_fell_through_bottom_of_handler");
   } catch (e: any) {
-    console.error("[coloring-cover] fatal", e?.message);
-    return json({ error: e?.message ?? String(e) }, 500);
+    const msg = String(e?.message ?? e).slice(0, 300);
+    console.error("[coloring-cover] fatal", msg);
+    // OWNER DOCTRINE: a thrown error must never leave the book silently
+    // unchanged. Stamp a blocker_reason so worker-tick sees the failure,
+    // the strike is visible in the DB, and downstream stall-watchdogs can
+    // detect and rotate. Also record a defect event for the
+    // silent-no-op-after-provider-fallback detection heuristic.
+    try {
+      const dbFallback = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+      const body = await req.clone().json().catch(() => ({} as any));
+      const ebookId = (body as any)?.ebook_id;
+      if (ebookId) {
+        await patchMeta(dbFallback, ebookId, {
+          coloring_blocker: {
+            class: "cover_function_threw",
+            reason: `cover_fatal:${msg}`,
+            detected_at: new Date().toISOString(),
+          },
+          coloring_current_step_label: `Cover function threw: ${msg}`,
+        });
+        await dbFallback.from("ebooks_kids").update({
+          pipeline_status: "queued",
+          blocker_reason: `coloring_cover_fatal:${msg}`.slice(0, 300),
+        }).eq("id", ebookId);
+        await dbFallback.from("coloring_book_events").insert({
+          ebook_kids_id: ebookId,
+          event_type: "cover_function_threw",
+          metadata: { error: msg, at: new Date().toISOString() },
+        }).catch(() => {});
+      }
+    } catch (stampErr: any) {
+      console.error("[coloring-cover] blocker-stamp failed", stampErr?.message);
+    }
+    return json({ error: msg, blocker_stamped: true }, 500);
   }
 });

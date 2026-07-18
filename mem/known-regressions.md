@@ -1,3 +1,76 @@
+## silent-no-op-after-provider-fallback-v1 (2026-07-18)
+
+Class: `observability_bug` + `state_machine_bug` — "failure without a
+strike". Worse than a crash: nothing downstream knows anything went
+wrong, so the never-dead-end doctrine silently breaks.
+
+Symptom: `coloring-book-cover` was dispatched for a book, the primary
+provider (e.g. gpt-image-1) hit a hard cap and threw, the catch handler
+swallowed the throw into a plain `return json({ error }, 500)`, and:
+- `metadata.coloring_cover_invocations` never incremented past the entry
+  bump,
+- no new `cost_log` row was written for that ebook_id,
+- `blocker_reason` on `ebooks_kids` did NOT change,
+- no `coloring_book_events` row was inserted,
+- `awaiting` stayed on whatever the previous tick set,
+- worker-tick saw a boring 500 with no state delta and moved on.
+
+The two-strikes-and-rotate mechanism NEVER engaged because there was no
+strike to count. The book sat in queued forever without accruing failure
+evidence.
+
+Permanent fix (`supabase/functions/coloring-book-cover/index.ts`):
+
+1. Every exit path must end in exactly one of: (a) `persistAcceptedCover`
+   → success + asset URLs, (b) `markCoverBlocked` → explicit failure that
+   increments strikes + stamps `blocker_reason` + `coloring_blocker`, or
+   (c) explicit park with `awaiting: "human_review"` + terminal reason.
+2. Outer `catch` now stamps `blocker_reason = coloring_cover_fatal:…`,
+   patches `metadata.coloring_blocker`, and inserts a
+   `coloring_book_events` row with `event_type = "cover_function_threw"`
+   BEFORE returning 500. A thrown error can no longer leave the row
+   unchanged.
+3. Structural tripwire after the final `return await markCoverBlocked`:
+   an unreachable `throw new Error("silent_no_op:cover_fell_through…")`
+   guarantees any future edit that removes the return fails loudly
+   naming the site rather than becoming a 200 no-op.
+4. Sanity-check the tail response is a `Response` instance; if
+   `markCoverBlocked` ever returns undefined we throw
+   `silent_no_op:cover_tail_markCoverBlocked_returned_non_response`
+   instead of letting the runtime coerce it into a happy exit.
+
+Detection heuristic (add to observability dashboard):
+
+```sql
+-- silent no-op = dispatched-to-cover, no strike, no cost row, no blocker
+-- change, within N minutes.
+select ek.id, ek.title
+from ebooks_kids ek
+where ek.book_type = 'coloring_book'
+  and ek.metadata->>'coloring_current_step_label' ilike '%cover%'
+  and coalesce((ek.metadata->>'coloring_cover_invocations')::int, 0)
+      = coalesce((ek.metadata->'coloring_cover_prev'->>'invocations')::int, 0)
+  and not exists (
+    select 1 from cost_log cl
+    where cl.ebook_kids_id = ek.id
+      and cl.created_at > now() - interval '10 minutes'
+      and cl.stage in ('coloring_cover', 'cover_ideogram')
+  )
+  and not exists (
+    select 1 from coloring_book_events ev
+    where ev.ebook_kids_id = ek.id
+      and ev.event_type in ('cover_provider_attempt', 'cover_function_threw')
+      and ev.created_at > now() - interval '10 minutes'
+  )
+  and ek.updated_at < now() - interval '10 minutes';
+```
+
+Rule: any row matching this query for two consecutive checks is a
+silent-no-op regression and must be treated as P0 — the tripwire in the
+cover function was disabled or bypassed.
+
+---
+
 ## dispatcher-head-of-queue-stall-v1 (2026-07-17)
 
 Class: `state_machine_bug` + `idempotency_bug`.
