@@ -20,7 +20,7 @@
 //        (fake-fix alarm).
 
 export const STALL_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
-export const TERMINAL_STATUSES = new Set(["published", "retired"]);
+export const TERMINAL_STATUSES = new Set(["published", "retired", "archived_legacy"]);
 
 export type Reaction = "advance_regime" | "resume_checkpoint" | "surface_blocker";
 
