@@ -143,9 +143,9 @@ Deno.serve(async (req: Request) => {
     const coverBytes = new Uint8Array(await r.arrayBuffer());
 
     const { bytes, meta: renderMeta } = await renderThumbnail(coverBytes);
-    // Trim sanity check on the produced canvas.
-    const trim = assertColoringTrim("thumbnail", renderMeta.canvas.width, renderMeta.canvas.height);
-    if (!trim.pass) return json({ error: `thumbnail_trim_mismatch:${trim.reason}` }, 500);
+    // No fixed trim assertion: the thumbnail canvas now tracks the actual
+    // art aspect (letterbox trimmed) so the storefront frame matches the
+    // raster edge-to-edge.
 
     const hash = await sha16(bytes);
     const path = `kids/${ebook_id}/coloring/thumb-${Date.now()}-${hash}.jpg`;
