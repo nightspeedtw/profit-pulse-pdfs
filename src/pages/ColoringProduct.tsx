@@ -219,26 +219,58 @@ export default function ColoringProduct() {
 
       {/* ── Hero ─────────────────────────────────────────────────────── */}
       <section className="container max-w-5xl grid md:grid-cols-2 gap-6 md:gap-10 pt-4 pb-8">
-        <button
-          type="button"
-          onClick={openPreview}
-          aria-label={`Preview inside ${book.title}`}
-          // Container aspect tracks the trimmed art (~2:3, from gpt-image-1).
-          // thumbnail_url is auto-trimmed by coloring-book-thumbnail v2 so the
-          // frame hugs the raster with no white letterbox. cover_url (used for
-          // PDF print) still ships at 8.5:11 with safe letterbox, so we prefer
-          // thumbnail_url for display and fall back to cover_url.
-          className="relative aspect-[2/3] bg-muted border-2 border-foreground overflow-hidden group"
-        >
-          {(book.thumbnail_url || book.cover_url) ? (
-            <img src={book.thumbnail_url || book.cover_url} alt={book.title} className="w-full h-full object-contain" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-muted-foreground">No cover</div>
-          )}
-          <span className="absolute bottom-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-background/95 border-2 border-foreground text-xs font-mono uppercase tracking-widest">
-            <Eye className="h-3.5 w-3.5" /> Look inside
-          </span>
-        </button>
+        {(() => {
+          // Gallery order (marketing v4): [square_cover, collage, ...interior pages].
+          // Falls back to legacy thumbnail/cover + preview URLs on older books.
+          const galleryFromMeta: string[] = Array.isArray(meta.gallery_urls) ? meta.gallery_urls.filter(Boolean) : [];
+          const legacyPrimary = book.thumbnail_url || book.cover_url;
+          const gallery: string[] = galleryFromMeta.length
+            ? galleryFromMeta
+            : [legacyPrimary, ...previewUrls].filter(Boolean) as string[];
+          const safeIdx = Math.min(activeImageIdx, Math.max(0, gallery.length - 1));
+          const main = gallery[safeIdx] ?? legacyPrimary;
+          const isCoverSlot = safeIdx === 0;
+          return (
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={openPreview}
+                aria-label={`Preview inside ${book.title}`}
+                className="relative aspect-square bg-muted border-2 border-foreground overflow-hidden group rounded-md"
+              >
+                {main ? (
+                  <img
+                    src={main}
+                    alt={isCoverSlot ? book.title : `${book.title} — sample ${safeIdx}`}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-muted-foreground">No cover</div>
+                )}
+                <span className="absolute bottom-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-background/95 border-2 border-foreground text-xs font-mono uppercase tracking-widest">
+                  <Eye className="h-3.5 w-3.5" /> Look inside
+                </span>
+              </button>
+              {gallery.length > 1 && (
+                <div className="grid grid-cols-5 gap-2">
+                  {gallery.slice(0, 5).map((u, i) => (
+                    <button
+                      key={`${u}-${i}`}
+                      type="button"
+                      onClick={() => setActiveImageIdx(i)}
+                      aria-label={`View image ${i + 1}`}
+                      className={`aspect-square overflow-hidden rounded border-2 bg-white transition-all ${
+                        i === safeIdx ? "border-foreground ring-2 ring-accent" : "border-border hover:border-foreground"
+                      }`}
+                    >
+                      <img src={u} alt="" loading="lazy" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         <div className="space-y-5">
           <div className="flex flex-wrap gap-2">
