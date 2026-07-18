@@ -283,11 +283,16 @@ export async function aiText(opts: {
     }
   }
 
-  // --- openai direct path (activates when OPENAI_API_KEY is set) ---
-  if (isOpenAIModel(opts.model) && hasOpenAIDirect()) {
+  // --- openai direct path (activates when OPENAI_API_KEY is set). Also
+  //     cross-family fallback for google/* whose gemini-direct call failed.
+  const useOpenAIFallbackText = hasOpenAIDirect() && (isOpenAIModel(opts.model) || isGoogleModel(opts.model));
+  if (useOpenAIFallbackText) {
+    const oaModel = isOpenAIModel(opts.model)
+      ? opts.model
+      : (/pro/i.test(opts.model) ? "openai/gpt-4o" : "openai/gpt-4o-mini");
     try {
       const r = await openaiDirectChat({
-        system: opts.system, user: opts.user, model: opts.model,
+        system: opts.system, user: opts.user, model: oaModel,
         maxTokens: opts.maxTokens, timeoutMs: opts.timeoutMs,
       });
       const rate = RATES[opts.model] ?? { in: 0.1, out: 0.4 };
