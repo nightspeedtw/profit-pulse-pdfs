@@ -63,12 +63,14 @@ function translate(a: ActiveCritical): Plain {
   switch (a.alert_class) {
     case "worker_dead": {
       const queued = firstNumber(a.title, /with (\d+) queued/) ?? firstNumber(b, /(\d+) books are queued/) ?? 0;
-      const min = firstNumber(a.title, /\((\d+) min\)/);
-      const staleTxt = min ? `${min} นาที` : "นานเกินไป";
+      const min = firstNumber(a.title, /\((\d+) min/);
+      const neverRecorded = /\(never/i.test(a.title);
+      const staleTxt = neverRecorded ? "ยังไม่เคยบันทึก heartbeat" : (min ? `${min} นาที` : "นานเกินไป");
+      const staleEn = neverRecorded ? "no heartbeat ever recorded" : `${min ?? "??"} min stale`;
       return {
         emoji: "🛑",
-        th: `Worker ไม่เต้น ${staleTxt} — มี ${queued} เล่มค้างคิว`,
-        en: `Worker stalled ${min ?? "??"} min · ${queued} book(s) waiting in queue`,
+        th: `Worker ไม่เต้น (${staleTxt}) — มี ${queued} เล่มค้างคิว`,
+        en: `Worker heartbeat ${staleEn} · ${queued} book(s) waiting in queue`,
         entities: [`queue: ${queued}`],
         hint: "ตรวจ dispatcher cron / edge function stall แล้วสั่ง Auto-Publisher tick ใหม่",
       };
