@@ -429,7 +429,7 @@ export function storyReportToFindings(s: StoryReport): RawFinding[] {
       repair_action: passed ? undefined : "targeted_manuscript_rewrite",
     });
   }
-  const genericPassed = s.generic_story_risk_score <= 25;
+  const genericPassed = s.generic_story_risk_score <= STORY_GATE.generic_story_risk_max;
   out.push({
     rule_id: genericPassed ? "STORY_GENERIC_RISK_OK" : "STORY_GENERIC_RISK_HIGH",
     category: "story_structure",
@@ -446,7 +446,8 @@ export function storyReportToFindings(s: StoryReport): RawFinding[] {
       },
       analysis: s.generic_risk_analysis,
     },
-    threshold: { max: 25 },
+    threshold: { max: STORY_GATE.generic_story_risk_max },
+
     repair_action: genericPassed ? undefined : "rewrite_manuscript_for_originality",
   });
   return out;
