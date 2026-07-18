@@ -398,6 +398,12 @@ VISUALLY UNAMBIGUOUS HERO (HARD RULE — image models must be able to render the
 Attempt label: ${attemptLabel}.`;
 
   const user = `Generate ONE fresh concept for ages ${ageBand}. English only. Strict JSON only.${avoidBlock}`;
+  // OBSERVABILITY (2026-07-18): log what actually reached the model so we can
+  // confirm the anti-anchoring block is present and correctly populated.
+  console.log(`[concept-preflight] attempt=${attemptLabel} anti_anchor: names=${recentNames.length} quirks=${recentQuirkList.length} heroes=${recentHeroList.length} settings=${recentSettingList.length} titles=${recentTitleList.length}`);
+  console.log(`[concept-preflight] anti_anchor forbidden_names: [${recentNames.join(', ')}]`);
+  console.log(`[concept-preflight] anti_anchor forbidden_quirks: [${recentQuirkList.join(', ')}]`);
+  console.log(`[concept-preflight] anti_anchor forbidden_titles: [${recentTitleList.slice(0,10).map(t=>`"${t}"`).join(', ')}]`);
   const raw = await callGemini(system, user);
   return safeJson<Concept>(raw);
 }
