@@ -83,9 +83,10 @@ export default function Library() {
             const expired = new Date(g.expires_at) < new Date();
             return (
               <div key={g.token} className="border-2 border-foreground bg-card p-4 flex items-center gap-4">
-                <div className="w-14 h-20 bg-secondary border-2 border-foreground overflow-hidden flex items-center justify-center shrink-0">
+                <div className="w-16 h-16 bg-white border-2 border-foreground overflow-hidden flex items-center justify-center shrink-0">
                   {g.ebooks?.cover_url ? (
-                    <img src={g.ebooks.cover_url} alt={g.ebooks.title} className="w-full h-full object-cover" />
+                    // SQUARE-FIRST: coloring covers must display complete; object-contain is safe for all book types.
+                    <img src={g.ebooks.cover_url} alt={g.ebooks.title} className="w-full h-full object-contain" />
                   ) : (
                     <FileText className="h-6 w-6" />
                   )}

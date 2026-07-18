@@ -68,13 +68,13 @@ export default function KidsCheckout() {
       {(() => {
         const isColoring = book.book_type === "coloring_book";
         const trimLabel = isColoring ? "Coloring book · 8.5×11\"" : "Picture book · 8.5×8.5\"";
-        // Coloring covers are native 1600×2071 (8.5:11). Any square/object-cover
-        // container clips the baked title — must use aspect-[1600/2071] +
-        // object-contain on white (round_2 regression: cover-crop-v3).
-        const thumbAspect = isColoring ? "aspect-[1600/2071]" : "aspect-square";
+        // SQUARE-FIRST law (2026-07-18): coloring surfaces are square-first.
+        // Marketing thumbnails are native 1:1; legacy rectangular covers are
+        // shown complete (object-contain on white) so nothing crops.
+        const thumbAspect = "aspect-square";
         const imgFit = isColoring ? "object-contain" : "object-cover";
         const imgBg = isColoring ? "bg-white" : "";
-        const thumbSrc = book.thumbnail_url || book.cover_url;
+        const thumbSrc = isColoring ? (book.thumbnail_url || book.cover_url) : (book.cover_url || book.thumbnail_url);
         return (
       <div className="grid md:grid-cols-[1fr,360px] gap-6 md:gap-10">
         {/* Order summary */}

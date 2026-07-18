@@ -27,7 +27,7 @@ interface Row {
   metadata: Record<string, any> | null;
 }
 
-interface Sibling { id: string; title: string; cover_url: string | null; price_cents: number | null; }
+interface Sibling { id: string; title: string; cover_url: string | null; thumbnail_url: string | null; price_cents: number | null; }
 
 function centsToUsd(n: number | null | undefined): string {
   if (n == null || n <= 0) return "—";
@@ -84,7 +84,7 @@ export default function ColoringProduct() {
       const ageMax = Number(meta.age_max ?? 6);
       if (catKey) {
         const { data: sibs } = await supabase.from("ebooks_kids")
-          .select("id,title,cover_url,price_cents,storefront_meta")
+          .select("id,title,cover_url,thumbnail_url,price_cents,storefront_meta")
           .eq("book_type", "coloring_book")
           .eq("listing_status", "live")
           .neq("id", data.id)
@@ -222,11 +222,16 @@ export default function ColoringProduct() {
         {(() => {
           // Gallery order (marketing v4): [square_cover, collage, ...interior pages].
           // Falls back to legacy thumbnail/cover + preview URLs on older books.
+          // SQUARE-FIRST law (2026-07-18): every coloring surface renders in a
+          // square aspect-ratio container with object-contain on white — the
+          // marketing thumbnail is native 1:1; legacy rectangular covers must
+          // display complete (no crop). Max 6 gallery slots total.
           const galleryFromMeta: string[] = Array.isArray(meta.gallery_urls) ? meta.gallery_urls.filter(Boolean) : [];
           const legacyPrimary = book.thumbnail_url || book.cover_url;
-          const gallery: string[] = galleryFromMeta.length
+          const galleryRaw: string[] = galleryFromMeta.length
             ? galleryFromMeta
             : [legacyPrimary, ...previewUrls].filter(Boolean) as string[];
+          const gallery = galleryRaw.slice(0, 6);
           const safeIdx = Math.min(activeImageIdx, Math.max(0, gallery.length - 1));
           const main = gallery[safeIdx] ?? legacyPrimary;
           const isCoverSlot = safeIdx === 0;
@@ -236,13 +241,13 @@ export default function ColoringProduct() {
                 type="button"
                 onClick={openPreview}
                 aria-label={`Preview inside ${book.title}`}
-                className="relative aspect-square bg-muted border-2 border-foreground overflow-hidden group rounded-md"
+                className="relative aspect-square bg-white border-2 border-foreground overflow-hidden group rounded-md"
               >
                 {main ? (
                   <img
                     src={main}
                     alt={isCoverSlot ? book.title : `${book.title} — sample ${safeIdx}`}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-muted-foreground">No cover</div>
@@ -252,8 +257,8 @@ export default function ColoringProduct() {
                 </span>
               </button>
               {gallery.length > 1 && (
-                <div className="grid grid-cols-5 gap-2">
-                  {gallery.slice(0, 5).map((u, i) => (
+                <div className={`grid gap-2 ${gallery.length >= 6 ? "grid-cols-6" : gallery.length === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
+                  {gallery.map((u, i) => (
                     <button
                       key={`${u}-${i}`}
                       type="button"
@@ -263,7 +268,7 @@ export default function ColoringProduct() {
                         i === safeIdx ? "border-foreground ring-2 ring-accent" : "border-border hover:border-foreground"
                       }`}
                     >
-                      <img src={u} alt="" loading="lazy" className="w-full h-full object-cover" />
+                      <img src={u} alt="" loading="lazy" className="w-full h-full object-contain" />
                     </button>
                   ))}
                 </div>
@@ -433,9 +438,9 @@ export default function ColoringProduct() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {siblings.map((s) => (
               <Link key={s.id} to={`/kids/coloring/${s.id}`} className="group block">
-                <div className="aspect-square bg-muted border-2 border-border overflow-hidden">
-                  {s.cover_url && (
-                    <img src={s.cover_url} alt={s.title} loading="lazy" className="w-full h-full object-contain group-hover:scale-[1.03] transition-transform duration-500" />
+                <div className="aspect-square bg-white border-2 border-border overflow-hidden">
+                  {(s.thumbnail_url || s.cover_url) && (
+                    <img src={s.thumbnail_url || s.cover_url!} alt={s.title} loading="lazy" className="w-full h-full object-contain group-hover:scale-[1.03] transition-transform duration-500" />
                   )}
                 </div>
                 <div className="mt-2 text-xs font-display uppercase line-clamp-2 group-hover:text-accent">{s.title}</div>
