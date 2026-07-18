@@ -38,7 +38,7 @@ async function callGemini(prompt: string): Promise<string> {
 
 function buildPrompt(postType: PostType, keyword: string, products: any[], today: string): string {
   const productList = products.map((p, i) =>
-    `${i + 1}. ${p.title} — ${p.category ?? "coloring"} — $${((p.price_cents ?? 499) / 100).toFixed(2)} — id:${p.id}`
+    `${i + 1}. ${p.title} — ${p.age_band ?? "kids"} — $${((p.price_cents ?? 499) / 100).toFixed(2)} — id:${p.id}`
   ).join("\n");
   const kind = {
     listicle: "a listicle-style gift/activity guide (numbered list of 5-8 items, each with a short description)",
@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
 
     // 2. Pick live products (random 6, filter down).
     const { data: prods, error: prodErr } = await db.from("ebooks_kids")
-      .select("id,title,category,price_cents,thumbnail_url,cover_url")
+      .select("id,title,category,price_cents,age_band,thumbnail_url,cover_url")
       .eq("listing_status", "live").eq("sellable", true).limit(30);
     console.log(`[blog-autopilot] live products query: count=${prods?.length ?? 0} err=${prodErr?.message ?? "none"}`);
     if (prodErr) throw new Error(`products_query_failed: ${prodErr.message}`);
