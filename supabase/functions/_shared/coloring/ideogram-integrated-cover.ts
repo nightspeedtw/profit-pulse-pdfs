@@ -17,6 +17,7 @@ const FAL_KEY = Deno.env.get("FAL_KEY") ?? Deno.env.get("FAL_API_KEY");
 export const IDEOGRAM_INTEGRATED_COVER_VERSION = "coloring_cover_ideogram_v3_integrated_v1";
 
 import { hasOpenAIDirect, openaiDirectImage } from "../openai-direct.ts";
+import { coerceForProviderPayload } from "./payload-guard.ts";
 
 // gpt-image-1 medium 1024x1536 ≈ $0.04/image (benchmark 2026-07-18).
 const GPT_IMAGE_COVER_COST_USD = 0.04;
