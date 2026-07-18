@@ -9,6 +9,7 @@ import { listAgeGroups, listThemes, type KidsAgeGroup, type KidsTheme } from "@/
 import { BuildKidsBookButton } from "@/components/admin/BuildKidsBookButton";
 import { KidsBatchOrderCard } from "@/components/admin/KidsBatchOrderCard";
 import { ColoringAutopilotCard } from "@/components/admin/ColoringAutopilotCard";
+import { HealthIncidentBanner } from "@/components/admin/HealthIncidentBanner";
 import { fetchAdminData } from "@/lib/adminData";
 
 interface ParentJob {
@@ -206,6 +207,7 @@ export default function KidsAutopilot() {
 
   return (
     <div className="space-y-6">
+      <HealthIncidentBanner />
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl uppercase flex items-center gap-2"><Sparkles className="size-6" /> Kids Autopilot</h1>
