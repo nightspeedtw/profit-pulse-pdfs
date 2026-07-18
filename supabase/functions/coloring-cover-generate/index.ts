@@ -180,7 +180,14 @@ Deno.serve(async (req: Request) => {
         generateIdeogramIntegratedCover({
           categoryName: categoryNameFinal, heroSubjects, title: row.title, subtitle, ageBadge,
           ageMin, ageMax, totalPages, forbiddenSubjects, forbiddenBackgrounds: forbiddenSubjects,
-          referenceImageURLs, ebook_id: ebookId, trimProfileKey: profileKey,
+          referenceImageURLs, ebook_id: ebookId,
+          dims: {
+            runwareWidth: profile.runwareIdeogram.width,
+            runwareHeight: profile.runwareIdeogram.height,
+            runwareFallbackWidth: profile.runwareIdeogram.fallbackWidth,
+            runwareFallbackHeight: profile.runwareIdeogram.fallbackHeight,
+            gptImageSize: profile.gptImageSize,
+          },
         }, { timeoutMs: IDEOGRAM_GEN_TIMEOUT_MS, seed: (priorInvocations + 1) * 1009, db }),
         IDEOGRAM_GEN_TIMEOUT_MS + 5_000, `ideogram_inv${priorInvocations + 1}`,
       );
