@@ -421,9 +421,25 @@ async function storyGate(ctx: Ctx): Promise<StepResult> {
       page_texts: pageTexts,
       ebook_id: ctx.ebook.id as string,
     });
+    const blockers: string[] = [];
+    if (report.age_appropriateness_score < STORY_GATE.age_appropriateness) blockers.push(`age=${report.age_appropriateness_score}<${STORY_GATE.age_appropriateness}`);
+    if (report.story_coherence_score < STORY_GATE.story_coherence) blockers.push(`coh=${report.story_coherence_score}<${STORY_GATE.story_coherence}`);
+    if (report.emotional_payoff_score < STORY_GATE.emotional_payoff) blockers.push(`emo=${report.emotional_payoff_score}<${STORY_GATE.emotional_payoff}`);
+    if (report.reread_value_score < STORY_GATE.reread_value) blockers.push(`rer=${report.reread_value_score}<${STORY_GATE.reread_value}`);
+    if (report.language_level_score < STORY_GATE.language_level) blockers.push(`lang=${report.language_level_score}<${STORY_GATE.language_level}`);
+    if (report.parent_buyer_value_score < STORY_GATE.parent_buyer_value) blockers.push(`buyer=${report.parent_buyer_value_score}<${STORY_GATE.parent_buyer_value}`);
+    if (report.generic_story_risk_score > STORY_GATE.generic_story_risk_max) blockers.push(`generic_risk=${report.generic_story_risk_score}>${STORY_GATE.generic_story_risk_max}`);
+    // SINGLE SOURCE OF TRUTH (2026-07-18): pass iff judge said pass AND every
+    // enforced threshold cleared. Prevents the class of bypass where the judge
+    // returned story_qc_passed=true but a locked threshold (e.g. generic_risk<=25)
+    // was still violated, or vice-versa. Post-gate steps must trust this field.
+    const derivedPassed = report.story_qc_passed === true && blockers.length === 0;
     const sc = (ctx.ebook.qc_scorecard ?? {}) as Record<string, unknown>;
     sc.story_gate = {
-      passed: report.story_qc_passed,
+      passed: derivedPassed,
+      judge_self_verdict: report.story_qc_passed,
+      blockers,
+      threshold_version: 'v5.1-2026-07-18-single-source-of-truth',
       scores: {
         age: report.age_appropriateness_score, coh: report.story_coherence_score,
         emo: report.emotional_payoff_score, rer: report.reread_value_score,
@@ -443,15 +459,7 @@ async function storyGate(ctx: Ctx): Promise<StepResult> {
       computed_at: report.computed_at,
     };
     await ctx.supabase.from('ebooks_kids').update({ qc_scorecard: sc }).eq('id', ctx.ebookId);
-    const blockers: string[] = [];
-    if (report.age_appropriateness_score < STORY_GATE.age_appropriateness) blockers.push(`age=${report.age_appropriateness_score}<${STORY_GATE.age_appropriateness}`);
-    if (report.story_coherence_score < STORY_GATE.story_coherence) blockers.push(`coh=${report.story_coherence_score}<${STORY_GATE.story_coherence}`);
-    if (report.emotional_payoff_score < STORY_GATE.emotional_payoff) blockers.push(`emo=${report.emotional_payoff_score}<${STORY_GATE.emotional_payoff}`);
-    if (report.reread_value_score < STORY_GATE.reread_value) blockers.push(`rer=${report.reread_value_score}<${STORY_GATE.reread_value}`);
-    if (report.language_level_score < STORY_GATE.language_level) blockers.push(`lang=${report.language_level_score}<${STORY_GATE.language_level}`);
-    if (report.parent_buyer_value_score < STORY_GATE.parent_buyer_value) blockers.push(`buyer=${report.parent_buyer_value_score}<${STORY_GATE.parent_buyer_value}`);
-    if (report.generic_story_risk_score > STORY_GATE.generic_story_risk_max) blockers.push(`generic_risk=${report.generic_story_risk_score}>${STORY_GATE.generic_story_risk_max}`);
-    return { passed: report.story_qc_passed, report, scorecard: sc, blockers };
+    return { passed: derivedPassed, report, scorecard: sc, blockers };
   }
 
   const first = await judgeOnce();
