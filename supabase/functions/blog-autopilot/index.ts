@@ -11,6 +11,8 @@ import { runwareInference, RUNWARE_MODELS } from "../_shared/runware.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY")!;
+// Module-scope singleton client (reused across warm invocations).
+const _db = createClient(SUPABASE_URL, SERVICE_KEY);
 
 const POST_TYPES = ["listicle", "product_spotlight", "seasonal", "how_to"] as const;
 type PostType = typeof POST_TYPES[number];
@@ -78,7 +80,7 @@ Return ONLY valid JSON:
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    const db = createClient(SUPABASE_URL, SERVICE_KEY);
+    const db = _db;
 
     // 1. Pick least-used keyword.
     const { data: kws } = await db.from("blog_keywords")
