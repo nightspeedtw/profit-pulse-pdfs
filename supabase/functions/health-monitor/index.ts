@@ -449,7 +449,10 @@ Deno.serve(async (req) => {
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     console.error("health-monitor error", e);
-    return new Response(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) }), {
+    // Blind-spot fix: if the monitor itself failed (usually a DB outage),
+    // send an email directly via Resend that does NOT depend on the DB.
+    await emailMonitorOutage(e);
+    return new Response(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e), monitor_outage_email_attempted: true }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
