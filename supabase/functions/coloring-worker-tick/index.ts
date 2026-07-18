@@ -118,6 +118,45 @@ Deno.serve(async (req: Request) => {
     }
 
     const maxParallel = Math.max(1, Number(cfg.max_parallel ?? 1));
+
+    // ── STUCK-'generating' WATCHDOG (defect class:
+    // generating_status_zombie). A render invocation that dies mid-batch
+    // (edge timeout, crashed vision verifier, killed worker) leaves the
+    // row at pipeline_status='generating' with no self-invoke queued.
+    // Without this rescue the row silently consumes a parallel slot
+    // forever and cost_log shows paid provider calls with zero forward
+    // progress. Threshold=15 min (well past any legitimate render batch
+    // which caps around 3-5 min). Reset to 'queued' so the scan below
+    // re-dispatches; the render function's incremental persist keeps any
+    // pages that DID make it to metadata.
+    const STUCK_GENERATING_MS = 15 * 60_000;
+    const stuckCutoff = new Date(Date.now() - STUCK_GENERATING_MS).toISOString();
+    const { data: zombies } = await db
+      .from("ebooks_kids")
+      .select("id, updated_at, metadata")
+      .eq("book_type", "coloring_book")
+      .eq("pipeline_status", "generating")
+      .lt("updated_at", stuckCutoff)
+      .limit(20);
+    const revived: unknown[] = [];
+    for (const z of zombies ?? []) {
+      const zmeta = (z.metadata ?? {}) as Record<string, unknown>;
+      await db.from("ebooks_kids").update({
+        pipeline_status: "queued",
+        blocker_reason: "zombie_generating_recovered",
+        metadata: {
+          ...zmeta,
+          coloring_current_step_label:
+            `Recovered from stuck 'generating' (updated_at ${z.updated_at}) — resuming render`,
+          coloring_zombie_recoveries:
+            ((zmeta.coloring_zombie_recoveries as number | undefined) ?? 0) + 1,
+          coloring_last_zombie_recovery_at: new Date().toISOString(),
+        },
+      }).eq("id", z.id);
+      revived.push({ ebook_id: z.id, was_updated_at: z.updated_at });
+    }
+    result.zombie_generating_revived = revived;
+
     const { count: inFlight } = await db
       .from("ebooks_kids")
       .select("id", { count: "exact", head: true })
