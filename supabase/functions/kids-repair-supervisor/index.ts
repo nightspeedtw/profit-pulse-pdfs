@@ -717,19 +717,34 @@ Deno.serve(async (req) => {
 
     switch (klass) {
       case 'story_gate': {
+        // RIGHT-FIRST-TIME (2026-07-18): the story-repair ladder is permanently
+        // disconnected. The pipeline itself does the rubric-baked first draft,
+        // one consolidated judge, and (if needed) one regeneration; on continued
+        // failure the concept is retired and the queue rotates. If a watchdog
+        // still surfaces a story_gate blocker on a stuck row we shelve the book
+        // rather than re-invoking a repair function that would silently
+        // reintroduce the retry-storm class.
         const sg = (ebook.qc_scorecard as Record<string, unknown> | null)?.story_gate as { scores?: Record<string, number> } | undefined;
         scores_before = sg?.scores;
-        // First story attempt = surgical (targeted refrain/callbacks/spread 11-12).
-        // Subsequent = general kids-repair-story-gate (up to 3 internal).
-        if (perClass === 0) {
-          handler = 'kids-surgical-story-repair';
-          repairBody = { ebook_id, run_id, resume_pipeline: true };
-        } else {
-          handler = 'kids-repair-story-gate';
-          repairBody = { ebook_id, run_id, resume_pipeline: true };
-        }
-        break;
+        await db.from('ebooks_kids').update({
+          pipeline_status: 'shelved',
+          blocker_reason: 'story_gate_repair_disabled_right_first_time_2026_07_18',
+          sellable: false,
+          listing_status: 'draft',
+        }).eq('id', ebook_id);
+        await appendLog(db, ebook_id, {
+          attempt: totalAttempts + 1,
+          current_blocker: blocker.detail,
+          blocker_class: klass,
+          repair_handler: 'shelve_story_gate_repair_disabled',
+          stage_before,
+          stage_after: 'shelved',
+          result: 'shelved',
+          updated_at: new Date().toISOString(),
+        });
+        return json({ ok: true, result: 'shelved', blocker_class: klass, reason: 'story_gate_repair_disabled' });
       }
+
       case 'metadata_gate':
       case 'bible_check':
         // Both are auto-repaired inline by the pipeline. Supervisor just re-runs.
