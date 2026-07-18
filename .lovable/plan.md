@@ -1,58 +1,37 @@
-# Coloring-Book Lean Mode + Start 1 Book
+## Diagnosis
 
-Scope: coloring books ONLY (picture-story pipeline unchanged). Owner rules:
-- Cloudflare Flux (free) = PRIMARY for coloring interiors AND covers. Runware = fallback. fal.ai = last resort.
-- Story/title gate: relaxed. Simple titles like "Cute Puppy", "Naughty Cat", "Dinosaur Land", "Mermaid Adventure" must PASS. No high-quality bar.
-- Non-negotiable gates kept: (a) cover spelling correct, (b) cover characters match interior (same species/style).
-- Interior-first cover law (already built for picture books) extended to coloring: generate interior pages first, then reuse those characters as reference for the cover.
-- After changes deploy, immediately dispatch 1 new coloring book end-to-end.
+Both failures come from the same edge function: `admin-data` (resources `kids_runs` for "Recent runs" and `kids_library` for "Kids Library"). Neither is a UI bug — the function is throwing before it can respond.
 
-## Changes
+Confirmed this turn:
+- `supabase--cloud_status` → `ACTIVE_HEALTHY` (backend claims fine).
+- `supabase--read_query "SELECT 1"` → 544 "Connection terminated due to connection timeout".
+- `supabase--db_health` → metrics endpoint also times out.
 
-### 1. Provider policy: Cloudflare-primary for coloring
-`supabase/functions/_shared/image-providers.ts` + coloring-specific readers.
-- Coloring lane policy: `cloudflare_flux_schnell` → `runware_flux_schnell` → `fal_flux_schnell`.
-- Applies to both `coloring_interior` and `coloring_cover` steps.
-- Picture-book (kids story) lane unchanged (Runware primary).
+Meaning the Postgres pooler is wedged even though the control-plane says healthy — the same infra-side outage that hit `coloring-autopilot-config` last turn. Every `admin-data` resource does 3–5 parallel selects against that pooler, so they all hang past the 150s edge gateway limit and the client sees "Edge Function returned a non-2xx status code". The "0 kids books" line is just the initial React state before the failed load — not a data-loss signal.
 
-Also DB flip on `platform_settings.image_provider_policy` (coloring row) to `cloudflare_primary_runware_fallback`.
+## Plan
 
-### 2. Relax coloring story/title gate
-`supabase/functions/_shared/coloring/*` (title/theme validator + `publish-contract.ts` coloring branch).
-- Drop rer/buyer subjective score thresholds for coloring.
-- Keep only: title spelling valid, length ≤ 45 chars, contains age-appropriate noun (animal/theme keyword). Simple 2-3 word titles auto-pass.
-- Remove repair loop for coloring story gate (no repair beyond attempt 1 — waive + proceed).
-- Cuts Gemini-Pro rewrite spend for this lane to ~0.
+1. **Recover the backend** (requires your approval — it's a destructive-ish op):
+   - Call `supabase--restart` on the Lovable Cloud instance.
+   - Poll `supabase--cloud_status` + a `SELECT 1` until both succeed.
+   - Re-hit `admin-data` for `kids_runs` and `kids_library` to confirm the two panels load.
 
-### 3. Cover NON-negotiable gates kept
-- Spelling: `verifyExactCoverText` v3 remains strict, non-waivable.
-- Character-cover match: use interior-first pattern — coloring cover generator receives 2-3 interior page URLs as `referenceImageURLs` (Runware img2img) OR Cloudflare with reference conditioning; if CF can't accept refs, escalate to Runware for cover only (covers are 1/book, cost is bounded).
+2. **Harden `admin-data` so a wedged pooler produces a useful response instead of a 150s hang** (applies the same pattern already shipped in `coloring-autopilot-config`):
+   - Wrap each sub-query in `kids_runs` and `kids_library` handlers with an 8s `Promise.race` timeout.
+   - On per-query timeout: return `null`/`[]` for that slice and include a `partial: true` + `degraded: [<slice names>]` field in the JSON response.
+   - Keep the overall handler well under the 150s gateway ceiling.
+   - Frontend (`KidsAutopilot.tsx`, `KidsLibrary.tsx`): when `partial` is true, render what came back and show a small "backend degraded — some panels unavailable" banner instead of the full-page "Load failed" state.
 
-### 4. Interior-first ordering for coloring
-`coloring-book-assemble` / `coloring-book-cover` sequencing:
-- Cover step gated: `waitForInteriorPct >= 50%`.
-- Cover prompt seeded from actual interior character descriptions (already captured in page-plan).
+3. **No other code changes.** Do not touch pipeline logic, gates, or generation config in this turn.
 
-### 5. Dispatch 1 book after deploy
-- Pick 1 queued coloring draft (or create a fresh simple concept like "Cute Puppy Playtime"), set `focus_run=true`, reset invocation counters, trigger `coloring-book-orchestrator`.
-- Watch through to LIVE; report cost + pass/fail per gate.
+### Technical notes
+- The 8s per-query cap × 5 parallel queries stays under gateway limits even in the worst case, because `Promise.all` on parallel racers resolves at max(timeouts) ≈ 8s.
+- Partial-response shape is additive; existing callers that ignore `partial`/`degraded` keep working.
+- Restart typically takes 2–5 minutes; during that window the admin panels will still show the degraded banner rather than a hard error.
 
-## Files touched (est.)
-- `supabase/functions/_shared/image-providers.ts` (coloring policy branch)
-- `supabase/functions/_shared/coloring/qc-mode.ts` (relaxed title gate)
-- `supabase/functions/_shared/coloring/publish-contract.ts` (skip subjective story gate for coloring)
-- `supabase/functions/coloring-book-cover/index.ts` (interior-first + reference URLs)
-- `supabase/functions/coloring-book-orchestrator/index.ts` (ordering guard)
-- One `platform_settings` row update
-- One `ebooks_kids` seed + dispatch call
+## Not doing (out of scope this turn)
+- Cover-primary flip back to `gpt-image-1` (deferred — needs DB writes).
+- Resuming test book `c2839b88` and reporting metrics (deferred — needs DB reads/writes).
+Both remain queued and will run immediately after the pooler is verified healthy.
 
-## Non-goals
-- No changes to picture-book lane.
-- No changes to spelling gate strictness.
-- No lowering of PDF integrity / trim-lock gates.
-
-## Reports back
-- Which provider served cover vs interior (from cost_log).
-- Total token/$$ spent on the 1 book.
-- Cover spelling + character-match verdict.
-- Final LIVE URL.
+**Approve to (a) restart the Lovable Cloud backend and (b) ship the `admin-data` timeout + partial-response hardening?**
