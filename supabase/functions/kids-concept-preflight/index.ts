@@ -516,11 +516,15 @@ Deno.serve(async (req) => {
 
     const db = createClient(SUPABASE_URL, SERVICE_KEY);
     const skillBlock = await loadStoryCraftBlock(db, ageBand);
+    const recent = await loadRecentConceptSignals(db, 25);
+    // Seed avoid list with recent titles so the writer sees them in BOTH the
+    // system anti-anchor block and the user-message avoid list.
+    for (const t of recent.titles) if (!triedTitles.includes(t)) triedTitles.push(t);
 
     // Attempt 1
     let c1: Concept;
     try {
-      c1 = await generateConcept(ageBand, triedTitles, 'primary', skillBlock, batchLane);
+      c1 = await generateConcept(ageBand, triedTitles, 'primary', skillBlock, batchLane, recent);
     } catch (e) {
       return json({ ok: false, error: `concept1_gen_failed: ${(e as Error).message.slice(0, 200)}` }, 500);
     }
@@ -534,7 +538,7 @@ Deno.serve(async (req) => {
     if (!e1.passed) {
       for (let i = 0; i < 2; i++) {
         try {
-          const cN = await generateConcept(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`, skillBlock, batchLane);
+          const cN = await generateConcept(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`, skillBlock, batchLane, recent);
           triedTitles.push(cN.title);
           const sN = await scoreConcept(cN, ageBand);
           const bN = detectBannedLaneHits(cN);
