@@ -84,7 +84,7 @@ export default function ColoringProduct() {
       const ageMax = Number(meta.age_max ?? 6);
       if (catKey) {
         const { data: sibs } = await supabase.from("ebooks_kids")
-          .select("id,title,cover_url,price_cents,storefront_meta")
+          .select("id,title,cover_url,thumbnail_url,price_cents,storefront_meta")
           .eq("book_type", "coloring_book")
           .eq("listing_status", "live")
           .neq("id", data.id)
