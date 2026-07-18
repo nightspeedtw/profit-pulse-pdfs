@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      alert_log: {
+        Row: {
+          alert_class: string
+          body: string
+          created_at: string
+          email_error: string | null
+          email_message_id: string | null
+          email_sent: boolean
+          evidence: Json
+          id: string
+          severity: string
+          title: string
+        }
+        Insert: {
+          alert_class: string
+          body: string
+          created_at?: string
+          email_error?: string | null
+          email_message_id?: string | null
+          email_sent?: boolean
+          evidence?: Json
+          id?: string
+          severity: string
+          title: string
+        }
+        Update: {
+          alert_class?: string
+          body?: string
+          created_at?: string
+          email_error?: string | null
+          email_message_id?: string | null
+          email_sent?: boolean
+          evidence?: Json
+          id?: string
+          severity?: string
+          title?: string
+        }
+        Relationships: []
+      }
       api_costs: {
         Row: {
           cost_usd: number
