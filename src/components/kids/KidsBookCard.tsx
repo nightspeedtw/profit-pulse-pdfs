@@ -58,9 +58,9 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
           isColoring ? "aspect-[2/3]" : "aspect-[1024/1280]",
         ].join(" ")}
       >
-        {book.cover_url ? (
+        {(isColoring && book.thumbnail_url) || book.cover_url ? (
           <img
-            src={book.cover_url}
+            src={(isColoring && book.thumbnail_url) ? book.thumbnail_url : book.cover_url}
             alt={book.title}
             loading="lazy"
             // object-contain is the safety net: even if a legacy cover of a
