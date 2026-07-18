@@ -4302,6 +4302,45 @@ export type Database = {
         }
         Relationships: []
       }
+      self_audit_findings: {
+        Row: {
+          affected_count: number
+          check_key: string
+          created_at: string
+          defect_class: string
+          detail: string | null
+          evidence: Json
+          id: string
+          run_id: string
+          severity: string
+          title: string
+        }
+        Insert: {
+          affected_count?: number
+          check_key: string
+          created_at?: string
+          defect_class: string
+          detail?: string | null
+          evidence?: Json
+          id?: string
+          run_id: string
+          severity: string
+          title: string
+        }
+        Update: {
+          affected_count?: number
+          check_key?: string
+          created_at?: string
+          defect_class?: string
+          detail?: string | null
+          evidence?: Json
+          id?: string
+          run_id?: string
+          severity?: string
+          title?: string
+        }
+        Relationships: []
+      }
       species_anatomy: {
         Row: {
           aliases: string[]
