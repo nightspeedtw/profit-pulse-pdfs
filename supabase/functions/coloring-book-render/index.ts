@@ -190,15 +190,30 @@ Deno.serve(async (req: Request) => {
     }
 
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
-    const planWrap = meta.coloring_page_plan as { plan?: PagePlanEntry[]; category_key?: string } | undefined;
-    const plan = planWrap?.plan;
+    let planWrap = meta.coloring_page_plan as { plan?: PagePlanEntry[]; category_key?: string } | undefined;
+    let plan = planWrap?.plan;
     const styleContract = (meta.coloring_style_contract as LineArtStyleContract | undefined) ?? DEFAULT_KIDS_4_6_STYLE;
     if (!plan || !Array.isArray(plan) || plan.length === 0) {
-      await db.from("ebooks_kids").update({
-        pipeline_status: "failed",
-        blocker_reason: "persistence_contract: metadata.coloring_page_plan.plan missing",
-      }).eq("id", ebook_id);
-      return json({ error: "missing_page_plan" }, 422);
+      // Persistence-contract recovery (defect class:
+      // persistence_contract_bug). Try to reconstruct the deterministic
+      // plan from the strongest available source (stored pages → metadata
+      // hints → title inference) instead of dead-ending the book.
+      const rehy = await rehydratePagePlan(db, { id: row.id, title: row.title, metadata: meta });
+      if (!rehy.restored || rehy.plan.length === 0) {
+        await db.from("ebooks_kids").update({
+          pipeline_status: "failed",
+          blocker_reason:
+            `persistence_contract: metadata.coloring_page_plan.plan missing (rehydrate_failed: ${rehy.reason ?? "unknown"})`,
+        }).eq("id", ebook_id);
+        return json({ error: "missing_page_plan", rehydrate: rehy.reason }, 422);
+      }
+      plan = rehy.plan as PagePlanEntry[];
+      planWrap = rehy.planWrap as any;
+      // Reload category-related meta for downstream (theme_bible etc.)
+      Object.assign(meta, {
+        coloring_page_plan: rehy.planWrap,
+        coloring_category_key: rehy.category_key,
+      });
     }
 
     const categoryKey = planWrap?.category_key ?? (meta.category_key as string | undefined);
