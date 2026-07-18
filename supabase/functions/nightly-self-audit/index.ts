@@ -223,6 +223,41 @@ async function checkResourceLimit(): Promise<Finding[]> {
   return findings;
 }
 
+// SG — story_gate_bypass: any book that has advanced past story_gate
+// (illustrating / awaiting_cover / awaiting_render / pdf_building /
+// publishing / live / published / final_qc / chapter_qc / qc_pending)
+// while its stored qc_scorecard.story_gate.passed === false is a
+// runtime bypass. The gate verdict written by the judge and the pipeline
+// transition MUST share one source of truth (autopilot-kids-pipeline
+// storyGate v5.1). This check catches drift/regression at the class level.
+async function checkStoryGateBypass(): Promise<Finding[]> {
+  const findings: Finding[] = [];
+  const POST_GATE = ['illustrating','awaiting_cover','awaiting_render','pdf_building','publishing','live','published','final_qc','chapter_qc','qc_pending','ready_to_publish'];
+  const { data } = await _sb.from('ebooks_kids')
+    .select('id,title,pipeline_status,qc_scorecard')
+    .in('pipeline_status', POST_GATE)
+    .limit(2000);
+  const offenders: any[] = [];
+  for (const r of (data ?? []) as any[]) {
+    const sg = (r.qc_scorecard as any)?.story_gate;
+    if (sg && sg.passed === false) {
+      offenders.push({ id: r.id, title: r.title, status: r.pipeline_status, blockers: sg.blockers ?? [], scores: sg.scores ?? {} });
+    }
+  }
+  if (offenders.length > 0) {
+    findings.push({
+      check_key: 'sg_post_gate_with_failed_verdict',
+      severity: 'critical',
+      defect_class: 'story_gate_bypass',
+      title: `${offenders.length} book(s) past story_gate with stored passed=false`,
+      detail: 'qc_scorecard.story_gate.passed is FALSE but pipeline_status advanced past the gate. The transition is not reading the same verdict the judge wrote. Single-source-of-truth invariant violated.',
+      evidence: { offenders: offenders.slice(0, 20) },
+      affected_count: offenders.length,
+    });
+  }
+  return findings;
+}
+
 async function runAllChecks(): Promise<Finding[]> {
   const groups = await Promise.all([
     checkPersistenceContract(),
@@ -231,6 +266,7 @@ async function runAllChecks(): Promise<Finding[]> {
     checkPlanLoss(),
     checkUnboundedRetry(),
     checkResourceLimit(),
+    checkStoryGateBypass(),
   ]);
   return groups.flat();
 }

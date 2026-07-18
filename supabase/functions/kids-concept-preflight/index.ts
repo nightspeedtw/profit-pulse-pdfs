@@ -297,12 +297,20 @@ async function generateConcept(ageBand: string, avoidList: string[], attemptLabe
   const recentQuirkList = extractQuirkTemplates(recent);
   const recentNames = extractProtagonistNames(recent);
   const recentSettingList = Array.from(new Set(recent.settings)).slice(0, 15);
+  const recentRefrainList = Array.from(new Set(recent.refrains)).slice(0, 15);
+  // Signature quirk WORDS to ban outright (in title, subtitle, hero, refrain).
+  // The extracted adjectives already surface wobble/wiggle/jiggle/etc. — we
+  // additionally forbid a hardcoded core set of the "cutesy-adjective" family
+  // that keeps re-anchoring the generator no matter which one we banned last.
+  const SIGNATURE_QUIRK_WORDS = ['wobble','wobbly','wiggle','wiggly','jiggle','jiggly','wobbling','wiggling','wobble-fruit','whatchamacallit','whisk','sneezy','sticky','sleepy','dizzy','bouncy'];
+  const forbiddenWords = Array.from(new Set([...recentQuirkList, ...SIGNATURE_QUIRK_WORDS]));
   const antiAnchorBlock = `\n\nANTI-ANCHORING (HARD): the previous batch produced near-clones by anchoring on the shape of the last published success. You MUST break every one of these anchors:
 - FORBIDDEN protagonist NAMES (already used in the last ${recent.titles.length} attempts — pick a fresh name, not on this list): ${recentNames.length ? recentNames.join(', ') : '(none yet)'}
-- FORBIDDEN quirk adjectives in the title, subtitle, hero, or hero_specificity (the "adjective-noun template" template is over-used — DO NOT reuse ANY of these): ${recentQuirkList.length ? recentQuirkList.join(', ') : '(none yet)'}
+- FORBIDDEN signature quirk WORDS anywhere in title, subtitle, hero, hero_specificity, refrain, or callbacks (the ONE round-cutesy-adjective template is retired — DO NOT use ANY of these words in ANY form): ${forbiddenWords.length ? forbiddenWords.join(', ') : '(none yet)'}
 - FORBIDDEN hero archetypes (already tried): ${recentHeroList.length ? recentHeroList.join(' | ') : '(none yet)'}
 - FORBIDDEN settings (already tried, pick a genuinely different one): ${recentSettingList.length ? recentSettingList.join(' | ') : '(none yet)'}
 - FORBIDDEN titles (do not riff on, echo, or vary these): ${recentTitleList.length ? recentTitleList.map(t => `"${t}"`).join(', ') : '(none yet)'}
+- FORBIDDEN premise skeletons — do NOT rehash any of these prior refrains or riff on their meter/rhyme scheme: ${recentRefrainList.length ? recentRefrainList.map(r => `"${r}"`).join(' | ') : '(none yet)'}
 
 Your concept must be distinct on ALL FOUR axes:
   1) premise (different core mechanic / story engine),
@@ -398,6 +406,12 @@ VISUALLY UNAMBIGUOUS HERO (HARD RULE — image models must be able to render the
 Attempt label: ${attemptLabel}.`;
 
   const user = `Generate ONE fresh concept for ages ${ageBand}. English only. Strict JSON only.${avoidBlock}`;
+  // OBSERVABILITY (2026-07-18): log what actually reached the model so we can
+  // confirm the anti-anchoring block is present and correctly populated.
+  console.log(`[concept-preflight] attempt=${attemptLabel} anti_anchor: names=${recentNames.length} quirks=${recentQuirkList.length} heroes=${recentHeroList.length} settings=${recentSettingList.length} titles=${recentTitleList.length}`);
+  console.log(`[concept-preflight] anti_anchor forbidden_names: [${recentNames.join(', ')}]`);
+  console.log(`[concept-preflight] anti_anchor forbidden_quirks: [${recentQuirkList.join(', ')}]`);
+  console.log(`[concept-preflight] anti_anchor forbidden_titles: [${recentTitleList.slice(0,10).map(t=>`"${t}"`).join(', ')}]`);
   const raw = await callGemini(system, user);
   return safeJson<Concept>(raw);
 }

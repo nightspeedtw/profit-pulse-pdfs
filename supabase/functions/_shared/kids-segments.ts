@@ -643,6 +643,7 @@ export interface WriteSegmentsResult {
   attempts: number;
   model: string;
   parseFailures?: WriterParseDiagnostics[];
+  mechanical_wc_fix?: boolean;
 }
 
 function mergeRecoveredPages(base: SegmentedManuscript | null, next: SegmentedManuscript, opts: WriteSegmentsOpts): SegmentedManuscript {
@@ -706,7 +707,84 @@ export async function writeSegmentedManuscript(opts: WriteSegmentsOpts): Promise
   if (!raw3.ok || raw3.partial || raw3.diagnostics.errors.length > 0) parseFailures.push(raw3.diagnostics);
   manuscript = raw3.ok ? mergeRecoveredPages(recovered, coerceSegmented(raw3.value, opts), opts) : (recovered ?? coerceSegmented({}, opts));
   validation = validateSegments(manuscript, { target: opts.target });
+  if (validation.ok) return { ok: true, manuscript, validation, attempts: 3, model: fallback, parseFailures };
+
+  // MECHANICAL WORD-COUNT FIX (2026-07-18): if the ONLY remaining violations
+  // are per-page word-count shortfalls of 1-5 words (e.g. page 7 has 13/15,
+  // page 11 has 14/15), it's wasteful to retire a genuinely distinct concept
+  // over a mechanical typo. Run ONE cheap flash-tier pass that expands ONLY
+  // those pages to the min word count, changing nothing else. Cap: 1 attempt.
+  const wcFixed = await mechanicalWordCountFixIfEligible(manuscript, validation, opts, costCtx);
+  if (wcFixed) {
+    manuscript = wcFixed.manuscript;
+    validation = wcFixed.validation;
+    if (validation.ok) return { ok: true, manuscript, validation, attempts: 4, model: 'google/gemini-2.5-flash', parseFailures, mechanical_wc_fix: true } as WriteSegmentsResult;
+  }
   return { ok: validation.ok, manuscript, validation, attempts: 3, model: fallback, parseFailures };
+}
+
+// Detects whether every remaining violation is a per-page word-count shortfall
+// within a small tolerance (default: within 5 words of the minimum), and if so
+// asks a cheap model to expand only those pages. Preserves refrain pages and
+// every other page verbatim.
+const WC_ONLY_RX = /^page (\d+): (\d+) words \(need (\d+)-(\d+)\)/;
+
+async function mechanicalWordCountFixIfEligible(
+  manuscript: SegmentedManuscript,
+  validation: SegmentValidation,
+  opts: WriteSegmentsOpts,
+  costCtx?: { ebookId?: string | null; ideaId?: string | null; step: string },
+): Promise<{ manuscript: SegmentedManuscript; validation: SegmentValidation } | null> {
+  if (!validation.violations.length) return null;
+  const targets: Array<{ page: number; have: number; min: number; max: number }> = [];
+  for (const v of validation.violations) {
+    const m = WC_ONLY_RX.exec(v);
+    if (!m) return null; // non-word-count violation present → not eligible
+    const page = Number(m[1]);
+    const have = Number(m[2]);
+    const min = Number(m[3]);
+    const max = Number(m[4]);
+    // Only tolerate shortfalls (not over-count) up to 5 words below min.
+    if (have >= min || min - have > 5) return null;
+    targets.push({ page, have, min, max });
+  }
+  if (!targets.length) return null;
+
+  const pagesById = new Map<number, KidsSegment>();
+  for (const p of manuscript.pages) pagesById.set(Number(p.page), p);
+
+  const system = `You are a picture-book editor. You will receive JSON of a small number of pages that are 1-5 words short. Expand EACH page to at least the min_words and at most max_words. RULES:\n- Preserve the exact meaning, tone, imagery, and any refrain/dialogue verbatim.\n- Do NOT introduce new characters, settings, or plot beats.\n- Return STRICT JSON only: {"pages":[{"page":N,"text":"..."}]}`;
+  const user = JSON.stringify({
+    instructions: 'expand each listed page to be within [min_words, max_words]; change nothing else',
+    pages: targets.map(t => {
+      const p = pagesById.get(t.page);
+      return { page: t.page, current_text: String(p?.text ?? ''), min_words: t.min, max_words: t.max, have_words: t.have, contains_refrain: Boolean(p?.contains_refrain) };
+    }),
+  });
+
+  let raw: WriterParseResult;
+  try {
+    raw = await callWriter(system, user, 'google/gemini-2.5-flash', 60_000, costCtx);
+  } catch (e) {
+    console.warn(`[kids-segments] mechanical_wc_fix call failed: ${(e as Error).message}`);
+    return null;
+  }
+  if (!raw.ok) return null;
+  const patch = raw.value as { pages?: Array<{ page: number; text: string }> };
+  if (!Array.isArray(patch?.pages)) return null;
+
+  const nextPages = manuscript.pages.map(p => ({ ...p }));
+  for (const patched of patch.pages) {
+    const idx = nextPages.findIndex(p => Number(p.page) === Number(patched.page));
+    if (idx < 0) continue;
+    const newText = String(patched.text ?? '').trim();
+    if (!newText) continue;
+    nextPages[idx] = { ...nextPages[idx], text: newText };
+  }
+  const next: SegmentedManuscript = { ...manuscript, pages: nextPages };
+  const nextValidation = validateSegments(next, { target: opts.target });
+  console.log(`[kids-segments] mechanical_wc_fix applied to ${targets.length} page(s); ok=${nextValidation.ok}`);
+  return { manuscript: next, validation: nextValidation };
 }
 
 
