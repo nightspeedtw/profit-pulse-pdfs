@@ -507,9 +507,49 @@ Deno.serve(async (req) => {
 
 
   } catch (err) {
-    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    return json({ error: serializeError(err) }, 500);
   }
 });
+
+function serializeError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const e = err as any;
+    if (typeof e.message === "string") {
+      const parts = [e.message];
+      if (e.code) parts.push(`code=${e.code}`);
+      if (e.hint) parts.push(`hint=${e.hint}`);
+      if (e.details) parts.push(`details=${e.details}`);
+      return parts.join(" | ");
+    }
+    try { return JSON.stringify(err); } catch { /* ignore */ }
+  }
+  return String(err);
+}
+
+// Run a Supabase query builder with an 8s timeout and per-slice error isolation
+// so one degraded table cannot fail the whole aggregate response.
+async function safeQuery<T = unknown>(
+  slice: string,
+  builder: PromiseLike<{ data: T | null; error: unknown }>,
+  timeoutMs = 8000,
+): Promise<{ slice: string; data: T | null; error: string | null }> {
+  try {
+    const res = await Promise.race<{ data: T | null; error: unknown } | { __timeout: true }>([
+      Promise.resolve(builder),
+      new Promise((resolve) => setTimeout(() => resolve({ __timeout: true } as const), timeoutMs)),
+    ]);
+    if ((res as { __timeout?: boolean }).__timeout) {
+      return { slice, data: null, error: `timeout after ${timeoutMs}ms` };
+    }
+    const r = res as { data: T | null; error: unknown };
+    if (r.error) return { slice, data: null, error: serializeError(r.error) };
+    return { slice, data: r.data ?? null, error: null };
+  } catch (err) {
+    return { slice, data: null, error: serializeError(err) };
+  }
+}
 
 function statusToAutopilotState(status: string): string {
   if (["starting", "running", "auto_fixing"].includes(status)) return "running";
