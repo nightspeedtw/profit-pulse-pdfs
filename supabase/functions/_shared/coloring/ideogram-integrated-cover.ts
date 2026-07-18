@@ -143,7 +143,7 @@ export function buildIdeogramIntegratedCoverPrompt(input: IdeogramCoverRequest):
     "Hero subjects must also stay inside the central 86% of the frame — no animal or character may be cropped by the edge. Prefer fewer, smaller heroes with room to breathe over a crowded edge-to-edge group.",
     // Style
     "Style reference: modern picture-book cover, gouache texture, ideogram-integrated lettering, Crayola beauty, Sneeze-Powered Sock Sorter aesthetic.",
-    "Aspect ratio 3:4 portrait, matches printed 8.5x11 book cover. High resolution, sharp lettering.",
+    "Aspect ratio 8.5:11 portrait (=0.7727), pixel-native at generation — matches the printed 8.5×11 book cover EXACTLY so no post-processing padding or cropping is needed. High resolution, sharp lettering.",
   ].filter(Boolean);
   return parts.join(" ");
 }
