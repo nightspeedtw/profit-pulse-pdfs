@@ -23,6 +23,14 @@ Idempotent (successful pages are already persisted; unpersisted renders
 re-run, cost bounded by MAX_COVER_INVOCATIONS-style ceilings on the
 render side).
 
+Root cause: edge function `CPU Time exceeded` mid-batch. `BATCH_SIZE=6`
+with per-page Runware download + sharpness + upload + subsequent anatomy
+vision batch exceeded the 150s edge CPU budget. Fix (paired with the
+watchdog): dropped `BATCH_SIZE` from 6 → 3 in
+`coloring-book-render/index.ts` so a batch reliably completes and
+`updatePages` persists before CPU is spent. The watchdog is the safety
+net if this recurs (larger images, slower anatomy model, etc.).
+
 Follow-up (not blocking): tighten `coloring-book-render` to
 incrementally persist newRecords after each successful upload so a
 mid-batch death loses at most one page instead of the whole batch. The
