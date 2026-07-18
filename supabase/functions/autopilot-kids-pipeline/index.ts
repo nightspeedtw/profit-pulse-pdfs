@@ -392,55 +392,53 @@ async function generateManuscript(ctx: Ctx): Promise<StepResult> {
   return { output: { word_count: wordCount, segments: result.manuscript.pages.length, attempts: result.attempts, refrain: result.manuscript.refrain, writer_json_parse_failure_count: result.parseFailures?.length ?? 0, writer_json_parse_failures: result.parseFailures ?? [] } };
 }
 
-// Story gate — runs BEFORE any art/PDF step so baseline never spends image cost on a rejected story.
-// Throws when the strict story judge does not pass; the pipeline loop then short-circuits.
+// Story gate — right-first-time architecture. Runs BEFORE any art/PDF step.
+// Uses a single-call flash-lite judge to score against the baked-in rubric.
+// On failure it does ONE inline regeneration with the judge's per-dimension
+// feedback appended to the writer craft block, then re-judges. If that second
+// draft also fails the step throws → policy retires the concept (no repair
+// ladder). This replaces the deprecated kids-repair-story-gate loop.
 async function storyGate(ctx: Ctx): Promise<StepResult> {
-  const manuscript = String(ctx.ebook.manuscript_md ?? '').trim();
-  if (!manuscript) throw new Error(`${STORY_GATE_BLOCK}: manuscript missing`);
   const ageBand = (ctx.ebook.storefront_meta as { admin_params?: { age_band?: string } } | null)?.admin_params?.age_band ?? '4-6';
-  const segs = loadSegments(ctx.ebook);
-  const sb = (ctx.ebook.story_bible ?? {}) as { spreads?: Array<{ text?: string }> };
-  const pageTexts = segs
-    ? segmentsToPageTexts(segs)
-    : (Array.isArray(sb.spreads) ? sb.spreads.map((s) => String(s?.text ?? '')) : []);
 
-  const report = await runKidsStoryJudge({
-    title: String(ctx.ebook.title ?? ''),
-    subtitle: (ctx.ebook.subtitle as string | null) ?? null,
-    ageBand,
-    manuscript_md: manuscript,
-    page_texts: pageTexts,
-    ebook_id: ctx.ebook.id as string,
-  });
-
-  // Persist scorecard even on pass so the admin UI can display subscores.
-  const sc = (ctx.ebook.qc_scorecard ?? {}) as Record<string, unknown>;
-  sc.story_gate = {
-    passed: report.story_qc_passed,
-    scores: {
-      age: report.age_appropriateness_score,
-      coh: report.story_coherence_score,
-      emo: report.emotional_payoff_score,
-      rer: report.reread_value_score,
-      lang: report.language_level_score,
-      buyer: report.parent_buyer_value_score,
-      generic_risk: report.generic_story_risk_score,
-    },
-    subscores: {
-      premise_specificity: report.premise_specificity_score,
-      story_engine_specificity: report.story_engine_specificity_score,
-      visual_hook_specificity: report.visual_hook_specificity_score,
-      retitle_resistance: report.retitle_resistance_score,
-      trope_dependency: report.trope_dependency_score,
-    },
-    generic_risk_analysis: report.generic_risk_analysis,
-    evidence: report.evidence,
-    judge_version: report.judge_version,
-    computed_at: report.computed_at,
-  };
-  await ctx.supabase.from('ebooks_kids').update({ qc_scorecard: sc }).eq('id', ctx.ebookId);
-
-  if (!report.story_qc_passed) {
+  async function judgeOnce(): Promise<{ passed: boolean; report: Awaited<ReturnType<typeof runKidsStoryJudge>>; scorecard: Record<string, unknown>; blockers: string[] }> {
+    const manuscript = String(ctx.ebook.manuscript_md ?? '').trim();
+    if (!manuscript) throw new Error(`${STORY_GATE_BLOCK}: manuscript missing`);
+    const segs = loadSegments(ctx.ebook);
+    const sb = (ctx.ebook.story_bible ?? {}) as { spreads?: Array<{ text?: string }> };
+    const pageTexts = segs
+      ? segmentsToPageTexts(segs)
+      : (Array.isArray(sb.spreads) ? sb.spreads.map((s) => String(s?.text ?? '')) : []);
+    const report = await runKidsStoryJudge({
+      title: String(ctx.ebook.title ?? ''),
+      subtitle: (ctx.ebook.subtitle as string | null) ?? null,
+      ageBand,
+      manuscript_md: manuscript,
+      page_texts: pageTexts,
+      ebook_id: ctx.ebook.id as string,
+    });
+    const sc = (ctx.ebook.qc_scorecard ?? {}) as Record<string, unknown>;
+    sc.story_gate = {
+      passed: report.story_qc_passed,
+      scores: {
+        age: report.age_appropriateness_score, coh: report.story_coherence_score,
+        emo: report.emotional_payoff_score, rer: report.reread_value_score,
+        lang: report.language_level_score, buyer: report.parent_buyer_value_score,
+        generic_risk: report.generic_story_risk_score,
+      },
+      subscores: {
+        premise_specificity: report.premise_specificity_score,
+        story_engine_specificity: report.story_engine_specificity_score,
+        visual_hook_specificity: report.visual_hook_specificity_score,
+        retitle_resistance: report.retitle_resistance_score,
+        trope_dependency: report.trope_dependency_score,
+      },
+      generic_risk_analysis: report.generic_risk_analysis,
+      evidence: report.evidence,
+      judge_version: report.judge_version,
+      computed_at: report.computed_at,
+    };
+    await ctx.supabase.from('ebooks_kids').update({ qc_scorecard: sc }).eq('id', ctx.ebookId);
     const blockers: string[] = [];
     if (report.age_appropriateness_score < 90) blockers.push(`age=${report.age_appropriateness_score}<90`);
     if (report.story_coherence_score < 90) blockers.push(`coh=${report.story_coherence_score}<90`);
@@ -449,9 +447,49 @@ async function storyGate(ctx: Ctx): Promise<StepResult> {
     if (report.language_level_score < 90) blockers.push(`lang=${report.language_level_score}<90`);
     if (report.parent_buyer_value_score < 85) blockers.push(`buyer=${report.parent_buyer_value_score}<85`);
     if (report.generic_story_risk_score > 25) blockers.push(`generic_risk=${report.generic_story_risk_score}>25`);
-    throw new Error(`${STORY_GATE_BLOCK}: ${blockers.join(', ')}`);
+    return { passed: report.story_qc_passed, report, scorecard: sc, blockers };
   }
-  return { output: { passed: true, generic_risk: report.generic_story_risk_score, subscores: sc.story_gate } };
+
+  const first = await judgeOnce();
+  if (first.passed) {
+    return { output: { passed: true, attempts: 1, generic_risk: first.report.generic_story_risk_score, subscores: first.scorecard.story_gate } };
+  }
+
+  // ONE regeneration — feed the judge's per-dimension feedback back into the
+  // writer craft block so the second draft addresses the exact gaps.
+  console.log(`[story_gate] first draft failed (${first.blockers.join(', ')}); regenerating once with judge feedback (right-first-time policy)`);
+  const feedbackLines = (first.report.evidence ?? [])
+    .slice(0, 12)
+    .map((e) => `  · ${e.dimension}${e.page ? ` (p${e.page})` : ''}: ${e.reason} → fix: ${e.repair_action}`);
+  const judgeFeedbackBlock = `\n\nSTORY_GATE FEEDBACK FROM PRIOR DRAFT — the previous manuscript failed on: ${first.blockers.join(', ')}. Fix these specifically on this rewrite:\n${feedbackLines.join('\n')}\n\nRewrite the WHOLE manuscript with these fixes; do not simply patch pages.`;
+  const craft = await loadStoryCraftBlock(ctx.supabase, ageBand);
+  const meta = (ctx.ebook.storefront_meta ?? {}) as Record<string, unknown>;
+  const heroName = (meta.main_character as string | undefined)
+    ?? ((meta.locked_concept as { hero?: string } | undefined)?.hero) ?? null;
+  const rewrite = await writeSegmentedManuscript({
+    title: String(ctx.ebook.title ?? ''),
+    subtitle: (ctx.ebook.subtitle as string | null) ?? null,
+    description: (ctx.ebook.description as string | null) ?? null,
+    ageBand, target: TARGET_INTERIOR, heroName,
+    extraCraftBlock: craft + judgeFeedbackBlock,
+  });
+  if (!rewrite.ok) {
+    throw new Error(`${STORY_GATE_BLOCK}: regen failed structural gate: ${rewrite.validation.violations.slice(0, 4).join(' | ')}`);
+  }
+  const md2 = renderSegmentsToMd(rewrite.manuscript);
+  const wc2 = rewrite.manuscript.pages.reduce((n, p) => n + p.text.split(/\s+/).filter(Boolean).length, 0);
+  const nextMeta = { ...meta, kids_manuscript_segments: rewrite.manuscript };
+  await ctx.supabase.from('ebooks_kids').update({
+    manuscript_md: md2, word_count: wc2, storefront_meta: nextMeta,
+  }).eq('id', ctx.ebookId);
+  ctx.ebook.manuscript_md = md2;
+  ctx.ebook.storefront_meta = nextMeta;
+
+  const second = await judgeOnce();
+  if (second.passed) {
+    return { output: { passed: true, attempts: 2, regenerated: true, generic_risk: second.report.generic_story_risk_score, subscores: second.scorecard.story_gate } };
+  }
+  throw new Error(`${STORY_GATE_BLOCK}: two drafts failed — first=[${first.blockers.join(', ')}] second=[${second.blockers.join(', ')}]`);
 }
 
 // Metadata/manuscript alignment guardrail. Runs BEFORE bible_check so that
