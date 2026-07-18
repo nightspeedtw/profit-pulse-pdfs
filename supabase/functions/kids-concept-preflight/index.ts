@@ -174,7 +174,12 @@ function json(body: unknown, status = 200) {
 
 import { hasGeminiDirect, geminiDirectChat } from '../_shared/gemini-direct.ts';
 
-async function callGemini(system: string, user: string, model = 'google/gemini-flash-lite-latest'): Promise<string> {
+// Model tiers (2026-07-19): the WRITER (generator) must be top-tier to escape
+// the flash-lite 82-score plateau. The JUDGE stays cheap — it's calibrated fine.
+const STRONG_WRITER_MODEL = 'google/gemini-2.5-pro';
+const CHEAP_JUDGE_MODEL = 'google/gemini-flash-lite-latest';
+
+async function callGemini(system: string, user: string, model = CHEAP_JUDGE_MODEL): Promise<string> {
   // Tier 1: google_direct (bypasses Lovable Gateway credit cap).
   if (hasGeminiDirect()) {
     try {
@@ -488,8 +493,60 @@ Attempt label: ${attemptLabel}.`;
   console.log(`[concept-preflight] anti_anchor forbidden_titles: [${recentTitleList.slice(0,10).map(t=>`"${t}"`).join(', ')}]`);
   console.log(`[concept-preflight] engine_rotation target=${targetEngineType} recent_types=[${recentEngineTypes.join(',')}]`);
   console.log(`[concept-preflight] system_prompt_len=${system.length} template_ban_present=${system.includes('FORBIDDEN TITLE TEMPLATE OUTRIGHT')} engine_diversity_present=${system.includes('STORY-ENGINE DIVERSITY')}`);
-  const raw = await callGemini(system, user);
+  console.log(`[concept-preflight] writer_model=${STRONG_WRITER_MODEL} judge_model=${CHEAP_JUDGE_MODEL}`);
+  const raw = await callGemini(system, user, STRONG_WRITER_MODEL);
   return safeJson<Concept>(raw);
+}
+
+// Programmatic pre-judge check — reject candidates BEFORE they cost a judge
+// call. Catches banned protagonist names, possessive-quirk template titles,
+// and banned lane hits. Returns hit reasons (empty = clean).
+function preJudgeBanHits(c: Concept, recentNames: string[]): string[] {
+  const hits: string[] = [];
+  const bannedLanes = detectBannedLaneHits(c);
+  if (bannedLanes.length) hits.push(`banned_lane:${bannedLanes.slice(0,2).join('|')}`);
+  const possessiveTpl = detectPossessiveQuirkTemplateHits(c);
+  if (possessiveTpl.length) hits.push(`possessive_template:${possessiveTpl.slice(0,2).join('|')}`);
+  // Protagonist-name reuse (case-insensitive whole-word match against hero + title).
+  if (recentNames.length) {
+    const hay = `${c.hero ?? ''} ${c.title ?? ''} ${c.hero_specificity ?? ''}`;
+    const nameHits = recentNames.filter(n =>
+      new RegExp(`\\b${n.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\b`, 'i').test(hay),
+    );
+    if (nameHits.length) hits.push(`banned_name:${nameHits.slice(0,3).join('|')}`);
+  }
+  return hits;
+}
+
+// Generate ONE concept, retrying UP TO `maxAttempts` times when the
+// programmatic pre-judge (banned name / possessive template / banned lane)
+// rejects it. Each retry appends the offending title AND hero name to the
+// avoid list so the writer sees the exact reason. Never spends a judge call
+// on a mechanically-banned concept.
+async function generateConceptPreChecked(
+  ageBand: string, avoidList: string[], attemptLabel: string, skillBlock: string,
+  batchLane: string | undefined, recent: RecentConceptSignal, recentNames: string[],
+  maxAttempts = 3,
+): Promise<{ concept: Concept; preRejections: Array<{ attempt: number; title: string; hits: string[] }> }> {
+  const preRejections: Array<{ attempt: number; title: string; hits: string[] }> = [];
+  const localAvoid = [...avoidList];
+  let last: Concept | null = null;
+  for (let a = 1; a <= maxAttempts; a++) {
+    const label = a === 1 ? attemptLabel : `${attemptLabel}_regen${a - 1}_after_ban`;
+    const c = await generateConcept(ageBand, localAvoid, label, skillBlock, batchLane, recent);
+    last = c;
+    const hits = preJudgeBanHits(c, recentNames);
+    if (!hits.length) {
+      console.log(`[concept-preflight] pre_judge_pass label=${label} title="${c.title}"`);
+      return { concept: c, preRejections };
+    }
+    console.warn(`[concept-preflight] pre_judge_reject label=${label} title="${c.title}" hits=[${hits.join(',')}]`);
+    preRejections.push({ attempt: a, title: c.title, hits });
+    if (c.title) localAvoid.push(c.title);
+    if (c.hero) localAvoid.push(c.hero);
+  }
+  // Exhausted — return the last one so the judge can still score it (with hits recorded).
+  return { concept: last as Concept, preRejections };
 }
 
 async function scoreConcept(c: Concept, ageBand: string): Promise<ConceptScores> {
@@ -642,10 +699,15 @@ Deno.serve(async (req) => {
     const targetEngineType = pickTargetEngineType(recent.engines);
     console.log(`[concept-preflight] engine_rotation target=${targetEngineType} recent=[${recentEngineTypes.join(',')}]`);
 
+    const recentNames = extractProtagonistNames(recent);
+    const allPreRejections: Array<{ slot: string; attempt: number; title: string; hits: string[] }> = [];
+
     // Attempt 1
     let c1: Concept;
     try {
-      c1 = await generateConcept(ageBand, triedTitles, 'primary', skillBlock, batchLane, recent);
+      const r1 = await generateConceptPreChecked(ageBand, triedTitles, 'primary', skillBlock, batchLane, recent, recentNames);
+      c1 = r1.concept;
+      for (const p of r1.preRejections) allPreRejections.push({ slot: 'primary', ...p });
     } catch (e) {
       return json({ ok: false, error: `concept1_gen_failed: ${(e as Error).message.slice(0, 200)}` }, 500);
     }
@@ -659,7 +721,9 @@ Deno.serve(async (req) => {
     if (!e1.passed) {
       for (let i = 0; i < 2; i++) {
         try {
-          const cN = await generateConcept(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`, skillBlock, batchLane, recent);
+          const rN = await generateConceptPreChecked(ageBand, triedTitles, `alt${i + 1}_addressing:${e1.blockers.slice(0, 3).join(';')}`, skillBlock, batchLane, recent, recentNames);
+          const cN = rN.concept;
+          for (const p of rN.preRejections) allPreRejections.push({ slot: `alt${i + 1}`, ...p });
           triedTitles.push(cN.title);
           const sN = await scoreConcept(cN, ageBand);
           const bN = detectBannedLaneHits(cN);
@@ -683,6 +747,9 @@ Deno.serve(async (req) => {
         }
       }
     }
+    if (allPreRejections.length) {
+      console.log(`[concept-preflight] pre_judge_rejections total=${allPreRejections.length} details=${JSON.stringify(allPreRejections).slice(0, 500)}`);
+    }
 
     const passedList = judged.filter(j => j.passed);
     const winner = passedList.length > 0
@@ -698,6 +765,9 @@ Deno.serve(async (req) => {
       thresholds: T,
       floor: { final_concept_score: CONCEPT_SCORE_FLOOR, generic_risk_score: CONCEPT_GENERIC_MAX },
       selection_mode: 'best_of_floor',
+      pre_judge_rejections: allPreRejections,
+      writer_model: STRONG_WRITER_MODEL,
+      judge_model: CHEAP_JUDGE_MODEL,
     });
   } catch (e) {
     console.error('kids-concept-preflight error', e);
