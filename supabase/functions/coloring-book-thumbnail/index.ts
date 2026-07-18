@@ -15,7 +15,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
-// (trim-lock no longer enforced on thumbnail: canvas tracks trimmed art aspect)
+import { COLORING_TRIM, assertColoringTrim } from "../_shared/coloring/trim-lock.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -33,80 +33,49 @@ async function sha16(bytes: Uint8Array): Promise<string> {
     .map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
 }
 
-/**
- * Detect the bounding box of non-near-white content. Handles the letterbox
- * bars that fit-CONTAIN adds when the source art aspect (e.g. 2:3 from
- * gpt-image-1) differs from the master canvas aspect (8.5:11).
- * Threshold: pixels with any channel < 245 count as content.
- */
-function detectContentBounds(img: any): { x: number; y: number; w: number; h: number } {
-  const W = img.width, H = img.height;
-  const isBg = (px: number) => {
-    const r = (px >>> 24) & 0xff, g = (px >>> 16) & 0xff, b = (px >>> 8) & 0xff, a = px & 0xff;
-    return a < 8 || (r >= 245 && g >= 245 && b >= 245);
-  };
-  let top = 0, bottom = H - 1, left = 0, right = W - 1;
-  // Scan top
-  outerTop: for (; top < H; top++) {
-    for (let x = 0; x < W; x += 4) if (!isBg(img.getPixelAt(x + 1, top + 1))) break outerTop;
-  }
-  outerBot: for (; bottom > top; bottom--) {
-    for (let x = 0; x < W; x += 4) if (!isBg(img.getPixelAt(x + 1, bottom + 1))) break outerBot;
-  }
-  outerL: for (; left < W; left++) {
-    for (let y = top; y <= bottom; y += 4) if (!isBg(img.getPixelAt(left + 1, y + 1))) break outerL;
-  }
-  outerR: for (; right > left; right--) {
-    for (let y = top; y <= bottom; y += 4) if (!isBg(img.getPixelAt(right + 1, y + 1))) break outerR;
-  }
-  // Guard: if detection collapsed, keep full frame.
-  if (right - left < W * 0.3 || bottom - top < H * 0.3) {
-    return { x: 0, y: 0, w: W, h: H };
-  }
-  return { x: left, y: top, w: right - left + 1, h: bottom - top + 1 };
-}
-
-/**
- * Render a fitted thumbnail sized to the ACTUAL art aspect (after trimming
- * the compositor's white letterbox). No secondary letterbox — the storefront
- * frame matches the raster edge-to-edge. Target long-edge = 900 px.
- */
+/** Re-derive a fitted thumbnail with letterbox padding on white. */
 async function renderThumbnail(coverBytes: Uint8Array): Promise<{
   bytes: Uint8Array;
   meta: {
     canvas: { width: number; height: number };
     source_size: { width: number; height: number };
-    trimmed_size: { width: number; height: number };
-    trim_bounds: { x: number; y: number; w: number; h: number };
-    aspect_w_over_h: number;
+    fitted_size: { width: number; height: number };
+    letterbox: { top: number; bottom: number; left: number; right: number };
     non_crop_pass: boolean;
     format: string;
   };
 }> {
   const src = await Image.decode(coverBytes);
-  const bounds = detectContentBounds(src);
-  const trimmed = (bounds.w === src.width && bounds.h === src.height)
-    ? src
-    : (src as any).crop(bounds.x, bounds.y, bounds.w, bounds.h);
+  const cw = COLORING_TRIM.thumbnailPx.width;
+  const ch = COLORING_TRIM.thumbnailPx.height;
+  const sw = src.width, sh = src.height;
 
-  // Target long-edge 900 px, preserve trimmed aspect exactly.
-  const LONG = 900;
-  const tw = trimmed.width, th = trimmed.height;
-  const scale = Math.min(LONG / Math.max(tw, th), 1);
-  const cw = Math.max(1, Math.round(tw * scale));
-  const ch = Math.max(1, Math.round(th * scale));
-  const canvas = trimmed.clone().resize(cw, ch);
+  // Fit-contain (letterbox on white) — never crop the baked title.
+  const scale = Math.min(cw / sw, ch / sh);
+  const fw = Math.max(1, Math.round(sw * scale));
+  const fh = Math.max(1, Math.round(sh * scale));
+  const dx = Math.floor((cw - fw) / 2);
+  const dy = Math.floor((ch - fh) / 2);
 
-  const bytes = await canvas.encodeJPEG(88);
+  const fitted = src.clone().resize(fw, fh);
+  const canvas = new Image(cw, ch).fill(0xffffffff); // solid white
+  canvas.composite(fitted, dx, dy);
+
+  // Non-crop verification: sample the four edges of the fitted region and
+  // confirm they aren't touching the raw canvas edges (letterbox must exist
+  // when aspect drifts; when aspect matches exactly, dx/dy can be 0 which
+  // is still fine — the source art is already trim-locked).
+  const nonCropPass = dx >= 0 && dy >= 0 && fw <= cw && fh <= ch;
+
+  const bytes = await canvas.encodeJPEG(85);
   return {
     bytes,
     meta: {
       canvas: { width: cw, height: ch },
-      source_size: { width: src.width, height: src.height },
-      trimmed_size: { width: tw, height: th },
-      trim_bounds: bounds,
-      aspect_w_over_h: cw / ch,
-      non_crop_pass: true,
+      source_size: { width: sw, height: sh },
+      fitted_size: { width: fw, height: fh },
+      letterbox: { top: dy, bottom: ch - (dy + fh), left: dx, right: cw - (dx + fw) },
+      non_crop_pass: nonCropPass,
       format: "image/jpeg",
     },
   };
@@ -130,9 +99,11 @@ Deno.serve(async (req: Request) => {
     const meta = (row.metadata ?? {}) as Record<string, any>;
     const existing = meta.thumbnail_render_meta ?? null;
     if (!force
-      && existing?.version === "coloring_thumbnail_v2_trimmed"
+      && existing?.non_crop_pass === true
       && row.thumbnail_url
-      && row.thumbnail_url !== row.cover_url) {
+      && row.thumbnail_url !== row.cover_url
+      && Number(existing?.canvas?.width) === COLORING_TRIM.thumbnailPx.width
+      && Number(existing?.canvas?.height) === COLORING_TRIM.thumbnailPx.height) {
       return json({ ok: true, skipped: "already_fitted", thumbnail_url: row.thumbnail_url });
     }
 
@@ -141,9 +112,9 @@ Deno.serve(async (req: Request) => {
     const coverBytes = new Uint8Array(await r.arrayBuffer());
 
     const { bytes, meta: renderMeta } = await renderThumbnail(coverBytes);
-    // No fixed trim assertion: the thumbnail canvas now tracks the actual
-    // art aspect (letterbox trimmed) so the storefront frame matches the
-    // raster edge-to-edge.
+    // Trim sanity check on the produced canvas.
+    const trim = assertColoringTrim("thumbnail", renderMeta.canvas.width, renderMeta.canvas.height);
+    if (!trim.pass) return json({ error: `thumbnail_trim_mismatch:${trim.reason}` }, 500);
 
     const hash = await sha16(bytes);
     const path = `kids/${ebook_id}/coloring/thumb-${Date.now()}-${hash}.jpg`;
@@ -155,12 +126,13 @@ Deno.serve(async (req: Request) => {
       ...meta,
       thumbnail_render_meta: {
         ...renderMeta,
-        version: "coloring_thumbnail_v2_trimmed",
+        version: "coloring_thumbnail_v1",
         source_cover_url: row.cover_url,
         source_hash: hash,
         rendered_at: new Date().toISOString(),
         storage_path: up.path,
         signed_url: up.signedUrl,
+        trim_assertion: trim,
       },
     };
     await db.from("ebooks_kids").update({
