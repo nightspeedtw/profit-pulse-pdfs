@@ -635,3 +635,17 @@ Enforcement:
 4. Cover prompt (`buildIdeogramIntegratedCoverPrompt`) now specifies
    `FULL-BLEED COMPOSITION` and `Aspect ratio 8.5:11 portrait (=0.7727)`
    — the model composes the scene edge-to-edge from birth.
+
+## spelling-only-critical-unpublish-v1 (2026-07-18)
+
+**Class**: publish-contract severity policy.
+**Rule**: The ONLY defect class that auto-unpublishes a LIVE coloring book (or blocks a first-time publish) is a customer-visible SPELLING/TEXT failure on cover title, marketing thumbnail headline, or storefront copy. Every other contract failure (canvas size, aspect drift, trim mismatch, cover_baked_title_only, cover_category_verified, thumbnail_distinct_and_fitted, style source) is `cosmetic` → fix-in-place while live, never demote.
+**Files**: `_shared/coloring/publish-contract.ts` (v5), `coloring-book-publish/index.ts` (first-time publish now proceeds live with `needs_asset_repair` blocker when only cosmetic reasons remain).
+**Doctrine**: retro_unpublish_requires_critical_severity → tightened to `spelling_only_critical`.
+
+## etsy-marketing-thumbnail-v1 (2026-07-18)
+
+**Class**: storefront thumbnail is now a distinct marketing asset, not a resized cover.
+**Rule**: Coloring-book storefront cards must be 1024×1024 Etsy-style marketing thumbnails produced by `coloring-marketing-thumbnail` (Runware Ideogram 3.0, uses cover + up to 3 interior pages as reference images, bakes bubble-text headline like "32 Cute Floral Coloring Pages" + "Ages 4-6" pill). Headline goes through `verifyExactCoverText` (same critical spelling gate as covers).
+**Style rotation**: 6 background/layout variants keyed off ebook_id hash → catalog visual variety across the 100-book ramp.
+**Print vs marketing**: interior PDF stays 8.5×11 Letter (no change). Only the storefront card is square.
