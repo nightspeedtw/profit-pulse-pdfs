@@ -205,14 +205,40 @@ export interface WriteSegmentsOpts {
   timeoutMs?: number;
 }
 
-const DEFAULT_MODEL = "google/gemini-2.5-flash";
+// RIGHT-FIRST-TIME ARCHITECTURE (2026-07-18):
+// Writer defaults to the TOP text tier with the complete story_gate rubric
+// baked into the system prompt so the FIRST draft is written TO the rubric,
+// not graded against it blind. This deprecates the repair ladder: pipeline
+// does one regeneration with judge feedback and retires the concept otherwise.
+const DEFAULT_MODEL = "google/gemini-2.5-pro";
+
+const STORY_GATE_RUBRIC_ADDENDUM = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STORY_GATE RUBRIC — write TO these thresholds. Every draft is judged on:
+  * age_appropriateness   ≥ 90  (grade 1-2 vocab, gentle worry never terror, one theme)
+  * story_coherence       ≥ 90  (4-act arc across the beats; three escalating tries; hero solves it)
+  * emotional_payoff      ≥ 85  (small hero + small want; warm final-spread payoff; implicit moral via action)
+  * reread_value          ≥ 85  (chantable refrain repeated ≥3×, participation beats on most spreads,
+                                 one hidden-detail thread across pages, callback ending — NOT a moral summary)
+  * language_level        ≥ 90  (sensory read-aloud voice; short sentences; rhythm)
+  * parent_buyer_value    ≥ 85  (developmental theme a parent can name in one sentence;
+                                 lesson SHOWN not told; child has real agency; fun first, teaching second)
+  * generic_story_risk    ≤ 25  (distinctive story engine tied to premise; visual hook cannot be swapped;
+                                 no interchangeable "child learns lesson from object" plot)
+
+WRITE AS IF THE JUDGE IS READING. Anchor every page-turn to a specific mechanic
+that only this premise could produce. Ban moralizing lines ("and that's how she
+learned…", "the lesson was…"). End on a callback / ritual / reveal, never a summary.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
 const WRITER_SYSTEM = `You are a professional children's picture-book author writing for ages 4-7.
 
 Follow the Children's Storybook Consistency Lock: warm read-aloud voice, sensory detail,
 gentle rhythm, satisfying resolution, implicit moral (never a lecture). English only.
 
-You MUST return valid JSON only — no markdown, no prose framing, no code fences.`;
+You MUST return valid JSON only — no markdown, no prose framing, no code fences.
+${STORY_GATE_RUBRIC_ADDENDUM}`;
 
 function buildWriterUser(
   opts: WriteSegmentsOpts,
