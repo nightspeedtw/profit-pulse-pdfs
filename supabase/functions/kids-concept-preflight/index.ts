@@ -514,7 +514,7 @@ function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): {
   const passed = blockers.length === 0;
   const decision: 'pass' | 'rewrite' | 'reject' = passed
     ? 'pass'
-    : (scores.final_concept_score >= 70 && scores.generic_risk_score <= 50 && bannedHits.length === 0 ? 'rewrite' : 'reject');
+    : (scores.final_concept_score >= 70 && scores.generic_risk_score <= 50 && bannedHits.length === 0 && possessiveTemplateHits.length === 0 ? 'rewrite' : 'reject');
   return { passed, blockers, weak_dimensions: weak, decision };
 }
 

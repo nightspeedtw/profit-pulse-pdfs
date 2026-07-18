@@ -154,7 +154,7 @@ describe("immune-system invariants", () => {
     expect(pipeline).not.toMatch(/generateManuscript[\s\S]{0,2500}pipeline_status:\s*['"]illustrating['"]/);
 
     expect(renderer).toContain("assertStoredStoryGatePassedBeforeRender");
-    expect(renderer.indexOf("assertStoredStoryGatePassedBeforeRender(db, ebookId)")).toBeLessThan(renderer.indexOf("patchInteriorBuild(db, ebookId"));
+    expect(renderer.indexOf("const storyGateTripwire = await assertStoredStoryGatePassedBeforeRender(db, ebookId)")).toBeLessThan(renderer.indexOf("if (body.chained)"));
     expect(supervisor).toContain("free_resume_story_gate_tripwire");
   });
 
