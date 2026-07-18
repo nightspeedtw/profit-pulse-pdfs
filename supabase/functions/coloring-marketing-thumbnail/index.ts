@@ -27,7 +27,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RUNWARE_API_KEY = Deno.env.get("RUNWARE_API_KEY");
 const RUNWARE_IDEOGRAM_MODEL = "ideogram:4@1";
 const CANVAS = 1024;
-const MAX_ATTEMPTS = 2;
+const MAX_ATTEMPTS = 3;
 
 function json(x: unknown, status = 200) {
   return new Response(JSON.stringify(x), {
