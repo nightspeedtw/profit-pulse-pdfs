@@ -199,10 +199,11 @@ Deno.serve(async (req: Request) => {
 
     for (let i = 0; i < slots; i++) {
       let cat: { category_key: string; category_name: string };
-      if (cfg.topic_mode === "specific" && cfg.specific_category_key && activeWhitelist.has(cfg.specific_category_key)) {
-        cat = allCats.find((c: any) => c.category_key === cfg.specific_category_key) ?? allCats[0];
+      if (cfg.topic_mode === "specific" && cfg.specific_category_key && activeWhitelist.has(cfg.specific_category_key)
+          && bandGated.some((c: any) => c.category_key === cfg.specific_category_key)) {
+        cat = bandGated.find((c: any) => c.category_key === cfg.specific_category_key) ?? bandGated[0];
       } else {
-        cat = weightedPick(allCats as any);
+        cat = weightedPick(bandGated as any);
       }
       const chosen = await pickUniqueTitle(db, cat.category_key, cat.category_name, cfg.age_band);
       const r = await fetch(`${url}/functions/v1/coloring-book-start`, {
