@@ -171,3 +171,27 @@ in a small card — fragile.
 - Note: `buildInteriorPrompt` and `coloring-book-render` repair path
   already injected the contract via `speciesAnatomyPromptClause` /
   `speciesAnatomyRepairClause` — the gap was contract data, not wiring.
+
+## kids-character-reference-runware-primary (2026-07-18)
+- Symptom: 62 kids picture books auto-retired at `generate_cover` with
+  `character_reference_generation_failed_after_dead_image_gate: provider_billing_locked (403) fal.ai`.
+  Single largest failure class in the last week (25% of all failures,
+  2x the next class).
+- Root cause: provider monoculture. The character-reference sheet in
+  `autopilot-kids-pipeline` called `falFluxSchnell` directly, bypassing
+  the shared `generateImageWithFailover` chain used elsewhere. When the
+  fal.ai balance dried the whole class dead-ended even though Runware +
+  Cloudflare were healthy and already funding coloring covers/interiors.
+- Fix: rewired the sheet step to `generateImageWithFailover` with
+  `readImageProviderPolicy(db).interiors` — Runware FLUX schnell (AIR
+  `runware:100@1`) primary, Cloudflare `@cf/flux-1-schnell` fallback,
+  fal `fal-ai/flux/schnell` last. Same 3-attempt dead-image gate is
+  preserved. Same model family (FLUX schnell) across all three
+  providers so style/luminance behavior is unchanged. Downstream page
+  rendering keeps using Gemini reference-conditioning against the
+  produced sheet URL, so character consistency across pages is
+  unaffected by which t2i provider produced the sheet.
+- Doctrine: any image-generation step that can dead-end a book MUST
+  call `generateImageWithFailover`, not a single-provider adapter.
+  A grep for `falFluxSchnell(` / `falRecraftV3(` / direct
+  `runwareInference(` calls in book-critical paths is a defect signal.

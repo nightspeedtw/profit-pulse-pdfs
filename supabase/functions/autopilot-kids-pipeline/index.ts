@@ -1,6 +1,7 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { falFluxSchnell, falRecraftV3 } from '../_shared/fal.ts';
+import { generateImageWithFailover, readImageProviderPolicy } from '../_shared/image-providers.ts';
 import { pickStyle, markStyleUsed } from '../_shared/style-picker.ts';
 import { buildScenePlan } from '../_shared/kids-interior.ts';
 // PDF assembly is delegated to the multi-stage `kids-build-picture-pdf`
@@ -675,12 +676,28 @@ Reply as JSON only: {"name":"","species":"","age":"","hair":"","eyes":"","skin":
     const refPrompt = `Character reference sheet: a friendly children's book hero ${charDesc}. Full body, front view, neutral pose, plain white background, clear features, ${styleSuffix}`;
     let refBytes: Uint8Array | null = null;
     let lastRefErr = '';
+    // Provider-monoculture fix (2026-07-18): route the character-reference
+    // sheet through the shared Runware-primary / CF / fal fallback chain
+    // instead of a bare falFluxSchnell call. This unsticks the 62-book
+    // "fal.ai balance exhausted at kids_character_reference" dead-end. The
+    // sheet is text-to-image (no prior reference exists); downstream page
+    // rendering keeps using Gemini reference-conditioning against this URL
+    // for character consistency, so switching t2i providers is safe.
+    const refPolicy = await readImageProviderPolicy(db);
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const candidate = await falFluxSchnell({ prompt: `${refPrompt}${attempt > 1 ? ' Bright, fully lit, no black background, no empty canvas.' : ''}`, image_size: 'square_hd', ebook_id: ctx.ebookId, step: 'kids_character_reference' });
+        const jitter = attempt > 1 ? ' Bright, fully lit, no black background, no empty canvas.' : '';
+        const out = await generateImageWithFailover({
+          prompt: `${refPrompt}${jitter}`,
+          image_size: 'square_hd',
+          ebook_id: ctx.ebookId,
+          step: 'kids_character_reference',
+        }, refPolicy.interiors, db);
+        const candidate = out.bytes;
         const refLum = await computeLuminance(candidate);
         if (refLum.mean < 12 || refLum.reason === 'near_black') throw new Error(`character_reference_dead_image_gate: ${refLum.reason} (mean=${refLum.mean.toFixed(1)}, var=${refLum.variance.toFixed(0)})`);
         refBytes = candidate;
+        console.log(`[kids_character_reference] provider=${out.provider} attempts=${out.attempts.map(a=>`${a.provider}:${a.ok?'ok':a.error?.slice(0,60)}`).join('|')}`);
         break;
       } catch (e) {
         lastRefErr = String((e as Error).message ?? e).slice(0, 220);
