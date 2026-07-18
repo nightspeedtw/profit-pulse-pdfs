@@ -17,6 +17,7 @@ interface Row {
   id: string;
   title: string;
   cover_url: string | null;
+  thumbnail_url: string | null;
   price_cents: number;
   age_band: string | null;
   age_min: number | null;
