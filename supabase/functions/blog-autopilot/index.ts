@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
 
     // 2. Pick live products (random 6, filter down).
     const { data: prods, error: prodErr } = await db.from("ebooks_kids")
-      .select("id,title,category,price_cents,age_band,thumbnail_url,cover_url")
+      .select("id,title,price_cents,age_band,thumbnail_url,cover_url")
       .eq("listing_status", "live").eq("sellable", true).limit(30);
     console.log(`[blog-autopilot] live products query: count=${prods?.length ?? 0} err=${prodErr?.message ?? "none"}`);
     if (prodErr) throw new Error(`products_query_failed: ${prodErr.message}`);
