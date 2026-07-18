@@ -33,8 +33,43 @@ type Alert = {
   evidence?: Record<string, unknown>;
 };
 
-function db() {
-  return createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+// Module-scope singleton: reused across warm invocations on the same isolate.
+// Each isolate uses PostgREST over HTTPS, not a direct pgbouncer session, so
+// this does NOT consume a pooler slot — but reusing the client still avoids
+// re-parsing config on every request.
+const _sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+function db() { return _sb; }
+
+// DB-independent alert email — used when the monitor itself can't reach the DB.
+// Blind-spot fix: a DB-dependent monitor can't report a dead DB via alert_log,
+// so we email via Resend directly on the monitor's error path. No cooldown:
+// the cron runs every 15 min, so worst case is 4 emails/hr during a real outage,
+// which is a feature, not spam.
+async function emailMonitorOutage(err: unknown): Promise<void> {
+  if (!LOVABLE_API_KEY || !RESEND_API_KEY) return;
+  const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  const html = `<div style="font-family:system-ui,sans-serif;max-width:640px">
+    <h2 style="color:#b91c1c">🔴 health-monitor could not reach the database</h2>
+    <p>The monitor's own DB reads failed. This almost always means the Lovable Cloud DB / pooler is unreachable, so the queue, workers, and admin panels are also down.</p>
+    <pre style="background:#f1f5f9;padding:12px;border-radius:6px;white-space:pre-wrap">${msg.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>
+    <p style="font-size:12px;color:#64748b">Sent directly via Resend (bypassing DB). Admin: ${ADMIN_URL} · ${new Date().toISOString()}</p>
+  </div>`;
+  try {
+    await fetch("https://connector-gateway.lovable.dev/resend/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+        "X-Connection-Api-Key": RESEND_API_KEY,
+      },
+      body: JSON.stringify({
+        from: FROM_EMAIL,
+        to: [OWNER_EMAIL],
+        subject: `[SecretPDF CRITICAL] Monitor cannot reach database`,
+        html,
+      }),
+    });
+  } catch (_) { /* nothing else we can do */ }
 }
 
 // deno-lint-ignore no-explicit-any
