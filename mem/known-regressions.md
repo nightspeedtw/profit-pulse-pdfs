@@ -206,3 +206,26 @@ vs the old ~30. No lowering of gate thresholds — the change is WHERE
 quality is enforced (generation time, not repair time). All calls
 continue to route through `smartChat` (gemini-direct → openai-direct →
 gateway last resort).
+
+## golden-path-coloring-v1 (2026-07-18)
+Owner-approved default for the coloring lane. One template, category-only
+variation. Whitelist enforced in `coloring-autopilot-tick`; template
+constants in `_shared/coloring/golden-path.ts`.
+
+- Age band 4-6, 32 pages, DEFAULT_KIDS_4_6_STYLE style contract.
+- Interiors: Runware flux `runware:100@1` via failover chain (CF → Runware → fal).
+- Cover: GPT Image Tier-1 → Ideogram fallback, 5-invocation ceiling, inpaint retries.
+- Anatomy vision QC batched in groups of 8 pages per call (was 6).
+- Two-strikes → rotate: any gate failing twice on the same book parks the
+  row (`pipeline_status='parked_rotated'`) and fire-and-forgets a fresh
+  whitelisted concept via `coloring-autopilot-tick`. See
+  `_shared/coloring/golden-path.ts` `parkAndRotate()`.
+- No mid-book calibration pause for whitelisted categories — anatomy +
+  style + aspect gates cover what the 25% owner-review pause checked.
+- Whitelist: dinosaurs, sea_animals, farm_and_woodland, pets_cats_dogs,
+  floral_botanical, unicorn_fantasy, princess_fairy_magic,
+  preschool_toddler, seasonal_holidays, mermaid_ocean_fantasy.
+- Non-whitelisted categories require explicit
+  `coloring_autopilot.category_whitelist_extra: [key,...]` in generation_settings.
+
+Doctrine: `pipeline_skills.skill='golden_path_coloring_v1'`.

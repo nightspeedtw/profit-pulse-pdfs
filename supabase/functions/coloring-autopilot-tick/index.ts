@@ -17,6 +17,7 @@
 import { corsHeaders as baseCors } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { anglesFor } from "../_shared/coloring/angles.ts";
+import { GOLDEN_PATH_WHITELIST, GOLDEN_PATH_VERSION, GOLDEN_PATH_DEFAULTS } from "../_shared/coloring/golden-path.ts";
 
 declare const Deno: any;
 
@@ -170,18 +171,27 @@ Deno.serve(async (req: Request) => {
     result.slots = slots;
     if (slots <= 0) { result.skipped = "no_slots"; return json(result); }
 
-    // Load categories.
-    const { data: allCats } = await db
+    // Load categories, filtered by golden-path whitelist unless an override
+    // enables non-whitelisted categories. Whitelist keeps autopilot on
+    // proven ground; new categories require explicit owner enable.
+    const allowExtraKeys: string[] = Array.isArray((cfg as any).category_whitelist_extra)
+      ? ((cfg as any).category_whitelist_extra as string[])
+      : [];
+    const activeWhitelist = new Set<string>([...GOLDEN_PATH_WHITELIST, ...allowExtraKeys]);
+    const { data: allCatsRaw } = await db
       .from("coloring_categories")
       .select("category_key, category_name");
+    const allCats = (allCatsRaw ?? []).filter((c: any) => activeWhitelist.has(c.category_key));
+    result.golden_path_version = GOLDEN_PATH_VERSION;
+    result.whitelist_size = allCats.length;
     if (!allCats || allCats.length === 0) {
-      result.skipped = "no_categories_seeded";
+      result.skipped = "no_whitelisted_categories";
       return json(result);
     }
 
     for (let i = 0; i < slots; i++) {
       let cat: { category_key: string; category_name: string };
-      if (cfg.topic_mode === "specific" && cfg.specific_category_key) {
+      if (cfg.topic_mode === "specific" && cfg.specific_category_key && activeWhitelist.has(cfg.specific_category_key)) {
         cat = allCats.find((c: any) => c.category_key === cfg.specific_category_key) ?? allCats[0];
       } else {
         cat = weightedPick(allCats as any);
@@ -199,8 +209,8 @@ Deno.serve(async (req: Request) => {
           title: chosen.title,
           angle: chosen.angle,
           variant_number: chosen.variant,
-          age_band: cfg.age_band,
-          page_count: cfg.page_count,
+          age_band: cfg.age_band ?? GOLDEN_PATH_DEFAULTS.age_band,
+          page_count: cfg.page_count ?? GOLDEN_PATH_DEFAULTS.page_count,
         }),
       });
       const j = await r.json().catch(() => ({}));
@@ -210,6 +220,7 @@ Deno.serve(async (req: Request) => {
         angle: chosen.angle, variant_number: chosen.variant,
         ebook_id: j?.ebook_id ?? null,
         error: j?.error ?? null,
+        golden_path_version: GOLDEN_PATH_VERSION,
       });
     }
     return json(result);
