@@ -332,3 +332,57 @@ cover ceiling on book `c2839b88` and parked it at 92%.
 
 Detection rule: `rg "0x[0-9a-fA-F]+n\b" supabase/functions/` must return
 zero hits inside anything passed to `JSON.stringify`.
+
+## page-plan-persistence-contract-race (2026-07-18)
+Defect class: **persistence_contract_bug**. A coloring_book row can lose
+`metadata.coloring_page_plan.plan` (and sibling content-identity keys like
+`coloring_category_key`, `coloring_theme_bible`) after
+`coloring-book-start` wrote them. `coloring-book-render` then hard-fails
+with `persistence_contract: metadata.coloring_page_plan.plan missing`,
+which was surfaced correctly by the silent-no-op tripwire but dead-ended
+the book.
+
+Root cause: `patchMeta()` in `coloring-book-render`, `-cover`, `-publish`,
+`-assemble` uses a non-atomic **read → merge → write** pattern
+(`SELECT metadata; UPDATE metadata = {...old, ...patch}`). When two
+overlapping edge-function invocations race — e.g. `coloring-book-start`
+writing the initial content bundle while `coloring-worker-tick` /
+`stall-watchdog` writes operational fields (`awaiting`,
+`coloring_regime_version`) — the later writer's snapshot can predate the
+first writer's commit and silently clobber the content keys. The row is
+left with only operational fields.
+
+Repro on `c2839b88` (Fierce Floral): row aged 17h with 11 operational meta
+keys, zero content keys, zero `coloring_pages`, zero `ebook_assets`.
+
+**Permanent fix (this turn):**
+1. New shared helper `_shared/coloring/plan-rehydrate.ts`
+   (`rehydratePagePlan`): reconstructs the deterministic plan from the
+   strongest available source — stored `coloring_pages[*].category_key`
+   → `metadata.coloring_category_key` / `coloring_theme_bible` →
+   whitelist title inference. Persists the plan back with
+   `coloring_plan_rehydrated_at` / `_reason` for observability. Emits a
+   `pipeline_step_logs` row with `error_class='persistence_contract_bug'`.
+2. `coloring-book-render` swaps the hard-fail branch for a
+   rehydration attempt; only fails (with `rehydrate_failed:<reason>`)
+   when no category_key can be inferred at all.
+3. Rehydration is idempotent — if the plan is present it is a no-op.
+4. Rehydration honours already-rendered pages (they land in `donePages`
+   automatically) so we never regenerate art already paid for.
+
+**Detection heuristic** (add to any watchdog / audit query):
+```sql
+SELECT id, title
+FROM ebooks_kids
+WHERE book_type = 'coloring_book'
+  AND (metadata #>> '{coloring_page_plan,plan}') IS NULL
+  AND (
+    jsonb_array_length(COALESCE(metadata->'coloring_pages','[]'::jsonb)) > 0
+    OR EXISTS (SELECT 1 FROM ebook_assets a WHERE a.ebook_id = ebooks_kids.id)
+    OR (metadata ? 'coloring_regime_version')
+  );
+```
+Any hit is a contract violation.
+
+**Follow-up (not this turn):** replace all `patchMeta()` implementations
+with an atomic `jsonb_set` / RPC upsert so the race can't recur.
