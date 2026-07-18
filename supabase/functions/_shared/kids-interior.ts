@@ -21,6 +21,7 @@ import { falFluxSchnell } from "./fal.ts";
 import { generateWithReference } from "./kids-image-gen.ts";
 import { generateLiveImage } from "./image-luminance.ts";
 import { TEXTLESS_DIRECTIVE } from "./textless-illustration-policy.ts";
+import { generateImageWithFailover, readImageProviderPolicy } from "./image-providers.ts";
 
 export interface SceneRecord {
   index: number;
