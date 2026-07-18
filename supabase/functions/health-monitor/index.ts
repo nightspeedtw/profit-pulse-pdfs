@@ -52,30 +52,37 @@ async function runChecks(sb: any): Promise<Alert[]> {
   const now = Date.now();
 
   // (a) worker heartbeat stale >15 min while queue non-empty.
-  // "worker heartbeat" = the max last_heartbeat_at across ebooks_kids currently
-  // in an active pipeline_status. If nothing has ticked in >15min and there
-  // ARE queued books, the worker is dead.
-  const { data: hbRows } = await sb
-    .from("ebooks_kids")
-    .select("last_heartbeat_at, pipeline_status")
-    .in("pipeline_status", ["generating","awaiting_cover","pdf_building","publishing","running"])
-    .order("last_heartbeat_at", { ascending: false, nullsFirst: false })
-    .limit(1);
+  // SOURCE OF TRUTH: generation_settings.coloring_autopilot.last_worker_tick_at
+  // — this is what coloring-worker-tick actually writes every cron cycle.
+  // (Do NOT read ebooks_kids.last_heartbeat_at — that field is not maintained
+  //  by the current worker; reader must match the writer.)
+  const { data: gsHb } = await sb
+    .from("generation_settings")
+    .select("coloring_autopilot")
+    .eq("id", 1).maybeSingle();
+  const tickIso = (gsHb?.coloring_autopilot as any)?.last_worker_tick_at ?? null;
   const { count: queuedCount } = await sb
     .from("ebooks_kids")
     .select("id", { count: "exact", head: true })
     .eq("pipeline_status", "queued");
 
-  const latestHb = hbRows?.[0]?.last_heartbeat_at ? new Date(hbRows[0].last_heartbeat_at).getTime() : null;
+  const latestHb = tickIso ? new Date(tickIso).getTime() : null;
   const hbAgeMin = latestHb ? Math.round((now - latestHb) / 60000) : null;
-  if ((queuedCount ?? 0) > 0 && (latestHb === null || (hbAgeMin! > 15))) {
+  // Grace period: if we've never seen a tick, don't fire on the first cycle —
+  // the worker may not have run since deploy. Only alert when a tick exists
+  // and is >15 min old with queued books waiting.
+  if ((queuedCount ?? 0) > 0 && latestHb !== null && hbAgeMin! > 15) {
     alerts.push({
       alert_class: "worker_dead",
       severity: "critical",
-      title: `Worker heartbeat stale (${hbAgeMin ?? "never"} min) with ${queuedCount} queued`,
-      body: `No active-book heartbeat in the last 15 min, but ${queuedCount} books are queued.\nLikely dispatcher / cron / edge-function stall.\nAdmin: ${ADMIN_URL}`,
-      evidence: { queued: queuedCount, heartbeat_age_min: hbAgeMin, latest_heartbeat_at: hbRows?.[0]?.last_heartbeat_at ?? null },
+      title: `Worker heartbeat stale (${hbAgeMin} min old) with ${queuedCount} queued`,
+      body: `Last worker tick was ${hbAgeMin} min ago (${tickIso}), but ${queuedCount} books are queued.\nLikely dispatcher / cron / edge-function stall.\nAdmin: ${ADMIN_URL}`,
+      evidence: { queued: queuedCount, heartbeat_age_min: hbAgeMin, latest_tick_at: tickIso, source: "generation_settings.coloring_autopilot.last_worker_tick_at" },
     });
+  } else if ((queuedCount ?? 0) > 0 && latestHb === null) {
+    // Info-only: no tick ever recorded. Do NOT emit critical alert — grace
+    // period until the first tick is observed.
+    console.warn("health-monitor: no last_worker_tick_at recorded yet; skipping worker_dead alert (grace period)");
   }
 
   // (b) books stuck in active status with no updated_at movement >30 min,
