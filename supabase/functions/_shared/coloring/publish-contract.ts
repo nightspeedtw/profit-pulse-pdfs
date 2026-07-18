@@ -61,7 +61,7 @@ export interface ColoringPublishContractResult {
   };
 }
 
-export const COLORING_PUBLISH_CONTRACT_VERSION = "coloring_cover_thumbnail_contract_v4_graded_severity";
+export const COLORING_PUBLISH_CONTRACT_VERSION = "coloring_publish_contract_v5_spelling_only_critical";
 
 // Chrome/marketing tokens that are OK to appear even if not part of the
 // approved title/subtitle/age-badge. Mirrors CHROME_TOKENS in
