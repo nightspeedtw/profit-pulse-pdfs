@@ -526,22 +526,25 @@ export async function generateIdeogramTextInpaint(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const taskUUID = (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-  // Ensure the base image matches the Ideogram grid (832x1088).
+  const d = request.dims;
+  const invW = d?.runwareWidth ?? RUNWARE_IDEOGRAM_WIDTH;
+  const invH = d?.runwareHeight ?? RUNWARE_IDEOGRAM_HEIGHT;
+  // Ensure the base image matches the Ideogram grid.
   const decoded = await Image.decode(request.baseImageBytes);
   let baseBytes = request.baseImageBytes;
-  if (decoded.width !== RUNWARE_IDEOGRAM_WIDTH || decoded.height !== RUNWARE_IDEOGRAM_HEIGHT) {
-    decoded.resize(RUNWARE_IDEOGRAM_WIDTH, RUNWARE_IDEOGRAM_HEIGHT);
+  if (decoded.width !== invW || decoded.height !== invH) {
+    decoded.resize(invW, invH);
     baseBytes = await decoded.encode();
   }
-  const maskBytes = await buildTextRegionMaskPng(RUNWARE_IDEOGRAM_WIDTH, RUNWARE_IDEOGRAM_HEIGHT);
+  const maskBytes = await buildTextRegionMaskPng(invW, invH);
 
   const task = {
     taskType: "imageInference",
     taskUUID,
     positivePrompt: prompt.slice(0, 3000),
     model: RUNWARE_IDEOGRAM_MODEL,
-    width: RUNWARE_IDEOGRAM_WIDTH,
-    height: RUNWARE_IDEOGRAM_HEIGHT,
+    width: invW,
+    height: invH,
     numberResults: 1,
     outputType: ["URL"],
     outputFormat: "JPEG",
