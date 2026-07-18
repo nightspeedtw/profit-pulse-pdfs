@@ -86,8 +86,9 @@ function buildPrompt(row: any, pageCount: number, variant: typeof STYLE_VARIANTS
     `  "${headline}"`,
     `Small round pill badge in a bottom corner reading "Ages ${ages}" in clean sans-serif.`,
     "Vibrant, high-contrast, joyful, commercial Etsy aesthetic. No adult styling, no ornate frames, no gradients that muddy the headline. Text must be legible at 200px thumbnail size.",
-    "Absolutely no other text, no other numbers, no watermarks, no signatures.",
+    "ABSOLUTE TEXT RULE: the ONLY text allowed anywhere in the image is exactly these two strings — the headline and the ages pill. NO other letters, NO decorative words, NO logo, NO watermark, NO signature, NO gibberish typography, NO stray labels. If the model is tempted to add filler text like 'Etsy', 'Bestseller', 'Book', 'Fun', 'Kids', 'Etc.', OMIT IT. Every other pixel must be pure illustration/background.",
   ].join("\n");
+
   return { prompt, headline, ages };
 }
 
