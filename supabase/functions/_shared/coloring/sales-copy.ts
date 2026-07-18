@@ -142,22 +142,17 @@ export function buildColoringSalesCopy(input: ColoringSalesCopyInput): ColoringS
   const t = tonePackFor(bandProfile, ages, cat, pages);
 
   return {
-    selling_hook: `${pages} big ${cat.toLowerCase()} coloring pages · ages ${ages}`,
-    short_hook: `A printable ${cat} coloring book with ${pages} bold, kid-safe pages designed for ages ${ages}. Print once at home, color forever.`,
+    selling_hook: `${pages} ${cat.toLowerCase()} coloring pages · ages ${ages} · ${t.tagline}`,
+    short_hook: `${t.short_hook_intro} ${pages} pages. Print once at home, color forever.`,
     product_description:
-      `A printable ${cat.toLowerCase()} coloring book made for ages ${ages}. ` +
-      `Every page is drawn with thick, confident outlines so small hands stay ` +
-      `inside the lines and finished pages look proud on the fridge. ` +
-      `Delivered as a single high-resolution PDF sized ${trim} — print the whole ` +
-      `book, or just the page your kid is asking for right now.\n\n` +
-      `Great for rainy afternoons, restaurant waits, travel bags, sibling quiet ` +
-      `time and screen-free evenings. One purchase, unlimited household prints, ` +
+      `${t.short_hook_intro}\n\n${t.product_hook}\n\n` +
+      `Delivered as a single high-resolution PDF sized ${trim}. One purchase, unlimited household prints, ` +
       `no subscription and no shipping.`,
     shopping_card_description:
-      `${pages}-page printable ${cat.toLowerCase()} coloring book for ages ${ages}. Instant PDF, print at home.`,
+      `${pages}-page printable ${cat.toLowerCase()} coloring book for ages ${ages}. ${t.tagline} Instant PDF.`,
     benefit_bullets: [
       `${pages} unique ${cat.toLowerCase()} coloring pages`,
-      `Bold, kid-safe outlines — easy to stay inside the lines`,
+      `${t.bullet_prefix} — matched to ages ${ages}`,
       `Print-ready PDF at ${trim}`,
       `One page per sheet, no bleed-through`,
       `Instant download — start coloring in 60 seconds`,
@@ -170,14 +165,8 @@ export function buildColoringSalesCopy(input: ColoringSalesCopyInput): ColoringS
       `Instant download link after purchase`,
       `Personal & household use license`,
     ],
-    who_it_is_for:
-      `Parents, grandparents, teachers and caregivers looking for a screen-free, ` +
-      `printable ${cat.toLowerCase()} coloring activity for kids ages ${ages}. ` +
-      `Perfect for road trips, waiting rooms, birthday goody bags, classroom quiet ` +
-      `time and rainy weekends.`,
-    who_its_not_for:
-      `Not intended for very young toddlers under age ${Math.max(2, (input.age_min ?? 4) - 1)}, ` +
-      `and not sized for adult intricate detail coloring. This is a bold-line kids' book.`,
+    who_it_is_for: t.who_for,
+    who_its_not_for: t.who_not,
     digital_delivery_note:
       `Instant download. You'll receive a single PDF file — no shipping, no waiting, no account required.`,
     license_note:
@@ -190,19 +179,8 @@ export function buildColoringSalesCopy(input: ColoringSalesCopyInput): ColoringS
         `${trim} print-ready PDF`,
         `One page per sheet`,
       ],
-      why_kids_love_it: [
-        `Bold outlines that feel achievable`,
-        `${cat} they actually want to color`,
-        `Finished pages look great on the fridge`,
-        `Big enough to color with crayons or markers`,
-      ],
-      perfect_for: [
-        `Screen-free time`,
-        `Rainy days & long car rides`,
-        `Restaurants & waiting rooms`,
-        `Birthday party favors`,
-        `Homeschool quiet time`,
-      ],
+      why_kids_love_it: t.why_love,
+      perfect_for: t.perfect_for,
     },
     trim_size: trim,
     format_label: `Printable PDF · ${pages} pages · ${trim}`,
