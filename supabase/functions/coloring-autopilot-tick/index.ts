@@ -183,10 +183,17 @@ Deno.serve(async (req: Request) => {
       .from("coloring_categories")
       .select("category_key, category_name");
     const allCats = (allCatsRaw ?? []).filter((c: any) => activeWhitelist.has(c.category_key));
+    // Band-theme coverage gate (owner directive 2026-07-20 queue-hygiene):
+    // filter categories to those legal for the target band BEFORE picking,
+    // so the autopilot can never mint a "Baby X (Ages 13-17)" concept again.
+    const bandGated = filterCategoriesForBand(allCats as any, cfg.age_band);
+    const bandGatedCount = bandGated.length;
     result.golden_path_version = GOLDEN_PATH_VERSION;
     result.whitelist_size = allCats.length;
-    if (!allCats || allCats.length === 0) {
-      result.skipped = "no_whitelisted_categories";
+    result.band_gated_whitelist_size = bandGatedCount;
+    result.band_gated_for = normalizeBandKey(cfg.age_band);
+    if (!bandGated || bandGated.length === 0) {
+      result.skipped = "no_band_matched_categories";
       return json(result);
     }
 
