@@ -26,6 +26,12 @@ const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
 
 const MAX_ATTEMPTS = 3;
+// CLASS DEFECT: "unbounded expensive-tier repair retry".
+// Per-book ceiling across ALL repair-story-gate invocations for one book.
+// Without this, supervisor + pipeline dispatch can invoke this function 10+
+// times per book, each doing MAX_ATTEMPTS rewrites on gemini-2.5-pro
+// ($0.06+/call). Matches the MAX_COVER_INVOCATIONS_PER_BOOK cover fix.
+const MAX_INVOCATIONS_PER_BOOK = 3;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -143,8 +149,12 @@ Return ONLY the new manuscript body in markdown. English only.`;
   return { system, user };
 }
 
-async function rewriteManuscript(system: string, user: string, ebook_id?: string): Promise<string> {
-  const model = 'google/gemini-2.5-pro';
+async function rewriteManuscript(system: string, user: string, ebook_id: string | undefined, attempt: number): Promise<string> {
+  // COST FIX: cheap-tier-first. Attempts 1-2 run on gemini-2.5-flash
+  // (~$0.0009/call vs $0.068 on pro — 75x cheaper per RATES table in ai.ts).
+  // Only the final attempt escalates to pro. This drops story-gate rewrite
+  // spend by ~90% while preserving the "final polish on the best model" path.
+  const model = attempt >= MAX_ATTEMPTS ? 'google/gemini-2.5-pro' : 'google/gemini-2.5-flash';
   const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
@@ -179,6 +189,37 @@ Deno.serve(async (req) => {
       'id, title, subtitle, manuscript_md, storefront_meta, qc_scorecard, age_group_id'
     ).eq('id', ebook_id).single();
     if (error || !ebook) return json({ ok: false, error: 'ebook not found' }, 404);
+
+    // CLASS DEFECT GUARD — "unbounded expensive-tier repair retry".
+    // Count prior invocations of this repair for this specific book. If we've
+    // already burned the budget, retire and let the parent one-click loop
+    // rotate to a fresh concept instead of looping on gemini-2.5-pro forever.
+    const existingMetaEarly = (ebook.storefront_meta as Record<string, unknown> | null) ?? {};
+    const invocationsSoFar = Number(existingMetaEarly.story_gate_repair_invocations ?? 0);
+    if (invocationsSoFar >= MAX_INVOCATIONS_PER_BOOK) {
+      await db.from('ebooks_kids').update({
+        listing_status: 'draft',
+        sellable: false,
+        pipeline_status: 'retired',
+        status: 'needs_revision',
+        blocker_reason: `story_gate_repair_ceiling_reached:${invocationsSoFar}_invocations`,
+        storefront_meta: {
+          ...existingMetaEarly,
+          story_gate_repair_ceiling_hit_at: new Date().toISOString(),
+        },
+      }).eq('id', ebook_id);
+      return json({
+        ok: true,
+        result: 'retired_ceiling',
+        ebook_id,
+        invocations: invocationsSoFar,
+        reason: `Exceeded MAX_INVOCATIONS_PER_BOOK=${MAX_INVOCATIONS_PER_BOOK}. Rotating to a fresh concept.`,
+      });
+    }
+    // Increment counter up front so concurrent invocations see the bump.
+    await db.from('ebooks_kids').update({
+      storefront_meta: { ...existingMetaEarly, story_gate_repair_invocations: invocationsSoFar + 1 },
+    }).eq('id', ebook_id);
 
     const { data: age } = await db.from('kids_age_groups')
       .select('min_age, max_age, slug').eq('id', ebook.age_group_id).maybeSingle();
@@ -227,7 +268,7 @@ Deno.serve(async (req) => {
       const { system, user } = buildRewritePrompt(i, String(ebook.title ?? ''), ageBand, currentManuscript, currentReport, skillBlock, liveRepairGuidance);
       let rewritten: string;
       try {
-        rewritten = await rewriteManuscript(system, user, ebook_id);
+        rewritten = await rewriteManuscript(system, user, ebook_id, i);
       } catch (e) {
         attempts.push({ attempt: i, scores: {}, passed: false, blockers: [`rewrite_error: ${(e as Error).message.slice(0, 160)}`], word_count: 0 });
         continue;
