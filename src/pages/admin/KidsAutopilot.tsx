@@ -66,6 +66,7 @@ export default function KidsAutopilot() {
   const [cycleStats, setCycleStats] = useState<{ n_live: number; p50_min: number | null; p90_min: number | null; n_sla_breach: number } | null>(null);
   const [slowdowns, setSlowdowns] = useState<Array<{ id: string; ebook_kids_id: string | null; total_minutes: number; slowest_stage: string | null; created_at: string }>>([]);
   const [regressionPause, setRegressionPause] = useState<{ id: string; notes: string | null; updated_at: string } | null>(null);
+  const [degraded, setDegraded] = useState<Array<{ slice: string; error: string }>>([]);
 
   const load = useCallback(async () => {
     setLoadingRuns(true);
