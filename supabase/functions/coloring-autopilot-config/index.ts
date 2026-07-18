@@ -72,22 +72,29 @@ Deno.serve(async (req: Request) => {
         .order("category_key");
       // Status snapshot for the coloring queue only (independent engine).
       const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
+      // `count: "exact"` scans the whole table under RLS and was regularly
+      // pushing this endpoint past the 150s gateway idle timeout. Switch to
+      // `planned` (Postgres planner estimate) — it's O(1) and good enough
+      // for an admin status snapshot. Wrap in Promise.race for a hard cap.
+      const withTimeout = <T>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
+        Promise.race([p, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
+      const emptyCount = { count: 0 } as any;
       const [queuedRes, generatingRes, cancelledRes, publishedTodayRes, todayTotalRes, recentRes] = await Promise.all([
-        admin.from("ebooks_kids").select("id", { count: "exact", head: true })
-          .eq("book_type", "coloring_book").eq("pipeline_status", "queued"),
-        admin.from("ebooks_kids").select("id", { count: "exact", head: true })
-          .eq("book_type", "coloring_book").eq("pipeline_status", "generating"),
-        admin.from("ebooks_kids").select("id", { count: "exact", head: true })
-          .eq("book_type", "coloring_book").eq("pipeline_status", "cancelled"),
-        admin.from("ebooks_kids").select("id", { count: "exact", head: true })
+        withTimeout(admin.from("ebooks_kids").select("id", { count: "planned", head: true })
+          .eq("book_type", "coloring_book").eq("pipeline_status", "queued"), 8000, emptyCount),
+        withTimeout(admin.from("ebooks_kids").select("id", { count: "planned", head: true })
+          .eq("book_type", "coloring_book").eq("pipeline_status", "generating"), 8000, emptyCount),
+        withTimeout(admin.from("ebooks_kids").select("id", { count: "planned", head: true })
+          .eq("book_type", "coloring_book").eq("pipeline_status", "cancelled"), 8000, emptyCount),
+        withTimeout(admin.from("ebooks_kids").select("id", { count: "planned", head: true })
           .eq("book_type", "coloring_book").eq("listing_status", "live")
-          .gte("created_at", dayStart.toISOString()),
-        admin.from("ebooks_kids").select("id", { count: "exact", head: true })
-          .eq("book_type", "coloring_book").gte("created_at", dayStart.toISOString()),
-        admin.from("ebooks_kids")
+          .gte("created_at", dayStart.toISOString()), 8000, emptyCount),
+        withTimeout(admin.from("ebooks_kids").select("id", { count: "planned", head: true })
+          .eq("book_type", "coloring_book").gte("created_at", dayStart.toISOString()), 8000, emptyCount),
+        withTimeout(admin.from("ebooks_kids")
           .select("id,title,pipeline_status,listing_status,created_at,metadata")
           .eq("book_type", "coloring_book")
-          .order("created_at", { ascending: false }).limit(8),
+          .order("created_at", { ascending: false }).limit(8), 8000, { data: [] } as any),
       ]);
       const cfg = { ...DEFAULTS, ...(data?.coloring_autopilot ?? {}) };
       const recent = (recentRes.data ?? []).map((r: any) => ({
