@@ -520,11 +520,12 @@ export async function generateIdeogramTextInpaint(
     ...(opts.seed != null ? { seed: opts.seed } : {}),
   };
   try {
+    const safeTask = coerceForProviderPayload(task, "runware_ideogram_inpaint");
     const res = await fetch("https://api.runware.ai/v1", {
       method: "POST",
       signal: controller.signal,
       headers: { Authorization: `Bearer ${RUNWARE_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify([task]),
+      body: JSON.stringify([safeTask]),
     });
     const bodyText = await res.text();
     if (!res.ok) {
