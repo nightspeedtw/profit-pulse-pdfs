@@ -17,6 +17,7 @@ const FAL_KEY = Deno.env.get("FAL_KEY") ?? Deno.env.get("FAL_API_KEY");
 export const IDEOGRAM_INTEGRATED_COVER_VERSION = "coloring_cover_ideogram_v3_integrated_v1";
 
 import { hasOpenAIDirect, openaiDirectImage } from "../openai-direct.ts";
+import { coerceForProviderPayload } from "./payload-guard.ts";
 
 // gpt-image-1 medium 1024x1536 ≈ $0.04/image (benchmark 2026-07-18).
 const GPT_IMAGE_COVER_COST_USD = 0.04;
@@ -246,11 +247,12 @@ async function generateViaRunware(
     ...(opts.seed != null ? { seed: opts.seed } : {}),
   };
   try {
+    const safeTask = coerceForProviderPayload(task, "runware_ideogram_cover");
     const res = await fetch("https://api.runware.ai/v1", {
       method: "POST",
       signal: controller.signal,
       headers: { Authorization: `Bearer ${RUNWARE_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify([task]),
+      body: JSON.stringify([safeTask]),
     });
     const bodyText = await res.text();
     if (!res.ok) {
@@ -443,23 +445,26 @@ import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 
 async function buildTextRegionMaskPng(width: number, height: number): Promise<Uint8Array> {
   const img = new Image(width, height);
-  // Fill with BLACK (0x000000FF) = keep.
+  // ImageScript setPixelAt expects an unsigned 32-bit *Number* RGBA packed
+  // color. NEVER pass a BigInt literal (0x...n) — the library does numeric
+  // bitwise ops on the input and Deno throws "Cannot convert a BigInt value
+  // to a number". Use `>>> 0` to force an unsigned Number.
+  const BLACK = (0x000000ff) >>> 0;      // keep
+  const WHITE = (0xffffffff) >>> 0;      // regenerate
   for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) img.setPixelAt(x + 1, y + 1, 0x000000ffn as unknown as number);
+    for (let x = 0; x < width; x++) img.setPixelAt(x + 1, y + 1, BLACK);
   }
-  // Top 40% band = WHITE = regenerate (title + subtitle live here).
   const topBand = Math.floor(height * 0.4);
   for (let y = 0; y < topBand; y++) {
-    for (let x = 0; x < width; x++) img.setPixelAt(x + 1, y + 1, 0xffffffffn as unknown as number);
+    for (let x = 0; x < width; x++) img.setPixelAt(x + 1, y + 1, WHITE);
   }
-  // Bottom-left circular-ish region for the age badge (~18% of the frame).
   const badgeR = Math.floor(Math.min(width, height) * 0.14);
   const cx = Math.floor(width * 0.18);
   const cy = Math.floor(height * 0.86);
   for (let y = Math.max(0, cy - badgeR); y < Math.min(height, cy + badgeR); y++) {
     for (let x = Math.max(0, cx - badgeR); x < Math.min(width, cx + badgeR); x++) {
       const dx = x - cx, dy = y - cy;
-      if (dx * dx + dy * dy <= badgeR * badgeR) img.setPixelAt(x + 1, y + 1, 0xffffffffn as unknown as number);
+      if (dx * dx + dy * dy <= badgeR * badgeR) img.setPixelAt(x + 1, y + 1, WHITE);
     }
   }
   return await img.encode();
@@ -515,11 +520,12 @@ export async function generateIdeogramTextInpaint(
     ...(opts.seed != null ? { seed: opts.seed } : {}),
   };
   try {
+    const safeTask = coerceForProviderPayload(task, "runware_ideogram_inpaint");
     const res = await fetch("https://api.runware.ai/v1", {
       method: "POST",
       signal: controller.signal,
       headers: { Authorization: `Bearer ${RUNWARE_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify([task]),
+      body: JSON.stringify([safeTask]),
     });
     const bodyText = await res.text();
     if (!res.ok) {

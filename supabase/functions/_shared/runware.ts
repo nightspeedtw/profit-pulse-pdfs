@@ -14,6 +14,7 @@
 
 import { FalBillingLockedError, isFalBillingLocked } from "./fal-billing.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
+import { coerceForProviderPayload } from "./coloring/payload-guard.ts";
 
 // One place for model IDs — anything scattered elsewhere is a bug.
 // Runware uses the AIR identifier system: <ecosystem>:<modelId>@<version>.
@@ -91,13 +92,14 @@ export async function runwareInference(opts: RunwareOpts): Promise<Uint8Array> {
     includeCost: true,
   };
 
+  const safeTask = coerceForProviderPayload(task, "runware_interior");
   const res = await fetch(RUNWARE_ENDPOINT, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${k}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify([task]),
+    body: JSON.stringify([safeTask]),
   });
 
   const bodyText = await res.text();
