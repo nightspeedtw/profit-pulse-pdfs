@@ -159,6 +159,8 @@ export default function Kids() {
         id: b.id,
         title: b.title,
         cover_url: b.cover_url,
+        thumbnail_url: b.thumbnail_url,
+        book_type: b.book_type,
         price_cents: b.price_cents,
         age_group_id: b.age_group_id,
         theme_ids: b.theme_ids ?? [],
