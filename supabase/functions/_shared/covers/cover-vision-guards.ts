@@ -270,3 +270,102 @@ export async function verifyCategoryHero(
     return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: `guard_error:${(e as Error).message.slice(0, 120)}` };
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// URL-based variants (OOM defense: cover-function-worker-oom-v1 split).
+// Pass an https-reachable signed URL directly to the gateway vision model
+// instead of base64-encoding a 2MB PNG into the request body. Removes
+// ~2-6MB of held base64 per vision call in the verify half of the split.
+// Gateway/OpenRouter fetches the URL server-side. Gemini direct needs
+// inlineData so we don't fall back to it here — verify handles gateway
+// failure by requeueing under the ceiling.
+// ═══════════════════════════════════════════════════════════════════════
+
+async function gatewayVisionJsonByUrl<T>(url: string, prompt: string, timeoutMs = 15_000): Promise<T | null> {
+  if (!LOVABLE_API_KEY || LOVABLE_API_KEY.length < 10) return null;
+  if (!url || !/^https?:\/\//.test(url)) return null;
+  let lastErr = "";
+  for (const model of GATEWAY_VISION_MODELS) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(`gateway_vision_url_timeout_${timeoutMs}ms`), timeoutMs);
+    let r: Response;
+    try {
+      r = await fetch(GATEWAY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url } },
+          ]}],
+          response_format: { type: "json_object" },
+        }),
+        signal: ac.signal,
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      lastErr = `${model}:fetch_error:${String((e as Error)?.message ?? e).slice(0, 120)}`;
+      continue;
+    }
+    clearTimeout(timer);
+    if (!r.ok) { lastErr = `${model}:http_${r.status}:${(await r.text()).slice(0, 180)}`; continue; }
+    const j = await r.json().catch(() => null) as any;
+    const text = j?.choices?.[0]?.message?.content ?? "";
+    if (!text) { lastErr = `${model}:empty_content`; continue; }
+    try { return JSON.parse(text) as T; }
+    catch {
+      const stripped = String(text).replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+      try { return JSON.parse(stripped) as T; } catch { lastErr = `${model}:json_parse_fail`; }
+    }
+  }
+  throw new Error(lastErr || "gateway_vision_url_unavailable");
+}
+
+export async function transcribeGlyphsByUrl(url: string, timeoutMs = 15_000): Promise<GlyphVerdict> {
+  const prompt = [
+    "You are a strict OCR verifier for a children's book cover.",
+    "Output STRICT JSON: {\"has_glyphs\": boolean, \"detected_text\": string, \"confidence\": number}.",
+    "has_glyphs=true if the image contains ANY letters, words, numbers, captions, badges, watermarks, logos with letters, handwriting, or typography.",
+    "detected_text = verbatim transcription of EVERY visible glyph, distinct clusters separated by |.",
+    "confidence = 0..1.",
+  ].join(" ");
+  try {
+    const j = await gatewayVisionJsonByUrl<{ has_glyphs: boolean; detected_text: string; confidence: number }>(url, prompt, timeoutMs);
+    if (!j) return { ok: true, has_glyphs: false, detected_text: null, confidence: 0, degraded: true, reason: "gateway_unavailable_url_variant" };
+    const has = !!j.has_glyphs;
+    return { ok: !has, has_glyphs: has, detected_text: (j.detected_text ?? "").slice(0, 400), confidence: Math.max(0, Math.min(1, Number(j.confidence) || 0)), degraded: false, reason: has ? `baked_text:${(j.detected_text ?? "").slice(0, 80)}` : "textless" };
+  } catch (e) {
+    return { ok: true, has_glyphs: false, detected_text: null, confidence: 0, degraded: true, reason: `guard_error:${(e as Error).message.slice(0, 120)}` };
+  }
+}
+
+export async function verifyCategoryHeroByUrl(
+  url: string,
+  opts: { category_name: string; allowed_subjects: string[]; forbidden_subjects?: string[]; },
+  timeoutMs = 15_000,
+): Promise<HeroVerdict> {
+  const allowed = (opts.allowed_subjects ?? []).filter(Boolean);
+  const forbidden = (opts.forbidden_subjects ?? []).filter(Boolean);
+  if (allowed.length === 0) return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined" };
+  const prompt = [
+    "You are a subject classifier for a children's coloring-book cover.",
+    `Category: "${opts.category_name}".`,
+    `Hero MUST be one of: ${JSON.stringify(allowed)}.`,
+    forbidden.length ? `MUST NOT show any of: ${JSON.stringify(forbidden)}.` : "",
+    "Output STRICT JSON: {\"detected_subjects\": string[], \"matches_allowed\": boolean, \"forbidden_hit\": string|null, \"reason\": string}.",
+    "forbidden_hit = CONCRETE creature/object name only, or null.",
+  ].filter(Boolean).join(" ");
+  try {
+    const j = await gatewayVisionJsonByUrl<{ detected_subjects: string[]; matches_allowed: boolean; forbidden_hit: string | null; reason: string }>(url, prompt, timeoutMs);
+    if (!j) return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "gateway_unavailable_url_variant" };
+    const detected = Array.isArray(j.detected_subjects) ? j.detected_subjects.slice(0, 6) : [];
+    const rawHit = (j.forbidden_hit ?? "").trim();
+    const isAbstractHit = rawHit.length > 0 && forbidden.some((f) => f.trim().toLowerCase() === rawHit.toLowerCase());
+    const concreteHit = rawHit.length > 0 && !isAbstractHit ? rawHit : null;
+    const matches = !!j.matches_allowed;
+    return { ok: matches, matches, detected_subjects: detected, forbidden_hit: concreteHit, degraded: false, reason: matches ? `hero_ok:${detected.join("|").slice(0, 80)}` : (concreteHit ? `forbidden_hit:${concreteHit}` : `wrong_subject:detected=${detected.join("|").slice(0, 80)}`) };
+  } catch (e) {
+    return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: `guard_error:${(e as Error).message.slice(0, 120)}` };
+  }
+}

@@ -311,3 +311,71 @@ export async function verifyExactCoverText(
     attempted_at,
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// URL variant (OOM defense: cover split). Passes signed URL directly to
+// the gateway transcriber; no base64 body allocation. Gateway/OpenRouter
+// fetches the image server-side.
+// ═══════════════════════════════════════════════════════════════════════
+async function gatewayTranscribeByUrl(url: string, timeoutMs: number): Promise<{ detected_text: string; clusters: string[] } | null> {
+  if (!LOVABLE_API_KEY) return null;
+  if (!url || !/^https?:\/\//.test(url)) return null;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort("gateway_transcribe_url_timeout"), timeoutMs);
+  try {
+    const r = await fetch(GATEWAY, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages: [{ role: "user", content: [
+          { type: "text", text: TRANSCRIPTION_PROMPT },
+          { type: "image_url", image_url: { url } },
+        ]}],
+        response_format: { type: "json_object" },
+      }),
+      signal: ac.signal,
+    });
+    clearTimeout(timer);
+    if (!r.ok) return null;
+    const j = await r.json().catch(() => null);
+    const text = j?.choices?.[0]?.message?.content ?? "";
+    if (!text) return null;
+    try { return JSON.parse(text); }
+    catch {
+      const stripped = String(text).replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+      try { return JSON.parse(stripped); } catch { return null; }
+    }
+  } catch { clearTimeout(timer); return null; }
+}
+
+export async function verifyExactCoverTextByUrl(
+  url: string,
+  expectations: CoverTextExpectations,
+  opts: { timeoutMs?: number } = {},
+): Promise<CoverTextVerdict> {
+  const timeoutMs = opts.timeoutMs ?? 10_000;
+  const requiredTokens = Array.from(new Set(tokenize(expectations.title)));
+  const optionalTokensRaw = [...tokenize(expectations.subtitle), ...tokenize(expectations.ageBadge)];
+  const requiredSet = new Set(requiredTokens);
+  const optionalTokens = Array.from(new Set(optionalTokensRaw.filter((t) => !requiredSet.has(t))));
+  const dedupApproved = [...requiredTokens, ...optionalTokens];
+  const attempted_at = new Date().toISOString();
+  const transcribed = await gatewayTranscribeByUrl(url, timeoutMs);
+  if (!transcribed) {
+    return { pass: false, degraded: true, reason: "transcriber_unavailable_url_variant", transcribed_raw: "", transcribed_tokens: [], approved_tokens: dedupApproved, required_tokens: requiredTokens, optional_tokens: optionalTokens, missing: dedupApproved, missing_required: requiredTokens, missing_optional: optionalTokens, extra: [], misspelled: [], attempted_at };
+  }
+  const raw = String(transcribed.detected_text ?? "");
+  const detectedTokens = Array.from(new Set(tokenize(raw)));
+  const { missing, extra, misspelled } = diffTokens(dedupApproved, detectedTokens);
+  const missing_required = missing.filter((t) => requiredSet.has(t));
+  const missing_optional = missing.filter((t) => !requiredSet.has(t));
+  const misspelled_required = misspelled.filter((m) => requiredSet.has(m.split("→")[0]));
+  const pass = missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0;
+  const reason = pass
+    ? (missing_optional.length || misspelled.length > misspelled_required.length
+        ? `exact_match_with_optional_gaps:missing_optional=${missing_optional.length}`
+        : "exact_match")
+    : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length}`;
+  return { pass, degraded: false, reason, transcribed_raw: raw, transcribed_tokens: detectedTokens, approved_tokens: dedupApproved, required_tokens: requiredTokens, optional_tokens: optionalTokens, missing, missing_required, missing_optional, extra, misspelled, attempted_at };
+}

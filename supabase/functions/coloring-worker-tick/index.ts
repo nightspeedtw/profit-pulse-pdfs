@@ -319,19 +319,22 @@ Deno.serve(async (req: Request) => {
     result.focus = focusEbookId;
 
     // Route each queued coloring row to the correct stage based on `awaiting`:
-    //   'cover_pdf_publish'          → coloring-book-cover (chains → assemble → publish)
+    //   'cover_verify'               → coloring-cover-verify (split half 2)
+    //   'cover_pdf_publish'          → coloring-cover-generate (split half 1) → assemble → publish
     //   'publish'                    → coloring-book-publish
     //   otherwise                    → coloring-book-render (interior)
     //
-    // Dispatch is FIRE-AND-FORGET (3s timeout treated as dispatched). A
-    // dispatcher must never wait for the work it dispatches — otherwise the
-    // gateway wall-clock kills the tick and books stall mid-stage.
+    // Cover split v1 (2026-07-18, OOM class fix cover-function-worker-oom-v1):
+    // generate and verify run in separate isolates so a crash in either half
+    // is isolated, stamped, and resumable.
     const dispatchPromises = queued.map(async (row) => {
       const meta = (row.metadata ?? {}) as Record<string, unknown>;
       const awaiting = meta.awaiting as string | undefined;
       let target = "coloring-book-render";
-      if (awaiting === "cover_pdf_publish") {
-        target = row.cover_url ? (row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble") : "coloring-book-cover";
+      if (awaiting === "cover_verify") {
+        target = "coloring-cover-verify";
+      } else if (awaiting === "cover_pdf_publish") {
+        target = row.cover_url ? (row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble") : "coloring-cover-generate";
       } else if (awaiting === "publish" || awaiting === "publish_candidate" || awaiting === "owner_final_verification") {
         target = row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble";
       }
