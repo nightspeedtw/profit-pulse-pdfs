@@ -540,3 +540,10 @@ provider-produced image should split at the point after upload. The
 verifier runs in a fresh isolate against the signed URL; the generator
 never sees the pixels it just uploaded.
 
+
+## cover-pdf-embed-crop-v1 — FIXED (2026-07-18)
+- **Symptom:** GPT-Image-1 covers baked at 1024x1536 (2:3, ratio 0.667) were fit to the 1600x2071 canvas (8.5:11, ratio 0.773) via `fitCoverArtToPortraitCanvas` using Math.max scale + `.crop()` — which overshoots height and crops top+bottom of the baked title/edge glyphs in the PDF and thumbnail.
+- **Root cause:** compositor was fit-COVER (crop-to-fill) instead of fit-CONTAIN (letterbox). The downstream `cover-aspect-gate` in `coloring-book-assemble` still passed because the composed output is exactly 1600x2071 — the loss happened inside the compositor before the gate.
+- **Fix:** `_shared/coloring/coloring-cover-compositor.ts` now uses Math.min scale, white letterbox via `Image.fill(0xffffffff) + composite(x,y)`. Full art always preserved; slim bars are acceptable and invisible in most containers. Sibling of the storefront container fix (aspect-[1600/2071]).
+- **Repair:** deployed `coloring-cover-refit` one-shot to re-fit the existing raw pending art through the new compositor without regenerating cover art, then re-run thumbnail + assemble.
+- **Verification:** book `c2839b88` PDF page 1 rasterized at 100dpi shows complete "Fierce Floral and Botanical Coloring Book / A Coloring Adventure / Ages 4-6" with all edge elements intact.
