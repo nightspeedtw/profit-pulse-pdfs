@@ -269,8 +269,8 @@ Deno.serve(async (req: Request) => {
       }
     }
     const anatomyMissing = pages.filter((p) => !anatomyByPage.has(p.page));
-    for (let i = 0; i < anatomyMissing.length; i += 6) {
-      const chunk = anatomyMissing.slice(i, i + 6);
+    for (let i = 0; i < anatomyMissing.length; i += 8) {
+      const chunk = anatomyMissing.slice(i, i + 8);
       const assembleCategoryKey = ((meta.coloring_page_plan as any)?.category_key)
         ?? (meta as any).category_key
         ?? ((meta as any).coloring_category_meta?.category_key);
