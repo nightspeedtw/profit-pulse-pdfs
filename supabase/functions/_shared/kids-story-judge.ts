@@ -314,13 +314,13 @@ ${SCHEMA_HINT}`;
   applyDeterministicScoreCalibration(report, opts.manuscript_md);
 
   report.story_qc_passed =
-    report.age_appropriateness_score >= 90 &&
-    report.story_coherence_score >= 90 &&
-    report.emotional_payoff_score >= 85 &&
-    report.reread_value_score >= 85 &&
-    report.language_level_score >= 90 &&
-    report.parent_buyer_value_score >= 85 &&
-    report.generic_story_risk_score <= 25;
+    report.age_appropriateness_score >= STORY_GATE.age_appropriateness &&
+    report.story_coherence_score >= STORY_GATE.story_coherence &&
+    report.emotional_payoff_score >= STORY_GATE.emotional_payoff &&
+    report.reread_value_score >= STORY_GATE.reread_value &&
+    report.language_level_score >= STORY_GATE.language_level &&
+    report.parent_buyer_value_score >= STORY_GATE.parent_buyer_value &&
+    report.generic_story_risk_score <= STORY_GATE.generic_story_risk_max;
   return report;
 }
 
