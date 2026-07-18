@@ -83,7 +83,14 @@ const IDEOGRAM_GEN_TIMEOUT_MS = 70_000;
 const COVER_VISION_TIMEOUT_MS = 8_000;
 const IDEOGRAM_VERIFY_TIMEOUT_MS = 12_000;
 const SINGLE_RUNG_VERSION = "coloring_cover_verified_typography_v2";
-const MAX_IDEOGRAM_ATTEMPTS = 3;
+// OOM defense (cover-function-worker-oom-v1): dropped from 3 → 1. Even
+// with downsampled analysis buffers, 3 attempts × (rawBytes ~2 MB kept
+// alive on text_rejected + decoded ~13 MB during compositor + base64-
+// encoded vision request bodies) stacks past the 256 MB isolate cap.
+// One attempt fits; if it fails, the outer worker-tick retries with a
+// fresh isolate (own heap). Same effective retry budget, no stacking.
+const MAX_IDEOGRAM_ATTEMPTS = 1;
+
 // OWNER LAW (2026-07-17, added after $116 unbounded-retry incident):
 // hard ceiling on how many TIMES the cover function may be invoked per book.
 // Each invocation burns up to MAX_IDEOGRAM_ATTEMPTS × $0.06 = $0.18 on Runware
