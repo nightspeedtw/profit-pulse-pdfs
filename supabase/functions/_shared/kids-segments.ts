@@ -643,6 +643,7 @@ export interface WriteSegmentsResult {
   attempts: number;
   model: string;
   parseFailures?: WriterParseDiagnostics[];
+  mechanical_wc_fix?: boolean;
 }
 
 function mergeRecoveredPages(base: SegmentedManuscript | null, next: SegmentedManuscript, opts: WriteSegmentsOpts): SegmentedManuscript {
