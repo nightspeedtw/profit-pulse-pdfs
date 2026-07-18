@@ -80,7 +80,7 @@ Return ONLY valid JSON:
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    const db = createClient(SUPABASE_URL, SERVICE_KEY);
+    const db = _db;
 
     // 1. Pick least-used keyword.
     const { data: kws } = await db.from("blog_keywords")
