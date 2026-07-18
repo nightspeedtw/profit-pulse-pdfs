@@ -11,6 +11,7 @@ import type { RawFinding } from "./pdf-preflight.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
 import { parseModelJson } from "./model-json.ts";
 import { geminiDirectChat, hasGeminiDirect } from "./gemini-direct.ts";
+import { smartChat } from "./direct-fallback.ts";
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 const JUDGE_MODEL = "google/gemini-2.5-flash";
