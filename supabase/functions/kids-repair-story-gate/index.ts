@@ -190,9 +190,42 @@ Deno.serve(async (req) => {
     ).eq('id', ebook_id).single();
     if (error || !ebook) return json({ ok: false, error: 'ebook not found' }, 404);
 
+    // CLASS DEFECT GUARD — "unbounded expensive-tier repair retry".
+    // Count prior invocations of this repair for this specific book. If we've
+    // already burned the budget, retire and let the parent one-click loop
+    // rotate to a fresh concept instead of looping on gemini-2.5-pro forever.
+    const existingMetaEarly = (ebook.storefront_meta as Record<string, unknown> | null) ?? {};
+    const invocationsSoFar = Number(existingMetaEarly.story_gate_repair_invocations ?? 0);
+    if (invocationsSoFar >= MAX_INVOCATIONS_PER_BOOK) {
+      await db.from('ebooks_kids').update({
+        listing_status: 'draft',
+        sellable: false,
+        pipeline_status: 'retired',
+        status: 'needs_revision',
+        blocker_reason: `story_gate_repair_ceiling_reached:${invocationsSoFar}_invocations`,
+        storefront_meta: {
+          ...existingMetaEarly,
+          story_gate_repair_ceiling_hit_at: new Date().toISOString(),
+        },
+      }).eq('id', ebook_id);
+      return json({
+        ok: true,
+        result: 'retired_ceiling',
+        ebook_id,
+        invocations: invocationsSoFar,
+        reason: `Exceeded MAX_INVOCATIONS_PER_BOOK=${MAX_INVOCATIONS_PER_BOOK}. Rotating to a fresh concept.`,
+      });
+    }
+    // Increment counter up front so concurrent invocations see the bump.
+    await db.from('ebooks_kids').update({
+      storefront_meta: { ...existingMetaEarly, story_gate_repair_invocations: invocationsSoFar + 1 },
+    }).eq('id', ebook_id);
+
     const { data: age } = await db.from('kids_age_groups')
       .select('min_age, max_age, slug').eq('id', ebook.age_group_id).maybeSingle();
     const ageBand = age ? `${age.min_age}-${age.max_age}` : '4-6';
+
+    const originalReport = (ebook.qc_scorecard as Record<string, unknown> | null)?.story_gate as Record<string, unknown> | null;
 
     const originalReport = (ebook.qc_scorecard as Record<string, unknown> | null)?.story_gate as Record<string, unknown> | null;
 
