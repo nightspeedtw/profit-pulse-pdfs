@@ -475,7 +475,10 @@ async function storyGate(ctx: Ctx): Promise<StepResult> {
     description: (ctx.ebook.description as string | null) ?? null,
     ageBand, target: TARGET_INTERIOR, heroName,
     extraCraftBlock: craft + judgeFeedbackBlock,
+    ebookId: ctx.ebookId,
+    ideaId: (ctx.ebook.idea_id as string | null) ?? null,
   });
+
   if (!rewrite.ok) {
     throw new Error(`${STORY_GATE_BLOCK}: regen failed structural gate: ${rewrite.validation.violations.slice(0, 4).join(' | ')}`);
   }
