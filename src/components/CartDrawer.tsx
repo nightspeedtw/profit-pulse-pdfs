@@ -55,9 +55,10 @@ export const CartDrawer = () => {
                 <div className="space-y-4">
                   {items.map((item) => (
                     <div key={item.ebook_id} className="flex gap-3 p-3 border-2 border-foreground bg-card">
-                      <div className="w-16 h-16 bg-secondary border-2 border-foreground overflow-hidden flex-shrink-0 flex items-center justify-center">
+                      <div className="w-16 h-16 bg-white border-2 border-foreground overflow-hidden flex-shrink-0 flex items-center justify-center">
                         {item.cover_url ? (
-                          <img src={item.cover_url} alt={item.title} className="w-full h-full object-cover" />
+                          // object-contain: coloring covers/thumbnails must display complete (SQUARE-FIRST law).
+                          <img src={item.cover_url} alt={item.title} className="w-full h-full object-contain" />
                         ) : (
                           <FileText className="h-6 w-6" />
                         )}
