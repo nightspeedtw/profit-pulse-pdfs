@@ -157,3 +157,52 @@ provider MUST have (a) a per-subject invocation ceiling backed by a
 persisted counter, and (b) cheap-tier-first routing with expensive-tier
 reserved for the final attempt. The attempt cap only bounds one call;
 the invocation ceiling bounds the loop; tier routing bounds the unit cost.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## right-first-time-story-generation (2026-07-18)
+
+Category: **architecture defect class — unbounded expensive checking/fixing
+loop cost more than doing it right once**.
+
+Evidence: 1,843 `kids_story_judge` calls + 468 story-gate repair calls
+in 48h across a few dozen books (~30+ AI calls/book), while the
+skill-learner minted 119+ versions of `playbook_reread_value` /
+`craft_rules` without moving the first-pass story_gate rate (oscillated
+14–55%). Judge + repair cost dominated total spend for kids track.
+
+Permanent fix (four coordinated changes):
+1. **Writer default tier promoted + rubric baked in** —
+   `_shared/kids-segments.ts` `DEFAULT_MODEL` is now
+   `google/gemini-2.5-pro`. `WRITER_SYSTEM` now carries the full
+   `story_gate` rubric (per-dimension thresholds, ban on moralizing
+   lines, callback-ending requirement). The model writes TO the rubric,
+   not against it blind.
+2. **One inline regeneration, then retire** —
+   `autopilot-kids-pipeline/index.ts` `storyGate` runs the judge, and on
+   failure regenerates the manuscript ONCE with the judge's per-dimension
+   `evidence[]` appended to the craft block, then re-judges. Second
+   failure throws → step policy retires the concept (concept rotates).
+   No external repair ladder. `STEP_FAILURE_POLICY.story_gate` changed
+   from `'repair_story_gate'` → `'retire'`. The
+   `kids-repair-story-gate` and `kids-surgical-story-repair` functions
+   remain deployed as backstops for anything that still calls them (the
+   MAX_INVOCATIONS_PER_BOOK ceiling from the earlier fix stays) but the
+   canonical pipeline no longer auto-invokes them.
+3. **Judge cheapest capable tier, one call** —
+   `_shared/kids-story-judge.ts` `JUDGE_MODEL` is now
+   `google/gemini-2.5-flash-lite`. The judge already returns all
+   per-dimension scores + per-dimension `repair_action` feedback in one
+   structured-JSON call; no multi-pass judging.
+4. **Skill-learner frozen** — `kids-skill-learner` returns a `{frozen:
+   true}` no-op. `_shared/story-craft-skill.ts` loader now pins the
+   earliest `source='seed'` version for `playbook_reread_value`,
+   `playbook_parent_buyer_value`, `playbook_emotional_payoff`,
+   `craft_rules`, and `anti_preachy`. All prior learned versions remain
+   in `pipeline_skills` for future analysis (owner-approved freeze, not
+   deletion).
+
+Target: ~3–5 AI calls/book (writer + judge, optional regen + re-judge)
+vs the old ~30. No lowering of gate thresholds — the change is WHERE
+quality is enforced (generation time, not repair time). All calls
+continue to route through `smartChat` (gemini-direct → openai-direct →
+gateway last resort).
