@@ -20,22 +20,44 @@ export async function fitCoverArtToPortraitCanvas(
   width = COLORING_COVER_WIDTH,
   height = COLORING_COVER_HEIGHT,
 ): Promise<Uint8Array> {
-  // Round_3 CLASS: cover-pdf-embed-crop-v1.
-  // Fit-CONTAIN (Math.min) with a white letterbox — NEVER fit-COVER (Math.max)
-  // with a hard crop. Providers like gpt-image-1 emit 1024x1536 (2:3, ratio
-  // 0.667); the target canvas is 1600x2071 (8.5:11, ratio 0.773). Scaling by
-  // Math.max on a taller-than-target source overshoots height and crops
-  // top+bottom — which chops the top of the baked title. Fit-CONTAIN
-  // guarantees the full art (title, edge elements) is preserved; a slim
-  // white letterbox is acceptable and invisible in most containers.
+  // Coloring-book PERMANENT RULE (Round_4, 2026-07-18):
+  // The PDF cover page must be FULL-BLEED — no white letterbox bars, no
+  // white paper visible around the artwork. Providers cannot emit exact
+  // 8.5:11 (gpt-image-1 is 2:3, Runware Ideogram is ~0.7647), so we still
+  // fit-CONTAIN the art (preserving the baked title and edge elements —
+  // never fit-COVER, which was cover-pdf-embed-crop-v1) and then EDGE-EXTEND
+  // the background: bars are filled with the art's own sampled edge color
+  // (average of the top/bottom rows and left/right columns of the resized
+  // art), so the letterbox blends into the artwork and the sheet reads as
+  // one continuous page. If the sampled color is near-white the visual is
+  // identical to before; on colored backgrounds (yellow, teal, etc.) it
+  // eliminates the white bars entirely.
   const src = await Image.decode(artBytes);
   const scale = Math.min(width / src.width, height / src.height);
   const sw = Math.max(1, Math.round(src.width * scale));
   const sh = Math.max(1, Math.round(src.height * scale));
   const resized = (src as any).resize(sw, sh);
+
+  // Sample the outer border of the resized art (1px inset) to get the
+  // dominant background color. Averaging is robust to gradients and
+  // textured paper backgrounds because both bars end up mid-tone matched.
+  let rSum = 0, gSum = 0, bSum = 0, n = 0;
+  const sample = (x: number, y: number) => {
+    const p = (resized as any).getPixelAt(x + 1, y + 1);
+    rSum += (p >>> 24) & 0xff;
+    gSum += (p >>> 16) & 0xff;
+    bSum += (p >>> 8) & 0xff;
+    n++;
+  };
+  for (let x = 0; x < sw; x++) { sample(x, 0); sample(x, sh - 1); }
+  for (let y = 0; y < sh; y++) { sample(0, y); sample(sw - 1, y); }
+  const r = n ? Math.round(rSum / n) & 0xff : 0xff;
+  const g = n ? Math.round(gSum / n) & 0xff : 0xff;
+  const b = n ? Math.round(bSum / n) & 0xff : 0xff;
+  const fillRgba = (((r << 24) | (g << 16) | (b << 8) | 0xff) >>> 0);
+
   const canvas = new Image(width, height);
-  // Fill with opaque white (RGBA packed as 0xRRGGBBAA in imagescript).
-  (canvas as any).fill(0xffffffff);
+  (canvas as any).fill(fillRgba);
   const offX = Math.floor((width - sw) / 2);
   const offY = Math.floor((height - sh) / 2);
   (canvas as any).composite(resized, offX, offY);
