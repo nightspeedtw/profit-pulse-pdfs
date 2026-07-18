@@ -20,13 +20,16 @@
 // defect (typically: re-generate cover via ideogram, then run
 // coloring-book-thumbnail).
 
-import { COLORING_TRIM } from "./trim-lock.ts";
+import { COLORING_TRIM, resolveTrimProfileKey, TRIM_PROFILES } from "./trim-lock.ts";
 
 export interface ColoringPublishContractInput {
   book_type: string | null;
   cover_url: string | null;
   thumbnail_url: string | null;
   metadata: Record<string, unknown> | null;
+  /** Optional row created_at so the trim-profile resolver can default
+   *  legacy pre-cutoff rows to letter_portrait. */
+  created_at?: string | Date | null;
 }
 
 // Owner law v5 (2026-07-18, spelling-only-critical-unpublish-v1):
@@ -146,34 +149,41 @@ export function assertColoringPublishContract(
     );
   }
 
-  // 2. Trim verified
+  // 2. Trim verified — profile-driven (Phase A 2026-07-19). Legacy
+  //    rows without a stamp resolve to letter_portrait via created_at.
+  //    Missing/unknown profile on a post-cutoff row throws — caught below
+  //    and surfaced as a hard contract failure so the row parks with a
+  //    clear blocker instead of silently mixing trim sizes.
+  let profileKey: "letter_portrait" | "square_8_5" = "letter_portrait";
+  try {
+    profileKey = resolveTrimProfileKey({ metadata: input.metadata, created_at: input.created_at ?? null });
+  } catch (e) {
+    reasons.push(`trim_profile_unresolved:${String((e as Error)?.message ?? e).slice(0, 160)}`);
+  }
+  const profile = TRIM_PROFILES[profileKey];
   const coverCanvas = cover.art_canvas ?? {};
   const cw = Number(coverCanvas.width ?? 0);
   const ch = Number(coverCanvas.height ?? 0);
-  const expectedRatio = COLORING_TRIM.ratio;
+  const expectedRatio = profile.ratio;
   const trimOk = cw > 0 && ch > 0
-    && Math.abs(cw / ch - expectedRatio) <= COLORING_TRIM.toleranceRatio;
+    && Math.abs(cw / ch - expectedRatio) <= profile.toleranceRatio;
   if (!trimOk) {
-    reasons.push(`trim_mismatch:cover=${cw}x${ch};expected_ratio=${expectedRatio.toFixed(4)}`);
+    reasons.push(`trim_mismatch[${profileKey}]:cover=${cw}x${ch};expected_ratio=${expectedRatio.toFixed(4)}`);
   }
 
-  // 3. Distinct fitted thumbnail — MUST match COLORING_TRIM.thumbnailPx
-  //    (600×776) exactly. Owner directive 2026-07-18: close the canvas_ok
-  //    gate by rendering to the exact contract spec instead of arguing with
-  //    the gate. This is classified as COSMETIC in classifyContractReason,
-  //    so failures never yank live inventory — they trigger async repair.
+  // 3. Distinct fitted thumbnail — MUST match profile.thumbnailPx exactly.
   const distinct = !!input.thumbnail_url
     && !!input.cover_url
     && input.thumbnail_url !== input.cover_url;
   const nonCrop = thumbMeta.non_crop_pass === true;
   const tw = Number(thumbMeta?.canvas?.width ?? 0);
   const th = Number(thumbMeta?.canvas?.height ?? 0);
-  const spec = COLORING_TRIM.thumbnailPx;
+  const spec = profile.thumbnailPx;
   const canvasOk = tw === spec.width && th === spec.height;
   const thumbOk = distinct && nonCrop && canvasOk;
   if (!thumbOk) {
     reasons.push(
-      `thumbnail_contract_fail:distinct=${distinct};non_crop=${nonCrop};canvas_ok=${canvasOk};canvas=${tw}x${th};expected=${spec.width}x${spec.height}`,
+      `thumbnail_contract_fail[${profileKey}]:distinct=${distinct};non_crop=${nonCrop};canvas_ok=${canvasOk};canvas=${tw}x${th};expected=${spec.width}x${spec.height}`,
     );
   }
 
