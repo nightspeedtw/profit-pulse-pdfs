@@ -66,6 +66,21 @@ function json(body: unknown, status = 200) {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  // FROZEN (2026-07-18, right-first-time architecture): the auto-revision loop
+  // ran 119+ versions across playbook_reread_value and craft_rules without
+  // moving the pass rate. Owner-approved freeze: pinned seed versions are
+  // injected into the writer prompt (see loadStoryCraftBlock's freeze list).
+  // Prior versions remain in pipeline_skills for future analysis but no new
+  // ones are minted. This endpoint is a no-op.
+  return json({
+    ok: true, frozen: true,
+    reason: 'skill_learner_frozen_right_first_time_2026_07_18',
+    doc: 'Pinned seed versions of playbook_* / craft_rules / anti_preachy are now the canonical craft block.',
+  });
+});
+
+// Legacy handler retained below for reference / manual replay only. Never invoked.
+async function _legacyHandler(req: Request) {
   const db = createClient(SUPABASE_URL, SERVICE_KEY);
   try {
     const body = await req.json();
@@ -168,9 +183,9 @@ Rewrite the playbook so a manuscript following it would score ≥85 on ${dimensi
       prior_version: currentVersion,
       new_version: nextVersion,
       new_length: newContent.length,
-    });
   } catch (e) {
     console.error('kids-skill-learner error', e);
     return json({ ok: false, error: String((e as Error)?.message ?? e) }, 500);
   }
-});
+}
+void _legacyHandler;
