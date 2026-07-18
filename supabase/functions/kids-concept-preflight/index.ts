@@ -174,7 +174,12 @@ function json(body: unknown, status = 200) {
 
 import { hasGeminiDirect, geminiDirectChat } from '../_shared/gemini-direct.ts';
 
-async function callGemini(system: string, user: string, model = 'google/gemini-flash-lite-latest'): Promise<string> {
+// Model tiers (2026-07-19): the WRITER (generator) must be top-tier to escape
+// the flash-lite 82-score plateau. The JUDGE stays cheap — it's calibrated fine.
+const STRONG_WRITER_MODEL = 'google/gemini-2.5-pro';
+const CHEAP_JUDGE_MODEL = 'google/gemini-flash-lite-latest';
+
+async function callGemini(system: string, user: string, model = CHEAP_JUDGE_MODEL): Promise<string> {
   // Tier 1: google_direct (bypasses Lovable Gateway credit cap).
   if (hasGeminiDirect()) {
     try {
