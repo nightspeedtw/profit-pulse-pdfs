@@ -356,6 +356,7 @@ Deno.serve(async (req: Request) => {
       age_min: ageMin,
       age_max: ageMax,
       page_count: plan.length,
+      db_band: (meta.age_band as string | undefined) ?? (row as any).age_band ?? null,
     });
     const storefrontMeta = {
       ...(row.storefront_meta ?? {}),

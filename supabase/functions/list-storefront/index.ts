@@ -218,6 +218,7 @@ Deno.serve(async (req) => {
             age_min: Number.isFinite(ageMin) ? ageMin : null,
             age_max: Number.isFinite(ageMax) ? ageMax : null,
             page_count: pageCount,
+            db_band: (kid as any).age_band ?? (meta as any).age_band ?? null,
           });
           // Preview spreads: interior coloring pages (line art, no text).
           const previewUrlList: string[] = Array.isArray((meta as any).preview_page_urls)

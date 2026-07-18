@@ -159,9 +159,13 @@ Deno.serve(async (req: Request) => {
     const learnedClause = learnedClauseFromRules([...learnedRules.values()]).replace(/^Learned prevention rules[^:]*:\s*/i, "Learned corrections: ").slice(0, 420);
     const anatomyClauses = compactSeaAnatomy(heroSubjects);
 
+    const bandKey = (meta.age_band as string | undefined) ?? (row as any).age_band;
+    const bandProfile = (await import("../_shared/coloring/age-bands.ts")).resolveBandProfileForDbBand(bandKey)
+      ?? (await import("../_shared/coloring/age-bands.ts")).bandProfileForAges(ageMin, ageMax);
     const prompt = buildColoringCoverArtPrompt({
       categoryName: categoryNameFinal, ageMin, ageMax, heroSubjects, forbiddenSubjects,
       extraClauses: [anatomyClauses, learnedClause], bannedTitle: row.title,
+      bandProfile,
     });
 
     await patchMeta(db, ebookId, {
