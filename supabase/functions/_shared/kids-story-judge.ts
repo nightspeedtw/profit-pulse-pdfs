@@ -13,7 +13,10 @@ import { parseModelJson } from "./model-json.ts";
 import { smartChat } from "./direct-fallback.ts";
 
 
-const JUDGE_MODEL = "google/gemini-2.5-flash";
+// Cheapest capable tier — right-first-time architecture (2026-07-18). Judge runs
+// ONE call, structured JSON, per-dimension scores + repair_action feedback in a
+// single response. No repeated passes.
+const JUDGE_MODEL = "google/gemini-2.5-flash-lite";
 
 export interface StoryReport {
   age_appropriateness_score: number;
