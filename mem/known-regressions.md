@@ -116,3 +116,44 @@ Owner rule: any repair loop that calls an external paid provider MUST have
 a per-subject invocation ceiling backed by a persisted counter, not just a
 per-invocation attempt cap. The attempt cap only bounds one call; the
 invocation ceiling bounds the loop.
+
+---
+
+## Story-gate repair retry storm (2026-07-18 P0)
+
+Class: **unbounded expensive-tier repair retry** (2nd occurrence in one day
+after `unbounded_cover_retry_ceiling`).
+
+Symptom: `cost_log` step `kids_repair_story_gate_rewrite` on
+`google/gemini-2.5-pro` at 469 calls / $31.87 in 24h — single books
+accumulating 30+ pro-tier rewrites (avg $0.068/call). For comparison,
+`kids_story_judge` runs 1249× on `gemini-2.5-flash` for $1.17 total.
+
+Root cause: `kids-repair-story-gate` had a per-INVOCATION `MAX_ATTEMPTS=3`
+cap, but no per-BOOK invocation ceiling. Both `autopilot-kids-pipeline`
+(line 223) and `kids-repair-supervisor` (line 728) dispatch the repair
+directly on story_gate failure and then resume the pipeline; a book
+oscillating around the judge threshold would loop
+pipeline → story_gate fail → repair (3 pro-tier rewrites) → resume →
+story_gate fail → repair (3 more) … indefinitely. Additionally, every
+rewrite ran on the most expensive model tier when the flash tier is 75×
+cheaper per RATES table in `_shared/ai.ts`.
+
+Permanent fix:
+- `supabase/functions/kids-repair-story-gate/index.ts` — added
+  `MAX_INVOCATIONS_PER_BOOK = 3`. Counter persisted at
+  `storefront_meta.story_gate_repair_invocations` and incremented BEFORE
+  any provider call. When exceeded, book is retired with
+  `blocker_reason='story_gate_repair_ceiling_reached:N_invocations'` so
+  the one-click loop rotates to a fresh concept.
+- Same file — `rewriteManuscript()` now uses cheap-tier-first:
+  attempts 1..(MAX_ATTEMPTS-1) → `gemini-2.5-flash`; only the final
+  attempt escalates to `gemini-2.5-pro`. Expected spend cut ≈ 90% on this
+  step at equal or better convergence (flash is calibrated on the same
+  judge rubric).
+
+Owner rule (reiterated): any repair loop that calls an external paid
+provider MUST have (a) a per-subject invocation ceiling backed by a
+persisted counter, and (b) cheap-tier-first routing with expensive-tier
+reserved for the final attempt. The attempt cap only bounds one call;
+the invocation ceiling bounds the loop; tier routing bounds the unit cost.
