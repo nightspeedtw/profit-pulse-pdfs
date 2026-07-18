@@ -361,7 +361,10 @@ async function generateManuscript(ctx: Ctx): Promise<StepResult> {
     target: TARGET_INTERIOR,
     heroName,
     extraCraftBlock: craft,
+    ebookId: ctx.ebookId,
+    ideaId: (ctx.ebook.idea_id as string | null) ?? null,
   });
+
 
   if (result.parseFailures?.length && ctx.stepRowId) {
     await ctx.supabase.from('autopilot_kids_steps').update({
