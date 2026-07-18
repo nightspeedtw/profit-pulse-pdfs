@@ -171,18 +171,27 @@ Deno.serve(async (req: Request) => {
     result.slots = slots;
     if (slots <= 0) { result.skipped = "no_slots"; return json(result); }
 
-    // Load categories.
-    const { data: allCats } = await db
+    // Load categories, filtered by golden-path whitelist unless an override
+    // enables non-whitelisted categories. Whitelist keeps autopilot on
+    // proven ground; new categories require explicit owner enable.
+    const allowExtraKeys: string[] = Array.isArray((cfg as any).category_whitelist_extra)
+      ? ((cfg as any).category_whitelist_extra as string[])
+      : [];
+    const activeWhitelist = new Set<string>([...GOLDEN_PATH_WHITELIST, ...allowExtraKeys]);
+    const { data: allCatsRaw } = await db
       .from("coloring_categories")
       .select("category_key, category_name");
+    const allCats = (allCatsRaw ?? []).filter((c: any) => activeWhitelist.has(c.category_key));
+    result.golden_path_version = GOLDEN_PATH_VERSION;
+    result.whitelist_size = allCats.length;
     if (!allCats || allCats.length === 0) {
-      result.skipped = "no_categories_seeded";
+      result.skipped = "no_whitelisted_categories";
       return json(result);
     }
 
     for (let i = 0; i < slots; i++) {
       let cat: { category_key: string; category_name: string };
-      if (cfg.topic_mode === "specific" && cfg.specific_category_key) {
+      if (cfg.topic_mode === "specific" && cfg.specific_category_key && activeWhitelist.has(cfg.specific_category_key)) {
         cat = allCats.find((c: any) => c.category_key === cfg.specific_category_key) ?? allCats[0];
       } else {
         cat = weightedPick(allCats as any);
