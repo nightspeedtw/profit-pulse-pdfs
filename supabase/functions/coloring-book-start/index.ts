@@ -54,6 +54,19 @@ Deno.serve(async (req: Request) => {
       { auth: { persistSession: false } },
     );
     const category = await loadColoringCategory(sb, category_key);
+    // Band-theme coverage gate (owner directive 2026-07-20 queue-hygiene).
+    // Hard-reject before we allocate a row so mismatched concepts never enter
+    // the queue — the generator must produce a fresh, band-matched concept.
+    const bandCheck = validateCategoryForBand(category.category_key, age_band);
+    if (!bandCheck.ok) {
+      return json({
+        error: "band_theme_mismatch",
+        detail: bandCheck.message,
+        db_band: bandCheck.db_band,
+        category_key: bandCheck.category_key,
+        allowed_categories: bandCheck.allowed_categories,
+      }, 422);
+    }
     const pagePlan = generatePagePlan({ ...category, coloring_page_count: page_count });
     const planIssues = validatePagePlan(pagePlan.plan, category);
     const blocking = planIssues.filter((i) =>
