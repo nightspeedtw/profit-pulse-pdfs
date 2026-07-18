@@ -15,6 +15,7 @@ import StickyBuyBar from "@/components/product/StickyBuyBar";
 import StoryPreviewReader from "@/components/product/StoryPreviewReader";
 import StoryPreviewModule from "@/components/product/StoryPreviewModule";
 import ColoringPreviewModule from "@/components/product/ColoringPreviewModule";
+import { deriveSalePricing } from "@/lib/storefrontPricing";
 
 export default function Product() {
   const { handle } = useParams();
@@ -147,11 +148,31 @@ export default function Product() {
           <ProductRating ebookId={product.id} />
 
           <div className="flex flex-wrap items-center gap-3">
-            <div className="inline-block border-2 border-foreground bg-background px-4 py-2">
-              <p className="font-display text-3xl md:text-4xl font-black text-foreground tracking-tight">
-                {priceText}
-              </p>
-            </div>
+            {(() => {
+              const priceCents = price != null && !isFree ? Math.round(price * 100) : 0;
+              const sp = deriveSalePricing(
+                product.id,
+                priceCents,
+                (product as unknown as { storefront_meta?: Record<string, unknown> }).storefront_meta ?? null,
+              );
+              return (
+                <div className="inline-flex items-baseline flex-wrap gap-x-3 gap-y-1 border-2 border-foreground bg-background px-4 py-2">
+                  <span className="font-display text-3xl md:text-4xl font-black text-foreground tracking-tight">
+                    {isFree ? "FREE" : sp.priceLabel}
+                  </span>
+                  {!isFree && sp.originalLabel && (
+                    <span className="font-mono text-sm text-muted-foreground line-through">
+                      {sp.originalLabel}
+                    </span>
+                  )}
+                  {!isFree && sp.discountPct != null && (
+                    <span className="font-mono text-xs text-accent-foreground font-bold">
+                      ({sp.discountPct}% off)
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
             {product.read_aloud_minutes != null && (
               <span className="inline-block px-3 py-1 border-2 border-foreground bg-highlight text-xs font-mono uppercase tracking-wide">
                 ~{product.read_aloud_minutes} min read-aloud
@@ -166,6 +187,10 @@ export default function Product() {
               New release
             </span>
           </div>
+
+          <p className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+            <Download className="h-3.5 w-3.5" /> Digital Download · Instant PDF
+          </p>
 
           {hookText && (
             <p className="text-base md:text-lg leading-relaxed font-serif border-l-4 border-accent-foreground pl-4">

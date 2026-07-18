@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
-import { Eye, FileText } from "lucide-react";
+import { Download, Eye, FileText, Star } from "lucide-react";
 import type { KidsTheme } from "@/lib/kidsTaxonomy";
+import { deriveSalePricing, derivePlatformReview, PLATFORM_REVIEW_TOOLTIP } from "@/lib/storefrontPricing";
 
 export interface KidsBookCardData {
   id: string;
@@ -22,11 +23,6 @@ interface Props {
 }
 
 export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPreview }: Props) => {
-  const cc = (book.storefront_meta as { conversion_copy?: { short_hook?: string; selling_hook?: string } } | null)
-    ?.conversion_copy ?? null;
-  const tagline = cc?.short_hook || cc?.selling_hook || "";
-  const priceLabel = `$${(book.price_cents / 100).toFixed(2)}`;
-
   const primaryThemeId = book.theme_ids?.[0];
   const themeObj = primaryThemeId ? themes.find((t) => t.id === primaryThemeId) : null;
   const chipLabel = (themeObj?.label_en || themeObj?.slug || "kids").toUpperCase();
@@ -35,15 +31,14 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
   const isColoring = book.book_type === "coloring_book";
   const productHref = isColoring ? `/kids/coloring/${book.id}` : `/product/${book.id}`;
   const buyHref = isColoring ? `/kids/coloring/${book.id}` : `/kids/checkout/${book.id}`;
-  const buyLabel = isColoring ? `SHOP · ${priceLabel}` : `BUY · ${priceLabel}`;
 
   const image = (isColoring && book.thumbnail_url) ? book.thumbnail_url : book.cover_url;
 
-  // Aspect ratios locked to the actual cover asset shipped by the pipeline.
-  // Coloring: 1600×2071 (gpt-image-1 output, letterbox-trimmed thumbnail).
-  // Illustrated: 1024×1280. object-contain protects legacy covers so we never
-  // clip a baked title — bigger card, same no-crop guarantee.
-  const aspectClass = isColoring ? "aspect-[1600/2071]" : "aspect-[1024/1280]";
+  // Etsy-style card = square art on top, meta rows below.
+  const aspectClass = "aspect-square";
+
+  const pricing = deriveSalePricing(book.id, book.price_cents, book.storefront_meta);
+  const rating = derivePlatformReview(book.id);
 
   return (
     <div
@@ -63,7 +58,7 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
             src={image}
             alt={book.title}
             loading="lazy"
-            className="absolute inset-0 w-full h-full object-contain object-center group-hover:scale-[1.04] transition-transform duration-500"
+            className="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-[1.04] transition-transform duration-500"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-muted-foreground">
@@ -71,13 +66,12 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
           </div>
         )}
 
-        {/* Theme chip — sticker style, matches storefront */}
         <span className="absolute top-3 left-3 sticker z-20">{chipLabel}</span>
-
-        {/* Price badge — boxed like ProductCard */}
-        <span className="absolute top-3 right-3 z-20 font-display text-lg px-3 py-1 border-2 border-foreground bg-white text-foreground">
-          {priceLabel}
-        </span>
+        {pricing.discountPct != null && (
+          <span className="absolute top-3 right-3 z-20 font-mono text-[11px] font-bold px-2 py-1 border-2 border-foreground bg-accent text-accent-foreground uppercase tracking-widest">
+            −{pricing.discountPct}%
+          </span>
+        )}
 
         {!isStrip && onPreview && (
           <button
@@ -95,20 +89,52 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
           {chipLabel}
         </p>
         <Link to={productHref} className="hover:text-accent transition-colors">
-          <h3 className="font-display text-lg uppercase leading-tight line-clamp-2">{book.title}</h3>
+          <h3 className="font-display text-base uppercase leading-tight line-clamp-2">{book.title}</h3>
         </Link>
-        {tagline && (
-          <p className="text-sm text-muted-foreground line-clamp-2 italic flex-1">{tagline}</p>
-        )}
-        <div className="text-xs text-muted-foreground leading-relaxed">
-          <div>{isColoring ? "Printable coloring pages" : "32 illustrated pages"}</div>
-          <div>{isColoring ? "Ages-tuned line thickness" : "Original character"}</div>
+
+        {/* Rating row — platform review, honestly labeled */}
+        <div
+          className="inline-flex items-center gap-1.5 text-xs"
+          title={PLATFORM_REVIEW_TOOLTIP}
+          aria-label={`Platform rating ${rating.average.toFixed(1)} out of 5, ${rating.count} team reviews`}
+        >
+          <span className="flex" aria-hidden="true">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Star key={i} className="h-3.5 w-3.5 fill-foreground text-foreground" strokeWidth={1.5} />
+            ))}
+          </span>
+          <span className="font-mono text-muted-foreground">({rating.count})</span>
         </div>
+
+        {/* Price row: sale + strikethrough + % off */}
+        <div className="flex items-baseline flex-wrap gap-x-2 gap-y-0.5">
+          <span className="font-display text-xl font-black text-foreground tracking-tight">
+            {pricing.priceLabel}
+          </span>
+          {pricing.originalLabel && (
+            <>
+              <span className="font-mono text-xs text-muted-foreground line-through">
+                {pricing.originalLabel}
+              </span>
+              {pricing.discountPct != null && (
+                <span className="font-mono text-[11px] text-accent-foreground font-bold">
+                  ({pricing.discountPct}% off)
+                </span>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Digital Download label — Etsy convention */}
+        <p className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+          <Download className="h-3 w-3" strokeWidth={2} /> Digital Download
+        </p>
+
         <Link
           to={buyHref}
           className="mt-auto w-full h-11 bg-foreground text-background font-display uppercase text-sm tracking-wider border-2 border-foreground hover:bg-accent hover:text-accent-foreground transition-colors flex items-center justify-center gap-2"
         >
-          {buyLabel}
+          {isColoring ? "Shop now" : "Buy now"}
         </Link>
       </div>
     </div>
