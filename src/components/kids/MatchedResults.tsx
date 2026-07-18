@@ -36,7 +36,7 @@ export const MatchedResults = ({
   const showFallbackNote = exact.length === 0 && books.length > 0;
 
   return (
-    <section id="results" className="container py-10 md:py-16 border-t border-border scroll-mt-4">
+    <section id="results" className="max-w-[1400px] mx-auto px-3 md:px-6 py-10 md:py-16 border-t border-border scroll-mt-4">
       <div className="text-center mb-6">
         <p className="font-mono uppercase tracking-widest text-xs text-accent mb-2">[ เล่มที่แนะนำสำหรับลูกคุณ ]</p>
         <h2 className="font-display text-3xl md:text-4xl">
