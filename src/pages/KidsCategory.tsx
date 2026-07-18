@@ -100,7 +100,7 @@ export default function KidsCategory() {
 
       <KidsSectionNav />
 
-      <header className="max-w-6xl mx-auto px-4 pt-10 pb-6">
+      <header className="max-w-[1400px] mx-auto px-3 md:px-6 pt-10 pb-6">
         <nav className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3">
           <Link to="/kids" className="hover:text-foreground">Kids</Link> · {category.slug}
         </nav>
@@ -110,7 +110,7 @@ export default function KidsCategory() {
 
       <KidsFilterChips hidden={hiddenChips} />
 
-      <section className="max-w-6xl mx-auto px-4 py-8">
+      <section className="max-w-[1400px] mx-auto px-3 md:px-6 py-8">
         {loading ? (
           <div className="py-16 flex justify-center"><Loader2 className="h-8 w-8 animate-spin text-accent" /></div>
         ) : filtered.length === 0 ? (
@@ -123,7 +123,8 @@ export default function KidsCategory() {
             <div className="mb-4 text-xs text-muted-foreground">
               {filtered.length} book{filtered.length === 1 ? "" : "s"}
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-3 gap-y-6 md:gap-x-5 md:gap-y-8">
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 md:gap-x-5 md:gap-y-8">
+
               {filtered.map((b, i) => {
                 const card: KidsBookCardData = {
                   id: b.id,

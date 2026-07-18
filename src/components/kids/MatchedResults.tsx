@@ -36,7 +36,7 @@ export const MatchedResults = ({
   const showFallbackNote = exact.length === 0 && books.length > 0;
 
   return (
-    <section id="results" className="container py-10 md:py-16 border-t border-border scroll-mt-4">
+    <section id="results" className="max-w-[1400px] mx-auto px-3 md:px-6 py-10 md:py-16 border-t border-border scroll-mt-4">
       <div className="text-center mb-6">
         <p className="font-mono uppercase tracking-widest text-xs text-accent mb-2">[ เล่มที่แนะนำสำหรับลูกคุณ ]</p>
         <h2 className="font-display text-3xl md:text-4xl">
@@ -70,7 +70,7 @@ export const MatchedResults = ({
           <div className="mb-4 text-xs text-muted-foreground">
             {books.length} book{books.length === 1 ? "" : "s"}
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-3 gap-y-6 md:gap-x-5 md:gap-y-8">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 md:gap-x-5 md:gap-y-8">
             {books.map((b, i) => (
               <KidsBookCard
                 key={b.id}
