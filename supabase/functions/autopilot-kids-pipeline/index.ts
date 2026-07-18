@@ -72,14 +72,20 @@ const STEPS: Step[] = [
 //                         manuscript itself is missing.
 //   'soft'              — record and keep going. Downstream may decide.
 // -----------------------------------------------------------------------------
-type StepFailurePolicy = 'retire' | 'repair_story_gate' | 'soft';
+// RIGHT-FIRST-TIME (2026-07-18): the story_gate step performs ONE inline
+// regeneration with judge feedback before failing. No external repair ladder
+// (kids-repair-story-gate / kids-surgical-story-repair) is dispatched — the
+// cost evidence (1,843 judge calls + 468 repairs in 48h) showed the check/fix
+// loop cost more than doing it right once. On failure here we retire the
+// concept so the parent one-click loop rotates.
+type StepFailurePolicy = 'retire' | 'soft';
 const STEP_FAILURE_POLICY: Record<string, StepFailurePolicy> = {
   generate_idea: 'retire',
   generate_manuscript: 'retire',
-  story_gate: 'repair_story_gate',
+  story_gate: 'retire',
   metadata_gate: 'retire',
   bible_check: 'retire',
-  generate_cover: 'retire',            // dead-image / cover generation failure = unrecoverable concept
+  generate_cover: 'retire',
   generate_style_bible: 'retire',
   generate_interior: 'retire',
   generate_thumbnail: 'soft',
