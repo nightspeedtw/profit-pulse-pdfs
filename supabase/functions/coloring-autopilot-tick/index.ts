@@ -18,6 +18,7 @@ import { corsHeaders as baseCors } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { anglesFor } from "../_shared/coloring/angles.ts";
 import { GOLDEN_PATH_WHITELIST, GOLDEN_PATH_VERSION, GOLDEN_PATH_DEFAULTS } from "../_shared/coloring/golden-path.ts";
+import { filterCategoriesForBand, normalizeBandKey } from "../_shared/coloring/band-theme-validator.ts";
 
 declare const Deno: any;
 
@@ -182,19 +183,27 @@ Deno.serve(async (req: Request) => {
       .from("coloring_categories")
       .select("category_key, category_name");
     const allCats = (allCatsRaw ?? []).filter((c: any) => activeWhitelist.has(c.category_key));
+    // Band-theme coverage gate (owner directive 2026-07-20 queue-hygiene):
+    // filter categories to those legal for the target band BEFORE picking,
+    // so the autopilot can never mint a "Baby X (Ages 13-17)" concept again.
+    const bandGated = filterCategoriesForBand(allCats as any, cfg.age_band);
+    const bandGatedCount = bandGated.length;
     result.golden_path_version = GOLDEN_PATH_VERSION;
     result.whitelist_size = allCats.length;
-    if (!allCats || allCats.length === 0) {
-      result.skipped = "no_whitelisted_categories";
+    result.band_gated_whitelist_size = bandGatedCount;
+    result.band_gated_for = normalizeBandKey(cfg.age_band);
+    if (!bandGated || bandGated.length === 0) {
+      result.skipped = "no_band_matched_categories";
       return json(result);
     }
 
     for (let i = 0; i < slots; i++) {
       let cat: { category_key: string; category_name: string };
-      if (cfg.topic_mode === "specific" && cfg.specific_category_key && activeWhitelist.has(cfg.specific_category_key)) {
-        cat = allCats.find((c: any) => c.category_key === cfg.specific_category_key) ?? allCats[0];
+      if (cfg.topic_mode === "specific" && cfg.specific_category_key && activeWhitelist.has(cfg.specific_category_key)
+          && bandGated.some((c: any) => c.category_key === cfg.specific_category_key)) {
+        cat = bandGated.find((c: any) => c.category_key === cfg.specific_category_key) ?? bandGated[0];
       } else {
-        cat = weightedPick(allCats as any);
+        cat = weightedPick(bandGated as any);
       }
       const chosen = await pickUniqueTitle(db, cat.category_key, cat.category_name, cfg.age_band);
       const r = await fetch(`${url}/functions/v1/coloring-book-start`, {
