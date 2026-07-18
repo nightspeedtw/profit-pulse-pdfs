@@ -154,7 +154,12 @@ const T = {
 // HARD gate: concept stage is a best-of selector, not a product-grade gate.
 // Real quality bars live at story_gate (>=85 per dim) and final QC (>=90).
 const CONCEPT_SCORE_FLOOR = 85;   // final_concept_score must be >= this
-const CONCEPT_GENERIC_MAX = 40;   // generic_risk_score must be <= this
+// 2026-07-19: aligned to manuscript-stage generic_risk gate (<=25). Rationale:
+// concept judge previously used <=40 while story_gate rejects anything >25 —
+// so "bedtime-template"-class concepts (e.g. "Sweet Dreams, Little Star")
+// slipped past concept, then burned a $0.05-0.10 gemini-2.5-pro manuscript
+// before dying at story_gate. Filter at the cheap stage instead.
+const CONCEPT_GENERIC_MAX = 25;   // generic_risk_score must be <= this (matches manuscript story_gate)
 
 // Permanently retired clone-template family:
 //   "Name's Wobbly Wobble-Fruit", "Chef Pip's Sticky Sticky Jam",
