@@ -484,6 +484,35 @@ async function callWriter(system: string, user: string, model: string, timeoutMs
   // ~500 output tokens (observed 2026-07-15). 16k gives both budget + slack.
   const MAX_TOKENS = 16000;
   try {
+    // Prefer google_direct for Gemini writer models (owner order 2026-07-18).
+    // Falls through to the gateway on failure OR when the model is non-Google.
+    const isGoogle = /^google\//i.test(model);
+    if (isGoogle) {
+      try {
+        const { geminiDirectChat, hasGeminiDirect } = await import("./gemini-direct.ts");
+        if (hasGeminiDirect()) {
+          const r = await geminiDirectChat({
+            system,
+            user,
+            model,
+            responseJson: true,
+          });
+          const parsed = parseSegmentedWriterOutput(r.text);
+          parsed.diagnostics.finish_reason = "STOP";
+          parsed.diagnostics.output_tokens = r.output_tokens;
+          parsed.diagnostics.max_tokens = MAX_TOKENS;
+          parsed.diagnostics.provider_truncation = classifyProviderTruncation(
+            String(r.text ?? ""), parsed.diagnostics.errors, "STOP", r.output_tokens, MAX_TOKENS,
+          );
+          if (parsed.diagnostics.provider_truncation) {
+            parsed.diagnostics.errors.push(`provider_truncation: out=${r.output_tokens}/${MAX_TOKENS}`);
+          }
+          return parsed;
+        }
+      } catch (e) {
+        console.warn(`[kids-segments] google_direct writer failed, falling back to gateway: ${(e as Error).message}`);
+      }
+    }
     if (!LOVABLE_API_KEY) throw new Error("missing LOVABLE_API_KEY");
     const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
