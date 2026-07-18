@@ -154,12 +154,16 @@ const T = {
 // HARD gate: concept stage is a best-of selector, not a product-grade gate.
 // Real quality bars live at story_gate (>=85 per dim) and final QC (>=90).
 const CONCEPT_SCORE_FLOOR = 85;   // final_concept_score must be >= this
-// 2026-07-19: aligned to manuscript-stage generic_risk gate (<=25). Rationale:
-// concept judge previously used <=40 while story_gate rejects anything >25 —
-// so "bedtime-template"-class concepts (e.g. "Sweet Dreams, Little Star")
-// slipped past concept, then burned a $0.05-0.10 gemini-2.5-pro manuscript
-// before dying at story_gate. Filter at the cheap stage instead.
-const CONCEPT_GENERIC_MAX = 25;   // generic_risk_score must be <= this (matches manuscript story_gate)
+// 2026-07-19 v2: recalibrated to <=60 (corpus max 65 minus 5 tightening
+// margin). Owner's 5 published/selling books score generic_risk 16/38/42/53/65
+// under this judge; a <=25 bar would reject 4 of 5 sellable books. Clone
+// defense is now handled deterministically by SIGNATURE_QUIRK_WORDS,
+// possessive-template regex, banned-name list, and lane bans — the numeric
+// gate no longer needs to double as a clone catcher. Same bar at manuscript
+// stage (STORY_GATE.generic_story_risk_max).
+// Method: published_corpus_generic_risk_max_minus_5.
+const CONCEPT_GENERIC_MAX = 60;
+
 
 // Permanently retired clone-template family:
 //   "Name's Wobbly Wobble-Fruit", "Chef Pip's Sticky Sticky Jam",
