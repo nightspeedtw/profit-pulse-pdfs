@@ -227,8 +227,6 @@ Deno.serve(async (req) => {
 
     const originalReport = (ebook.qc_scorecard as Record<string, unknown> | null)?.story_gate as Record<string, unknown> | null;
 
-    const originalReport = (ebook.qc_scorecard as Record<string, unknown> | null)?.story_gate as Record<string, unknown> | null;
-
     // Re-derive the current judge report as our attempt-0 baseline.
     let currentReport: StoryReport = await runKidsStoryJudge({
       title: String(ebook.title ?? ''),
