@@ -76,35 +76,19 @@ export interface IdeogramCoverResult {
  * cheap path is presumed healthy until evidence says otherwise).
  */
 export async function pickCoverPrimaryProvider(
-  db: any | null | undefined,
+  _db: any | null | undefined,
 ): Promise<{ primary: "gpt_image" | "ideogram"; reason: string; sample: number; pass_rate: number | null }> {
-  if (DISABLE_GPT_IMAGE || !hasOpenAIDirect()) {
-    return { primary: "ideogram", reason: DISABLE_GPT_IMAGE ? "flag_disabled" : "openai_key_missing", sample: 0, pass_rate: null };
-  }
-  if (!db) return { primary: "gpt_image", reason: "no_db_fail_open", sample: 0, pass_rate: null };
-  try {
-    const since = new Date(Date.now() - GPT_IMAGE_STATS_WINDOW_HOURS * 3600 * 1000).toISOString();
-    const { data } = await db
-      .from("coloring_book_events")
-      .select("metadata")
-      .eq("event_type", "cover_provider_attempt")
-      .gte("created_at", since)
-      .order("created_at", { ascending: false })
-      .limit(120);
-    const gpt = (data ?? []).filter((r: any) => r?.metadata?.provider === "openai_gpt_image_1");
-    if (gpt.length < GPT_IMAGE_MIN_SAMPLE) {
-      return { primary: "gpt_image", reason: `insufficient_sample(${gpt.length}/${GPT_IMAGE_MIN_SAMPLE})`, sample: gpt.length, pass_rate: null };
-    }
-    const passed = gpt.filter((r: any) => r?.metadata?.pass === true).length;
-    const rate = passed / gpt.length;
-    if (rate < GPT_IMAGE_PASS_FLOOR) {
-      return { primary: "ideogram", reason: `gpt_image_pass_rate_below_floor(${rate.toFixed(2)}<${GPT_IMAGE_PASS_FLOOR})`, sample: gpt.length, pass_rate: rate };
-    }
-    return { primary: "gpt_image", reason: `gpt_image_healthy(${rate.toFixed(2)})`, sample: gpt.length, pass_rate: rate };
-  } catch (_e) {
-    return { primary: "gpt_image", reason: "stats_query_failed_fail_open", sample: 0, pass_rate: null };
-  }
+  // OWNER LAW 2026-07-18 (native-trim-ratio-only): the cover art MUST be
+  // generated at (or within 1% of) the 8.5:11 PDF trim ratio so the raw
+  // composition natively fills the page — no post-hoc padding/letterbox
+  // fills allowed. GPT-Image only offers 1024×1536 (=0.667, ~14% off
+  // 0.7727) and cannot satisfy that contract, so it is REMOVED from the
+  // cover primary/fallback chain regardless of pass-rate. Ideogram via
+  // Runware runs at 896×1152 (=0.7778, 0.66% off) — inside tolerance and
+  // safe for fit-COVER full-bleed with imperceptible crop.
+  return { primary: "ideogram", reason: "native_trim_ratio_only", sample: 0, pass_rate: null };
 }
+
 
 // Category-family → allowed background clause. Used to positively steer the
 // scene when the caller hasn't supplied an explicit backgroundHint.
