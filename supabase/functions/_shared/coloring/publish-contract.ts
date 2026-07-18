@@ -43,7 +43,7 @@ export interface ColoringPublishContractInput {
 // reasons remain, the book publishes LIVE and the drift is queued as
 // asset-repair. Only a spelling failure blocks initial publish.
 export type ContractSeverity = "critical" | "cosmetic";
-const CRITICAL_PREFIXES = ["cover_spelling_unverified", "marketing_thumbnail_spelling_unverified", "storefront_copy_spelling"];
+const CRITICAL_PREFIXES = ["cover_spelling_unverified", "marketing_thumbnail_spelling_unverified", "storefront_copy_spelling", "trim_profile_unresolved"];
 export function classifyContractReason(reason: string): ContractSeverity {
   return CRITICAL_PREFIXES.some((p) => reason.startsWith(p)) ? "critical" : "cosmetic";
 }
