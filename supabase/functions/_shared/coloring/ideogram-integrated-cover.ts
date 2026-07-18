@@ -102,6 +102,18 @@ export async function pickCoverPrimaryProvider(
     return { primary: "gpt_image", reason: "stats_query_failed_fail_open", sample: 0, pass_rate: null };
   }
 }
+
+// Category-family → allowed background clause. Used to positively steer the
+// scene when the caller hasn't supplied an explicit backgroundHint.
+export function defaultBackgroundHintFor(categoryName: string): string {
+  const c = (categoryName ?? "").toLowerCase();
+  if (/ocean|sea|mermaid|underwater|reef|marine/.test(c)) return "soft underwater seascape with gentle wavy water, coral hints, bubbles";
+  if (/farm|woodland|forest|barn/.test(c)) return "sunny farm meadow or cozy woodland clearing with grass, trees, wooden fence — NO water";
+  if (/dinosaur|prehistoric/.test(c)) return "prehistoric jungle or volcanic plain with ferns and rocks — NO ocean, NO waves, NO water";
+  if (/unicorn|fairy|princess|fantasy|magic|mermaid/.test(c) && !/mermaid|ocean/.test(c)) return "enchanted magical meadow, rainbow sky, sparkles, distant castle or flower field — NO ocean, NO waves";
+  if (/pet|cat|dog|puppy|kitten/.test(c)) return "cozy home yard, living room, or park lawn — NO ocean, NO wild jungle";
+  if (/safari|wild|jungle/.test(c)) return "African savanna or jungle with acacia trees, grass, rocks — NO ocean, NO snow";
+  if (/space|astronaut|planet/.test(c)) return "starry outer space with planets and nebulae — NO ocean, NO forest";
   if (/holiday|christmas|halloween|season/.test(c)) return "seasonal indoor/outdoor holiday scene appropriate to the theme — NO ocean waves";
   if (/floral|flower|botanical|garden/.test(c)) return "flower garden with leaves, petals, butterflies — NO ocean, NO waves";
   if (/preschool|toddler/.test(c)) return "simple friendly playroom or meadow scene — NO ocean unless a specific sea hero is shown";
