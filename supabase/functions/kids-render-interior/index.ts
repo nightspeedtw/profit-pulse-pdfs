@@ -43,6 +43,12 @@ const CONCURRENCY = 3;
 const DEDUPE_BATCH = 4;   // max reroll attempts per invocation
 const START_PAGE = 3;     // page number offset (cover=1, blank/title=2)
 const MIN_TOTAL = 12;     // hard minimum accepted (matches autopilot gate)
+// Hard ceiling on self-chain invocations per book — prevents unbounded
+// retry storms when every provider is dry (e.g. fal billing lock + CF
+// quota + Runware unconfigured). Sized to comfortably drain 28 pages at
+// BATCH_SIZE=8 with a wide safety margin for verify-as-you-go regens.
+const MAX_INTERIOR_INVOCATIONS_PER_BOOK = 20;
+
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -358,6 +364,24 @@ Deno.serve(async (req) => {
   try {
     const { ebook, characterDescription, styleSuffix, negativePrompt } = await loadContext(db, ebookId);
 
+    // Invocation ceiling: track per-book self-chain count. If we exceed the
+    // ceiling without draining `missing`, park the book with an explicit
+    // blocker instead of self-chaining forever (the "chain retry ไม่หยุด"
+    // regression class when every provider is billing-locked).
+    const qcNow = (ebook.qc_scorecard ?? {}) as Record<string, unknown>;
+    const ibNow = (qcNow.interior_build as Record<string, unknown> | undefined) ?? {};
+    const invocationCount = ((ibNow.invocation_count as number) ?? 0) + 1;
+    await patchInteriorBuild(db, ebookId, { invocation_count: invocationCount });
+    if (invocationCount > MAX_INTERIOR_INVOCATIONS_PER_BOOK) {
+      console.error(`[render-interior] invocation ceiling exceeded (${invocationCount}) for ebook=${ebookId} — parking`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (db.from("ebooks_kids") as any).update({
+        pipeline_status: "parked_rotated",
+        blocker_reason: `interior_invocation_ceiling:${invocationCount}`,
+      }).eq("id", ebookId);
+      return json({ ok: false, stage: "ceiling_exceeded", invocation_count: invocationCount }, 200);
+    }
+
     // Discover parent run_id if not provided (so we can resume when done).
     let parentRunId = body.run_id ?? null;
     if (!parentRunId) {
@@ -369,6 +393,7 @@ Deno.serve(async (req) => {
         .limit(1);
       parentRunId = runs?.[0]?.id ?? null;
     }
+
 
     const plan = await ensureScenePlan(db, ebookId, ebook, Math.max(MIN_TOTAL, 28));
     const total = plan.scenes.length;
