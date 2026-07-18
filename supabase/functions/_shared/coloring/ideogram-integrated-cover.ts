@@ -201,11 +201,17 @@ async function pollFalQueue(statusUrl: string, responseUrl: string, deadlineMs: 
 const RUNWARE_API_KEY = Deno.env.get("RUNWARE_API_KEY");
 const ALLOW_FAL_FALLBACK = (Deno.env.get("COLORING_COVER_ALLOW_FAL_IDEOGRAM") ?? "0") === "1";
 const RUNWARE_IDEOGRAM_MODEL = "ideogram:4@1"; // Ideogram 3.0 text-to-image
-// Ideogram 3.0 on Runware only accepts a fixed grid of portrait dimensions.
-// 832x1088 is the closest ~3:4 portrait that the endpoint actually honors
-// (smoke-tested; the 864x1152 combo advertised in the docs is rejected).
-const RUNWARE_IDEOGRAM_WIDTH = 832;
-const RUNWARE_IDEOGRAM_HEIGHT = 1088;
+// Owner law native-trim-ratio-only (2026-07-18): target the 8.5:11 PDF trim
+// (=0.7727). Runware's Ideogram grid must be multiples of 64.
+//   896×1152 = 0.7778 → delta 0.66% (well inside the ±1% trim tolerance)
+//   832×1088 = 0.7647 → delta 1.05% (fallback if 896×1152 is rejected)
+// This gives the compositor an already-full-bleed raster — fit-COVER crops
+// <1% off one axis (invisible), zero letterbox padding.
+const RUNWARE_IDEOGRAM_WIDTH = 896;
+const RUNWARE_IDEOGRAM_HEIGHT = 1152;
+const RUNWARE_IDEOGRAM_WIDTH_FALLBACK = 832;
+const RUNWARE_IDEOGRAM_HEIGHT_FALLBACK = 1088;
+
 
 async function generateViaRunware(
   request: IdeogramCoverRequest,
