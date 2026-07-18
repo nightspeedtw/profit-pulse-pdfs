@@ -500,6 +500,102 @@ export type Database = {
           },
         ]
       }
+      blog_keywords: {
+        Row: {
+          age_band: string | null
+          category: string | null
+          created_at: string
+          id: string
+          intent: string
+          keyword: string
+          keyword_type: string
+          last_used_at: string | null
+          times_used: number
+        }
+        Insert: {
+          age_band?: string | null
+          category?: string | null
+          created_at?: string
+          id?: string
+          intent?: string
+          keyword: string
+          keyword_type?: string
+          last_used_at?: string | null
+          times_used?: number
+        }
+        Update: {
+          age_band?: string | null
+          category?: string | null
+          created_at?: string
+          id?: string
+          intent?: string
+          keyword?: string
+          keyword_type?: string
+          last_used_at?: string | null
+          times_used?: number
+        }
+        Relationships: []
+      }
+      blog_posts: {
+        Row: {
+          body_md: string
+          category: string | null
+          created_at: string
+          dek: string | null
+          faq: Json | null
+          hero_image_url: string | null
+          id: string
+          meta_description: string | null
+          primary_keyword: string | null
+          product_ids: string[] | null
+          published_at: string | null
+          secondary_keywords: string[] | null
+          slug: string
+          status: string
+          title: string
+          updated_at: string
+          word_count: number | null
+        }
+        Insert: {
+          body_md: string
+          category?: string | null
+          created_at?: string
+          dek?: string | null
+          faq?: Json | null
+          hero_image_url?: string | null
+          id?: string
+          meta_description?: string | null
+          primary_keyword?: string | null
+          product_ids?: string[] | null
+          published_at?: string | null
+          secondary_keywords?: string[] | null
+          slug: string
+          status?: string
+          title: string
+          updated_at?: string
+          word_count?: number | null
+        }
+        Update: {
+          body_md?: string
+          category?: string | null
+          created_at?: string
+          dek?: string | null
+          faq?: Json | null
+          hero_image_url?: string | null
+          id?: string
+          meta_description?: string | null
+          primary_keyword?: string | null
+          product_ids?: string[] | null
+          published_at?: string | null
+          secondary_keywords?: string[] | null
+          slug?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          word_count?: number | null
+        }
+        Relationships: []
+      }
       book_first_pass_yield: {
         Row: {
           created_at: string

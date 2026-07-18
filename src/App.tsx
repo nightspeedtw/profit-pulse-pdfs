@@ -43,6 +43,8 @@ import AutopilotControl from "./pages/admin/AutopilotControl.tsx";
 import KidsAutopilot from "./pages/admin/KidsAutopilot.tsx";
 import KidsQcReport from "./pages/admin/KidsQcReport.tsx";
 import KidsLibrary from "./pages/admin/KidsLibrary.tsx";
+import Blog from "./pages/Blog.tsx";
+import BlogPost from "./pages/BlogPost.tsx";
 
 const queryClient = new QueryClient();
 
@@ -76,7 +78,10 @@ const App = () => (
             <Route path="/download" element={<Download />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/checkout/return" element={<CheckoutReturn />} />
+            <Route path="/blog" element={<Blog />} />
+            <Route path="/blog/:slug" element={<BlogPost />} />
           </Route>
+
 
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminLayout />}>

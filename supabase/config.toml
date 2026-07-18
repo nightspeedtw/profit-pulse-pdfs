@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.list-storefront]
 verify_jwt = false
+
+[functions.blog-autopilot]
+verify_jwt = false
