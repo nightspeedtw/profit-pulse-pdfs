@@ -179,6 +179,9 @@ Deno.serve(async (req) => {
       }).eq('id', run_id);
 
       if (doneSteps.has(step.name)) {
+        if (POST_STORY_GATE_STEPS.has(step.name)) {
+          await readAndAssertStoredStoryGatePassed(supabase, ctx.ebookId, `skip_${step.name}`);
+        }
         console.log(`skip already-done step ${step.name}`);
         continue;
       }

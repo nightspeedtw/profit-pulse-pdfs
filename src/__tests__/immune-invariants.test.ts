@@ -151,6 +151,7 @@ describe("immune-system invariants", () => {
     expect(pipeline).toContain("POST_STORY_GATE_STEPS");
     expect(pipeline).toContain("ctx.ebook = await readAndAssertStoredStoryGatePassed(db, ctx.ebookId, 'generate_cover')");
     expect(pipeline).toContain("ctx.ebook = await readAndAssertStoredStoryGatePassed(db, ctx.ebookId, 'generate_interior')");
+    expect(pipeline).toContain("readAndAssertStoredStoryGatePassed(supabase, ctx.ebookId, `skip_${step.name}`)");
     expect(pipeline).not.toMatch(/generateManuscript[\s\S]{0,2500}pipeline_status:\s*['"]illustrating['"]/);
 
     expect(renderer).toContain("assertStoredStoryGatePassedBeforeRender");
