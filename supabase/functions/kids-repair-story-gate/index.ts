@@ -26,6 +26,12 @@ const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY')!;
 
 const MAX_ATTEMPTS = 3;
+// CLASS DEFECT: "unbounded expensive-tier repair retry".
+// Per-book ceiling across ALL repair-story-gate invocations for one book.
+// Without this, supervisor + pipeline dispatch can invoke this function 10+
+// times per book, each doing MAX_ATTEMPTS rewrites on gemini-2.5-pro
+// ($0.06+/call). Matches the MAX_COVER_INVOCATIONS_PER_BOOK cover fix.
+const MAX_INVOCATIONS_PER_BOOK = 3;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
