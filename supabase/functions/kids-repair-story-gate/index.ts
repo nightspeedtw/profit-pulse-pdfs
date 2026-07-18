@@ -270,7 +270,7 @@ Deno.serve(async (req) => {
       const { system, user } = buildRewritePrompt(i, String(ebook.title ?? ''), ageBand, currentManuscript, currentReport, skillBlock, liveRepairGuidance);
       let rewritten: string;
       try {
-        rewritten = await rewriteManuscript(system, user, ebook_id);
+        rewritten = await rewriteManuscript(system, user, ebook_id, i);
       } catch (e) {
         attempts.push({ attempt: i, scores: {}, passed: false, blockers: [`rewrite_error: ${(e as Error).message.slice(0, 160)}`], word_count: 0 });
         continue;
