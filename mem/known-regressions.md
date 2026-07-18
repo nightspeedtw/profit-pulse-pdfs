@@ -614,3 +614,24 @@ Thumbnail rendered to the EXACT publish-contract spec (600×776 =
 `COLORING_TRIM.thumbnailPx`) using fit-CONTAIN plus edge-sampled letterbox
 (same technique as the cover compositor). Closes `canvas_ok=false` without
 weakening the gate. Storefront frame is `aspect-[600/776]`.
+
+## cover-native-trim-ratio-only-v1 (2026-07-18)
+
+Owner permanent law: cover art MUST be generated at the 8.5:11 PDF trim
+ratio (=0.7727) natively from the provider. Post-hoc padding fills, solid
+side bars, or letterbox strips to reach trim ratio are a CONTRACT VIOLATION
+— "แทนที่จะเป็นการเติมสี ให้ Gen ภาพใหม่ให้ได้ขนาดที่เหมาะสมตั้งแต่ต้น".
+
+Enforcement:
+1. `pickCoverPrimaryProvider` returns `ideogram` unconditionally. GPT-Image
+   is REMOVED from the cover chain — its only sizes (1024×1024, 1024×1536,
+   1536×1024) are ≥13% off trim, so it cannot satisfy the rule.
+2. Runware Ideogram is called at 896×1152 (=0.7778, 0.66% off, within the
+   ±1% trim gate) with a one-shot fallback to 832×1088 (=0.7647, 1.05%
+   off) only if the grid rejects the primary size.
+3. `fitCoverArtToPortraitCanvas` HARD-THROWS `cover_art_off_trim_ratio`
+   when raw art deviates >2% from trim, so no provider can quietly emit
+   off-ratio art and get padded onto the master canvas.
+4. Cover prompt (`buildIdeogramIntegratedCoverPrompt`) now specifies
+   `FULL-BLEED COMPOSITION` and `Aspect ratio 8.5:11 portrait (=0.7727)`
+   — the model composes the scene edge-to-edge from birth.
