@@ -384,6 +384,7 @@ Deno.serve(async (req: Request) => {
       },
     };
 
+    const repairBlocker = (row as any)._publish_needs_repair_blocker as string | undefined;
     await db.from("ebooks_kids").update({
       listing_status: publishLive ? "live" : "published_candidate",
       status: publishLive ? "live" : "ready_to_publish",
@@ -398,7 +399,9 @@ Deno.serve(async (req: Request) => {
       storefront_subtitle: row.subtitle,
       sales_copy_sanitized_at: new Date().toISOString(),
       overall_qc_score: Math.round(assembly.weighted_gate?.weighted_avg ?? 92),
+      blocker_reason: repairBlocker ?? null,
     }).eq("id", ebook_id);
+
 
     await patchMeta(db, ebook_id, {
       coloring_progress_percent: 100,
