@@ -17,6 +17,7 @@ import { uploadAndSignImage, versionedKidsAssetPath } from '../_shared/versioned
 import { computeLuminance, generateLiveImage } from '../_shared/image-luminance.ts';
 import { resolveStageOrThrow, logStageEvidence, assertCoverOrInteriorReady } from '../_shared/skill-evidence.ts';
 import { callAndParseModelJson, type ModelJsonSchema } from '../_shared/model-json.ts';
+import { smartChat } from '../_shared/direct-fallback.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -284,17 +285,14 @@ async function withRetry<T>(fn: () => Promise<T>, attempts: number): Promise<T> 
 }
 
 async function callAI(prompt: string, system: string, model = 'google/gemini-2.5-flash'): Promise<string> {
-  const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'system', content: `${system}\n\nCRITICAL: Respond in English only. Never use Thai or any other language.` }, { role: 'user', content: prompt }],
-    }),
+  // Routes through gemini-direct -> openai-direct -> gateway. Bypasses the
+  // Lovable workspace credit ceiling when direct keys are healthy.
+  const r = await smartChat({
+    model,
+    system: `${system}\n\nCRITICAL: Respond in English only. Never use Thai or any other language.`,
+    user: prompt,
   });
-  if (!res.ok) throw new Error(`AI ${res.status}: ${await res.text()}`);
-  const j = await res.json();
-  return j.choices?.[0]?.message?.content ?? '';
+  return r.text;
 }
 
 // Tolerant JSON producer: routes every model call through the shared

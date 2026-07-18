@@ -10,9 +10,9 @@
 import type { RawFinding } from "./pdf-preflight.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
 import { parseModelJson } from "./model-json.ts";
-import { geminiDirectChat, hasGeminiDirect } from "./gemini-direct.ts";
+import { smartChat } from "./direct-fallback.ts";
 
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+
 const JUDGE_MODEL = "google/gemini-2.5-flash";
 
 export interface StoryReport {
@@ -247,56 +247,23 @@ Remember: LOW generic_story_risk_score means DISTINCTIVE. Do not default to mid-
 ${SCHEMA_HINT}`;
 
   async function callOnce(): Promise<Record<string, unknown>> {
-    // Prefer google_direct (owner order 2026-07-18: reduce gateway spend on
-    // high-volume Gemini judges). Falls through to the gateway on failure.
-    if (hasGeminiDirect()) {
-      try {
-        const r = await geminiDirectChat({
-          system: SYSTEM,
-          user: user,
-          model: JUDGE_MODEL,
-          responseJson: true,
-        });
-        logAiCost(costDb(), {
-          ebook_id: opts.ebook_id,
-          step: "kids_story_judge",
-          model: JUDGE_MODEL,
-          input_tokens: r.input_tokens,
-          output_tokens: r.output_tokens,
-          provider: "google_direct",
-        });
-        const parseResult = parseModelJson<Record<string, unknown>>(r.text);
-        if (!parseResult.ok) throw new Error(`story_judge_json_parse_failed: ${parseResult.diagnostics.errors.slice(-1)[0] ?? "unknown"}`);
-        return parseResult.value;
-      } catch (e) {
-        console.warn(`[kids-story-judge] google_direct failed, falling back to gateway: ${(e as Error).message}`);
-      }
-    }
-    const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
-      body: JSON.stringify({
-        model: JUDGE_MODEL,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SYSTEM },
-          { role: "user", content: user },
-        ],
-      }),
+    // Tier 1 gemini-direct, Tier 2 openai-direct, Tier 3 gateway.
+    // Bypasses the Lovable workspace credit limit entirely when direct keys work.
+    const r = await smartChat({
+      system: SYSTEM,
+      user,
+      model: JUDGE_MODEL,
+      responseJson: true,
     });
-    if (!r.ok) throw new Error(`story judge ${r.status}: ${(await r.text()).slice(0, 200)}`);
-    const j = await r.json();
-    const usage = j.usage ?? {};
     logAiCost(costDb(), {
       ebook_id: opts.ebook_id,
       step: "kids_story_judge",
-      model: JUDGE_MODEL,
-      input_tokens: usage.prompt_tokens ?? 0,
-      output_tokens: usage.completion_tokens ?? 0,
-      provider: "gateway",
+      model: r.model,
+      input_tokens: r.input_tokens,
+      output_tokens: r.output_tokens,
+      provider: r.provider,
     });
-    const raw = j.choices?.[0]?.message?.content ?? "";
-    const parseResult = parseModelJson<Record<string, unknown>>(raw);
+    const parseResult = parseModelJson<Record<string, unknown>>(r.text);
     if (!parseResult.ok) {
       throw new Error(`story_judge_json_parse_failed: ${parseResult.diagnostics.errors.slice(-1)[0] ?? "unknown"}`);
     }
