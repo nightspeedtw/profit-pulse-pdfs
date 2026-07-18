@@ -55,6 +55,8 @@ export interface IdeogramCoverRequest {
    * cover-last, character-continuity permanent).
    */
   referenceImageURLs?: string[];
+  /** Book row id, used for cost_log attribution. */
+  ebook_id?: string;
 }
 
 export interface IdeogramCoverResult {
