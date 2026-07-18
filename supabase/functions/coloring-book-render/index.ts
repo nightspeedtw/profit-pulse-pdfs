@@ -62,10 +62,12 @@ import {
   type DefectHit,
 } from "../_shared/coloring/first-pass-learner.ts";
 
-// Canonical interior generation params — enforced identically for every page.
-// Owner defect: mixed sizes/steps produced 2.6–20.3 edge-density variance.
-const INTERIOR_GEN_PARAMS = Object.freeze({
-  model: "fal-ai/flux/schnell",
+// Canonical interior generation params — enforced identically for every page
+// WITHIN a book. Per-book overrides come from the trim profile (Phase A):
+// square_8_5 → square_hd (1024x1024), letter_portrait → portrait_4_3.
+const INTERIOR_GEN_MODEL = "fal-ai/flux/schnell";
+const INTERIOR_GEN_PARAMS_LEGACY = Object.freeze({
+  model: INTERIOR_GEN_MODEL,
   image_size: "portrait_4_3" as const,
 });
 
@@ -181,7 +183,7 @@ Deno.serve(async (req: Request) => {
     const imagePolicy = (await readImageProviderPolicy(db)).interiors;
 
     const { data: row, error } = await db.from("ebooks_kids")
-      .select("id, book_type, pipeline_status, metadata, title")
+      .select("id, book_type, pipeline_status, metadata, title, created_at")
       .eq("id", ebook_id).maybeSingle();
     if (error) throw error;
     if (!row) return json({ error: "not_found" }, 404);
@@ -190,6 +192,20 @@ Deno.serve(async (req: Request) => {
     }
 
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    // Phase A trim profile → interior image_size.
+    const { resolveTrimProfileKey: _resolveTP, TRIM_PROFILES: _TP } = await import("../_shared/coloring/trim-lock.ts");
+    let profileKey: "letter_portrait" | "square_8_5";
+    try {
+      profileKey = _resolveTP({ metadata: meta, created_at: (row as any).created_at ?? null });
+    } catch (e) {
+      const reason = `trim_profile_unresolved:${String((e as Error)?.message ?? e).slice(0, 200)}`;
+      await db.from("ebooks_kids").update({ pipeline_status: "queued", blocker_reason: reason }).eq("id", ebook_id);
+      return json({ error: reason }, 422);
+    }
+    const INTERIOR_GEN_PARAMS = Object.freeze({
+      model: INTERIOR_GEN_MODEL,
+      image_size: _TP[profileKey].interiorImageSize,
+    });
     let planWrap = meta.coloring_page_plan as { plan?: PagePlanEntry[]; category_key?: string } | undefined;
     let plan = planWrap?.plan;
     const styleContract = (meta.coloring_style_contract as LineArtStyleContract | undefined) ?? DEFAULT_KIDS_4_6_STYLE;
