@@ -141,7 +141,7 @@ Deno.serve(async (req: Request) => {
     const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
     const { data: row, error } = await db.from("ebooks_kids")
-      .select("id, book_type, title, cover_url, thumbnail_url, preview_page_urls, metadata, category")
+      .select("id, book_type, title, cover_url, thumbnail_url, preview_page_urls, metadata")
       .eq("id", ebook_id).maybeSingle();
     if (error) throw error;
     if (!row) return json({ error: "not_found" }, 404);
