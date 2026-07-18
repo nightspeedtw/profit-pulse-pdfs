@@ -160,8 +160,14 @@ export async function aiJSON<T>(opts: {
     }
   }
 
-  // --- openai direct path (activates when OPENAI_API_KEY is set) ---
-  if (isOpenAIModel(opts.model) && hasOpenAIDirect()) {
+  // --- openai direct path (activates when OPENAI_API_KEY is set). Also acts
+  //     as cross-family fallback for google/* models whose gemini-direct call
+  //     failed (typically Gemini free-tier quota exhaustion).
+  const useOpenAIFallback = hasOpenAIDirect() && (isOpenAIModel(opts.model) || isGoogleModel(opts.model));
+  if (useOpenAIFallback) {
+    const oaModel = isOpenAIModel(opts.model)
+      ? opts.model
+      : (/pro/i.test(opts.model) ? "openai/gpt-4o" : "openai/gpt-4o-mini");
     try {
       const sys = opts.system + "\nRespond with valid JSON only. No markdown fences.";
       const r = await openaiDirectChat({
