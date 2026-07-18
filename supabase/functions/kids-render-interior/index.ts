@@ -255,6 +255,27 @@ async function loadContext(db: ReturnType<typeof createClient>, ebookId: string)
   return { ebook, characterDescription, styleSuffix, negativePrompt };
 }
 
+async function assertStoredStoryGatePassedBeforeRender(db: ReturnType<typeof createClient>, ebookId: string): Promise<{ ok: true } | { ok: false; blockers: string[]; passed: unknown }> {
+  // First paid-stage tripwire: re-read the persisted gate verdict from the DB.
+  // Never trust caller state, prior step rows, or pipeline_status alone.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: fresh, error } = await (db.from("ebooks_kids") as any)
+    .select("id,title,status,pipeline_status,qc_scorecard")
+    .eq("id", ebookId)
+    .single();
+  if (error || !fresh) throw new Error(`story_gate_tripwire_read_failed:${error?.message ?? "missing ebook"}`);
+  const sg = ((fresh.qc_scorecard ?? {}) as Record<string, unknown>).story_gate as Record<string, unknown> | undefined;
+  if (sg?.passed === true) return { ok: true };
+  const blockers = Array.isArray(sg?.blockers) ? (sg!.blockers as unknown[]).map(String) : ["stored verdict missing/false"];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (db.from("ebooks_kids") as any).update({
+    status: "needs_revision",
+    pipeline_status: "retired",
+    blocker_reason: `story_gate_tripwire_blocked_interior:${blockers.join(", ").slice(0, 180)}`,
+  }).eq("id", ebookId);
+  return { ok: false, blockers, passed: sg?.passed };
+}
+
 async function ensureScenePlan(
   db: ReturnType<typeof createClient>,
   ebookId: string,
@@ -354,6 +375,12 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { /* empty body ok */ }
   const ebookId = body.ebook_id;
   if (!ebookId) return json({ error: "ebook_id required" }, 400);
+
+  const storyGateTripwire = await assertStoredStoryGatePassedBeforeRender(db, ebookId);
+  if (!storyGateTripwire.ok) {
+    console.error(`[render-interior] abort before paid work: stored story_gate.passed=${String(storyGateTripwire.passed)} blockers=${storyGateTripwire.blockers.join("|")}`);
+    return json({ ok: false, stage: "story_gate_tripwire", reason: "stored_story_gate_not_passed", blockers: storyGateTripwire.blockers }, 409);
+  }
 
   // Handoff ack: signal the dispatching parent that this child actually started
   // so its double-tap retry can skip. Fire-and-forget.

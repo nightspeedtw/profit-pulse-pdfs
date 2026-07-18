@@ -155,6 +155,16 @@ const T = {
 const CONCEPT_SCORE_FLOOR = 85;   // final_concept_score must be >= this
 const CONCEPT_GENERIC_MAX = 40;   // generic_risk_score must be <= this
 
+// Permanently retired clone-template family:
+//   "Name's Wobbly Wobble-Fruit", "Chef Pip's Sticky Sticky Jam",
+//   "Rue's Rumble-Roar Remedy", etc.
+const SIGNATURE_QUIRK_WORDS = [
+  'wobble','wobbly','wiggle','wiggly','jiggle','jiggly','wobbling','wiggling','wobble-fruit',
+  'whatchamacallit','whisk','sneezy','sticky','sleepy','dizzy','bouncy','floppy','grumpy',
+  'itchy','scratchy','crumbly','fluffy','squishy','squeaky','giggly','bumpy','clumsy',
+  'hiccupy','snuffly','creaky','shaky','rumble','rumbly','roar','roary','rumble-roar',
+];
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -302,7 +312,6 @@ async function generateConcept(ageBand: string, avoidList: string[], attemptLabe
   // The extracted adjectives already surface wobble/wiggle/jiggle/etc. — we
   // additionally forbid a hardcoded core set of the "cutesy-adjective" family
   // that keeps re-anchoring the generator no matter which one we banned last.
-  const SIGNATURE_QUIRK_WORDS = ['wobble','wobbly','wiggle','wiggly','jiggle','jiggly','wobbling','wiggling','wobble-fruit','whatchamacallit','whisk','sneezy','sticky','sleepy','dizzy','bouncy'];
   const forbiddenWords = Array.from(new Set([...recentQuirkList, ...SIGNATURE_QUIRK_WORDS]));
   const antiAnchorBlock = `\n\nANTI-ANCHORING (HARD): the previous batch produced near-clones by anchoring on the shape of the last published success. You MUST break every one of these anchors:
 - FORBIDDEN protagonist NAMES (already used in the last ${recent.titles.length} attempts — pick a fresh name, not on this list): ${recentNames.length ? recentNames.join(', ') : '(none yet)'}
@@ -311,6 +320,7 @@ async function generateConcept(ageBand: string, avoidList: string[], attemptLabe
 - FORBIDDEN settings (already tried, pick a genuinely different one): ${recentSettingList.length ? recentSettingList.join(' | ') : '(none yet)'}
 - FORBIDDEN titles (do not riff on, echo, or vary these): ${recentTitleList.length ? recentTitleList.map(t => `"${t}"`).join(', ') : '(none yet)'}
 - FORBIDDEN premise skeletons — do NOT rehash any of these prior refrains or riff on their meter/rhyme scheme: ${recentRefrainList.length ? recentRefrainList.map(r => `"${r}"`).join(' | ') : '(none yet)'}
+- FORBIDDEN TITLE TEMPLATE OUTRIGHT: possessive-name + quirk/adjective/sound compound + object/problem, including "Name's Wobbly X", "Name's Sticky Sticky X", "Name's Rumble-Roar X", "Chef Pip's Sticky Sticky Jam", and all variants.
 
 Your concept must be distinct on ALL FOUR axes:
   1) premise (different core mechanic / story engine),
@@ -473,6 +483,8 @@ function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): {
   }
 
   if (bannedHits.length) blockers.push(`banned_lane_hits=[${bannedHits.join(',')}]`);
+  const possessiveTemplateHits = detectPossessiveQuirkTemplateHits(c);
+  if (possessiveTemplateHits.length) blockers.push(`possessive_quirk_reduplicated_template=[${possessiveTemplateHits.join(',')}]`);
   if (!c.twelve_spread_visual_plan_seed || c.twelve_spread_visual_plan_seed.length < 12) {
     blockers.push(`visual_plan_seed<12 (got ${c.twelve_spread_visual_plan_seed?.length ?? 0})`);
   }
@@ -502,8 +514,21 @@ function evaluate(scores: ConceptScores, bannedHits: string[], c: Concept): {
   const passed = blockers.length === 0;
   const decision: 'pass' | 'rewrite' | 'reject' = passed
     ? 'pass'
-    : (scores.final_concept_score >= 70 && scores.generic_risk_score <= 50 && bannedHits.length === 0 ? 'rewrite' : 'reject');
+    : (scores.final_concept_score >= 70 && scores.generic_risk_score <= 50 && bannedHits.length === 0 && possessiveTemplateHits.length === 0 ? 'rewrite' : 'reject');
   return { passed, blockers, weak_dimensions: weak, decision };
+}
+
+function detectPossessiveQuirkTemplateHits(c: Concept): string[] {
+  const title = String(c.title ?? '').trim();
+  if (!/^[A-Z][A-Za-z]{2,14}(?:\s+[A-Z][A-Za-z]{2,14})?['’]s\s+/.test(title)) return [];
+  const rest = title.replace(/^[A-Z][A-Za-z]{2,14}(?:\s+[A-Z][A-Za-z]{2,14})?['’]s\s+/, '').toLowerCase();
+  const hits: string[] = [];
+  const wordRx = (w: string) => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+  const quirkHits = SIGNATURE_QUIRK_WORDS.filter((w) => wordRx(w).test(rest));
+  if (quirkHits.length) hits.push(`quirk_words:${quirkHits.slice(0, 4).join('|')}`);
+  if (/\b([a-z]{3,})\s+\1\b/.test(rest)) hits.push('adjacent_repeated_word');
+  if (/\b([a-z])[a-z]{2,}[-\s]\1[a-z]{2,}\b/.test(rest)) hits.push('alliterative_or_hyphenated_sound_pair');
+  return hits;
 }
 
 function compositeScore(s: ConceptScores): number {

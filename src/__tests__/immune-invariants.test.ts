@@ -141,4 +141,28 @@ describe("immune-system invariants", () => {
       !TERMINAL.has(s) && !claimed.has(s) && !BASELINE_ORPHANS.has(s));
     expect(newOrphans, `state_nobody_owns: NEW non-terminal pipeline_status literal without dispatcher claim: ${newOrphans.join(", ")}. Either add a dispatcher .in()/.eq() for it, or mark the state terminal.`).toEqual([]);
   });
+
+  it("post-story art stages must re-read stored story_gate.passed", () => {
+    const pipeline = read(join(FN_ROOT, "autopilot-kids-pipeline", "index.ts"));
+    const renderer = read(join(FN_ROOT, "kids-render-interior", "index.ts"));
+    const supervisor = read(join(FN_ROOT, "kids-repair-supervisor", "index.ts"));
+
+    expect(pipeline).toContain("readAndAssertStoredStoryGatePassed");
+    expect(pipeline).toContain("POST_STORY_GATE_STEPS");
+    expect(pipeline).toContain("ctx.ebook = await readAndAssertStoredStoryGatePassed(db, ctx.ebookId, 'generate_cover')");
+    expect(pipeline).toContain("ctx.ebook = await readAndAssertStoredStoryGatePassed(db, ctx.ebookId, 'generate_interior')");
+    expect(pipeline).toContain("readAndAssertStoredStoryGatePassed(supabase, ctx.ebookId, `skip_${step.name}`)");
+    expect(pipeline).not.toMatch(/generateManuscript[\s\S]{0,2500}pipeline_status:\s*['"]illustrating['"]/);
+
+    expect(renderer).toContain("assertStoredStoryGatePassedBeforeRender");
+    expect(renderer.indexOf("const storyGateTripwire = await assertStoredStoryGatePassedBeforeRender(db, ebookId)")).toBeLessThan(renderer.indexOf("if (body.chained)"));
+    expect(supervisor).toContain("free_resume_story_gate_tripwire");
+  });
+
+  it("concept preflight mechanically bans possessive quirk clone templates", () => {
+    const preflight = read(join(FN_ROOT, "kids-concept-preflight", "index.ts"));
+    expect(preflight).toContain("detectPossessiveQuirkTemplateHits");
+    expect(preflight).toContain("possessive_quirk_reduplicated_template");
+    expect(preflight).toContain("Name's Rumble-Roar X");
+  });
 });

@@ -506,6 +506,27 @@ Deno.serve(async (req) => {
       const expected = plannedCount > 0 ? plannedCount : 28;
       const inFlight = status === 'illustrating' || status === 'pdf_building';
 
+      const storyGate = (scorecard.story_gate as Record<string, unknown> | undefined) ?? undefined;
+      if (inFlight && storyGate?.passed !== true) {
+        const blockers = Array.isArray(storyGate?.blockers) ? (storyGate!.blockers as unknown[]).map(String) : ['stored verdict missing/false'];
+        await db.from('ebooks_kids').update({
+          status: 'needs_revision',
+          pipeline_status: 'retired',
+          blocker_reason: `story_gate_failed_before_free_resume: ${blockers.join(', ').slice(0, 180)}`,
+        }).eq('id', ebook_id);
+        await appendLog(db, ebook_id, {
+          attempt: totalAttempts + 1,
+          current_blocker: `story_gate_failed_before_free_resume:${blockers.join(',')}`,
+          blocker_class: 'story_gate_bypass',
+          repair_handler: 'free_resume_story_gate_tripwire',
+          stage_before, stage_after: 'retired',
+          result: 'still_blocked',
+          detail: { stored_story_gate_passed: storyGate?.passed ?? null, blockers },
+          updated_at: new Date().toISOString(),
+        });
+        return json({ ok: true, result: 'blocked', reason: 'stored_story_gate_not_passed', blockers });
+      }
+
       if (!hasPdf && inFlight && interiors.length < expected) {
         const r = await invoke('kids-render-interior', { ebook_id });
         const t = await r.text().catch(() => '');

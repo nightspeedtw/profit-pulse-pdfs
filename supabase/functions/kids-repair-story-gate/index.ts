@@ -306,9 +306,14 @@ Deno.serve(async (req) => {
     const existingMeta = (ebook.storefront_meta as Record<string, unknown> | null) ?? {};
     delete (existingMeta as Record<string, unknown>).story_judge_cache;
 
+    const finalBlockers = blockersFromReport(currentReport);
+    const derivedPassed = currentReport.story_qc_passed === true && finalBlockers.length === 0;
     const sc = (ebook.qc_scorecard as Record<string, unknown> | null) ?? {};
     sc.story_gate = {
-      passed: currentReport.story_qc_passed,
+      passed: derivedPassed,
+      judge_self_verdict: currentReport.story_qc_passed,
+      blockers: finalBlockers,
+      threshold_version: 'v5.1-2026-07-18-single-source-of-truth',
       scores: {
         age: currentReport.age_appropriateness_score,
         coh: currentReport.story_coherence_score,
@@ -341,16 +346,18 @@ Deno.serve(async (req) => {
       // Never change listing_status here — publish decision belongs to the QC path.
       // On exhaustion, mark as 'retired' so the parent one-click loop rotates
       // to a fresh concept instead of shelving into human_review_required.
-      pipeline_status: currentReport.story_qc_passed ? 'illustrating' : 'retired',
-      status: currentReport.story_qc_passed ? 'illustrating' : 'needs_revision',
-      blocker_reason: currentReport.story_qc_passed ? null : `story_gate_retired_after_${MAX_ATTEMPTS}_attempts: ${blockersFromReport(currentReport).join(', ')}`,
+      // Never enter an art status here. The canonical pipeline must re-read
+      // qc_scorecard.story_gate.passed === true before any cover/interior spend.
+      pipeline_status: derivedPassed ? 'writing' : 'retired',
+      status: derivedPassed ? 'writing' : 'needs_revision',
+      blocker_reason: derivedPassed ? null : `story_gate_retired_after_${MAX_ATTEMPTS}_attempts: ${finalBlockers.join(', ')}`,
     }).eq('id', ebook_id);
 
     // Optionally resume the canonical pipeline. Uses force_finish=true so the
     // already-completed generate_idea / generate_manuscript steps are skipped
     // and story_gate is re-run against the repaired manuscript.
     let resumed = false;
-    if (currentReport.story_qc_passed && resume_pipeline) {
+    if (derivedPassed && resume_pipeline) {
       // Prefer an existing run_id if the caller passed one; otherwise create a new run row.
       let targetRunId = run_id;
       if (!targetRunId) {
