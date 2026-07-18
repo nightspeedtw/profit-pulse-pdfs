@@ -64,18 +64,23 @@ export const MatchedResults = ({
           <p className="text-sm text-muted-foreground">กลับมาใหม่อีกครั้ง — เราออกเล่มใหม่ทุกสัปดาห์</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
-          {books.map((b, i) => (
-            <KidsBookCard
-              key={b.id}
-              book={b}
-              themes={themes}
-              variant="grid"
-              index={i}
-              onPreview={() => onPreview(b)}
-            />
-          ))}
-        </div>
+        <>
+          <div className="mb-4 text-xs text-muted-foreground">
+            {books.length} book{books.length === 1 ? "" : "s"}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-3 gap-y-6 md:gap-x-5 md:gap-y-8">
+            {books.map((b, i) => (
+              <KidsBookCard
+                key={b.id}
+                book={b}
+                themes={themes}
+                variant="grid"
+                index={i}
+                onPreview={() => onPreview(b)}
+              />
+            ))}
+          </div>
+        </>
       )}
     </section>
   );
