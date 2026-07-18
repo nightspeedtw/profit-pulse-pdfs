@@ -460,3 +460,45 @@ audits.
 in the dispatcher's eligibility filter, not only in the worker's own
 return path. Dispatcher enforcement is idempotent and race-proof; worker
 enforcement is not.
+
+## cover-function-worker-oom-v1 (2026-07-18)
+
+**Class:** any edge function that fetches N images and/or decodes
+provider output at full resolution must bound BOTH N and the
+per-image pixel budget. Deno edge isolates cap heap at ~256 MB; a
+single 1600×2071 `Image.decode` + matching `Uint8Array(w*h*4)` is
+~13 MB, and multiple attempts stack.
+
+**Symptom:** `coloring-book-cover` for `c2839b88` died repeatedly
+with `Memory limit exceeded` / `CPU Time exceeded` ~38 s after boot,
+returning `WORKER_RESOURCE_LIMIT` to callers. Every failed invocation
+still incremented `coloring_cover_invocations` (paired with the
+ceiling-without-consequence bug it looked like a loop; it was really
+crash-then-crash).
+
+**Root causes inside `coloring-book-cover/index.ts`:**
+1. `colorEvidence()` decoded raw art at full resolution AND allocated
+   a full-res `Uint8Array(w*h*4)` RGBA buffer for `detectBlankRegions`.
+   ~13 MB × 3 retry attempts = ~40 MB in flight.
+2. Every attempt stored `_rawBytes = rawBytes` into `ideogramAttempts[]`
+   for a possible learning-mode waiver later — retaining the raw PNG
+   (2-3 MB each) for the full loop even though only the text-rejected
+   waivable path actually consumes them.
+
+**Fix (this turn):**
+- `decodeDownsampled()` helper caps analysis-only decodes to
+  `MAX_ANALYSIS_DIM = 512` on the long edge. `colorEvidence` uses it,
+  which drops the biggest per-attempt allocation ~10× (from ~13 MB to
+  ~1.3 MB). QC math (saturation, chroma, blank-region detection) does
+  not need 2 MP resolution.
+- `_rawBytes` now retained ONLY on `text_rejected` attempts (the only
+  path the waiver picks from). Other rejected attempts (art_dead,
+  hero_rejected, duplicate_rejected, provider_error) release their PNG
+  the instant the loop iteration ends.
+- Interior-reference URL cap remains at 3 pages (already enforced).
+
+**Rule for future edge functions:** if a function may `Image.decode()`
+inside a retry loop, add a downsampling step BEFORE the RGBA allocation
+and BEFORE storing bytes in any loop-scoped collection. Preview / QC /
+fingerprint math should operate on 256-512 px canvases; only the
+compositor's single final render needs full resolution.
