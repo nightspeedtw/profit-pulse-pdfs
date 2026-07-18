@@ -15,6 +15,7 @@ import { StatusBadge, resolveEbookBadge, type EbookBadgeKind } from "@/component
 import { WorksheetOverflowReview } from "@/components/admin/WorksheetOverflowReview";
 import { LiveProductionQueue } from "@/components/admin/LiveProductionQueue";
 import { SystemHeartbeatCard } from "@/components/admin/SystemHeartbeatCard";
+import { HealthIncidentBanner } from "@/components/admin/HealthIncidentBanner";
 import { AiProvidersCard } from "@/components/admin/AiProvidersCard";
 
 type Ebook = {
@@ -235,6 +236,8 @@ export default function Production() {
           </Button>
         </div>
       </div>
+
+      <HealthIncidentBanner />
 
       <SystemHeartbeatCard />
 
