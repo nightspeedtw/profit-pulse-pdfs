@@ -209,8 +209,8 @@ Deno.serve(async (req: Request) => {
           title: chosen.title,
           angle: chosen.angle,
           variant_number: chosen.variant,
-          age_band: cfg.age_band,
-          page_count: cfg.page_count,
+          age_band: cfg.age_band ?? GOLDEN_PATH_DEFAULTS.age_band,
+          page_count: cfg.page_count ?? GOLDEN_PATH_DEFAULTS.page_count,
         }),
       });
       const j = await r.json().catch(() => ({}));
@@ -220,6 +220,7 @@ Deno.serve(async (req: Request) => {
         angle: chosen.angle, variant_number: chosen.variant,
         ebook_id: j?.ebook_id ?? null,
         error: j?.error ?? null,
+        golden_path_version: GOLDEN_PATH_VERSION,
       });
     }
     return json(result);
