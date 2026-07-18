@@ -37,14 +37,16 @@ export type ImageProviderPolicy = {
   };
 };
 
-// PRIMARY = Runware (pay-per-request, no daily cap → clears backlog).
-// FALLBACK 1 = Cloudflare Workers AI free-neuron tier (zero-cost while it lasts).
-// FALLBACK 2 = fal.ai (only if the two above are unhealthy).
+// PRIMARY = Runware. FALLBACK = Cloudflare. fal.ai is PERMANENTLY CUT
+// (owner decision 2026-07-18: same FLUX model @ ~3x Runware cost). The
+// adapter file `_shared/fal.ts` is retained for historical read/audit only;
+// no chain, policy, or DB override may select `fal_flux_schnell` anymore —
+// see `readImageProviderPolicy` which strips it defensively.
 export const DEFAULT_IMAGE_PROVIDER_POLICY: ImageProviderPolicy = {
   interiors: {
     primary: "runware_flux_schnell",
     fallback: "cloudflare_flux_schnell",
-    fallback2: "fal_flux_schnell",
+    fallback2: null,
   },
 };
 
@@ -258,8 +260,10 @@ export async function readImageProviderPolicy(db: any): Promise<ImageProviderPol
   const runwareUnconfigured = !Deno.env.get("RUNWARE_API_KEY");
 
   const dry = (p: ImageProviderId) =>
+    // fal.ai is PERMANENTLY CUT — always ineligible regardless of DB policy
+    // or billing status. Owner decision 2026-07-18.
+    p === "fal_flux_schnell" ||
     (p === "cloudflare_flux_schnell" && cfBlocked) ||
-    (p === "fal_flux_schnell" && falBlocked) ||
     (p === "runware_flux_schnell" && (runwareBlocked || runwareUnconfigured));
 
   const chain = [base.interiors.primary, base.interiors.fallback, base.interiors.fallback2]
