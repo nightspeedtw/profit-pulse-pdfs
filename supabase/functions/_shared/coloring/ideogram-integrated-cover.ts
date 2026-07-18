@@ -207,10 +207,11 @@ const RUNWARE_IDEOGRAM_MODEL = "ideogram:4@1"; // Ideogram 3.0 text-to-image
 //   832×1088 = 0.7647 → delta 1.05% (fallback if 896×1152 is rejected)
 // This gives the compositor an already-full-bleed raster — fit-COVER crops
 // <1% off one axis (invisible), zero letterbox padding.
-const RUNWARE_IDEOGRAM_WIDTH = 896;
-const RUNWARE_IDEOGRAM_HEIGHT = 1152;
-const RUNWARE_IDEOGRAM_WIDTH_FALLBACK = 832;
-const RUNWARE_IDEOGRAM_HEIGHT_FALLBACK = 1088;
+const RUNWARE_IDEOGRAM_WIDTH = 1088;
+const RUNWARE_IDEOGRAM_HEIGHT = 1408;
+const RUNWARE_IDEOGRAM_WIDTH_FALLBACK = 896;
+const RUNWARE_IDEOGRAM_HEIGHT_FALLBACK = 1152;
+
 
 
 async function generateViaRunware(
