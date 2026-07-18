@@ -220,21 +220,11 @@ Deno.serve(async (req) => {
         // Force retire regardless of the step's declared policy.
         const manuscriptMissing = /manuscript\s+missing|manuscript\s+too\s+short/i.test(errText);
 
-        if (policy === 'repair_story_gate' && !manuscriptMissing) {
-          await supabase.from('ebooks_kids').update({
-            listing_status: 'draft',
-            status: 'needs_revision',
-            pipeline_status: 'story_gate_repairing',
-            blocker_reason: `story_gate_failed: ${errText.slice(0, 200)}`,
-          }).eq('id', ctx.ebookId);
-          console.log(`story_gate failed; dispatching kids-repair-story-gate for ${ctx.ebookId}`);
-          fetch(`${SUPABASE_URL}/functions/v1/kids-repair-story-gate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
-            body: JSON.stringify({ ebook_id: ctx.ebookId, run_id: ctx.runId, resume_pipeline: true }),
-          }).catch(e => console.error('repair-story-gate dispatch failed', e));
-          break;
-        }
+        // RIGHT-FIRST-TIME (2026-07-18): the legacy repair_story_gate dispatch
+        // was removed. story_gate now performs one inline regeneration inside
+        // its step; if that regen also fails the step throws and this branch
+        // falls through to the 'retire' policy below (concept rotates).
+
 
         if (policy === 'retire' || manuscriptMissing) {
           const effectiveStep = manuscriptMissing ? 'generate_manuscript' : step.name;
