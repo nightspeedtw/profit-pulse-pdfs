@@ -342,8 +342,8 @@ Deno.serve(async (req: Request) => {
         target = row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble";
       }
       const outcome = await fireAndForgetPost(
-        `${url}/functions/v1/${target}`,
-        { Authorization: `Bearer ${service}`, apikey: service },
+        `${_SB_URL}/functions/v1/${target}`,
+        { Authorization: `Bearer ${_SB_KEY}`, apikey: _SB_KEY },
         { ebook_id: row.id, ...(awaiting === "publish_candidate" || awaiting === "owner_final_verification" ? { mode: "candidate" } : {}) },
         3_000,
       );
