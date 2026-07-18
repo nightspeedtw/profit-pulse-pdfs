@@ -424,3 +424,39 @@ Any hit is a contract violation.
 
 **Follow-up (not this turn):** replace all `patchMeta()` implementations
 with an atomic `jsonb_set` / RPC upsert so the race can't recur.
+
+## ceiling-without-consequence-v1 (2026-07-18)
+
+**Class:** a counter/limit that increments but does not stop the next
+dispatch is not a limit — it is telemetry with false confidence.
+
+**Symptom:** `metadata.coloring_cover_invocations = 5` (ceiling) on book
+`c2839b88`, yet `pipeline_status` kept flipping back to `queued` with
+`blocker_reason = NULL`, tick kept re-dispatching, and cover function
+burned CPU/memory limits without producing chargeable output. Cover
+attempts also lacked `ebook_id` in `cost_log`, hiding them from per-book
+audits.
+
+**Root causes:**
+1. `coloring-book-cover` sets `blocker_reason` at the ceiling park, but
+   a concurrent render/assemble path (or a subsequent successful-looking
+   call) can reset it to `NULL` — the limit only lives inside one
+   function's return path, not in the dispatcher.
+2. `generateIdeogramIntegratedCover` / `generateIdeogramTextInpaint`
+   were invoked without `ebook_id` in the request object, so their
+   internal `logAiCost` inserted rows with `ebook_id = NULL`.
+
+**Fix (class-level, this turn):**
+- `coloring-worker-tick` filters candidates against the invocation
+  ceiling BEFORE dispatch: if `metadata.coloring_cover_invocations >=
+  MAX` and `cover_url IS NULL`, the tick itself stamps
+  `blocker_reason = 'coloring_cover_retry_ceiling_reached:<n>'` and
+  refuses to dispatch. The `LANE_BLOCKED` regex then keeps the row out
+  of future ticks until a human resets the counter.
+- `coloring-book-cover` now passes `ebook_id` into every Ideogram /
+  inpaint call so `cost_log` rows are correctly attributed.
+
+**Rule for future limits:** every ceiling / attempt cap MUST be enforced
+in the dispatcher's eligibility filter, not only in the worker's own
+return path. Dispatcher enforcement is idempotent and race-proof; worker
+enforcement is not.
