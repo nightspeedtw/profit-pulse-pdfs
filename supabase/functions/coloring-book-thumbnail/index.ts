@@ -15,7 +15,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
-import { COLORING_TRIM, assertColoringTrim } from "../_shared/coloring/trim-lock.ts";
+// (trim-lock no longer enforced on thumbnail: canvas tracks trimmed art aspect)
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
