@@ -506,28 +506,39 @@ export function parseSegmentedWriterOutput(raw: string): WriterParseResult {
   return { ok: false, value: {}, partial: false, diagnostics: diag() };
 }
 
-async function callWriter(system: string, user: string, model: string, timeoutMs: number): Promise<WriterParseResult> {
+async function callWriter(
+  system: string,
+  user: string,
+  model: string,
+  timeoutMs: number,
+  costCtx?: { ebookId?: string | null; ideaId?: string | null; step: string },
+): Promise<WriterParseResult> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  // 28-page segmented JSON needs ~2.5-4k content tokens. gemini-2.5-pro is a
-  // thinking model whose reasoning tokens ALSO bill against max_tokens — at the
-  // gateway default (~4k) it burns its budget on hidden reasoning and returns
-  // ~500 output tokens (observed 2026-07-15). 16k gives both budget + slack.
   const MAX_TOKENS = 16000;
+  // Lazy cost logger — never throws, always fire-and-forget.
+  async function logIfPossible(input_tokens: number, output_tokens: number, provider: string, usedModel: string) {
+    if (!costCtx) return;
+    try {
+      const { logAiCost, costDb } = await import("./cost-log.ts");
+      logAiCost(costDb(), {
+        ebook_id: costCtx.ebookId ?? null,
+        idea_id: costCtx.ideaId ?? null,
+        step: costCtx.step,
+        model: usedModel,
+        input_tokens, output_tokens,
+        provider,
+      });
+    } catch (_e) { /* ignore */ }
+  }
   try {
-    // Prefer google_direct for Gemini writer models (owner order 2026-07-18).
-    // Falls through to the gateway on failure OR when the model is non-Google.
     const isGoogle = /^google\//i.test(model);
+    // Tier 1: gemini-direct for google models.
     if (isGoogle) {
       try {
         const { geminiDirectChat, hasGeminiDirect } = await import("./gemini-direct.ts");
         if (hasGeminiDirect()) {
-          const r = await geminiDirectChat({
-            system,
-            user,
-            model,
-            responseJson: true,
-          });
+          const r = await geminiDirectChat({ system, user, model, responseJson: true });
           const parsed = parseSegmentedWriterOutput(r.text);
           parsed.diagnostics.finish_reason = "STOP";
           parsed.diagnostics.output_tokens = r.output_tokens;
@@ -538,12 +549,39 @@ async function callWriter(system: string, user: string, model: string, timeoutMs
           if (parsed.diagnostics.provider_truncation) {
             parsed.diagnostics.errors.push(`provider_truncation: out=${r.output_tokens}/${MAX_TOKENS}`);
           }
+          void logIfPossible(r.input_tokens ?? 0, r.output_tokens ?? 0, "google_direct", model);
           return parsed;
         }
       } catch (e) {
-        console.warn(`[kids-segments] google_direct writer failed, falling back to gateway: ${(e as Error).message}`);
+        console.warn(`[kids-segments] google_direct writer failed, trying openai-direct: ${(e as Error).message}`);
       }
     }
+    // Tier 2: openai-direct fallback (bypasses Lovable gateway credit pool).
+    try {
+      const { openaiDirectChat, hasOpenAIDirect } = await import("./openai-direct.ts");
+      if (hasOpenAIDirect()) {
+        const openaiModel = isGoogle ? (/pro/i.test(model) ? "openai/gpt-4o" : "openai/gpt-4o-mini") : model;
+        const r = await openaiDirectChat({
+          system, user, model: openaiModel, responseJson: true,
+          maxTokens: MAX_TOKENS, timeoutMs,
+        });
+        const parsed = parseSegmentedWriterOutput(r.text);
+        parsed.diagnostics.finish_reason = "STOP";
+        parsed.diagnostics.output_tokens = r.output_tokens;
+        parsed.diagnostics.max_tokens = MAX_TOKENS;
+        parsed.diagnostics.provider_truncation = classifyProviderTruncation(
+          String(r.text ?? ""), parsed.diagnostics.errors, "STOP", r.output_tokens, MAX_TOKENS,
+        );
+        if (parsed.diagnostics.provider_truncation) {
+          parsed.diagnostics.errors.push(`provider_truncation: out=${r.output_tokens}/${MAX_TOKENS}`);
+        }
+        void logIfPossible(r.input_tokens ?? 0, r.output_tokens ?? 0, "openai_direct", openaiModel);
+        return parsed;
+      }
+    } catch (e) {
+      console.warn(`[kids-segments] openai-direct writer failed, falling back to gateway: ${(e as Error).message}`);
+    }
+    // Tier 3: Lovable Gateway.
     if (!LOVABLE_API_KEY) throw new Error("missing LOVABLE_API_KEY");
     const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -564,6 +602,7 @@ async function callWriter(system: string, user: string, model: string, timeoutMs
     const raw = j.choices?.[0]?.message?.content ?? "";
     const finishReason = j.choices?.[0]?.finish_reason ?? undefined;
     const outputTokens = j.usage?.completion_tokens ?? j.usage?.output_tokens ?? undefined;
+    const inputTokens = j.usage?.prompt_tokens ?? j.usage?.input_tokens ?? undefined;
     const parsed = parseSegmentedWriterOutput(raw);
     parsed.diagnostics.finish_reason = finishReason;
     parsed.diagnostics.output_tokens = outputTokens;
@@ -577,9 +616,11 @@ async function callWriter(system: string, user: string, model: string, timeoutMs
       );
       console.warn(`[kids-segments] provider_truncation model=${model} finish=${finishReason} out=${outputTokens}/${MAX_TOKENS}`);
     }
+    void logIfPossible(inputTokens ?? 0, outputTokens ?? 0, "gateway", model);
     return parsed;
   } finally { clearTimeout(t); }
 }
+
 
 function coerceSegmented(raw: Record<string, unknown>, opts: WriteSegmentsOpts): SegmentedManuscript {
   const pages = Array.isArray(raw.pages) ? (raw.pages as Array<Record<string, unknown>>) : [];
