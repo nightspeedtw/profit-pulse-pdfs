@@ -1,32 +1,28 @@
-// coloring-marketing-thumbnail — Etsy-style square (1:1) marketing card.
+// coloring-marketing-thumbnail — v4 (cover-first Etsy card + gallery).
 //
-// Fully code-composed architecture (marketing-thumb-svg-composite-v3,
-// 2026-07-18): NO AI generation on this surface. Everything the customer
-// sees is deterministic:
+// Owner directive (2026-07-18): the storefront card's primary image is the
+// BOOK COVER ITSELF, full-bleed in a 1024×1024 square (Etsy "Spooky House"
+// pattern). The prior collage / bubble-headline card moves DOWN the funnel:
+// it becomes gallery image #2 on the product page, not the card.
 //
-//   • Background — radial gradient in a style-variant palette (rotates per
-//     book id so the catalog looks varied).
-//   • Book cover mock — the REAL cover_url embedded via SVG <image>, tilted
-//     with a drop shadow. Never a hallucinated fake cover.
-//   • Interior page fan — up to 3 REAL preview page URLs, tilted and
-//     overlapping to sell "unique pages".
-//   • Headline — "32 Cute Floral Coloring Pages" rendered in Fredoka 700
-//     via resvg-wasm with a white outline for bubble-lettering feel.
-//   • Ages pill — rounded rect + Nunito 700 label.
+// Composition (all deterministic, no AI — zero spelling risk):
+//   1. Square thumbnail (thumbnail_url):
+//        • Background: the same cover art, blurred + slightly darkened,
+//          fills the entire square (Instagram-Reels style edge-bleed).
+//        • Foreground: the cover art, sharp, fit-contained centered.
+//      Result reads as "the cover, full-bleed, on-brand" and preserves the
+//      baked title exactly as approved by the cover spelling gate.
+//   2. Gallery collage (storefront_meta.gallery_urls[1]):
+//        • The v3 SVG marketing card (cover tile + fanned pages +
+//          bubble headline + Ages pill) — moved from thumbnail to gallery
+//          slot #2 so shoppers who scroll see the "what's inside" pitch.
+//   3. Gallery order:
+//        [square_cover, collage, ...interior_page_urls (up to 4)]
+//      stored on storefront_meta.gallery_urls for ColoringProduct.tsx.
 //
-// Why we dropped the AI collage step: Runware Ideogram in collage/multi-ref
-// mode ~invariably invents decorative typography ("Faddliney", "Colloring
-// Colorhe", stray page labels) even with hard anti-text prompts. That's
-// fatal here — spelling is the ONE unpublishable defect class
-// (spelling-only-critical-unpublish-v1) and this is a customer-visible
-// surface. Owner's ruling: code-rendered typography, no AI text baking on
-// marketing cards. We extend that logic to the whole composition — real
-// assets composited in SVG give zero hallucination risk and cost $0.00.
-//
-// The book COVER art itself still uses AI baked typography per the
-// baked-title-only law — that rule was about the hand-painted book cover,
-// NOT this promotional card. See doctrine
-// `marketing-thumb-code-typography-v2` (superseded here by v3).
+// The book cover art itself still uses AI baked typography per the
+// baked-title-only law. That's already gated by publish-contract's v3
+// spelling gate, so the square derivative here inherits the pass.
 //
 // @ts-nocheck
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
@@ -45,16 +41,11 @@ function json(x: unknown, status = 200) {
   });
 }
 
-// ── Style variants ────────────────────────────────────────────────────
-// Each variant picks a palette + layout template (cover x/y/rot, interior
-// page positions/rotations). Templates all fit inside the 1024×1024 canvas
-// with the top ~260px reserved for the headline and bottom-right ~140px
-// for the Ages pill.
+// ── Collage style variants (used for gallery image #2) ───────────────
 type Placement = { x: number; y: number; w: number; h: number; rot: number };
 type Layout = { cover: Placement; pages: Placement[] };
 
 const LAYOUT_A: Layout = {
-  // Cover left-tilted, three pages fanned right.
   cover: { x: 60,  y: 300, w: 380, h: 490, rot: -7 },
   pages: [
     { x: 380, y: 340, w: 300, h: 388, rot: 8 },
@@ -63,7 +54,6 @@ const LAYOUT_A: Layout = {
   ],
 };
 const LAYOUT_B: Layout = {
-  // Cover centered large, two pages fanned each side.
   cover: { x: 300, y: 280, w: 420, h: 540, rot: 0 },
   pages: [
     { x: 60,  y: 340, w: 300, h: 388, rot: -14 },
@@ -72,7 +62,6 @@ const LAYOUT_B: Layout = {
   ],
 };
 const LAYOUT_C: Layout = {
-  // Cover right-tilted, pages stacked left.
   cover: { x: 560, y: 300, w: 380, h: 490, rot: 7 },
   pages: [
     { x: 60,  y: 300, w: 300, h: 388, rot: -20 },
@@ -173,7 +162,6 @@ async function fetchAsDataUri(url: string): Promise<string | null> {
 }
 
 function fitFontSize(text: string, maxWidthPx: number, maxSize: number, minSize: number): number {
-  // Fredoka bold width ≈ 0.60em avg per glyph (mixed-case).
   const perChar = 0.60;
   const raw = maxWidthPx / (text.length * perChar);
   return Math.max(minSize, Math.min(maxSize, Math.floor(raw)));
@@ -192,11 +180,48 @@ function wrapHeadline(text: string, maxCharsPerLine: number): string[] {
   return lines.slice(0, 2);
 }
 
+// ── Composition 1: SQUARE full-bleed cover thumbnail ────────────────
+// The cover art (portrait ~0.7727) is rendered twice inside a 1024²:
+//   • cover-fill background, Gaussian-blurred, slight dark scrim → the
+//     bleed area matches the cover palette without letterbox bars.
+//   • fit-contained centered foreground → sharp cover with baked title.
+async function composeSquareCoverThumbnail(coverUri: string, size = CANVAS): Promise<Uint8Array> {
+  await ensureWasm();
+  const fonts = await loadFonts();
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+  <defs>
+    <filter id="coverBlur" x="-15%" y="-15%" width="130%" height="130%">
+      <feGaussianBlur stdDeviation="34"/>
+    </filter>
+    <filter id="coverShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="10"/>
+      <feOffset dx="0" dy="8" result="offsetblur"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#coverBlur)">
+    <image href="${coverUri}" x="-60" y="-60" width="${size + 120}" height="${size + 120}"
+           preserveAspectRatio="xMidYMid slice"/>
+  </g>
+  <rect x="0" y="0" width="${size}" height="${size}" fill="#000" opacity="0.10"/>
+  <g filter="url(#coverShadow)">
+    <image href="${coverUri}" x="0" y="0" width="${size}" height="${size}"
+           preserveAspectRatio="xMidYMid meet"/>
+  </g>
+</svg>`;
+  const resvg = new Resvg(svg, {
+    fitTo: { mode: "width", value: size },
+    font: { fontBuffers: fonts, loadSystemFonts: false, defaultFontFamily: "Fredoka" },
+  });
+  return new Uint8Array(resvg.render().asPng());
+}
+
+// ── Composition 2: GALLERY collage (formerly the thumbnail) ─────────
 function assetSvg(place: Placement, dataUri: string | null, tint: string): string {
   const cx = place.x + place.w / 2;
   const cy = place.y + place.h / 2;
-  // Page frame — always render even if the image fetch failed, so the
-  // layout stays balanced. A subtle white paper with faint fill hint.
   const frame = `
     <g transform="rotate(${place.rot} ${cx} ${cy})">
       <rect x="${place.x}" y="${place.y}" width="${place.w}" height="${place.h}"
@@ -208,7 +233,7 @@ function assetSvg(place: Placement, dataUri: string | null, tint: string): strin
   return frame;
 }
 
-async function composeMarketingCard(
+async function composeGalleryCollage(
   coverUri: string | null,
   pageUris: (string | null)[],
   headline: string,
@@ -219,8 +244,6 @@ async function composeMarketingCard(
   const fonts = await loadFonts();
   const layout = variant.layout;
 
-  // Draw fanned pages BEHIND the cover (back-to-front so the last one is
-  // closest to the cover).
   const pagesSvg = layout.pages.map((p, i) => assetSvg(p, pageUris[i] ?? null, variant.pillText)).join("\n");
   const coverSvg = assetSvg(layout.cover, coverUri, variant.pillText);
 
@@ -318,7 +341,7 @@ Deno.serve(async (req: Request) => {
     const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
     const { data: row, error } = await db.from("ebooks_kids")
-      .select("id, book_type, title, cover_url, thumbnail_url, preview_page_urls, blocker_reason, metadata")
+      .select("id, book_type, title, cover_url, thumbnail_url, preview_page_urls, blocker_reason, metadata, storefront_meta")
       .eq("id", ebook_id).maybeSingle();
     if (error) throw error;
     if (!row) return json({ error: "not_found" }, 404);
@@ -326,69 +349,85 @@ Deno.serve(async (req: Request) => {
     if (!row.cover_url) return json({ error: "no_cover_url" }, 422);
 
     const meta = (row.metadata ?? {}) as Record<string, any>;
+    const sf = (row.storefront_meta ?? {}) as Record<string, any>;
     const existing = meta.marketing_thumbnail_meta;
-    if (!force && existing?.version === "etsy_marketing_thumb_v3" && row.thumbnail_url) {
-      return json({ ok: true, skipped: "already_generated", thumbnail_url: row.thumbnail_url });
+    if (!force && existing?.version === "cover_first_gallery_v4"
+        && row.thumbnail_url
+        && Array.isArray(sf.gallery_urls) && sf.gallery_urls.length >= 2) {
+      return json({ ok: true, skipped: "already_generated", thumbnail_url: row.thumbnail_url, gallery_urls: sf.gallery_urls });
     }
 
-    // Gather interior page URLs (up to 3) — prefer preview_page_urls, else
-    // pull first three rendered pages from ebook_assets.
-    let interiorRefs: string[] = Array.isArray(row.preview_page_urls) ? row.preview_page_urls.slice(0, 3) : [];
-    if (interiorRefs.length < 3) {
+    // Gather interior page URLs (up to 4) — prefer preview_page_urls, else
+    // pull first four rendered pages from ebook_assets.
+    let interiorRefs: string[] = Array.isArray(row.preview_page_urls) ? row.preview_page_urls.slice(0, 4) : [];
+    if (interiorRefs.length < 4) {
       const { data: pages } = await db.from("ebook_assets")
         .select("url").eq("ebook_id", ebook_id).eq("kind", "coloring_page")
-        .order("created_at", { ascending: true }).limit(3);
-      if (Array.isArray(pages)) interiorRefs = pages.map((p: any) => p.url).filter(Boolean).slice(0, 3);
+        .order("created_at", { ascending: true }).limit(4);
+      if (Array.isArray(pages)) interiorRefs = pages.map((p: any) => p.url).filter(Boolean).slice(0, 4);
     }
 
+    const coverUri = await fetchAsDataUri(row.cover_url);
+    if (!coverUri) return json({ error: "cover_fetch_failed" }, 502);
+
+    // ─── 1. Square full-bleed cover thumbnail ─────────────────────
+    const squareBytes = await composeSquareCoverThumbnail(coverUri, CANVAS);
+    const squareHash = await sha16(squareBytes);
+    const squarePath = `kids/${ebook_id}/coloring/thumb-square-${Date.now()}-${squareHash}.png`;
+    const squareUp = await uploadAndSignImage(db, "ebook-covers", squarePath, squareBytes, { contentType: "image/png" });
+
+    // ─── 2. Gallery collage (image #2) ────────────────────────────
+    const pageUris = await Promise.all(interiorRefs.slice(0, 3).map(fetchAsDataUri));
     const pageCount = Number(meta.coloring_page_count ?? meta.page_count ?? interiorRefs.length ?? 32) || 32;
     const variant = pickVariant(String(ebook_id));
     const cat = categoryWord(row);
     const ages = ageBand(row);
     const headline = `${pageCount} Cute ${cat} Coloring Pages`;
     const agesLabel = `Ages ${ages}`;
+    const collageBytes = await composeGalleryCollage(coverUri, pageUris, headline, agesLabel, variant);
+    const collageHash = await sha16(collageBytes);
+    const collagePath = `kids/${ebook_id}/coloring/gallery-collage-${Date.now()}-${collageHash}.png`;
+    const collageUp = await uploadAndSignImage(db, "ebook-covers", collagePath, collageBytes, { contentType: "image/png" });
 
-    // Fetch real assets as data URIs so resvg embeds them (signed-URL safe).
-    const [coverUri, ...pageUris] = await Promise.all([
-      fetchAsDataUri(row.cover_url),
-      ...interiorRefs.slice(0, 3).map(fetchAsDataUri),
-    ]);
-
-    // Compose card entirely via SVG → PNG. No AI calls, no spelling risk.
-    const composed = await composeMarketingCard(coverUri, pageUris, headline, agesLabel, variant);
-
-    const hash = await sha16(composed);
-    const path = `kids/${ebook_id}/coloring/marketing-thumb-${Date.now()}-${hash}.png`;
-    const up = await uploadAndSignImage(db, "ebook-covers", path, composed, { contentType: "image/png" });
+    // ─── 3. Gallery order: [square, collage, ...interior pages] ───
+    const gallery_urls: string[] = [
+      squareUp.signedUrl,
+      collageUp.signedUrl,
+      ...interiorRefs.slice(0, 4),
+    ];
 
     const nextMeta = {
       ...meta,
       marketing_thumbnail_meta: {
-        version: "etsy_marketing_thumb_v3",
-        text_rendering: "code_svg_overlay",
-        composition: "code_svg_composite_no_ai",
+        version: "cover_first_gallery_v4",
+        composition: "square_cover_blur_bleed + code_svg_collage",
         canvas: { width: CANVAS, height: CANVAS },
         style_variant: variant.name,
         headline,
         ages: agesLabel,
         page_count: pageCount,
         spelling_pass: true,
-        spelling_reason: "code_rendered_svg_overlay_guarantees_correct_spelling",
-        cover_embedded: Boolean(coverUri),
-        page_thumbs_embedded: pageUris.filter(Boolean).length,
-        source_hash: hash,
-        storage_path: up.path,
-        signed_url: up.signedUrl,
+        spelling_reason: "square_thumb_reuses_gated_cover_art_verbatim",
+        gallery_slot_count: gallery_urls.length,
+        square_storage_path: squareUp.path,
+        collage_storage_path: collageUp.path,
+        source_cover_url: row.cover_url,
         cost_usd: 0,
         rendered_at: new Date().toISOString(),
       },
     };
+    const nextSf = {
+      ...sf,
+      gallery_urls,
+      gallery_version: "cover_first_v4",
+      collage_url: collageUp.signedUrl,
+    };
 
     const updates: Record<string, any> = {
-      thumbnail_url: up.signedUrl,
+      thumbnail_url: squareUp.signedUrl,
       metadata: nextMeta,
+      storefront_meta: nextSf,
     };
-    // Clear stale marketing spelling blocker.
     if (typeof (row as any).blocker_reason === "string" &&
         String((row as any).blocker_reason).startsWith("marketing_thumbnail_spelling")) {
       updates.blocker_reason = null;
@@ -396,10 +435,12 @@ Deno.serve(async (req: Request) => {
     await db.from("ebooks_kids").update(updates).eq("id", ebook_id);
 
     return json({
-      ok: true, thumbnail_url: up.signedUrl, spelling_pass: true,
-      text_rendering: "code_svg_overlay",
-      composition: "code_svg_composite_no_ai",
-      style_variant: variant.name, headline, ages: agesLabel,
+      ok: true,
+      thumbnail_url: squareUp.signedUrl,
+      gallery_urls,
+      composition: "square_cover_blur_bleed + code_svg_collage",
+      version: "cover_first_gallery_v4",
+      style_variant: variant.name,
       cost_usd: 0,
     });
   } catch (e: any) {
