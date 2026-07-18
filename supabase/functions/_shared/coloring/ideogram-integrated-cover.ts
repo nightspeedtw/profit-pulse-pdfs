@@ -122,7 +122,7 @@ export function buildIdeogramIntegratedCoverPrompt(input: IdeogramCoverRequest):
     (input.referenceImageURLs && input.referenceImageURLs.length > 0)
       ? "CHARACTER CONTINUITY — the attached reference images are pages from THIS book's interior. Reuse the SAME characters (same species, same proportions, same friendly faces, same palette family) so the cover cast matches the interior cast exactly. Do NOT invent new characters or restyle them."
       : "",
-    "Full-color painterly illustration, thick crayon-textured line art, soft warm palette, cozy natural light, clean uncluttered background, generous negative space at the top for the title.",
+    "FULL-BLEED COMPOSITION — the illustration MUST extend edge-to-edge on ALL FOUR SIDES of the frame; the painted scene, foliage, sky/ground, and background color reach every edge with NO white borders, NO solid-color side bars, NO framing rectangles, NO letterbox strips. Fill the top 25% of the canvas with continuous painted scenery (sky/ceiling/foliage) that HOSTS the title in-scene rather than sitting above blank space. Full-color painterly illustration, thick crayon-textured line art, soft warm palette, cozy natural light.",
     // Integrated typography (this is what Ideogram excels at)
     "INTEGRATED HAND-LETTERED TYPOGRAPHY baked into the composition — MODEST, COMPACT scale (never oversized):",
     `- The main title reads EXACTLY: "${input.title}"`,
