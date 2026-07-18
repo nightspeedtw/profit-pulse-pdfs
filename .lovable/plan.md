@@ -1,49 +1,58 @@
+# Coloring-Book Lean Mode + Start 1 Book
 
-## Goal
-Complete the 3 unblocked coloring books (Fierce Sea Animals, Cute Cozy, Fierce Floral) to LIVE, then report total token/credit usage including Lovable credits.
+Scope: coloring books ONLY (picture-story pipeline unchanged). Owner rules:
+- Cloudflare Flux (free) = PRIMARY for coloring interiors AND covers. Runware = fallback. fal.ai = last resort.
+- Story/title gate: relaxed. Simple titles like "Cute Puppy", "Naughty Cat", "Dinosaur Land", "Mermaid Adventure" must PASS. No high-quality bar.
+- Non-negotiable gates kept: (a) cover spelling correct, (b) cover characters match interior (same species/style).
+- Interior-first cover law (already built for picture books) extended to coloring: generate interior pages first, then reuse those characters as reference for the cover.
+- After changes deploy, immediately dispatch 1 new coloring book end-to-end.
 
-## Provider tiering (per your directive)
+## Changes
 
-**Covers (high accuracy required):**
-- Tier 1: `gpt-image-1` (OpenAI direct) — $0.04/img, 3/3 spelling pass
-- Tier 2: Ideogram via Runware (`ideogram:4@1`) — $0.06/img
-- Tier 3: Runware base model / Cloudflare — emergency
+### 1. Provider policy: Cloudflare-primary for coloring
+`supabase/functions/_shared/image-providers.ts` + coloring-specific readers.
+- Coloring lane policy: `cloudflare_flux_schnell` → `runware_flux_schnell` → `fal_flux_schnell`.
+- Applies to both `coloring_interior` and `coloring_cover` steps.
+- Picture-book (kids story) lane unchanged (Runware primary).
 
-**Interior coloring pages (line art, cheaper models fine):**
-- Tier 1: Runware (fast, cheap ~$0.005-0.01/img)
-- Tier 2: Cloudflare Workers AI (flux-schnell, near-free)
-- Tier 3: fal.ai (only if others exhausted)
+Also DB flip on `platform_settings.image_provider_policy` (coloring row) to `cloudflare_primary_runware_fallback`.
 
-This matches your instruction: coloring interiors are simple line art and don't need premium models — reserve GPT Image budget for covers only.
+### 2. Relax coloring story/title gate
+`supabase/functions/_shared/coloring/*` (title/theme validator + `publish-contract.ts` coloring branch).
+- Drop rer/buyer subjective score thresholds for coloring.
+- Keep only: title spelling valid, length ≤ 45 chars, contains age-appropriate noun (animal/theme keyword). Simple 2-3 word titles auto-pass.
+- Remove repair loop for coloring story gate (no repair beyond attempt 1 — waive + proceed).
+- Cuts Gemini-Pro rewrite spend for this lane to ~0.
 
-## Execution steps
+### 3. Cover NON-negotiable gates kept
+- Spelling: `verifyExactCoverText` v3 remains strict, non-waivable.
+- Character-cover match: use interior-first pattern — coloring cover generator receives 2-3 interior page URLs as `referenceImageURLs` (Runware img2img) OR Cloudflare with reference conditioning; if CF can't accept refs, escalate to Runware for cover only (covers are 1/book, cost is bounded).
 
-1. **Verify interior routing already prefers cheap tier.** Read `_shared/coloring/page-generator.ts` (or equivalent) + `_shared/image-providers.ts` to confirm interior lane = Runware → Cloudflare → fal, and cover lane = GPT Image → Ideogram/Runware → fal. Patch if the interior lane is accidentally hitting GPT Image.
+### 4. Interior-first ordering for coloring
+`coloring-book-assemble` / `coloring-book-cover` sequencing:
+- Cover step gated: `waitForInteriorPct >= 50%`.
+- Cover prompt seeded from actual interior character descriptions (already captured in page-plan).
 
-2. **Kick the 3 books through the pipeline sequentially** (one at a time to avoid retry storms):
-   - Reset `coloring_cover_invocations=0`, clear `blocker_reason`, set `focus_run=true`, `qc_mode='learning'` on each (already done for the 3).
-   - Invoke `coloring-worker-tick` with `{ focus: true }` in a loop, polling `ebooks_kids` status every ~60s.
-   - Cap total wait at ~15 min per book. If a book stalls on a specific gate, log the reason and move on (Batch Learning Mode already permits this).
+### 5. Dispatch 1 book after deploy
+- Pick 1 queued coloring draft (or create a fresh simple concept like "Cute Puppy Playtime"), set `focus_run=true`, reset invocation counters, trigger `coloring-book-orchestrator`.
+- Watch through to LIVE; report cost + pass/fail per gate.
 
-3. **Verify LIVE state for each book:**
-   - `listing_status='live'`, `sellable=true`, `pdf_url`, `cover_url`, `thumbnail_url` all populated.
-   - Cover uniqueness (dHash) + spelling (v3) gates passed or waived-with-defect logged.
+## Files touched (est.)
+- `supabase/functions/_shared/image-providers.ts` (coloring policy branch)
+- `supabase/functions/_shared/coloring/qc-mode.ts` (relaxed title gate)
+- `supabase/functions/_shared/coloring/publish-contract.ts` (skip subjective story gate for coloring)
+- `supabase/functions/coloring-book-cover/index.ts` (interior-first + reference URLs)
+- `supabase/functions/coloring-book-orchestrator/index.ts` (ordering guard)
+- One `platform_settings` row update
+- One `ebooks_kids` seed + dispatch call
 
-4. **Report token/credit usage** in a single summary:
-   - **Lovable credits**: `credits--get_credit_balance` — current balance, used this period, delta vs before this run.
-   - **Runtime AI $ cost**: `cost_log` grouped by provider (gpt_image_direct, runware_direct, cloudflare, ideogram, gemini_direct, openai_direct, lovable_gateway) for the last 24h and specifically the window of this run.
-   - **Per-book breakdown**: cost per book (cover attempts, interior pages, QC calls).
-   - **Cover Tier-1 pass rate**: fresh sample of GPT Image attempts from `coloring_book_events`.
+## Non-goals
+- No changes to picture-book lane.
+- No changes to spelling gate strictness.
+- No lowering of PDF integrity / trim-lock gates.
 
-## Guardrails
-- Retry ceiling (5 cover invocations/book) stays enforced — no new $118 storm.
-- If GPT Image fails 2× on a book, auto-fallback to Ideogram (already wired).
-- No threshold lowering; waived defects logged to ledger per Batch Learning Mode.
-- One book at a time through the worker (dispatcher cooldown 90s already active).
-
-## Deliverable
-Chat reply with:
-- LIVE/blocked status for each of the 3 books.
-- Full cost table (Lovable credits + runtime $ by provider + per-book).
-- GPT Image pass-rate update.
-- Next recommendation.
+## Reports back
+- Which provider served cover vs interior (from cost_log).
+- Total token/$$ spent on the 1 book.
+- Cover spelling + character-match verdict.
+- Final LIVE URL.
