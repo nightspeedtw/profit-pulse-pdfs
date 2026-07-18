@@ -144,10 +144,17 @@ Deno.serve(async (req: Request) => {
     }
     const missingInterior = Math.max(0, plan.length - pages.length);
 
-    // NON-WAIVABLE PUBLISH CONTRACT — enforced even in learning mode.
-    // Missing/NULL cover QC evidence is a hard FAIL (not a silent pass).
-    // This prevents cross-category cover art (unicorn on ocean, dinosaur
-    // on waves) from shipping just because the vision gate never ran.
+    // GRADED-SEVERITY PUBLISH CONTRACT (owner law 2026-07-18,
+    // retro-unpublish-requires-critical-severity):
+    //   * Contract still evaluated on every publish.
+    //   * FIRST-TIME publish (row not currently live/sellable): ANY reason
+    //     blocks — full-strength gate.
+    //   * ALREADY-LIVE row (row.sellable === true AND listing_status='live'):
+    //     ONLY critical reasons (broken PDF, wrong content, missing pages,
+    //     spelling defect, category mismatch, style violation) demote. Purely
+    //     cosmetic asset-spec drift (thumbnail canvas size, trim ratio drift)
+    //     marks the row `needs_asset_repair`, KEEPS it live/sellable, and
+    //     fires the async repair function so the asset is swapped in place.
     const contract = assertColoringPublishContract({
       book_type: row.book_type,
       cover_url: row.cover_url ?? null,
@@ -155,6 +162,49 @@ Deno.serve(async (req: Request) => {
       metadata: meta,
     });
     if (!contract.pass) {
+      const wasLive = (row as any).sellable === true
+        || (row as any).listing_status === "live";
+      const criticalReasons = contract.critical_reasons ?? contract.reasons;
+      const cosmeticReasons = contract.cosmetic_reasons ?? [];
+      const hasCritical = criticalReasons.length > 0;
+      const cosmeticOnly = !hasCritical && cosmeticReasons.length > 0;
+
+      // Fire the appropriate async repair for whichever assets are drifted.
+      const fireRepair = () => {
+        // Cover regen for style/category defects
+        if (!contract.checks.cover_baked_title_only || !contract.checks.cover_category_verified) {
+          fetch(`${SUPABASE_URL}/functions/v1/coloring-book-cover`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY },
+            body: JSON.stringify({ ebook_id, force: true }),
+          }).catch(() => {});
+        }
+        // Thumbnail regen for canvas/spec defects
+        if (!contract.checks.thumbnail_distinct_and_fitted) {
+          fetch(`${SUPABASE_URL}/functions/v1/coloring-book-thumbnail`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY },
+            body: JSON.stringify({ ebook_id, force: true }),
+          }).catch(() => {});
+        }
+      };
+
+      if (wasLive && cosmeticOnly) {
+        // GRADED SEVERITY: keep live, mark for async repair.
+        const blocker = `needs_asset_repair:${cosmeticReasons.join(" | ")}`.slice(0, 500);
+        await db.from("ebooks_kids").update({
+          blocker_reason: blocker,
+          // Do NOT touch listing_status / sellable / pipeline_status.
+        }).eq("id", ebook_id);
+        await patchMeta(db, ebook_id, {
+          coloring_publish_contract: contract,
+          coloring_current_step_label: `Live — asset repair pending: ${cosmeticReasons.slice(0, 2).join("; ")}`,
+        });
+        fireRepair();
+        return json({ ok: true, needs_asset_repair: true, kept_live: true, contract });
+      }
+
+      // First-time publish OR any critical reason → demote as before.
       const blocker = contract.reasons.join(" | ").slice(0, 480);
       await db.from("ebooks_kids").update({
         listing_status: "draft", status: "needs_revision", pipeline_status: "queued",
@@ -165,14 +215,7 @@ Deno.serve(async (req: Request) => {
         coloring_publish_contract: contract,
         coloring_current_step_label: `Publish blocked (contract): ${contract.reasons.slice(0, 3).join("; ")}`,
       });
-      // Force cover regeneration if the category/style check is what failed.
-      if (!contract.checks.cover_baked_title_only || !contract.checks.cover_category_verified) {
-        fetch(`${SUPABASE_URL}/functions/v1/coloring-book-cover`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY },
-          body: JSON.stringify({ ebook_id, force: true }),
-        }).catch(() => {});
-      }
+      fireRepair();
       return json({ ok: false, publish_contract_blocked: true, contract });
     }
 

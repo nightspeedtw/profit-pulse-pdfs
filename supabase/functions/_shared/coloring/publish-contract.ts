@@ -29,9 +29,23 @@ export interface ColoringPublishContractInput {
   metadata: Record<string, unknown> | null;
 }
 
+// Owner law (2026-07-18, retro-unpublish-graded-severity-v1):
+// Only CRITICAL defects justify auto-unpublishing a book that is already
+// live. Cosmetic asset-spec drift (thumbnail canvas size, trim ratio drift
+// within tolerance, etc.) may block a first-time publish but MUST NOT yank
+// live inventory off the shelf — the row is marked needs_asset_repair
+// instead and the asset is regenerated asynchronously.
+export type ContractSeverity = "critical" | "cosmetic";
+const COSMETIC_PREFIXES = ["thumbnail_contract_fail", "trim_mismatch"];
+export function classifyContractReason(reason: string): ContractSeverity {
+  return COSMETIC_PREFIXES.some((p) => reason.startsWith(p)) ? "cosmetic" : "critical";
+}
+
 export interface ColoringPublishContractResult {
   pass: boolean;
   reasons: string[];
+  critical_reasons: string[];
+  cosmetic_reasons: string[];
   contract_version: string;
   checks: {
     cover_baked_title_only: boolean;
@@ -42,7 +56,7 @@ export interface ColoringPublishContractResult {
   };
 }
 
-export const COLORING_PUBLISH_CONTRACT_VERSION = "coloring_cover_thumbnail_contract_v3_spelling";
+export const COLORING_PUBLISH_CONTRACT_VERSION = "coloring_cover_thumbnail_contract_v4_graded_severity";
 
 // Chrome/marketing tokens that are OK to appear even if not part of the
 // approved title/subtitle/age-badge. Mirrors CHROME_TOKENS in
@@ -138,27 +152,23 @@ export function assertColoringPublishContract(
     reasons.push(`trim_mismatch:cover=${cw}x${ch};expected_ratio=${expectedRatio.toFixed(4)}`);
   }
 
-  // 3. Distinct fitted thumbnail
-  //
-  // The storefront thumbnail is intentionally letterbox-trimmed to the
-  // native art aspect (fix from cover-pdf-embed-crop-v1 / owner "no white
-  // bars" rule), so it will NOT match COLORING_TRIM.thumbnailPx exactly.
-  // We assert:
-  //   - distinct: a dedicated thumbnail asset was rendered (not the cover)
-  //   - non_crop: the compositor confirmed no artwork was clipped
-  //   - canvas_ok: a real thumbnail canvas was produced at retina size
-  //     (shortest side ≥ 500px), any aspect the trimmed art needs.
+  // 3. Distinct fitted thumbnail — MUST match COLORING_TRIM.thumbnailPx
+  //    (600×776) exactly. Owner directive 2026-07-18: close the canvas_ok
+  //    gate by rendering to the exact contract spec instead of arguing with
+  //    the gate. This is classified as COSMETIC in classifyContractReason,
+  //    so failures never yank live inventory — they trigger async repair.
   const distinct = !!input.thumbnail_url
     && !!input.cover_url
     && input.thumbnail_url !== input.cover_url;
   const nonCrop = thumbMeta.non_crop_pass === true;
   const tw = Number(thumbMeta?.canvas?.width ?? 0);
   const th = Number(thumbMeta?.canvas?.height ?? 0);
-  const canvasOk = tw >= 500 && th >= 500;
+  const spec = COLORING_TRIM.thumbnailPx;
+  const canvasOk = tw === spec.width && th === spec.height;
   const thumbOk = distinct && nonCrop && canvasOk;
   if (!thumbOk) {
     reasons.push(
-      `thumbnail_contract_fail:distinct=${distinct};non_crop=${nonCrop};canvas_ok=${canvasOk};canvas=${tw}x${th}`,
+      `thumbnail_contract_fail:distinct=${distinct};non_crop=${nonCrop};canvas_ok=${canvasOk};canvas=${tw}x${th};expected=${spec.width}x${spec.height}`,
     );
   }
 
@@ -194,9 +204,14 @@ export function assertColoringPublishContract(
   const spelling = checkCoverSpelling(cover, gateSc);
   if (!spelling.pass && spelling.reason) reasons.push(spelling.reason);
 
+  const critical_reasons = reasons.filter((r) => classifyContractReason(r) === "critical");
+  const cosmetic_reasons = reasons.filter((r) => classifyContractReason(r) === "cosmetic");
+
   return {
     pass: reasons.length === 0,
     reasons,
+    critical_reasons,
+    cosmetic_reasons,
     contract_version: COLORING_PUBLISH_CONTRACT_VERSION,
     checks: {
       cover_baked_title_only: bakedOnly,

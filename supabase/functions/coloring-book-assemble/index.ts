@@ -37,7 +37,7 @@ import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/c
 import { appendDefectLedger, WAIVER_REPAIR_ATTEMPTS } from "../_shared/coloring/defect-ledger.ts";
 import { readQcMode, waiveOrBlock } from "../_shared/coloring/qc-mode.ts";
 import { checkCoverAspect } from "../_shared/coloring/cover-aspect-gate.ts";
-import { fitContainCover } from "../_shared/coloring/pdf-cover-fit.ts";
+import { fitContainCover, fitCoverFullBleed } from "../_shared/coloring/pdf-cover-fit.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -462,11 +462,11 @@ Deno.serve(async (req: Request) => {
     const coverImg = await embedAny(doc, coverBytes);
     {
       const p = doc.addPage([PAGE_W, PAGE_H]);
-      // fit-CONTAIN on a white letterbox (round_2 regression: cover-crop-v3).
-      // Never fit-COVER — that mathematically overflows whenever raster
-      // ratio isn't bit-exact with the page ratio, clipping the baked title.
-      p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(1, 1, 1) });
-      const placement = fitContainCover(coverImg.width, coverImg.height, PAGE_W, PAGE_H);
+      // Owner law 2026-07-18 (cover-pdf-full-bleed-v2): the PDF cover page
+      // MUST fill the sheet edge-to-edge — no white paper visible. Aspect
+      // gate above bounds raster drift to ≤1% of 8.5:11, so fit-COVER crops
+      // <4pt on one axis (invisible) while eliminating the letterbox.
+      const placement = fitCoverFullBleed(coverImg.width, coverImg.height, PAGE_W, PAGE_H);
       p.drawImage(coverImg, {
         x: placement.x, y: placement.y, width: placement.w, height: placement.h,
       });

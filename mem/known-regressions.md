@@ -586,3 +586,31 @@ storefront thumbnail canvas to equal COLORING_TRIM.thumbnailPx exactly
 guarantee. Trim-lock still governs cover master + interior + PDF pages.
 Regression symptom: book already reached LIVE, then silently reverted
 after a thumbnail regen.
+
+## retro-unpublish-graded-severity-v1 (2026-07-18)
+
+Owner law: hard gates stay full-strength on FIRST-time publish, but a book
+that is already live/sellable may only be auto-unpublished by a CRITICAL
+defect (broken PDF, wrong/missing content, cover style/category/spelling
+violation). Cosmetic contract failures (thumbnail canvas spec, trim ratio
+drift within tolerance) mark the row `needs_asset_repair`, KEEP it live,
+and fire an async repair (thumbnail regen / cover regen) so the asset is
+swapped in place. `publish-contract.ts` now returns
+`critical_reasons` / `cosmetic_reasons`; `coloring-book-publish` branches
+on `wasLive && cosmeticOnly`. Contract version bumped to v4_graded_severity.
+
+## cover-pdf-full-bleed-v2 (2026-07-18)
+
+The 8.5:11 aspect gate bounds cover-raster drift to <=1%, so the PDF cover
+page can safely use fit-COVER (`fitCoverFullBleed`) instead of fit-CONTAIN
+letterbox. Result: zero white paper visible around the cover, crop bounded
+to <4pt on one axis (invisible). Owner directive: "ไม่เหลือส่วนว่างกระดาษขาว".
+Compositor still fit-CONTAINs upstream with edge-sampled bars so the baked
+title never overflows the raster.
+
+## coloring-thumbnail-spec-v3 (2026-07-18)
+
+Thumbnail rendered to the EXACT publish-contract spec (600×776 =
+`COLORING_TRIM.thumbnailPx`) using fit-CONTAIN plus edge-sampled letterbox
+(same technique as the cover compositor). Closes `canvas_ok=false` without
+weakening the gate. Storefront frame is `aspect-[600/776]`.

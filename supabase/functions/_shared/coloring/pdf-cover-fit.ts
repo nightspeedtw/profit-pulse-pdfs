@@ -32,11 +32,29 @@ export function fitContainCover(
   const scale = Math.min(pageW / imageW, pageH / imageH);
   const w = imageW * scale;
   const h = imageH * scale;
-  return {
-    x: (pageW - w) / 2,
-    y: (pageH - h) / 2,
-    w,
-    h,
-    scale,
-  };
+  return { x: (pageW - w) / 2, y: (pageH - h) / 2, w, h, scale };
+}
+
+/**
+ * Full-bleed cover placement (owner law 2026-07-18, cover-pdf-full-bleed-v2):
+ * fill the PDF page edge-to-edge with the cover raster — no white paper
+ * visible around the cover. Safe to use because the upstream aspect gate
+ * (checkCoverAspect) keeps the raster within 1% of 8.5:11, so the crop
+ * from fit-COVER is bounded to ≤1% on one axis (invisible in print,
+ * < 4pt on a letter page) while the baked title stays centered inside the
+ * safe zone the compositor reserves.
+ */
+export function fitCoverFullBleed(
+  imageW: number,
+  imageH: number,
+  pageW: number,
+  pageH: number,
+): CoverFitPlacement {
+  if (imageW <= 0 || imageH <= 0 || pageW <= 0 || pageH <= 0) {
+    throw new Error(`fitCoverFullBleed: invalid dims ${imageW}x${imageH} on ${pageW}x${pageH}`);
+  }
+  const scale = Math.max(pageW / imageW, pageH / imageH);
+  const w = imageW * scale;
+  const h = imageH * scale;
+  return { x: (pageW - w) / 2, y: (pageH - h) / 2, w, h, scale };
 }

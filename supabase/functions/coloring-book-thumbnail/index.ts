@@ -46,7 +46,6 @@ function detectContentBounds(img: any): { x: number; y: number; w: number; h: nu
     return a < 8 || (r >= 245 && g >= 245 && b >= 245);
   };
   let top = 0, bottom = H - 1, left = 0, right = W - 1;
-  // Scan top
   outerTop: for (; top < H; top++) {
     for (let x = 0; x < W; x += 4) if (!isBg(img.getPixelAt(x + 1, top + 1))) break outerTop;
   }
@@ -59,7 +58,6 @@ function detectContentBounds(img: any): { x: number; y: number; w: number; h: nu
   outerR: for (; right > left; right--) {
     for (let y = top; y <= bottom; y += 4) if (!isBg(img.getPixelAt(right + 1, y + 1))) break outerR;
   }
-  // Guard: if detection collapsed, keep full frame.
   if (right - left < W * 0.3 || bottom - top < H * 0.3) {
     return { x: 0, y: 0, w: W, h: H };
   }
@@ -67,10 +65,15 @@ function detectContentBounds(img: any): { x: number; y: number; w: number; h: nu
 }
 
 /**
- * Render a fitted thumbnail sized to the ACTUAL art aspect (after trimming
- * the compositor's white letterbox). No secondary letterbox — the storefront
- * frame matches the raster edge-to-edge. Target long-edge = 900 px.
+ * Render the thumbnail to the EXACT publish-contract spec (600×776 =
+ * COLORING_TRIM.thumbnailPx), fit-CONTAIN so no artwork is clipped, with
+ * the letterbox filled from the art's own sampled edge color (never white
+ * bars). Owner directive 2026-07-18: match `coloring_publish_contract`
+ * canvas_ok exactly, keep full artwork visible.
  */
+const THUMB_W = 600;
+const THUMB_H = 776;
+
 async function renderThumbnail(coverBytes: Uint8Array): Promise<{
   bytes: Uint8Array;
   meta: {
@@ -88,24 +91,46 @@ async function renderThumbnail(coverBytes: Uint8Array): Promise<{
   const trimmed = (bounds.w === src.width && bounds.h === src.height)
     ? src
     : (src as any).crop(bounds.x, bounds.y, bounds.w, bounds.h);
-
-  // Target long-edge 900 px, preserve trimmed aspect exactly.
-  const LONG = 900;
   const tw = trimmed.width, th = trimmed.height;
-  const scale = Math.min(LONG / Math.max(tw, th), 1);
-  const cw = Math.max(1, Math.round(tw * scale));
-  const ch = Math.max(1, Math.round(th * scale));
-  const canvas = trimmed.clone().resize(cw, ch);
+
+  // fit-CONTAIN onto exact 600×776 canvas.
+  const scale = Math.min(THUMB_W / tw, THUMB_H / th);
+  const sw = Math.max(1, Math.round(tw * scale));
+  const sh = Math.max(1, Math.round(th * scale));
+  const resized = (trimmed as any).resize(sw, sh);
+
+  // Sample the outer 1px border of the resized art to pick a bg color that
+  // blends with the artwork. Averaging is robust to gradients/textures.
+  let rSum = 0, gSum = 0, bSum = 0, n = 0;
+  const sample = (x: number, y: number) => {
+    const p = (resized as any).getPixelAt(x + 1, y + 1);
+    rSum += (p >>> 24) & 0xff;
+    gSum += (p >>> 16) & 0xff;
+    bSum += (p >>> 8) & 0xff;
+    n++;
+  };
+  for (let x = 0; x < sw; x++) { sample(x, 0); sample(x, sh - 1); }
+  for (let y = 0; y < sh; y++) { sample(0, y); sample(sw - 1, y); }
+  const r = n ? Math.round(rSum / n) & 0xff : 0xff;
+  const g = n ? Math.round(gSum / n) & 0xff : 0xff;
+  const b = n ? Math.round(bSum / n) & 0xff : 0xff;
+  const fillRgba = (((r << 24) | (g << 16) | (b << 8) | 0xff) >>> 0);
+
+  const canvas = new Image(THUMB_W, THUMB_H);
+  (canvas as any).fill(fillRgba);
+  const offX = Math.floor((THUMB_W - sw) / 2);
+  const offY = Math.floor((THUMB_H - sh) / 2);
+  (canvas as any).composite(resized, offX, offY);
 
   const bytes = await canvas.encodeJPEG(88);
   return {
     bytes,
     meta: {
-      canvas: { width: cw, height: ch },
+      canvas: { width: THUMB_W, height: THUMB_H },
       source_size: { width: src.width, height: src.height },
       trimmed_size: { width: tw, height: th },
       trim_bounds: bounds,
-      aspect_w_over_h: cw / ch,
+      aspect_w_over_h: THUMB_W / THUMB_H,
       non_crop_pass: true,
       format: "image/jpeg",
     },
@@ -130,7 +155,7 @@ Deno.serve(async (req: Request) => {
     const meta = (row.metadata ?? {}) as Record<string, any>;
     const existing = meta.thumbnail_render_meta ?? null;
     if (!force
-      && existing?.version === "coloring_thumbnail_v2_trimmed"
+      && existing?.version === "coloring_thumbnail_v3_spec_600x776"
       && row.thumbnail_url
       && row.thumbnail_url !== row.cover_url) {
       return json({ ok: true, skipped: "already_fitted", thumbnail_url: row.thumbnail_url });
@@ -155,7 +180,7 @@ Deno.serve(async (req: Request) => {
       ...meta,
       thumbnail_render_meta: {
         ...renderMeta,
-        version: "coloring_thumbnail_v2_trimmed",
+        version: "coloring_thumbnail_v3_spec_600x776",
         source_cover_url: row.cover_url,
         source_hash: hash,
         rendered_at: new Date().toISOString(),
