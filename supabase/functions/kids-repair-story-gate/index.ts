@@ -20,6 +20,7 @@ import { runKidsStoryJudge, type StoryReport } from '../_shared/kids-story-judge
 import { computeManuscriptHash } from '../_shared/manuscript-hash.ts';
 import { logAiCost, costDb } from '../_shared/cost-log.ts';
 import { loadRepairGuidanceForDimension, loadStoryCraftBlock, repairGuidanceForDimension } from '../_shared/story-craft-skill.ts';
+import { smartChat } from '../_shared/direct-fallback.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
