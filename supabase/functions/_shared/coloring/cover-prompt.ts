@@ -42,21 +42,45 @@ export interface CoveringCoverPromptInput {
    * assertion helper below can prove absence.
    */
   bannedTitle: string;
+  /**
+   * Optional per-band cover art-direction pack. When present, the profile's
+   * `art_style_language`, `cover_art_direction`, and `cover_forbidden_language`
+   * are injected so covers match the reader age (toddler board-book vs
+   * tween graphic novel vs teen adult-adjacent).
+   */
+  bandProfile?: {
+    label: string;
+    art_style_language: string;
+    cover_art_direction: string;
+    cover_forbidden_language: string;
+  } | null;
 }
 
 export function buildColoringCoverArtPrompt(input: CoveringCoverPromptInput): string {
-  const { categoryName, ageMin, ageMax, heroSubjects, extraClauses = [], forbiddenSubjects = [] } = input;
+  const { categoryName, ageMin, ageMax, heroSubjects, extraClauses = [], forbiddenSubjects = [], bandProfile } = input;
   const forbiddenList = forbiddenSubjects
     .filter((s): s is string => typeof s === "string" && s.trim().length > 0)
     .slice(0, 12);
   const forbiddenClause = forbiddenList.length > 0
     ? `STRICT CATEGORY FIT for "${categoryName}": every visible creature must belong to this category. Do NOT include any of these off-category subjects: ${forbiddenList.join(", ")}. If unsure, choose one of the allowed subjects listed above.`
     : null;
+  const bandStyleClause = bandProfile
+    ? `AGE-BAND ART STYLE (${bandProfile.label}): ${bandProfile.art_style_language}.`
+    : null;
+  const bandDirectionClause = bandProfile
+    ? `COVER ART DIRECTION: ${bandProfile.cover_art_direction}`
+    : null;
+  const bandForbiddenClause = bandProfile
+    ? `AGE-BAND FORBIDDEN ON COVER: ${bandProfile.cover_forbidden_language}`
+    : null;
   const clauses = [
     `Full-color cheerful children's coloring-book COVER BACKGROUND ART ONLY for "${categoryName}" ages ${ageMin}-${ageMax}.`,
+    bandStyleClause,
+    bandDirectionClause,
     `Show 3-5 cute friendly subjects drawn ONLY from this on-category set: ${heroSubjects.slice(0, 8).join(", ")}.`,
     `Rich colorful painterly storefront cover scene; NOT line art, NOT black-and-white, NOT an interior page. Leave clean upper-half space for later SVG title overlay.`,
     forbiddenClause,
+    bandForbiddenClause,
     ...extraClauses.filter((c): c is string => typeof c === "string" && c.length > 0),
     TEXTLESS_DIRECTIVE,
     `No title/subtitle/age badge, no letters/numbers/watermark/logo/signage/mockup/UI, no blank canvas, no grayscale, no solid black water.`,
