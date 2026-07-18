@@ -218,6 +218,38 @@ async function generateViaRunware(
   opts: { timeoutMs?: number; seed?: number },
 ): Promise<IdeogramCoverResult> {
   if (!RUNWARE_API_KEY) throw new Error("provider_unconfigured:RUNWARE_API_KEY_missing");
+  // Native-trim-ratio order: try 896×1152 first (closest to 0.7727); if the
+  // Ideogram grid rejects it as unsupported, retry once at 832×1088 (already
+  // known-good) — still native, still ≤1.05% ratio deviation.
+  const attempts: Array<[number, number]> = [
+    [RUNWARE_IDEOGRAM_WIDTH, RUNWARE_IDEOGRAM_HEIGHT],
+    [RUNWARE_IDEOGRAM_WIDTH_FALLBACK, RUNWARE_IDEOGRAM_HEIGHT_FALLBACK],
+  ];
+  let lastErr: unknown = null;
+  for (let i = 0; i < attempts.length; i++) {
+    const [w, h] = attempts[i];
+    try {
+      return await runwareIdeogramOnce(request, opts, w, h);
+    } catch (e) {
+      lastErr = e;
+      const msg = String((e as Error)?.message ?? "");
+      // Only fall through on dimension/validation rejections. Billing or
+      // network errors propagate immediately.
+      if (i < attempts.length - 1 && /dimension|resolution|invalid|not supported|422/i.test(msg)) {
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr as Error;
+}
+
+async function runwareIdeogramOnce(
+  request: IdeogramCoverRequest,
+  opts: { timeoutMs?: number; seed?: number },
+  width: number,
+  height: number,
+): Promise<IdeogramCoverResult> {
   const prompt = buildIdeogramIntegratedCoverPrompt(request);
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const controller = new AbortController();
@@ -229,8 +261,8 @@ async function generateViaRunware(
     taskUUID,
     positivePrompt: prompt.slice(0, 3000),
     model: RUNWARE_IDEOGRAM_MODEL,
-    width: RUNWARE_IDEOGRAM_WIDTH,
-    height: RUNWARE_IDEOGRAM_HEIGHT,
+    width,
+    height,
     numberResults: 1,
     outputType: ["URL"],
     outputFormat: "JPEG",
@@ -248,7 +280,6 @@ async function generateViaRunware(
     });
     const bodyText = await res.text();
     if (!res.ok) {
-      // 402/insufficient-credit style responses → billing exhausted
       if (res.status === 402 || /balance|credit|insufficient|billing|payment required/i.test(bodyText)) {
         throw new Error(`provider_billing_exhausted:runware_ideogram:${bodyText.slice(0, 200)}`);
       }
@@ -270,9 +301,6 @@ async function generateViaRunware(
     const imgRes = await fetch(first.imageURL);
     if (!imgRes.ok) throw new Error(`runware_ideogram_download_http_${imgRes.status}`);
     const bytes = new Uint8Array(await imgRes.arrayBuffer());
-
-    // Best-effort cost logging — runware billing lives in the same key so
-    // this shows up in the same cost_log stream as interior generation.
     try {
       const { logAiCost, costDb } = await import("../cost-log.ts");
       logAiCost(costDb(), {
@@ -284,10 +312,9 @@ async function generateViaRunware(
         provider: "runware_ideogram_cover",
       });
     } catch (_e) { /* non-fatal */ }
-
     return {
       bytes,
-      provider: "fal_ideogram_v3", // kept for scorecard back-compat; actual host is runware
+      provider: "fal_ideogram_v3",
       prompt,
       seed: first?.seed ?? opts.seed,
       request_id: taskUUID,
@@ -296,6 +323,7 @@ async function generateViaRunware(
     clearTimeout(timer);
   }
 }
+
 
 async function generateViaFalEmergency(
   request: IdeogramCoverRequest,
