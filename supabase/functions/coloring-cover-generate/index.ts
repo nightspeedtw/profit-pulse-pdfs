@@ -20,6 +20,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { buildColoringCoverArtPrompt } from "../_shared/coloring/cover-prompt.ts";
 import { generateIdeogramIntegratedCover } from "../_shared/coloring/ideogram-integrated-cover.ts";
+import { resolveTrimProfileKey, TRIM_PROFILES } from "../_shared/coloring/trim-lock.ts";
 import { loadActivePreventionRules, indexRulesBySpecies, pickLearnedRulesFor, learnedClauseFromRules } from "../_shared/coloring/first-pass-learner.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 import { classifyProviderError } from "../_shared/covers/provider-errors.ts";
@@ -74,13 +75,28 @@ Deno.serve(async (req: Request) => {
     if (!ebookId) return json({ error: "ebook_id required" }, 400);
 
     const { data: row, error } = await db.from("ebooks_kids")
-      .select("id, book_type, title, subtitle, metadata, cover_url")
+      .select("id, book_type, title, subtitle, metadata, cover_url, created_at")
       .eq("id", ebookId).maybeSingle();
     if (error) throw error;
     if (!row) return json({ error: "not_found" }, 404);
     if (row.book_type !== "coloring_book") return json({ error: "wrong_lane" }, 400);
 
     const meta = (row.metadata ?? {}) as Record<string, unknown>;
+
+    // Phase A: resolve trim profile → cover dims. Missing on post-cutoff row = hard blocker.
+    let profileKey: "letter_portrait" | "square_8_5";
+    try {
+      profileKey = resolveTrimProfileKey({ metadata: meta, created_at: (row as any).created_at ?? null });
+    } catch (e) {
+      const reason = `trim_profile_unresolved:${String((e as Error)?.message ?? e).slice(0, 200)}`;
+      await patchMeta(db, ebookId, {
+        coloring_current_step_label: `Cover blocked — ${reason}`,
+        coloring_blocker: { class: "persistence_contract_bug", reason, detected_at: new Date().toISOString() },
+      });
+      await db.from("ebooks_kids").update({ pipeline_status: "queued", blocker_reason: reason }).eq("id", ebookId);
+      return json({ error: reason }, 422);
+    }
+    const profile = TRIM_PROFILES[profileKey];
 
     // If cover already exists, advance immediately.
     if (row.cover_url && meta.coloring_cover) {
@@ -164,7 +180,7 @@ Deno.serve(async (req: Request) => {
         generateIdeogramIntegratedCover({
           categoryName: categoryNameFinal, heroSubjects, title: row.title, subtitle, ageBadge,
           ageMin, ageMax, totalPages, forbiddenSubjects, forbiddenBackgrounds: forbiddenSubjects,
-          referenceImageURLs, ebook_id: ebookId,
+          referenceImageURLs, ebook_id: ebookId, trimProfileKey: profileKey,
         }, { timeoutMs: IDEOGRAM_GEN_TIMEOUT_MS, seed: (priorInvocations + 1) * 1009, db }),
         IDEOGRAM_GEN_TIMEOUT_MS + 5_000, `ideogram_inv${priorInvocations + 1}`,
       );
