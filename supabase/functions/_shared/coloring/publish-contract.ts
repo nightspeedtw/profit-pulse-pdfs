@@ -139,16 +139,26 @@ export function assertColoringPublishContract(
   }
 
   // 3. Distinct fitted thumbnail
+  //
+  // The storefront thumbnail is intentionally letterbox-trimmed to the
+  // native art aspect (fix from cover-pdf-embed-crop-v1 / owner "no white
+  // bars" rule), so it will NOT match COLORING_TRIM.thumbnailPx exactly.
+  // We assert:
+  //   - distinct: a dedicated thumbnail asset was rendered (not the cover)
+  //   - non_crop: the compositor confirmed no artwork was clipped
+  //   - canvas_ok: a real thumbnail canvas was produced at retina size
+  //     (shortest side ≥ 500px), any aspect the trimmed art needs.
   const distinct = !!input.thumbnail_url
     && !!input.cover_url
     && input.thumbnail_url !== input.cover_url;
   const nonCrop = thumbMeta.non_crop_pass === true;
-  const canvasOk = Number(thumbMeta?.canvas?.width) === COLORING_TRIM.thumbnailPx.width
-      && Number(thumbMeta?.canvas?.height) === COLORING_TRIM.thumbnailPx.height;
+  const tw = Number(thumbMeta?.canvas?.width ?? 0);
+  const th = Number(thumbMeta?.canvas?.height ?? 0);
+  const canvasOk = tw >= 500 && th >= 500;
   const thumbOk = distinct && nonCrop && canvasOk;
   if (!thumbOk) {
     reasons.push(
-      `thumbnail_contract_fail:distinct=${distinct};non_crop=${nonCrop};canvas_ok=${canvasOk}`,
+      `thumbnail_contract_fail:distinct=${distinct};non_crop=${nonCrop};canvas_ok=${canvasOk};canvas=${tw}x${th}`,
     );
   }
 
