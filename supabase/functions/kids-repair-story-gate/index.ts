@@ -156,24 +156,10 @@ async function rewriteManuscript(system: string, user: string, ebook_id: string 
   // Only the final attempt escalates to pro. This drops story-gate rewrite
   // spend by ~90% while preserving the "final polish on the best model" path.
   const model = attempt >= MAX_ATTEMPTS ? 'google/gemini-2.5-pro' : 'google/gemini-2.5-flash';
-  const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-    }),
-  });
-  if (!res.ok) throw new Error(`rewrite ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const j = await res.json();
-  const usage = j?.usage ?? {};
-  logAiCost(costDb(), { ebook_id, step: 'kids_repair_story_gate_rewrite', model,
-    input_tokens: usage.prompt_tokens ?? 0, output_tokens: usage.completion_tokens ?? 0, provider: 'gateway' });
-  const text = j?.choices?.[0]?.message?.content ?? '';
-  return String(text).replace(/^```(?:markdown|md)?\s*|\s*```$/g, '').trim();
+  const r = await smartChat({ model, system, user, responseJson: false });
+  logAiCost(costDb(), { ebook_id, step: 'kids_repair_story_gate_rewrite', model: r.model,
+    input_tokens: r.input_tokens, output_tokens: r.output_tokens, provider: r.provider });
+  return String(r.text).replace(/^```(?:markdown|md)?\s*|\s*```$/g, '').trim();
 }
 
 Deno.serve(async (req) => {
