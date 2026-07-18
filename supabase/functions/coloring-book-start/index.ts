@@ -115,7 +115,8 @@ Deno.serve(async (req: Request) => {
         metadata: {
           trim_profile,
           coloring_category_key: category.category_key,
-          coloring_age_band: age_band,
+          coloring_age_band: resolvedBandKey,
+          coloring_age_band_input: age_band,
           coloring_page_count: page_count,
           coloring_angle: angle,
           coloring_variant: variant_number,
