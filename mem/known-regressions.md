@@ -502,3 +502,41 @@ inside a retry loop, add a downsampling step BEFORE the RGBA allocation
 and BEFORE storing bytes in any loop-scoped collection. Preview / QC /
 fingerprint math should operate on 256-512 px canvases; only the
 compositor's single final render needs full resolution.
+
+## cover-function-worker-oom-v1 — SPLIT (2026-07-18)
+
+**Follow-up:** downsampling alone was insufficient — even the reduced
+allocations stacked past the isolate budget when combined with the
+compositor + base64 vision bodies + fingerprint math in one invocation.
+Confirmed by book c2839b88 dying with `WORKER_RESOURCE_LIMIT` after
+downsample patch.
+
+**Structural fix:** split `coloring-book-cover` into two edge functions:
+- `coloring-cover-generate` — provider call → upload raw bytes to
+  `pending-verify/` storage path → stamp `metadata.cover_pending_verify`
+  with signed URL + context → enqueue verify. NO decodes.
+- `coloring-cover-verify` — fetch signed URL once → decode ONCE
+  downsampled to 512 px → run color + fingerprint + rendered proof on
+  the downsampled RGBA → vision gates (text + hero) via URL reference
+  (no base64 request body) → on pass, fit to canvas + atomic swap
+  `cover_url` + chain thumbnail/assemble; on fail, requeue as
+  `cover_pdf_publish` for another generate (ceiling-bound at 5).
+
+Vision helpers now expose `transcribeGlyphsByUrl`,
+`verifyCategoryHeroByUrl`, and `verifyExactCoverTextByUrl` — gateway-only
+variants that pass an https URL directly in `image_url.url` so the
+gateway/OpenRouter fetches server-side. Removes the 2–6 MB base64 body
+per vision call.
+
+`MAX_IDEOGRAM_ATTEMPTS = 1` is now correct by design because retries
+are cross-invocation — each attempt is its own fresh isolate/heap. The
+5-invocation ceiling still bounds total spend.
+
+Worker-tick routing: `awaiting: cover_verify` → `coloring-cover-verify`;
+`awaiting: cover_pdf_publish` && !cover_url → `coloring-cover-generate`.
+
+**Rule:** any edge function that must decode, transform, and QC a
+provider-produced image should split at the point after upload. The
+verifier runs in a fresh isolate against the signed URL; the generator
+never sees the pixels it just uploaded.
+
