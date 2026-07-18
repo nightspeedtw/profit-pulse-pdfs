@@ -17,10 +17,11 @@ import { parseModelJson } from './model-json.ts';
 // added scene-specific detail and, for reference-conditioned, a small nudge
 // in composition guidance).
 
-import { falFluxSchnell } from "./fal.ts";
+import { generateImageWithFailover, readImageProviderPolicy } from "./image-providers.ts";
 import { generateWithReference } from "./kids-image-gen.ts";
 import { generateLiveImage } from "./image-luminance.ts";
 import { TEXTLESS_DIRECTIVE } from "./textless-illustration-policy.ts";
+
 
 export interface SceneRecord {
   index: number;
@@ -208,23 +209,34 @@ async function renderOneReference(
 }
 
 
-async function renderOneFal(
+async function renderOneTextOnly(
   s: ScenePlan["scenes"][number],
   charDesc: string,
   styleSuffix: string,
-  negativePrompt: string,
+  _negativePrompt: string,
   attempt: number,
+  // deno-lint-ignore no-explicit-any
+  db: any,
+  ebookId?: string,
+  step = "kids_interior_page_textonly",
 ): Promise<{ bytes: Uint8Array; model: string; prompt: string }> {
   const nudge = attempt > 0
     ? `Distinct composition ${attempt + 1}: unique camera angle and framing, unique background details for: ${s.scene}. Keep the 1:1 square shape.`
     : "";
   const prompt = buildScenePrompt(s, charDesc, styleSuffix, nudge);
-  const bytes = await falFluxSchnell({
-    prompt, image_size: "square_hd",
-    negative_prompt: `${negativePrompt}, text, letters, words, caption, watermark, logo, deformed hands, six fingers, extra fingers, off-model character, letterbox, black bars`,
-  });
-  return { bytes, model: "fal-ai/flux/schnell", prompt };
+  // Route through the shared failover chain (Runware→Cloudflare→Fal) so a
+  // billing-blocked provider (per provider_billing_blocked latches) is
+  // skipped instead of hard-crashing every page. Hardcoded fal here was the
+  // provider-monoculture defect from provider_resilience_character_reference.
+  const policy = (await readImageProviderPolicy(db)).interiors;
+  const { bytes, provider } = await generateImageWithFailover(
+    { prompt, image_size: "square_hd", num_inference_steps: 4, ebook_id: ebookId, step },
+    policy,
+    db,
+  );
+  return { bytes, model: provider, prompt };
 }
+
 
 export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Promise<SceneRecord[]> {
   const records: SceneRecord[] = new Array(opts.scenes.length);
