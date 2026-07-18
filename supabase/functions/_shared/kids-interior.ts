@@ -254,10 +254,11 @@ export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Pro
       try {
         return await renderOneReference(s, opts.characterDescription, opts.styleSuffix, refs, attempt);
       } catch (e) {
-        console.warn(`ref-gen page ${i + 1} failed, falling back to fal:`, (e as Error).message);
-        return await renderOneFal(s, opts.characterDescription, opts.styleSuffix, opts.negativePrompt, attempt);
+        console.warn(`ref-gen page ${i + 1} failed, falling back to shared failover chain:`, (e as Error).message);
+        return await renderOneTextOnly(s, opts.characterDescription, opts.styleSuffix, opts.negativePrompt, attempt, opts.db, opts.ebookId);
       }
     }
+
     return await renderOneFal(s, opts.characterDescription, opts.styleSuffix, opts.negativePrompt, attempt);
   }
 
