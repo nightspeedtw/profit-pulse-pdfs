@@ -18,6 +18,8 @@ import { generatePagePlan, validatePagePlan } from "../_shared/coloring/page-pla
 
 declare const Deno: any;
 
+import { TRIM_PROFILES, type TrimProfileKey } from "../_shared/coloring/trim-lock.ts";
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -28,6 +30,16 @@ Deno.serve(async (req: Request) => {
     const variant_number: number = Number(body.variant_number ?? 1) || 1;
     const age_band: string = body.age_band ?? "4-6";
     const page_count: number = Number(body.page_count ?? 32);
+    // Phase A (2026-07-19): every new coloring row is stamped with a trim
+    // profile. Default = square_8_5 (owner directive). Callers may pin
+    // `letter_portrait` explicitly for legacy-shape test dispatches.
+    const trim_profile_raw: string = body.trim_profile ?? "square_8_5";
+    if (!(trim_profile_raw in TRIM_PROFILES)) {
+      return json({
+        error: `trim_profile must be one of ${Object.keys(TRIM_PROFILES).join("|")}`,
+      }, 400);
+    }
+    const trim_profile = trim_profile_raw as TrimProfileKey;
     if (![4, 16, 24, 32, 48].includes(page_count)) {
       return json({ error: "page_count must be 4, 16, 24, 32, or 48" }, 400);
     }
@@ -57,6 +69,7 @@ Deno.serve(async (req: Request) => {
         book_type: "coloring_book",
         pipeline_status: "queued",
         metadata: {
+          trim_profile,
           coloring_category_key: category.category_key,
           coloring_age_band: age_band,
           coloring_page_count: page_count,
@@ -79,7 +92,7 @@ Deno.serve(async (req: Request) => {
       .select("id")
       .single();
     if (error) throw error;
-    return json({ ok: true, ebook_id: data.id, note: "queued for coloring worker" });
+    return json({ ok: true, ebook_id: data.id, trim_profile, note: "queued for coloring worker" });
   } catch (e: any) {
     return json({ error: e?.message ?? String(e) }, 500);
   }
