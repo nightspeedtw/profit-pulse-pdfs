@@ -189,3 +189,53 @@ export async function geminiDirectChat(opts: {
     model: `google/${model}`,
   };
 }
+
+/**
+ * Vision chat via native Gemini generateContent — accepts remote image URLs
+ * (fetched to inline base64) and returns text (typically JSON when
+ * responseJson=true). Used to migrate raw-gateway vision QC callers
+ * (kids-vision-qc, cover text transcription) off the Lovable Gateway to
+ * google_direct, saving ~30-50% on Gemini pass-through fees.
+ */
+export async function geminiDirectVisionChat(opts: {
+  system?: string;
+  userText: string;
+  imageUrls: string[];
+  model?: string;
+  responseJson?: boolean;
+  timeoutMs?: number;
+}): Promise<{ text: string; input_tokens: number; output_tokens: number; model: string }> {
+  if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set");
+  const model = normalize(opts.model ?? "google/gemini-2.5-flash");
+  const parts: Array<Record<string, unknown>> = [{ text: opts.userText }];
+  for (const u of opts.imageUrls) {
+    const { data, mime } = await fetchImageAsB64(u);
+    parts.push({ inlineData: { mimeType: mime, data } });
+  }
+  const body: Record<string, unknown> = {
+    contents: [{ role: "user", parts }],
+    generationConfig: opts.responseJson ? { responseMimeType: "application/json" } : {},
+  };
+  if (opts.system) (body as { systemInstruction?: unknown }).systemInstruction = { parts: [{ text: opts.system }] };
+  const controller = opts.timeoutMs ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort("gemini_direct_vision_timeout"), opts.timeoutMs) : null;
+  let r: Response;
+  try {
+    r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: controller?.signal },
+    );
+  } finally { if (timer) clearTimeout(timer); }
+  if (!r.ok) throw new Error(`gemini-direct vision ${model} ${r.status}: ${(await r.text()).slice(0, 400)}`);
+  const j = await r.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+  };
+  const text = j.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+  return {
+    text,
+    input_tokens: j.usageMetadata?.promptTokenCount ?? 0,
+    output_tokens: j.usageMetadata?.candidatesTokenCount ?? 0,
+    model: `google/${model}`,
+  };
+}

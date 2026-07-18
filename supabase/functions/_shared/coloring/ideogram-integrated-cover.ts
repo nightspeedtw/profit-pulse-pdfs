@@ -16,6 +16,18 @@ const FAL_KEY = Deno.env.get("FAL_KEY") ?? Deno.env.get("FAL_API_KEY");
 
 export const IDEOGRAM_INTEGRATED_COVER_VERSION = "coloring_cover_ideogram_v3_integrated_v1";
 
+import { hasOpenAIDirect, openaiDirectImage } from "../openai-direct.ts";
+
+// gpt-image-1 medium 1024x1536 ≈ $0.04/image (benchmark 2026-07-18).
+const GPT_IMAGE_COVER_COST_USD = 0.04;
+// Auto-degrade thresholds: if we have at least N attempts and pass-rate
+// falls below FLOOR, prefer Ideogram until GPT Image recovers. Matches the
+// provider-resilience-single-funded-path doctrine registered 2026-07-17.
+const GPT_IMAGE_MIN_SAMPLE = 20;
+const GPT_IMAGE_PASS_FLOOR = 0.75;
+const GPT_IMAGE_STATS_WINDOW_HOURS = 72;
+const DISABLE_GPT_IMAGE = (Deno.env.get("COLORING_COVER_DISABLE_GPT_IMAGE") ?? "0") === "1";
+
 export interface IdeogramCoverRequest {
   categoryName: string;
   heroSubjects: string[];
@@ -46,10 +58,49 @@ export interface IdeogramCoverRequest {
 
 export interface IdeogramCoverResult {
   bytes: Uint8Array;
-  provider: "fal_ideogram_v3";
+  provider: "fal_ideogram_v3" | "openai_gpt_image_1";
   prompt: string;
   seed?: number;
   request_id?: string | null;
+}
+
+/**
+ * Decide whether the next cover attempt should try GPT Image first or fall
+ * back to Ideogram. Reads recent `coloring_book_events` rows written by the
+ * cover worker after each attempt outcome; if GPT Image's rolling pass rate
+ * on ≥ GPT_IMAGE_MIN_SAMPLE attempts drops below GPT_IMAGE_PASS_FLOOR,
+ * Ideogram is preferred. Any DB error → default to GPT Image (fail-open;
+ * cheap path is presumed healthy until evidence says otherwise).
+ */
+export async function pickCoverPrimaryProvider(
+  db: any | null | undefined,
+): Promise<{ primary: "gpt_image" | "ideogram"; reason: string; sample: number; pass_rate: number | null }> {
+  if (DISABLE_GPT_IMAGE || !hasOpenAIDirect()) {
+    return { primary: "ideogram", reason: DISABLE_GPT_IMAGE ? "flag_disabled" : "openai_key_missing", sample: 0, pass_rate: null };
+  }
+  if (!db) return { primary: "gpt_image", reason: "no_db_fail_open", sample: 0, pass_rate: null };
+  try {
+    const since = new Date(Date.now() - GPT_IMAGE_STATS_WINDOW_HOURS * 3600 * 1000).toISOString();
+    const { data } = await db
+      .from("coloring_book_events")
+      .select("metadata")
+      .eq("event_type", "cover_provider_attempt")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(120);
+    const gpt = (data ?? []).filter((r: any) => r?.metadata?.provider === "openai_gpt_image_1");
+    if (gpt.length < GPT_IMAGE_MIN_SAMPLE) {
+      return { primary: "gpt_image", reason: `insufficient_sample(${gpt.length}/${GPT_IMAGE_MIN_SAMPLE})`, sample: gpt.length, pass_rate: null };
+    }
+    const passed = gpt.filter((r: any) => r?.metadata?.pass === true).length;
+    const rate = passed / gpt.length;
+    if (rate < GPT_IMAGE_PASS_FLOOR) {
+      return { primary: "ideogram", reason: `gpt_image_pass_rate_below_floor(${rate.toFixed(2)}<${GPT_IMAGE_PASS_FLOOR})`, sample: gpt.length, pass_rate: rate };
+    }
+    return { primary: "gpt_image", reason: `gpt_image_healthy(${rate.toFixed(2)})`, sample: gpt.length, pass_rate: rate };
+  } catch (_e) {
+    return { primary: "gpt_image", reason: "stats_query_failed_fail_open", sample: 0, pass_rate: null };
+  }
 }
 
 // Category-family → allowed background clause. Used to positively steer the
@@ -287,24 +338,87 @@ async function generateViaFalEmergency(
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GPT IMAGE (OpenAI-direct) — Tier-1 cover model as of 2026-07-18.
+//
+// Owner order 2026-07-18: gpt-image-1 tested 3/3 on complex titles at ~$0.04/img
+// (33% cheaper than Ideogram at $0.06). Promoted to Tier-1 with automatic
+// fallback to Runware/Ideogram if the rolling pass-rate on real books drops
+// below 75% over ≥20 attempts (pickCoverPrimaryProvider). Same prompt is fed
+// to both models so results are directly comparable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function generateViaGptImage(
+  request: IdeogramCoverRequest,
+  opts: { timeoutMs?: number },
+): Promise<IdeogramCoverResult> {
+  if (!hasOpenAIDirect()) throw new Error("provider_unconfigured:OPENAI_API_KEY_missing");
+  const prompt = buildIdeogramIntegratedCoverPrompt(request);
+  // NOTE: gpt-image-1 does not accept `referenceImageURLs` via /v1/images/generations.
+  // Character continuity comes from the prompt's CHARACTER CONTINUITY clause,
+  // which already describes the interior cast in text form. If the rolling
+  // pass-rate on continuity drops, the auto-degrade to Ideogram (which does
+  // accept refs) takes over.
+  const { bytes, model } = await openaiDirectImage({
+    prompt: prompt.slice(0, 3000),
+    model: "gpt-image-1",
+    size: "1024x1536",
+    quality: "medium",
+    timeoutMs: opts.timeoutMs ?? 90_000,
+  });
+  try {
+    const { logAiCost, costDb } = await import("../cost-log.ts");
+    logAiCost(costDb(), {
+      ebook_id: (request as any).ebook_id,
+      step: "coloring_cover_gpt_image",
+      model: `openai/${model}`,
+      images: 1,
+      cost_usd: GPT_IMAGE_COVER_COST_USD,
+      provider: "openai_gpt_image_cover",
+    });
+  } catch (_e) { /* non-fatal */ }
+  return { bytes, provider: "openai_gpt_image_1", prompt, seed: undefined, request_id: null };
+}
+
 export async function generateIdeogramIntegratedCover(
   request: IdeogramCoverRequest,
-  opts: { timeoutMs?: number; seed?: number } = {},
+  opts: { timeoutMs?: number; seed?: number; db?: any; preferProvider?: "gpt_image" | "ideogram" } = {},
 ): Promise<IdeogramCoverResult> {
-  // Primary path: Runware-hosted Ideogram 3.0.
+  // Tier-1 selection: consult recent pass-rate stats unless the caller
+  // pinned a specific provider (e.g. retry after the primary just failed).
+  const decision = opts.preferProvider
+    ? { primary: opts.preferProvider, reason: "caller_pinned", sample: 0, pass_rate: null }
+    : await pickCoverPrimaryProvider(opts.db);
+
+  const tryGpt = async () => generateViaGptImage(request, { timeoutMs: opts.timeoutMs });
+  const tryIdeogram = async () => generateViaRunware(request, opts);
+
+  if (decision.primary === "gpt_image") {
+    try {
+      return await tryGpt();
+    } catch (e: any) {
+      console.warn(`[cover] gpt-image-1 primary failed (${decision.reason}): ${String(e?.message ?? e).slice(0, 200)} — falling back to Ideogram/Runware`);
+      // Fall through to Ideogram.
+    }
+  }
+
+  // Ideogram path (either the picked primary, or the fallback from GPT Image).
   try {
-    return await generateViaRunware(request, opts);
+    return await tryIdeogram();
   } catch (e: any) {
     const msg = String(e?.message ?? e);
-    // Only defer to fal.ai if the operator has explicitly re-enabled it AND
-    // the failure isn't a billing-side signal we should surface as-is.
     const runwareBillingExhausted = /provider_billing_exhausted/.test(msg);
+    // Last-resort: if we haven't tried GPT Image yet AND we have the key,
+    // try it before giving up.
+    if (decision.primary === "ideogram" && hasOpenAIDirect() && !DISABLE_GPT_IMAGE) {
+      try { return await tryGpt(); } catch (ge: any) {
+        throw new Error(`${msg} | gpt_image_fallback_also_failed:${String(ge?.message ?? ge).slice(0, 160)}`);
+      }
+    }
     if (!ALLOW_FAL_FALLBACK || runwareBillingExhausted) throw e;
     try {
       return await generateViaFalEmergency(request, opts);
     } catch (fe: any) {
-      // Preserve the original (runware) error message so operators see the
-      // primary provider's failure, not the emergency fallback's.
       throw new Error(`${msg} | fal_fallback_also_failed:${String(fe?.message ?? fe).slice(0, 160)}`);
     }
   }

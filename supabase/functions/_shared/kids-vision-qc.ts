@@ -11,6 +11,7 @@
 import type { RawFinding } from "./pdf-preflight.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
 import { parseModelJson } from "./model-json.ts";
+import { geminiDirectVisionChat, hasGeminiDirect } from "./gemini-direct.ts";
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 const VISION_MODEL = "google/gemini-2.5-flash-lite";
@@ -56,6 +57,34 @@ async function callVision(
   imageUrls: string[],
   meta?: { ebook_id?: string; step?: string },
 ): Promise<Record<string, unknown>> {
+  const finalSystem = `${systemPrompt}\n\nCRITICAL: Return ONLY JSON. No prose. No markdown fences. Use integer scores 0-100.`;
+  // Prefer google_direct (owner order 2026-07-18: high-volume vision QC drives
+  // most of the daily Gemini spend). Falls through to the gateway on failure.
+  if (hasGeminiDirect()) {
+    try {
+      const r = await geminiDirectVisionChat({
+        system: finalSystem,
+        userText: userPrompt,
+        imageUrls,
+        model: VISION_MODEL,
+        responseJson: true,
+        timeoutMs: 90_000,
+      });
+      logAiCost(costDb(), {
+        ebook_id: meta?.ebook_id,
+        step: meta?.step ?? "kids_vision_qc",
+        model: VISION_MODEL,
+        input_tokens: r.input_tokens,
+        output_tokens: r.output_tokens,
+        provider: "google_direct",
+      });
+      const parsed = parseModelJson<Record<string, unknown>>(r.text);
+      if (!parsed.ok) throw new Error(`vision bad JSON: ${parsed.diagnostics.errors.slice(-1)[0] ?? "unknown"} — ${parsed.diagnostics.raw_excerpt.slice(0, 200)}`);
+      return parsed.value;
+    } catch (e) {
+      console.warn(`[kids-vision-qc] google_direct failed, falling back to gateway: ${(e as Error).message}`);
+    }
+  }
   const content: Array<Record<string, unknown>> = [{ type: "text", text: userPrompt }];
   for (const u of imageUrls) content.push({ type: "image_url", image_url: { url: u } });
 
@@ -65,7 +94,7 @@ async function callVision(
     body: JSON.stringify({
       model: VISION_MODEL,
       messages: [
-        { role: "system", content: `${systemPrompt}\n\nCRITICAL: Return ONLY JSON. No prose. No markdown fences. Use integer scores 0-100.` },
+        { role: "system", content: finalSystem },
         { role: "user", content },
       ],
     }),

@@ -10,6 +10,7 @@
 import type { RawFinding } from "./pdf-preflight.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
 import { parseModelJson } from "./model-json.ts";
+import { geminiDirectChat, hasGeminiDirect } from "./gemini-direct.ts";
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 const JUDGE_MODEL = "google/gemini-2.5-flash";
@@ -246,6 +247,31 @@ Remember: LOW generic_story_risk_score means DISTINCTIVE. Do not default to mid-
 ${SCHEMA_HINT}`;
 
   async function callOnce(): Promise<Record<string, unknown>> {
+    // Prefer google_direct (owner order 2026-07-18: reduce gateway spend on
+    // high-volume Gemini judges). Falls through to the gateway on failure.
+    if (hasGeminiDirect()) {
+      try {
+        const r = await geminiDirectChat({
+          system: SYSTEM,
+          user: user,
+          model: JUDGE_MODEL,
+          responseJson: true,
+        });
+        logAiCost(costDb(), {
+          ebook_id: opts.ebook_id,
+          step: "kids_story_judge",
+          model: JUDGE_MODEL,
+          input_tokens: r.input_tokens,
+          output_tokens: r.output_tokens,
+          provider: "google_direct",
+        });
+        const parseResult = parseModelJson<Record<string, unknown>>(r.text);
+        if (!parseResult.ok) throw new Error(`story_judge_json_parse_failed: ${parseResult.diagnostics.errors.slice(-1)[0] ?? "unknown"}`);
+        return parseResult.value;
+      } catch (e) {
+        console.warn(`[kids-story-judge] google_direct failed, falling back to gateway: ${(e as Error).message}`);
+      }
+    }
     const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_API_KEY}` },
