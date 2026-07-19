@@ -482,28 +482,59 @@ Deno.serve(async (req) => {
 
   try {
     if (mode === "status") {
-      const since = new Date(Date.now() - CRITICAL_COOLDOWN_HOURS * 3600 * 1000).toISOString();
+      // Owner: show ONE incident at a time (queue). Most recent unresolved
+      // critical wins; the rest are counted as `queued`.
       const { data } = await sb.from("alert_log")
-        .select("alert_class,title,body,severity,created_at")
+        .select("id,alert_class,title,body,severity,created_at,evidence")
         .eq("severity","critical")
-        .gte("created_at", since)
+        .is("resolved_at", null)
         .order("created_at", { ascending: false })
         .limit(20);
-      // dedupe by class, keep latest
+      const rows = (data ?? []);
+      // Dedupe by class (keep latest).
       const seen = new Set<string>();
       const active = [] as any[];
-      for (const r of (data ?? [])) {
+      for (const r of rows) {
         if (seen.has(r.alert_class)) continue;
         seen.add(r.alert_class);
         active.push(r);
       }
+      const current = active[0] ?? null;
+      const queued = Math.max(0, active.length - 1);
       const { data: lastCheck } = await sb.from("platform_settings").select("value_json").eq("key","health_last_check_at").maybeSingle();
+      const { data: freeze } = await sb.from("platform_settings").select("value_json").eq("key","autopilot_frozen").maybeSingle();
+      const { data: hbRows } = await sb.from("system_heartbeat").select("source,last_beat_at").order("last_beat_at",{ascending:false}).limit(10);
+      const newestHb = hbRows?.[0]?.last_beat_at ?? null;
+      const dead = newestHb ? (Date.now() - new Date(newestHb).getTime()) > DEAD_THRESHOLD_MS : false;
       return new Response(JSON.stringify({
         ok: true,
-        active_critical: active,
+        current_incident: current,
+        queued_incidents: queued,
+        active_critical: active, // legacy shape for older banners
+        autopilot_frozen: !!freeze?.value_json?.frozen,
+        heartbeat: { newest: newestHb, dead, sources: hbRows ?? [] },
         last_checked_at: lastCheck?.value_json?.at ?? null,
         resend_configured: !!(LOVABLE_API_KEY && RESEND_API_KEY),
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (mode === "resolve") {
+      const body = await req.json().catch(() => ({}));
+      const id = body?.id as string | undefined;
+      const alertClass = body?.alert_class as string | undefined;
+      if (!id && !alertClass) return new Response(JSON.stringify({ error: "id or alert_class required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }});
+      let q = sb.from("alert_log").update({ resolved_at: new Date().toISOString(), resolved_by: "manual_admin" }).is("resolved_at", null);
+      q = id ? q.eq("id", id) : q.eq("alert_class", alertClass!);
+      const { error } = await q;
+      if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" }});
+      return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" }});
+    }
+    if (mode === "freeze" || mode === "unfreeze") {
+      const frozen = mode === "freeze";
+      await sb.from("platform_settings").upsert({
+        key: "autopilot_frozen",
+        value_json: { frozen, set_at: new Date().toISOString(), reason: frozen ? "manual_admin_freeze" : "manual_admin_unfreeze" },
+      }, { onConflict: "key" });
+      return new Response(JSON.stringify({ ok: true, frozen }), { headers: { ...corsHeaders, "Content-Type": "application/json" }});
     }
     if (mode === "digest") {
       const r = await runDigest(sb);
@@ -512,6 +543,7 @@ Deno.serve(async (req) => {
     // default: check
     const alerts = await runChecks(sb);
     await persistAndMaybeEmail(sb, alerts);
+    await sb.from("platform_settings").upsert({ key: "health_last_check_at", value_json: { at: new Date().toISOString() } }, { onConflict: "key" });
     return new Response(JSON.stringify({
       ok: true,
       alerts_count: alerts.length,
