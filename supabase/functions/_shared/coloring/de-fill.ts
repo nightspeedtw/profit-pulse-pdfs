@@ -84,8 +84,8 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 // Pure pixel-mask logic (BFS erosion + flood-fill cluster tagging) is
 // factored into ./de-fill-mask.ts so Vitest under Node can import it
 // without pulling in Deno-only https:// imports.
-export { computeDeFillKeepMask } from "./de-fill-mask.ts";
-import { computeDeFillKeepMask as _computeDeFillKeepMask, tagOversizedClusters } from "./de-fill-mask.ts";
+import { computeDeFillKeepMask, tagOversizedClusters } from "./de-fill-mask.ts";
+export { computeDeFillKeepMask };
 
 async function analyzeAndWhiten(
   img: any,
