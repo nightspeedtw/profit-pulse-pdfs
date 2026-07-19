@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 
 type ActiveCritical = {
+  id?: string;
   alert_class: string;
   title: string;
   body: string;
@@ -21,7 +22,11 @@ type ActiveCritical = {
 
 type StatusPayload = {
   ok: boolean;
+  current_incident?: ActiveCritical | null;
+  queued_incidents?: number;
   active_critical: ActiveCritical[];
+  autopilot_frozen?: boolean;
+  heartbeat?: { newest: string | null; dead: boolean; sources: Array<{source:string; last_beat_at:string}> };
   last_checked_at: string | null;
   resend_configured: boolean;
 };
