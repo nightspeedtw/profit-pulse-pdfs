@@ -161,3 +161,42 @@ export async function fireAndForgetPost(
     clearTimeout(t);
   }
 }
+
+/**
+ * True detached POST for dispatchers whose HTTP response must return
+ * immediately. The request is kept alive with EdgeRuntime.waitUntil; a short
+ * abort only protects the background task from hanging forever and does not
+ * make the caller wait.
+ */
+export function dispatchPostNoWait(
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  timeoutMs = 1_000,
+  fetchImpl: typeof fetch = fetch,
+): { dispatched: boolean; status?: number; error?: string } {
+  const task = async () => {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), timeoutMs);
+    try {
+      await fetchImpl(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
+        signal: ac.signal,
+      });
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        console.warn(`[dispatchPostNoWait] fetch error:`, e?.message ?? String(e));
+      }
+    } finally {
+      clearTimeout(t);
+    }
+  };
+  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+    EdgeRuntime.waitUntil(task());
+  } else {
+    task().catch(() => {});
+  }
+  return { dispatched: true, status: 202 };
+}

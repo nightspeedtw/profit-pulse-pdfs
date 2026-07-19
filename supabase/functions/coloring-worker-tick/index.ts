@@ -11,7 +11,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { CURRENT_COLORING_REPAIR_REGIME } from "../_shared/coloring/repair-regime.ts";
 import { readLaneGuards, sumFalSpendToday, DEFAULT_FAL_DAILY_BUDGET_USD, patchLaneCfg, clearProviderBillingBlocked } from "../_shared/fal-billing.ts";
 import { readCfBillingLockedUntil } from "../_shared/image-providers.ts";
-import { fireAndForgetPost } from "../_shared/coloring/self-advance.ts";
+import { dispatchPostNoWait } from "../_shared/coloring/self-advance.ts";
 
 declare const Deno: any;
 
@@ -394,11 +394,11 @@ Deno.serve(async (req: Request) => {
         target = row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble";
       }
 
-      const outcome = await fireAndForgetPost(
+      const outcome = dispatchPostNoWait(
         `${_SB_URL}/functions/v1/${target}`,
         { Authorization: `Bearer ${_SB_KEY}`, apikey: _SB_KEY },
         { ebook_id: row.id, ...(awaiting === "publish_candidate" || awaiting === "owner_final_verification" ? { mode: "candidate" } : {}) },
-        3_000,
+        1_000,
       );
       // Stamp cooldown so the next tick doesn't re-pick the same row before
       // the target stage has had time to complete (or park itself).
