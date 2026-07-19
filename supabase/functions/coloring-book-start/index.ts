@@ -55,19 +55,26 @@ Deno.serve(async (req: Request) => {
       { auth: { persistSession: false } },
     );
     const category = await loadColoringCategory(sb, category_key);
-    // Band-theme coverage gate (owner directive 2026-07-20 queue-hygiene).
-    // Hard-reject before we allocate a row so mismatched concepts never enter
-    // the queue — the generator must produce a fresh, band-matched concept.
+    // OWNER LAW coloring_rulebook_v1 (2026-07-19): the coloring lane has its
+    // OWN simple rulebook. Novel-style semantic gates (band/theme "fit",
+    // narrative judges, story-gate) DO NOT apply here. band_theme_mismatch
+    // is DEMOTED from a hard-422 pre-queue block to an advisory warning
+    // recorded in metadata for learning. The book proceeds regardless —
+    // the coloring rulebook only requires a short catchy title (rule #1),
+    // measured interior gates (rule #2), interior-referenced cover (#3),
+    // and verified cover typography+frame (#4).
     const bandCheck = validateCategoryForBand(category.category_key, age_band);
-    if (!bandCheck.ok) {
-      return json({
-        error: "band_theme_mismatch",
-        detail: bandCheck.message,
-        db_band: bandCheck.db_band,
-        category_key: bandCheck.category_key,
-        allowed_categories: bandCheck.allowed_categories,
-      }, 422);
-    }
+    const bandThemeAdvisory = bandCheck.ok
+      ? null
+      : {
+          category_key: bandCheck.category_key,
+          db_band: bandCheck.db_band,
+          allowed_categories: bandCheck.allowed_categories,
+          message: bandCheck.message,
+          recorded_at: new Date().toISOString(),
+          policy: "coloring_rulebook_v1_advisory_only",
+        };
+
     const pagePlan = generatePagePlan({ ...category, coloring_page_count: page_count });
     // top5_source_fix_v1 (quality_at_the_source): plan-time DFM swap for
     // known-low-FPY (subject, bucket) combos. SOLID_BLACK/ANATOMY defects
@@ -153,7 +160,10 @@ Deno.serve(async (req: Request) => {
           coloring_page_plan: pagePlan,
           coloring_style_contract: styleContract,
           coloring_workflow_version: "v1",
+          coloring_rulebook_version: "coloring_rulebook_v1",
+          coloring_band_theme_advisory: bandThemeAdvisory,
           coloring_format: page_count <= 4 ? "mini_test" : "standard",
+
         },
       })
       .select("id")
