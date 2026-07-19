@@ -1,0 +1,1 @@
+SELECT public.atomic_patch_ebooks_kids_meta('d6da92a8-5eaa-455e-9d00-8b8780cae9d1'::uuid, jsonb_build_object('coloring_cover_invocations', 0, 'coloring_cover_master_prompt_version', 'coloring_master_cover_v1'));
