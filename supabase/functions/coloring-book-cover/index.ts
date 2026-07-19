@@ -800,7 +800,7 @@ Deno.serve(async (req: Request) => {
         }
         // ACCEPTED. Fit to portrait 8.5x11 canvas AND skip overlay typography.
 
-        const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT);
+        const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, CANVAS_W, CANVAS_H);
         // Rendered proof still runs on the final PNG (art-region variance + frame safety)
         // but the approved-strings check is fed the VERIFIED transcript so
         // detected text stays in-bounds of what we already proved matches.
@@ -982,7 +982,7 @@ Deno.serve(async (req: Request) => {
           console.error("[coloring-cover] waiver fingerprint failed", fpErr?.message);
         }
 
-        const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT);
+        const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, CANVAS_W, CANVAS_H);
 
         // Log defect to ledger
         const { data: rowMetaRow } = await db.from("ebooks_kids").select("metadata").eq("id", ebook_id).maybeSingle();
