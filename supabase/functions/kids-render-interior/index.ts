@@ -410,6 +410,20 @@ Deno.serve(async (req) => {
       return json({ ok: false, stage: "ceiling_exceeded", invocation_count: invocationCount }, 200);
     }
 
+    // PAID-CEILING TRIPWIRE — this is the choke point that prevented the 77-call
+    // interior storm (2026-07-19). If the (book, step) row has already spent
+    // over the ceiling, park the book instead of firing another paid call.
+    try {
+      await assertPaidCeiling({ ebook_id: ebookId, step: "kids_interior_page", supabase: db });
+    } catch (ceilingErr) {
+      if (isBudgetCeilingError(ceilingErr)) {
+        console.error(`[render-interior] paid-ceiling hit for ebook=${ebookId} — parking:`, ceilingErr.message);
+        await parkOnPaidCeiling(ebookId, ceilingErr, db);
+        return json({ ok: false, stage: "paid_ceiling", reason: ceilingErr.message }, 200);
+      }
+      throw ceilingErr;
+    }
+
     // Discover parent run_id if not provided (so we can resume when done).
     let parentRunId = body.run_id ?? null;
     if (!parentRunId) {
