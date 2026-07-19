@@ -44,7 +44,7 @@ export class BudgetCeilingError extends Error {
 export const STEP_GROUPS: Record<string, RegExp> = {
   coloring_cover_any: /^coloring_cover_/,           // ideogram+gpt_image+thumbnail+runware
   coloring_page_any: /^coloring_(production_page|page)_/,
-  kids_repair_story_any: /^kids_repair_story_gate/,
+  kids_repair_story_any: /^(kids_repair_story_gate|kids_surgical_story_repair)/,
 };
 
 function db() {
