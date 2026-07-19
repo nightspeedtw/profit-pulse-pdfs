@@ -609,7 +609,7 @@ Deno.serve(async (req: Request) => {
         coverRecordExtras: {
           provider: "self_art_deterministic",
           provider_attempts: 0,
-          evidence: { transcription: exactTranscript, self_art, rendered_proof: composed.renderedProof },
+          evidence: { transcription: exactTranscript, self_art: selfArt, rendered_proof: composed.renderedProof },
           typography_source: "deterministic_exact_title_render",
           overlay_skipped: false,
           no_paid_ai_cover_call: true,
