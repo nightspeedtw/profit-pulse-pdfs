@@ -15,6 +15,16 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 export const MAX_PAID_CALLS_PER_STEP_24H = 5;
 export const MAX_PAID_CALLS_PER_GROUP_24H = 8; // sum across a step-group
 
+/**
+ * Per-step overrides. Interior pages legitimately generate ~32 pages per book
+ * plus a few retries. Anything past ~45 is a runaway loop.
+ */
+export const STEP_CEILING_OVERRIDES: Record<string, number> = {
+  kids_interior_page: 45,
+  kids_interior_page_textonly: 45,
+  coloring_production_page: 45,
+};
+
 export class BudgetCeilingError extends Error {
   code = "paid_ceiling";
   step: string;
