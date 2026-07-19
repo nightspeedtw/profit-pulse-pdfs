@@ -20,6 +20,7 @@ import {
   TERMINAL_STATUSES,
 } from "../_shared/stall-sla.ts";
 import { CURRENT_COLORING_REPAIR_REGIME } from "../_shared/coloring/repair-regime.ts";
+import { isAutopilotFrozen, writeHeartbeat } from "../_shared/freeze-guard.ts";
 
 declare const Deno: any;
 const corsHeaders = {
