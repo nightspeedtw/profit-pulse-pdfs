@@ -22,6 +22,7 @@ import { logAiCost, costDb } from '../_shared/cost-log.ts';
 import { loadRepairGuidanceForDimension, loadStoryCraftBlock, repairGuidanceForDimension } from '../_shared/story-craft-skill.ts';
 import { smartChat } from '../_shared/direct-fallback.ts';
 import { STORY_GATE } from '../_shared/story-gate-thresholds.ts';
+import { assertPaidCeiling, isBudgetCeilingError, parkOnPaidCeiling } from '../_shared/paid-ceiling.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
