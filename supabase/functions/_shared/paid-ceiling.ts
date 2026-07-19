@@ -74,11 +74,12 @@ export async function assertPaidCeiling(opts: {
   const since = new Date(Date.now() - 24 * 3600_000).toISOString();
 
   // Per-step count.
+  const stepMax = STEP_CEILING_OVERRIDES[opts.step] ?? MAX_PAID_CALLS_PER_STEP_24H;
   const { count: stepCount } = await sb.from("cost_log")
     .select("id", { count: "exact", head: true })
     .eq("ebook_id", ebook_id).eq("step", opts.step)
     .gte("created_at", since);
-  if ((stepCount ?? 0) >= MAX_PAID_CALLS_PER_STEP_24H) {
+  if ((stepCount ?? 0) >= stepMax) {
     throw new BudgetCeilingError(opts.step, stepCount ?? 0);
   }
 
