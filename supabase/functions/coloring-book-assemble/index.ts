@@ -39,6 +39,7 @@ import { readQcMode, waiveOrBlock } from "../_shared/coloring/qc-mode.ts";
 import { checkCoverAspect } from "../_shared/coloring/cover-aspect-gate.ts";
 import { fitContainCover, fitCoverFullBleed } from "../_shared/coloring/pdf-cover-fit.ts";
 import { getTrimProfile, TRIM_PROFILES, resolveTrimProfileKey } from "../_shared/coloring/trim-lock.ts";
+import { sanitizeMetadataPatchForPersist } from "../_shared/coloring/metadata-bloat-guard.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -81,7 +82,7 @@ function chain(fn: string, body: Record<string, unknown>) {
 
 async function patchMeta(db: any, id: string, patch: Record<string, unknown>) {
   const { data } = await db.from("ebooks_kids").select("metadata").eq("id", id).single();
-  const merged = { ...(data?.metadata ?? {}), ...patch };
+  const merged = sanitizeMetadataPatchForPersist({ ...(data?.metadata ?? {}), ...patch });
   await db.from("ebooks_kids").update({ metadata: merged }).eq("id", id);
   return merged;
 }

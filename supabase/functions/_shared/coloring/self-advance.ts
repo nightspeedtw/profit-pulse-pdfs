@@ -19,6 +19,8 @@
 // while still honoring the max_parallel cap and provider guards.
 
 // @ts-nocheck
+import { sanitizeMetadataPatchForPersist } from "./metadata-bloat-guard.ts";
+
 declare const EdgeRuntime: any;
 
 const SUPABASE_URL = (globalThis as any).Deno?.env?.get?.("SUPABASE_URL");
@@ -69,7 +71,7 @@ async function bumpCounter(
   const meta = (data?.metadata ?? {}) as Record<string, unknown>;
   const prev = meta.coloring_self_advance_window as SelfAdvanceWindow | undefined;
   const { window, allowed, reason } = tickWindow(prev, new Date(), hourlyCap);
-  const merged = { ...meta, coloring_self_advance_window: window };
+  const merged = sanitizeMetadataPatchForPersist({ ...meta, coloring_self_advance_window: window });
   await db.from("ebooks_kids").update({ metadata: merged }).eq("id", ebookId);
   return { allowed, reason };
 }

@@ -14,6 +14,7 @@ import { DEFAULT_PRICING_CONFIG, computePrice, type PricingConfig } from "../_sh
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
 import { assertColoringPublishContract } from "../_shared/coloring/publish-contract.ts";
 import { buildColoringSalesCopy } from "../_shared/coloring/sales-copy.ts";
+import { sanitizeMetadataPatchForPersist } from "../_shared/coloring/metadata-bloat-guard.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -28,7 +29,7 @@ function json(x: unknown, status = 200) {
 
 async function patchMeta(db: any, id: string, patch: Record<string, unknown>) {
   const { data } = await db.from("ebooks_kids").select("metadata").eq("id", id).single();
-  const merged = { ...(data?.metadata ?? {}), ...patch };
+  const merged = sanitizeMetadataPatchForPersist({ ...(data?.metadata ?? {}), ...patch });
   await db.from("ebooks_kids").update({ metadata: merged }).eq("id", id);
   return merged;
 }

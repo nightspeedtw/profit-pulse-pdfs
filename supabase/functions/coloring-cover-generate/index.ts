@@ -26,6 +26,7 @@ import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 import { classifyProviderError } from "../_shared/covers/provider-errors.ts";
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS, fireAndForgetPost } from "../_shared/coloring/self-advance.ts";
 import { atomicPatchMeta } from "../_shared/kids-metadata.ts";
+import { sanitizeMetadataPatchForPersist } from "../_shared/coloring/metadata-bloat-guard.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -55,7 +56,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 // jsonb writes (the root cause of the cover-loop stall). Pass `null` for
 // any key that should be removed from metadata.
 async function patchMeta(db: any, id: string, patch: Record<string, unknown>) {
-  return await atomicPatchMeta(db, id, patch);
+  return await atomicPatchMeta(db, id, sanitizeMetadataPatchForPersist(patch));
 }
 function uniq(xs: unknown[]): string[] {
   const out: string[] = []; const seen = new Set<string>();

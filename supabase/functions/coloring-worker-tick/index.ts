@@ -13,6 +13,7 @@ import { readLaneGuards, sumFalSpendToday, clearProviderBillingBlocked } from ".
 import { readCfBillingLockedUntil } from "../_shared/image-providers.ts";
 import { dispatchPostNoWait } from "../_shared/coloring/self-advance.ts";
 import { isAutopilotFrozen, writeHeartbeat } from "../_shared/freeze-guard.ts";
+import { sanitizeMetadataPatchForPersist } from "../_shared/coloring/metadata-bloat-guard.ts";
 
 declare const Deno: any;
 
@@ -153,14 +154,14 @@ Deno.serve(async (req: Request) => {
       await db.from("ebooks_kids").update({
         pipeline_status: "queued",
         blocker_reason: "zombie_generating_recovered",
-        metadata: {
+          metadata: sanitizeMetadataPatchForPersist({
           ...zmeta,
           coloring_current_step_label:
             `Recovered from stuck 'generating' (updated_at ${z.updated_at}) — resuming render`,
           coloring_zombie_recoveries:
             ((zmeta.coloring_zombie_recoveries as number | undefined) ?? 0) + 1,
           coloring_last_zombie_recovery_at: new Date().toISOString(),
-        },
+        }),
       }).eq("id", z.id);
       revived.push({ ebook_id: z.id, was_updated_at: z.updated_at });
     }
@@ -199,7 +200,7 @@ Deno.serve(async (req: Request) => {
       const deadPages = (meta.coloring_dead_pages as number[] | undefined) ?? [];
       const attempts = ((meta.coloring_repair_attempts as Record<string, number> | undefined) ?? {});
       for (const p of deadPages) attempts[String(p)] = 0;
-      const mergedMeta = {
+      const mergedMeta = sanitizeMetadataPatchForPersist({
         ...meta,
         coloring_repair_attempts: attempts,
         coloring_last_requeued_regime_version: CURRENT_COLORING_REPAIR_REGIME,
@@ -210,7 +211,7 @@ Deno.serve(async (req: Request) => {
         awaiting: meta.awaiting === "cover_pdf_publish" || meta.awaiting === "publish"
           ? meta.awaiting
           : "render",
-      };
+      });
       await db.from("ebooks_kids").update({
         pipeline_status: "queued",
         blocker_reason: null,
@@ -298,7 +299,7 @@ Deno.serve(async (req: Request) => {
           try {
             await db.from("ebooks_kids").update({
               blocker_reason: `coloring_cover_retry_ceiling_reached:${invocations}`,
-              metadata: {
+              metadata: sanitizeMetadataPatchForPersist({
                 ...rMeta,
                 coloring_current_step_label:
                   `Cover retry ceiling reached (${invocations}/${COVER_INVOCATION_CEILING}) — auto-held by retry storm guard.`,
@@ -310,7 +311,7 @@ Deno.serve(async (req: Request) => {
                   detected_at: new Date().toISOString(),
                 },
                 awaiting: "cover_retry_ceiling",
-              },
+              }),
             }).eq("id", r.id);
           } catch (_e) { /* best-effort */ }
           ceilingParked += 1;
@@ -329,7 +330,7 @@ Deno.serve(async (req: Request) => {
           try {
             await db.from("ebooks_kids").update({
               blocker_reason: null,
-              metadata: { ...rMeta, awaiting: "cover_pdf_publish" },
+              metadata: sanitizeMetadataPatchForPersist({ ...rMeta, awaiting: "cover_pdf_publish" }),
             }).eq("id", r.id);
             r.blocker_reason = null;
           } catch (_e) { /* best-effort */ }
@@ -405,7 +406,7 @@ Deno.serve(async (req: Request) => {
       // the target stage has had time to complete (or park itself).
       try {
         await db.from("ebooks_kids").update({
-          metadata: { ...meta, coloring_last_dispatched_at: new Date().toISOString(), coloring_last_dispatched_target: target },
+          metadata: sanitizeMetadataPatchForPersist({ ...meta, coloring_last_dispatched_at: new Date().toISOString(), coloring_last_dispatched_target: target }),
         }).eq("id", row.id);
       } catch (_e) { /* best-effort */ }
       return {

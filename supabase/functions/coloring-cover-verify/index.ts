@@ -31,6 +31,7 @@ import { resolveTrimProfileKey, TRIM_PROFILES } from "../_shared/coloring/trim-l
 import { computeCoverFingerprint, findDuplicateCover, DUPLICATE_HAMMING_THRESHOLD } from "../_shared/coloring/cover-uniqueness.ts";
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS, fireAndForgetPost } from "../_shared/coloring/self-advance.ts";
 import { atomicPatchMeta } from "../_shared/kids-metadata.ts";
+import { sanitizeMetadataPatchForPersist } from "../_shared/coloring/metadata-bloat-guard.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -44,7 +45,7 @@ function json(x: unknown, status = 200) {
 }
 // Race-safe metadata patch — see _shared/kids-metadata.ts.
 async function patchMeta(db: any, id: string, patch: Record<string, unknown>) {
-  return await atomicPatchMeta(db, id, patch);
+  return await atomicPatchMeta(db, id, sanitizeMetadataPatchForPersist(patch));
 }
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
