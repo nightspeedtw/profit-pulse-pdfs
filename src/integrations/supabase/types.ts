@@ -4843,6 +4843,11 @@ export type Database = {
           p90_min: number
         }[]
       }
+      prune_coloring_book_metadata_bloat: {
+        Args: { p_id: string }
+        Returns: Json
+      }
+      prune_coloring_metadata_bloat: { Args: { p_meta: Json }; Returns: Json }
       release_lock: {
         Args: { p_holder: string; p_name: string }
         Returns: boolean
