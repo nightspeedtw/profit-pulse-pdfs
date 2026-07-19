@@ -21,6 +21,8 @@
 // a warning so it can be removed once every environment is on the RPC.
 
 // @ts-nocheck  Deno edge runtime
+import { sanitizeMetadataPatchForPersist } from "./coloring/metadata-bloat-guard.ts";
+
 export async function atomicPatchMeta(
   db: any,
   ebookId: string,
@@ -49,6 +51,7 @@ async function legacyPatchMeta(
     if (v === null) delete merged[k];
     else merged[k] = v;
   }
-  await db.from("ebooks_kids").update({ metadata: merged }).eq("id", id);
-  return merged;
+  const clean = sanitizeMetadataPatchForPersist(merged);
+  await db.from("ebooks_kids").update({ metadata: clean }).eq("id", id);
+  return clean;
 }

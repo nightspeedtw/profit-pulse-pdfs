@@ -16,6 +16,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 import { resolveTrimProfileKey, TRIM_PROFILES } from "../_shared/coloring/trim-lock.ts";
+import { sanitizeMetadataPatchForPersist } from "../_shared/coloring/metadata-bloat-guard.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -186,7 +187,7 @@ Deno.serve(async (req: Request) => {
       contentType: "image/jpeg",
     });
 
-    const nextMeta = {
+    const nextMeta = sanitizeMetadataPatchForPersist({
       ...meta,
       thumbnail_render_meta: {
         ...renderMeta,
@@ -197,7 +198,7 @@ Deno.serve(async (req: Request) => {
         storage_path: up.path,
         signed_url: up.signedUrl,
       },
-    };
+    });
     await db.from("ebooks_kids").update({
       thumbnail_url: up.signedUrl,
       metadata: nextMeta,

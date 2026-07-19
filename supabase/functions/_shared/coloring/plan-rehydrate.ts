@@ -31,6 +31,7 @@
 import { loadColoringCategory } from "./category.ts";
 import { generatePagePlan } from "./page-plan.ts";
 import { DEFAULT_KIDS_4_6_STYLE } from "./style-contract.ts";
+import { sanitizeMetadataPatchForPersist } from "./metadata-bloat-guard.ts";
 
 export interface RehydrateResult {
   restored: boolean;
@@ -110,7 +111,7 @@ export async function rehydratePagePlan(
   const { data: current } = await db
     .from("ebooks_kids").select("metadata").eq("id", row.id).maybeSingle();
   const cur = (current?.metadata ?? {}) as Record<string, unknown>;
-  const merged: Record<string, unknown> = {
+  const merged: Record<string, unknown> = sanitizeMetadataPatchForPersist({
     ...cur,
     coloring_category_key: cur.coloring_category_key ?? category_key,
     coloring_page_count: cur.coloring_page_count ?? count,
@@ -124,7 +125,7 @@ export async function rehydratePagePlan(
     coloring_page_plan: pagePlan,
     coloring_plan_rehydrated_at: new Date().toISOString(),
     coloring_plan_rehydrated_reason: "persistence_contract_violation_recovered",
-  };
+  });
   await db.from("ebooks_kids").update({ metadata: merged }).eq("id", row.id);
 
   // Best-effort event log for observability. Not fatal if the table denies.

@@ -37,6 +37,7 @@ import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcripti
 import { renderedColoringCoverProof } from "../_shared/coloring/coloring-cover-proof.ts";
 import { readQcMode, waiveOrBlock } from "../_shared/coloring/qc-mode.ts";
 import { computeCoverFingerprint, findDuplicateCover, DUPLICATE_HAMMING_THRESHOLD } from "../_shared/coloring/cover-uniqueness.ts";
+import { sanitizeAttemptForPersist, sanitizeAttemptsForPersist, sanitizeMetadataPatchForPersist } from "../_shared/coloring/metadata-bloat-guard.ts";
 
 
 declare const Deno: any;
@@ -60,34 +61,6 @@ function json(x: unknown, status = 200) {
 // bytes + truncate long strings + cap history depth on the way in.
 // If this cap or the sanitizer is removed, the DB will re-bloat and
 // covers will re-stall — do not shortcut it.
-const MAX_ATTEMPT_HISTORY = 5;
-function sanitizeAttemptForPersist(a: any): any {
-  if (!a || typeof a !== "object") return a;
-  const { _rawBytes, _verdict, ...rest } = a as any;
-  const clone: any = { ...rest };
-  const c = clone.checks;
-  if (c && typeof c === "object") {
-    const t = c.transcription;
-    if (t && typeof t === "object") {
-      clone.checks = {
-        ...c,
-        transcription: {
-          pass: t.pass ?? null,
-          reason: typeof t.reason === "string" ? t.reason.slice(0, 240) : t.reason ?? null,
-          transcribed_raw: typeof t.transcribed_raw === "string" ? t.transcribed_raw.slice(0, 240) : undefined,
-        },
-      };
-    }
-  }
-  if (typeof clone.reason === "string") clone.reason = clone.reason.slice(0, 240);
-  return clone;
-}
-function sanitizeAttemptsForPersist(list: any): any[] {
-  if (!Array.isArray(list)) return [];
-  const cleaned = list.map(sanitizeAttemptForPersist);
-  return cleaned.slice(-MAX_ATTEMPT_HISTORY);
-}
-
 function fireAndForget(fn: string, body: Record<string, unknown>) {
   const doIt = async () => {
     try {
@@ -111,7 +84,7 @@ function fireAndForget(fn: string, body: Record<string, unknown>) {
 
 async function patchMeta(db: any, id: string, patch: Record<string, unknown>) {
   const { data } = await db.from("ebooks_kids").select("metadata").eq("id", id).single();
-  const merged = { ...(data?.metadata ?? {}), ...patch };
+  const merged = sanitizeMetadataPatchForPersist({ ...(data?.metadata ?? {}), ...patch });
   await db.from("ebooks_kids").update({ metadata: merged }).eq("id", id);
   return merged;
 }
@@ -467,7 +440,7 @@ Deno.serve(async (req: Request) => {
     await patchMeta(db, ebook_id, {
       coloring_current_step_label: "Cover single-rung: generating textless Flux/Schnell scene",
       coloring_progress_percent: 92,
-      coloring_cover_single_attempt: attempt,
+      coloring_cover_single_attempt: sanitizeAttemptForPersist(attempt),
       coloring_cover_ladder: {
         disabled_for_coloring_book: true,
         replaced_by: SINGLE_RUNG_VERSION,
@@ -536,7 +509,7 @@ Deno.serve(async (req: Request) => {
       // update so an upgrade cannot leave a book with mismatched fields. If
       // this update throws, the previous cover remains fully intact.
       const prevCover = meta.coloring_cover ?? null;
-      const nextMeta = {
+      const nextMeta = sanitizeMetadataPatchForPersist({
         ...meta,
         coloring_cover: coverRecord,
         coloring_cover_gate: measuredGate,
@@ -556,7 +529,7 @@ Deno.serve(async (req: Request) => {
             to_rung: params.acceptedRung,
           }] : []),
         ].slice(-10),
-      };
+      }) as Record<string, unknown>;
       await db.from("ebooks_kids").update({
         cover_url: up.signedUrl,
         thumbnail_url: up.signedUrl,
@@ -998,7 +971,7 @@ Deno.serve(async (req: Request) => {
         const renderedProof = { pass: true, reasons: [], learning_mode_waived: true } as any;
         // Persist ledger update alongside cover
         await db.from("ebooks_kids").update({
-          metadata: { ...meta, defect_ledger: wr.ledgerEntries },
+          metadata: sanitizeMetadataPatchForPersist({ ...meta, defect_ledger: wr.ledgerEntries }),
         }).eq("id", ebook_id);
         attempt.ended_at = new Date().toISOString();
         attempt.status = "accepted_learning_waived";

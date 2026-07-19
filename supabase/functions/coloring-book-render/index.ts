@@ -48,6 +48,7 @@ import { resolveTrimProfileKey, TRIM_PROFILES } from "../_shared/coloring/trim-l
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
 import { verifyAnatomyBatch, ANATOMY_VERIFIER_VERSION, type AnatomyPageVerdict } from "../_shared/coloring/anatomy-verify.ts";
 import { speciesAnatomyRepairClause } from "../_shared/coloring/species-anatomy.ts";
+import { sanitizeMetadataPatchForPersist } from "../_shared/coloring/metadata-bloat-guard.ts";
 import {
   AnatomyVerifierBlockedError,
   assertAnatomyVerifierAvailable,
@@ -125,7 +126,7 @@ function coloringPath(ebookId: string, page: number, version: string, ext: strin
 
 async function patchMeta(db: any, ebookId: string, patch: Record<string, unknown>) {
   const { data } = await db.from("ebooks_kids").select("metadata").eq("id", ebookId).single();
-  const merged = { ...(data?.metadata ?? {}), ...patch };
+  const merged = sanitizeMetadataPatchForPersist({ ...(data?.metadata ?? {}), ...patch });
   await db.from("ebooks_kids").update({ metadata: merged }).eq("id", ebookId);
   return merged;
 }
@@ -139,7 +140,7 @@ async function updatePages(db: any, ebookId: string, newRecords: StoredPage[]) {
   for (const r of existing) byPage.set(r.page, r);
   for (const r of newRecords) byPage.set(r.page, r);
   const pages = [...byPage.values()].sort((a, b) => a.page - b.page);
-  const merged = { ...meta, coloring_pages: pages };
+  const merged = sanitizeMetadataPatchForPersist({ ...meta, coloring_pages: pages });
   await db.from("ebooks_kids").update({ metadata: merged }).eq("id", ebookId);
   return pages;
 }

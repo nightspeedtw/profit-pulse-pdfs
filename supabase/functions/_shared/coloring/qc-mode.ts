@@ -50,7 +50,7 @@ export interface WaiveResult {
 export function waiveOrBlock(opts: {
   qcMode: QcMode;
   gatePass: boolean;
-  reasons: string[];
+  reasons?: string[] | string | null;
   meta: Record<string, unknown>;
   stage: string;                      // 'assemble' | 'publish' | ...
   gate: string;                       // 'weighted' | 'cover' | 'release_gate' | ...
@@ -59,6 +59,11 @@ export function waiveOrBlock(opts: {
   evidence_url?: string | null;
   round?: number | null;
 }): WaiveResult {
+  const safeReasons = Array.isArray(opts.reasons)
+    ? opts.reasons.map((r) => String(r ?? "")).filter(Boolean)
+    : opts.reasons == null
+      ? []
+      : [String(opts.reasons)];
   if (opts.gatePass) {
     return {
       proceed: true, waived: false,
@@ -67,17 +72,17 @@ export function waiveOrBlock(opts: {
     };
   }
   if (opts.qcMode === "strict") {
-    return { proceed: false, waived: false, ledgerEntries: (opts.meta.defect_ledger as DefectLedgerEntry[] | undefined) ?? [], reasons: opts.reasons };
+    return { proceed: false, waived: false, ledgerEntries: (opts.meta.defect_ledger as DefectLedgerEntry[] | undefined) ?? [], reasons: safeReasons };
   }
   // Learning mode — ALWAYS record + proceed.
   const nextLedger = appendDefectLedger(opts.meta, {
     stage: opts.stage,
     gate: opts.gate,
     page: opts.page ?? null,
-    reasons: opts.reasons.slice(0, 20),
+    reasons: safeReasons.slice(0, 20),
     attempts: opts.attempts ?? 1,
     evidence_url: opts.evidence_url ?? null,
     round: opts.round ?? null,
   });
-  return { proceed: true, waived: true, ledgerEntries: nextLedger, reasons: opts.reasons };
+  return { proceed: true, waived: true, ledgerEntries: nextLedger, reasons: safeReasons };
 }

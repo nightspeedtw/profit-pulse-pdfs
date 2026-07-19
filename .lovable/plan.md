@@ -1,53 +1,48 @@
-# แผนแก้ปัญหา: Cover Split v1 Race Condition (ต้นเหตุที่ทำให้ `d6da92a8` และเล่มอื่นค้าง)
+สาเหตุ retry หลายรอบที่ตรวจพบตอนนี้มี 4 จุดหลัก:
 
-## ปัญหาที่พบ (จากรอบก่อน)
-เล่ม `d6da92a8` interior เสร็จหมด 32 หน้าแล้ว แต่ไปต่อไม่ได้เพราะ **cover ค้างที่ generate→verify loop**:
+1. **Cover retry วนจาก metadata บวม**
+   - `coloring_cover_single_attempt` และ `coloring_cover_ideogram_attempts` ยังมีข้อมูลใหญ่ประมาณ 10MB ต่อคีย์
+   - ทำให้ทุกครั้งที่ระบบอัปเดตแถวนี้ backend ต้องเขียน JSON ก้อนใหญ่มาก เสี่ยง timeout/คิววน/ฐานข้อมูลหน่วง
 
-1. `coloring-cover-generate` สร้างรูปสำเร็จ อัปโหลดขึ้น storage แล้ว
-2. เรียก `patchMeta()` เพื่อเซ็ต `cover_pending_verify` ใน `ebooks_kids.metadata`
-3. `patchMeta` เป็น **read-modify-write** (อ่าน meta → merge → update ทั้งก้อน) ไม่ atomic
-4. Fire-and-forget เรียก `coloring-cover-verify` ทันที
-5. verify อ่าน meta **เวอร์ชันเก่า** (ก่อน patch ลง) → เจอ `no_pending_verify` → ออก
-6. ผลลัพธ์: รูปถูกสร้างแล้วทิ้ง, `invocations` เพิ่มขึ้นเรื่อยๆ, เล่มไม่ไปต่อ, ค่าใช้จ่ายไหลไม่หยุดจนชน ceiling 8
+2. **Cover มีไฟล์จริงแล้ว แต่ metadata cover contract หาย**
+   - แถว `d6da92a8` มี `cover_url` และ `thumbnail_url` แล้ว
+   - แต่ metadata ไม่มี `coloring_cover` / `coloring_cover_gate` ทำให้ขั้นต่อไปมองว่า cover ยังไม่ครบ แล้วกลับไปเส้นทาง cover retry ได้
 
-ปัญหานี้กระทบ **ทุกเล่มที่ผ่าน cover split v1** ไม่ใช่แค่เล่มเดียว
+3. **Assembly retry จากการเรียก `waiveOrBlock` ผิด signature**
+   - ฟังก์ชันจริงรับ object เดียว
+   - assembly เคยเรียกผิดรูปแบบบางจุด ทำให้เกิด `Cannot read properties of undefined (reading 'slice')` และวนกลับคิว
 
-## สิ่งที่จะแก้ (3 จุด)
+4. **Self-advance/requeue กำลัง retry ปัญหาเชิงเทคนิคเหมือนปัญหาคุณภาพ**
+   - บาง blocker เช่น metadata missing, cover contract missing, assembly crash ควรถูกแก้ state/contract ก่อน ไม่ใช่ schedule retry ต่อเนื่อง
 
-### 1. เปลี่ยน `patchMeta` เป็น atomic JSONB update (แก้ระดับ class)
-- แทน read-modify-write ด้วย SQL `jsonb_set` / `||` ในคำสั่ง update เดียว
-- ใช้ optimistic concurrency: `WHERE id = ? AND (metadata->>'cover_gen_seq')::int = ?`
-- ทุก writer ของ metadata (generate, verify, publish) ผ่าน helper เดียวกัน
-- ย้ายไป `_shared/kids-metadata.ts` เพื่อไม่ให้มี patch logic กระจายในหลายไฟล์
+แผนแก้ถาวร:
 
-### 2. เปลี่ยน generate→verify จาก fire-and-forget เป็น awaited chain
-- `coloring-cover-generate` เขียน pending → **await** call `coloring-cover-verify` ก่อน return
-- ถ้า verify pass → advance state, ถ้าไม่ pass → คืนเข้า retry pool ตามปกติ
-- ตัด race หมด: state ที่ verify เห็นคือ state ที่ generate เพิ่งเขียนแน่นอน
+1. **Patch assembly ให้ไม่ crash**
+   - ตรวจทุกจุดที่เรียก `waiveOrBlock` ใน `coloring-book-assemble`
+   - แก้ให้ใช้ object signature เท่านั้น
+   - เพิ่ม guard ให้ `reasons` เป็น array เสมอ เพื่อไม่เกิด `.slice()` crash อีก
 
-### 3. Ceiling refund เมื่อ generate สำเร็จแต่ verify race ตก
-- ป้องกันไม่ให้ `invocations` เพิ่มเวลาที่ failure เกิดจาก race ของระบบเราเอง (ไม่ใช่ provider fail)
-- นับ invocation เฉพาะเมื่อเรียก provider จริง ไม่ใช่ทุก HTTP hit
+2. **ทำ metadata bloat cleanup แบบถาวร**
+   - เพิ่ม sanitizer/compact helper ที่ล้าง `_rawBytes`, base64, transcript ยาว, reason ยาว ก่อน persist
+   - จำกัด attempt history เหลือ 5 รายการจริงทุก write path
+   - เพิ่ม regression test ว่า metadata attempt history ไม่มี raw bytes และไม่โตเกินเพดาน
 
-## Regression test (ตามกฎ AGENTS.md)
-- Fixture: mock generate สำเร็จ 3 ครั้งติด, verify ต้อง pass ครั้งแรก ไม่วนซ้ำ
-- Test ต้อง fail ก่อน patch, pass หลัง patch
-- Vitest ใน `supabase/functions/**/__tests__/`
+3. **ซ่อม cover contract เมื่อมี cover_url แล้ว**
+   - ถ้า `cover_url`/thumbnail มีอยู่ แต่ `coloring_cover` หรือ `coloring_cover_gate` หาย ให้สร้าง minimal accepted cover metadata จาก asset ปัจจุบัน
+   - ไม่กลับไปจ่ายเงิน generate cover ใหม่ถ้า asset มีแล้ว
+   - ใช้ publish-contract เป็นจุดบังคับ spelling non-waivable ต่อไป
 
-## หลังแก้เสร็จ
-- Reset `d6da92a8` เฉพาะ cover metadata (interior 32 หน้า preserve ไว้)
-- ปล่อยเล่มเดียว ไม่ปลด autopilot freeze ตามคำสั่งเดิม
-- ถ้า LIVE แจ้งผล; ถ้ายังติด แจ้ง incident ใหม่ทีละอย่างตาม policy freeze
+4. **แยก technical retry ออกจาก quality retry**
+   - technical crash/missing metadata/oversized metadata จะถูก mark เป็น incident/blocker ชัดเจน ไม่ยิง provider ซ้ำ
+   - quality retry เฉพาะกรณีที่ยังต้อง generate asset จริง และอยู่ใต้ ceiling เท่านั้น
 
-## ไฟล์ที่จะแตะ
-- `supabase/functions/_shared/kids-metadata.ts` (เพิ่ม atomic helper)
-- `supabase/functions/coloring-cover-generate/index.ts` (await verify + refund)
-- `supabase/functions/coloring-cover-verify/index.ts` (อ่าน meta หลัง patch)
-- `supabase/functions/**/__tests__/coverGenerateVerifyRace.test.ts` (ใหม่)
+5. **กู้เล่ม `Superhero Unicorn Fantasy Coloring Book` ต่อจนจบ**
+   - prune metadata ของเล่มนี้ให้เล็กลง
+   - rebuild cover metadata contract จาก cover/thumbnail ที่มีอยู่
+   - trigger assembly ด้วย `override_freeze:true`
+   - ถ้า assembly ผ่าน ให้ chain publish ต่อ
 
-## ไม่แตะ
-- Autopilot freeze (ยังคงอยู่)
-- Ceiling / budget (ไม่เปลี่ยน)
-- Story gate / rulebook / QC thresholds
-
-เอาแผนนี้ไหมครับ หรือให้ทำเฉพาะข้อ 2 ก่อน (เร็วสุด แต่ไม่ atomic 100%)?
+6. **ยืนยันผล**
+   - ตรวจว่าเล่มมี `pdf_url`, `cover_url`, `thumbnail_url`
+   - ตรวจว่า metadata ไม่บวมซ้ำ
+   - ตรวจ logs ว่าไม่มี retry loop ใหม่จาก cover/assemble
