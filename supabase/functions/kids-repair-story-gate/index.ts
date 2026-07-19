@@ -264,6 +264,11 @@ Deno.serve(async (req) => {
       try {
         rewritten = await rewriteManuscript(system, user, ebook_id, i);
       } catch (e) {
+        if (isBudgetCeilingError(e)) {
+          await parkOnPaidCeiling(ebook_id, e, db);
+          return json({ ok: true, result: 'parked_paid_ceiling', ebook_id,
+            group: e.group, count: e.count, attempts_done: i - 1 });
+        }
         attempts.push({ attempt: i, scores: {}, passed: false, blockers: [`rewrite_error: ${(e as Error).message.slice(0, 160)}`], word_count: 0 });
         continue;
       }
