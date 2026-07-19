@@ -589,6 +589,16 @@ Deno.serve(async (req: Request) => {
           });
           return json({ ok: false, halted: true, reason: parkState, wake_at: wake.toISOString(), detail: e.message });
         }
+        if (isTransientBackendConnectionError(e)) {
+          console.warn(`[coloring-render] transient backend issue on page ${page.canonical_page_number}; cooldown retry`, e?.message ?? e);
+          errors.push({
+            page: page.canonical_page_number,
+            error: `technical_backend_transient: ${String(e?.message ?? e).slice(0, 200)}`,
+            reasons: ["technical_backend_transient"],
+            technical_state: true,
+          } as any);
+          break;
+        }
         console.error(`[coloring-render] page ${page.canonical_page_number} failed`, e?.message);
         repairAttempts[String(page.canonical_page_number)] = attempt + 1;
         errors.push({ page: page.canonical_page_number, error: e?.message ?? String(e) });
@@ -794,6 +804,21 @@ Deno.serve(async (req: Request) => {
           coloring_last_errors: perPageTrimmed,
         });
         return json({ ok: false, stage: stageLabel, reason: parkState, wake_at: wake.toISOString(), errors: perPageTrimmed }, 200);
+      }
+      const looksTransientBackend = errors.some((e: any) => e?.technical_state || isTransientBackendConnectionError(e?.error));
+      if (looksTransientBackend) {
+        await db.from("ebooks_kids").update({
+          pipeline_status: "queued",
+          blocker_reason: null,
+          next_retry_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+        }).eq("id", ebook_id);
+        await patchMeta(db, ebook_id, {
+          coloring_progress_percent: percent,
+          coloring_current_step_label: `Backend connection cooldown — retrying ${stageLabel} shortly`,
+          coloring_last_errors: perPageTrimmed,
+        });
+        await scheduleSelfAdvance(db, ebook_id, { delayMs: 2 * 60_000, reason: `technical_backend_cooldown:${stageLabel}` });
+        return json({ ok: false, stage: stageLabel, reason: "technical_backend_cooldown", errors: perPageTrimmed, self_advance: true }, 200);
       }
       // Whole batch failed — surface as blocker but keep queued for retry.
       await db.from("ebooks_kids").update({
