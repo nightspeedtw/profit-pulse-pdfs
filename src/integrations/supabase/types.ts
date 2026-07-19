@@ -2662,6 +2662,54 @@ export type Database = {
         }
         Relationships: []
       }
+      gold_reference_pages: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          scene_bucket: string | null
+          score: number | null
+          signed_url: string | null
+          signed_url_expires_at: string | null
+          source_book_id: string | null
+          source_prompt: string | null
+          storage_bucket: string
+          storage_path: string
+          style_contract_version: string
+          subject: string | null
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          scene_bucket?: string | null
+          score?: number | null
+          signed_url?: string | null
+          signed_url_expires_at?: string | null
+          source_book_id?: string | null
+          source_prompt?: string | null
+          storage_bucket?: string
+          storage_path: string
+          style_contract_version: string
+          subject?: string | null
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          scene_bucket?: string | null
+          score?: number | null
+          signed_url?: string | null
+          signed_url_expires_at?: string | null
+          source_book_id?: string | null
+          source_prompt?: string | null
+          storage_bucket?: string
+          storage_path?: string
+          style_contract_version?: string
+          subject?: string | null
+        }
+        Relationships: []
+      }
       kids_age_groups: {
         Row: {
           created_at: string
@@ -3302,6 +3350,48 @@ export type Database = {
         }
         Relationships: []
       }
+      page_fpy_events: {
+        Row: {
+          book_id: string
+          call_class: string
+          created_at: string
+          fail_reasons: string[] | null
+          id: string
+          page_number: number | null
+          passed_first: boolean
+          provider: string
+          scene_bucket: string | null
+          style_contract: string | null
+          subject: string | null
+        }
+        Insert: {
+          book_id: string
+          call_class?: string
+          created_at?: string
+          fail_reasons?: string[] | null
+          id?: string
+          page_number?: number | null
+          passed_first: boolean
+          provider: string
+          scene_bucket?: string | null
+          style_contract?: string | null
+          subject?: string | null
+        }
+        Update: {
+          book_id?: string
+          call_class?: string
+          created_at?: string
+          fail_reasons?: string[] | null
+          id?: string
+          page_number?: number | null
+          passed_first?: boolean
+          provider?: string
+          scene_bucket?: string | null
+          style_contract?: string | null
+          subject?: string | null
+        }
+        Relationships: []
+      }
       pipeline_skills: {
         Row: {
           age_band: string | null
@@ -3422,6 +3512,42 @@ export type Database = {
           key?: string
           updated_at?: string
           value_json?: Json
+        }
+        Relationships: []
+      }
+      practice_backlog: {
+        Row: {
+          created_at: string
+          fpy_pct: number | null
+          id: string
+          provider: string | null
+          reason: string | null
+          sample_size: number | null
+          scene_bucket: string
+          status: string
+          subject: string
+        }
+        Insert: {
+          created_at?: string
+          fpy_pct?: number | null
+          id?: string
+          provider?: string | null
+          reason?: string | null
+          sample_size?: number | null
+          scene_bucket: string
+          status?: string
+          subject: string
+        }
+        Update: {
+          created_at?: string
+          fpy_pct?: number | null
+          id?: string
+          provider?: string | null
+          reason?: string | null
+          sample_size?: number | null
+          scene_bucket?: string
+          status?: string
+          subject?: string
         }
         Relationships: []
       }
@@ -4612,6 +4738,40 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      v_book_fpy: {
+        Row: {
+          book_id: string | null
+          call_class: string | null
+          first_event_at: string | null
+          first_pass_pages: number | null
+          fpy_pct: number | null
+          last_event_at: string | null
+          pages: number | null
+        }
+        Relationships: []
+      }
+      v_call_class_provider_fpy: {
+        Row: {
+          attempts: number | null
+          call_class: string | null
+          fpy_pct: number | null
+          passes: number | null
+          provider: string | null
+        }
+        Relationships: []
+      }
+      v_subject_scene_provider_fpy: {
+        Row: {
+          attempts: number | null
+          call_class: string | null
+          fpy_pct: number | null
+          passes: number | null
+          provider: string | null
+          scene_bucket: string | null
+          subject_key: string | null
+        }
+        Relationships: []
       }
     }
     Functions: {
