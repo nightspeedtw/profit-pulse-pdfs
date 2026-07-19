@@ -105,6 +105,7 @@ export function assertMasterPromptShape(
     throw new Error(`coloring_master_cover_v1: prompt exceeds 3000 chars (${prompt.length})`);
   }
   for (const [key, value] of Object.entries(expected)) {
+    if (key === "subtitle") continue; // subtitle is optional (essentials-only rule)
     if (!value || value.length < 1) {
       throw new Error(`coloring_master_cover_v1: expected.${key} is empty`);
     }
