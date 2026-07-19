@@ -30,6 +30,7 @@ import { fitCoverArtToPortraitCanvas, COLORING_COVER_COMPOSITOR_VERSION, COLORIN
 import { resolveTrimProfileKey, TRIM_PROFILES } from "../_shared/coloring/trim-lock.ts";
 import { computeCoverFingerprint, findDuplicateCover, DUPLICATE_HAMMING_THRESHOLD } from "../_shared/coloring/cover-uniqueness.ts";
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS, fireAndForgetPost } from "../_shared/coloring/self-advance.ts";
+import { atomicPatchMeta } from "../_shared/kids-metadata.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -41,11 +42,9 @@ const SPLIT_VERSION = "coloring_cover_split_v1_verify";
 function json(x: unknown, status = 200) {
   return new Response(JSON.stringify(x), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
+// Race-safe metadata patch — see _shared/kids-metadata.ts.
 async function patchMeta(db: any, id: string, patch: Record<string, unknown>) {
-  const { data } = await db.from("ebooks_kids").select("metadata").eq("id", id).single();
-  const merged = { ...(data?.metadata ?? {}), ...patch };
-  await db.from("ebooks_kids").update({ metadata: merged }).eq("id", id);
-  return merged;
+  return await atomicPatchMeta(db, id, patch);
 }
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
