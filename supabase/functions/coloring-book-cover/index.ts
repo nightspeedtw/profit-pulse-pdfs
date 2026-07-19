@@ -849,7 +849,7 @@ Deno.serve(async (req: Request) => {
         ideogramAttempts.push(ideoReport);
         attempt.ended_at = new Date().toISOString();
         attempt.status = "accepted";
-        attempt.checks = { ideogram_attempts: ideogramAttempts, accepted_via: "ideogram_v3_integrated", rung: "tier1_ideogram" };
+        attempt.checks = { ideogram_attempts: sanitizeAttemptsForPersist(ideogramAttempts), accepted_via: "ideogram_v3_integrated", rung: "tier1_ideogram" };
         return await persistAcceptedCover({
           finalBytes,
           // Tier-1 art_only == final (no overlay was applied). Both URLs
@@ -872,7 +872,7 @@ Deno.serve(async (req: Request) => {
             provider: ideo.provider,
             provider_attempts: attemptIndex,
             evidence: { luminance, color, transcription: verdict, rendered_proof: renderedProof },
-            ideogram_attempts: ideogramAttempts,
+            ideogram_attempts: sanitizeAttemptsForPersist(ideogramAttempts),
             ideogram_prompt_used: ideo.prompt,
             typography_source: "ideogram_verified_integrated",
             overlay_skipped: true,
@@ -959,13 +959,13 @@ Deno.serve(async (req: Request) => {
             attempt.ended_at = new Date().toISOString();
             attempt.status = "requeued_duplicate";
             attempt.checks = {
-              ideogram_attempts: ideogramAttempts.map((a: any) => ({ ...a, _rawBytes: undefined, _verdict: undefined })),
+              ideogram_attempts: sanitizeAttemptsForPersist(ideogramAttempts),
               rung: "tier1_ideogram_learning_waived",
               duplicate_of: { id: dup.id, title: dup.title, distance: dup.distance },
             };
             return await markCoverBlocked(
               db, ebook_id,
-              { coloring_cover_single_attempt: attempt, coloring_cover_ideogram_attempts: ideogramAttempts },
+              { coloring_cover_single_attempt: attempt, coloring_cover_ideogram_attempts: sanitizeAttemptsForPersist(ideogramAttempts) },
               `duplicate_of:${dup.id}:hd=${dup.distance}`,
             );
           }
@@ -1002,7 +1002,7 @@ Deno.serve(async (req: Request) => {
         }).eq("id", ebook_id);
         attempt.ended_at = new Date().toISOString();
         attempt.status = "accepted_learning_waived";
-        attempt.checks = { ideogram_attempts: ideogramAttempts.map((a: any) => ({ ...a, _rawBytes: undefined, _verdict: undefined })), rung: "tier1_ideogram_learning_waived" };
+        attempt.checks = { ideogram_attempts: sanitizeAttemptsForPersist(ideogramAttempts), rung: "tier1_ideogram_learning_waived" };
         return await persistAcceptedCover({
           finalBytes, artOnlyBytes: finalBytes,
           treatmentMeta: {
@@ -1045,7 +1045,7 @@ Deno.serve(async (req: Request) => {
     attempt.ended_at = new Date().toISOString();
     attempt.status = "requeued";
     attempt.checks = {
-      ideogram_attempts: ideogramAttempts,
+      ideogram_attempts: sanitizeAttemptsForPersist(ideogramAttempts),
       rung: "tier1_ideogram_only",
       overlay_fallback_disabled: true,
     };
@@ -1054,7 +1054,7 @@ Deno.serve(async (req: Request) => {
       : "ideogram_no_attempts";
     const tailResp = await markCoverBlocked(
       db, ebook_id,
-      { coloring_cover_single_attempt: attempt, coloring_cover_ideogram_attempts: ideogramAttempts },
+      { coloring_cover_single_attempt: attempt, coloring_cover_ideogram_attempts: sanitizeAttemptsForPersist(ideogramAttempts) },
       `ideogram_only_park:${lastReason}`,
     );
     if (!(tailResp instanceof Response)) {
