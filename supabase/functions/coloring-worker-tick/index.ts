@@ -84,11 +84,12 @@ Deno.serve(async (req: Request) => {
     const stillWaiting: unknown[] = [];
     for (const row of parkedRows ?? []) {
       const cfHealthy = !cfLatch && !guards.provider_billing_blocked.cloudflare?.active;
-      const falHealthy = !guards.provider_billing_blocked.fal?.active;
+      const runwareHealthy = !guards.provider_billing_blocked.runware?.active;
+      const falHealthy = false; // fal.ai is permanently cut from coloring failover chains.
       // At least one provider must be healthy to wake — otherwise re-park
       // with a fresh wake time so we don't burn a dispatch.
-      if (!cfHealthy && !falHealthy) {
-        stillWaiting.push({ ebook_id: row.id, reason: "both_providers_still_dry" });
+      if (!cfHealthy && !runwareHealthy && !falHealthy) {
+        stillWaiting.push({ ebook_id: row.id, reason: "all_configured_providers_still_dry" });
         continue;
       }
       await db.from("ebooks_kids").update({
@@ -96,7 +97,7 @@ Deno.serve(async (req: Request) => {
         blocker_reason: null,
         next_retry_at: null,
       }).eq("id", row.id);
-      woken.push({ ebook_id: row.id, from: row.pipeline_status, cf_healthy: cfHealthy, fal_healthy: falHealthy });
+      woken.push({ ebook_id: row.id, from: row.pipeline_status, cf_healthy: cfHealthy, runware_healthy: runwareHealthy, fal_healthy: falHealthy });
     }
     result.woken = woken;
     result.still_waiting = stillWaiting;
@@ -120,7 +121,11 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const maxParallel = Math.max(1, Number(cfg.max_parallel ?? 1));
+    // Throughput invariant: missing `max_parallel` must NOT collapse the
+    // factory to one-at-a-time. Default to the configured batch size so a
+    // cleared quota/ceiling immediately drains the queue at owner-approved
+    // concurrency.
+    const maxParallel = Math.max(1, Number(cfg.max_parallel ?? cfg.batch_size ?? 3));
 
     // ── STUCK-'generating' WATCHDOG (defect class:
     // generating_status_zombie). A render invocation that dies mid-batch
@@ -237,7 +242,7 @@ Deno.serve(async (req: Request) => {
       // the top-N are stuck bouncing on the same terminal-ish stage.
       const { data } = await db
         .from("ebooks_kids")
-        .select("id, title, metadata, pdf_url, cover_url, blocker_reason")
+        .select("id, title, metadata, pdf_url, cover_url, blocker_reason, next_retry_at")
         .eq("book_type", "coloring_book")
         .eq("pipeline_status", "queued")
         .order("created_at", { ascending: true })
@@ -275,8 +280,15 @@ Deno.serve(async (req: Request) => {
         const rMeta = (r.metadata ?? {}) as Record<string, unknown>;
         const invocations = Number(rMeta.coloring_cover_invocations ?? 0);
         const awaiting = rMeta.awaiting as string | undefined;
-        const needsCover = !r.cover_url && (awaiting === "cover_pdf_publish" || awaiting == null || awaiting === "human_review");
+        const needsCover = !r.cover_url && (awaiting === "cover_pdf_publish" || awaiting == null || awaiting === "cover_retry_ceiling");
         const reason = String(r.blocker_reason ?? "");
+        if ((r as any).next_retry_at) {
+          const retryAt = Date.parse((r as any).next_retry_at);
+          if (Number.isFinite(retryAt) && retryAt > now) {
+            laneBlockedSkipped += 1;
+            continue;
+          }
+        }
         const isCeilingReason = /coloring_cover_retry_ceiling_reached/.test(reason);
         // Ceiling handling: if under CEILING, escalate; if >= CEILING, park.
         if (needsCover && invocations >= COVER_INVOCATION_CEILING) {
@@ -287,7 +299,7 @@ Deno.serve(async (req: Request) => {
               metadata: {
                 ...rMeta,
                 coloring_current_step_label:
-                  `Cover retry ceiling reached (${invocations}/${COVER_INVOCATION_CEILING}) — parked. Reset metadata.coloring_cover_invocations to resume.`,
+                  `Cover retry ceiling reached (${invocations}/${COVER_INVOCATION_CEILING}) — auto-held by retry storm guard.`,
                 coloring_blocker: {
                   class: "non_recoverable_config",
                   reason: `coloring_cover_retry_ceiling_reached:${invocations}`,
@@ -295,7 +307,7 @@ Deno.serve(async (req: Request) => {
                   parked_by: "worker_tick_ceiling_guard",
                   detected_at: new Date().toISOString(),
                 },
-                awaiting: "human_review",
+                awaiting: "cover_retry_ceiling",
               },
             }).eq("id", r.id);
           } catch (_e) { /* best-effort */ }
@@ -367,7 +379,7 @@ Deno.serve(async (req: Request) => {
       let target = "coloring-book-render";
       if (awaiting === "cover_verify") {
         target = "coloring-cover-verify";
-      } else if (awaiting === "cover_pdf_publish" || awaiting === "human_review") {
+      } else if (awaiting === "cover_pdf_publish" || awaiting === "cover_retry_ceiling") {
         if (row.cover_url) {
           target = row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble";
         } else if (invocations >= 5) {

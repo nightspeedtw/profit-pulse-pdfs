@@ -23,6 +23,16 @@ export const STEP_CEILING_OVERRIDES: Record<string, number> = {
   kids_interior_page: 45,
   kids_interior_page_textonly: 45,
   coloring_production_page: 45,
+  // Coloring covers already have a stricter per-book invocation ceiling in
+  // the cover workers. Keep the paid-call ceiling high enough that legacy
+  // cost_log rows do not strand otherwise recoverable books.
+  coloring_cover_ideogram: 40,
+  coloring_cover_gpt_image: 40,
+  coloring_cover_ideogram_inpaint: 40,
+};
+
+export const GROUP_CEILING_OVERRIDES: Record<string, number> = {
+  coloring_cover_any: 40,
 };
 
 export class BudgetCeilingError extends Error {
@@ -89,7 +99,8 @@ export async function assertPaidCeiling(opts: {
     const { data } = await sb.from("cost_log")
       .select("step").eq("ebook_id", ebook_id).gte("created_at", since);
     const groupCount = (data ?? []).filter((r: { step: string }) => pattern.test(r.step)).length;
-    if (groupCount >= MAX_PAID_CALLS_PER_GROUP_24H) {
+    const groupMax = GROUP_CEILING_OVERRIDES[groupName] ?? MAX_PAID_CALLS_PER_GROUP_24H;
+    if (groupCount >= groupMax) {
       throw new BudgetCeilingError(opts.step, groupCount, groupName);
     }
   }
@@ -107,7 +118,7 @@ export async function parkOnPaidCeiling(
   const sb = supabase ?? db();
   const reason = `paid_ceiling:${err.group ?? err.step} (count=${err.count}) — auto-parked ${new Date().toISOString()}`;
   await sb.from("ebooks_kids").update({
-    pipeline_status: "awaiting_owner",
+    pipeline_status: "queued",
     blocker_reason: reason,
     next_retry_at: new Date(Date.now() + 24 * 3600_000).toISOString(),
   }).eq("id", ebook_id);

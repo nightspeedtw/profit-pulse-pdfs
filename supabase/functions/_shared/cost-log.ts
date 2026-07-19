@@ -94,10 +94,13 @@ export function logAiCost(db: Db, row: LogAiCostRow): void {
 }
 
 /** Convenience factory when the caller already has SUPABASE_URL + service key. */
+let _costDb: Db | null = null;
 export function costDb(): Db {
-  return createClient(
+  if (_costDb) return _costDb;
+  _costDb = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     { auth: { persistSession: false } },
   );
+  return _costDb;
 }
