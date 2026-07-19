@@ -34,6 +34,7 @@ import { hardenCharacterDescription } from "../_shared/character-anti-confusion.
 import { runKidsVisionQcBatched } from "../_shared/kids-vision-qc.ts";
 import { loadSegments, segmentsToScenePlan } from "../_shared/kids-segments.ts";
 import { assertCoverOrInteriorReady, logStageEvidence, resolveStageOrThrow, loadCharacterLock } from "../_shared/skill-evidence.ts";
+import { assertPaidCeiling, parkOnPaidCeiling, isBudgetCeilingError } from "../_shared/paid-ceiling.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -407,6 +408,20 @@ Deno.serve(async (req) => {
         blocker_reason: `interior_invocation_ceiling:${invocationCount}`,
       }).eq("id", ebookId);
       return json({ ok: false, stage: "ceiling_exceeded", invocation_count: invocationCount }, 200);
+    }
+
+    // PAID-CEILING TRIPWIRE — this is the choke point that prevented the 77-call
+    // interior storm (2026-07-19). If the (book, step) row has already spent
+    // over the ceiling, park the book instead of firing another paid call.
+    try {
+      await assertPaidCeiling({ ebook_id: ebookId, step: "kids_interior_page", supabase: db });
+    } catch (ceilingErr) {
+      if (isBudgetCeilingError(ceilingErr)) {
+        console.error(`[render-interior] paid-ceiling hit for ebook=${ebookId} — parking:`, ceilingErr.message);
+        await parkOnPaidCeiling(ebookId, ceilingErr, db);
+        return json({ ok: false, stage: "paid_ceiling", reason: ceilingErr.message }, 200);
+      }
+      throw ceilingErr;
     }
 
     // Discover parent run_id if not provided (so we can resume when done).

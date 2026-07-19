@@ -304,6 +304,26 @@ Deno.serve(async (req: Request) => {
       // NO scheduleSelfAdvance — this is a terminal park until a human resets.
       return json({ ok: false, parked: true, reason: COVER_RETRY_CEILING_REASON, invocations: priorInvocations }, 202);
     }
+
+    // PAID-CEILING TRIPWIRE — sum across ALL cover providers (ideogram + gpt_image
+    // + thumbnail + inpaint) in the last 24h. Prevents the c2839b88 class where
+    // per-provider caps were bypassed by hopping between providers (2026-07-19).
+    try {
+      const { assertPaidCeiling: assertPC, isBudgetCeilingError: isBCE, parkOnPaidCeiling: parkPC } = await import("../_shared/paid-ceiling.ts");
+      for (const s of ["coloring_cover_ideogram", "coloring_cover_gpt_image", "coloring_cover_ideogram_inpaint"]) {
+        try {
+          await assertPC({ ebook_id, step: s, supabase: db });
+        } catch (ce) {
+          if (isBCE(ce)) {
+            console.error(`[coloring-cover] paid-ceiling hit ${s} for ebook=${ebook_id} — parking`);
+            await parkPC(ebook_id, ce, db);
+            return json({ ok: false, parked: true, reason: ce.message }, 200);
+          }
+          throw ce;
+        }
+      }
+    } catch (_pcSetupErr) { /* module import failure shouldn't block */ }
+
     if (!isUpgradeMode) {
       await patchMeta(db, ebook_id, { coloring_cover_invocations: priorInvocations + 1 });
     }
