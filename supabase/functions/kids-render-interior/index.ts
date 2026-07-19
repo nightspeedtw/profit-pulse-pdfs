@@ -34,6 +34,7 @@ import { hardenCharacterDescription } from "../_shared/character-anti-confusion.
 import { runKidsVisionQcBatched } from "../_shared/kids-vision-qc.ts";
 import { loadSegments, segmentsToScenePlan } from "../_shared/kids-segments.ts";
 import { assertCoverOrInteriorReady, logStageEvidence, resolveStageOrThrow, loadCharacterLock } from "../_shared/skill-evidence.ts";
+import { assertPaidCeiling, parkOnPaidCeiling, isBudgetCeilingError } from "../_shared/paid-ceiling.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
