@@ -111,6 +111,11 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
+function isTransientBackendConnectionError(e: unknown): boolean {
+  const msg = String((e as Error)?.message ?? e ?? "");
+  return /schema cache|Too many connections|Hot standby mode is disabled|database system is not accepting connections|SSL handshake failed|Error code 52[015]|\b52[015]\b|Web server is down|Cloudflare error page|connection closed before message completed/i.test(msg);
+}
+
 async function sha256Hex(s: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
@@ -259,8 +264,10 @@ async function markCoverBlocked(db: any, ebookId: string, patch: Record<string, 
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  let requestBody: any = {};
   try {
-    const { ebook_id, force, mode } = await req.json();
+    requestBody = await req.json().catch(() => ({}));
+    const { ebook_id, force, mode } = requestBody;
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
     const isUpgradeMode = mode === "upgrade";
     const { data: row, error } = await db.from("ebooks_kids")
@@ -963,6 +970,26 @@ Deno.serve(async (req: Request) => {
     throw new Error("silent_no_op:cover_fell_through_bottom_of_handler");
   } catch (e: any) {
     const msg = String(e?.message ?? e).slice(0, 300);
+    const ebookId = requestBody?.ebook_id;
+    if (isTransientBackendConnectionError(e)) {
+      console.warn("[coloring-cover] transient backend cooldown", msg);
+      if (ebookId) {
+        try {
+          await patchMeta(db, ebookId, {
+            coloring_current_step_label: `Cover technical cooldown — backend connection/schema cache: ${msg}`,
+            coloring_transient_backend_at: new Date().toISOString(),
+            awaiting: "cover_pdf_publish",
+          });
+          await db.from("ebooks_kids").update({
+            pipeline_status: "queued",
+            blocker_reason: null,
+          }).eq("id", ebookId);
+        } catch (stampErr: any) {
+          console.warn("[coloring-cover] transient cooldown stamp skipped", stampErr?.message);
+        }
+      }
+      return json({ ok: false, transient: true, requeued: true, reason: msg }, 202);
+    }
     console.error("[coloring-cover] fatal", msg);
     // OWNER DOCTRINE: a thrown error must never leave the book silently
     // unchanged. Stamp a blocker_reason so worker-tick sees the failure,
@@ -970,8 +997,6 @@ Deno.serve(async (req: Request) => {
     // detect and rotate. Also record a defect event for the
     // silent-no-op-after-provider-fallback detection heuristic.
     try {
-      const body = await req.clone().json().catch(() => ({} as any));
-      const ebookId = (body as any)?.ebook_id;
       if (ebookId) {
         await patchMeta(db, ebookId, {
           coloring_blocker: {
