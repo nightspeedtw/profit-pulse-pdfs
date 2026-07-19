@@ -283,20 +283,21 @@ Deno.serve(async (req: Request) => {
       split_v1: { generated_pending_path: pendingStoragePath, verified_at: new Date().toISOString() },
     };
 
+    // Atomic patch (see _shared/kids-metadata.ts): pass only the delta so
+    // a concurrent writer cannot be clobbered by re-spreading stale `meta`.
+    await patchMeta(db, ebookId, {
+      coloring_cover: coverRecord,
+      coloring_cover_gate: measuredGate,
+      coloring_progress_percent: 94,
+      coloring_current_step_label: `Cover verified (${provider}, split v1) — chaining thumbnail + assemble`,
+      awaiting: "cover_pdf_publish",
+      cover_upgrade_pending: false,
+      cover_pending_verify: null,
+    });
     await db.from("ebooks_kids").update({
       cover_url: up.signedUrl,
       thumbnail_url: up.signedUrl,
       blocker_reason: null,
-      metadata: {
-        ...meta,
-        coloring_cover: coverRecord,
-        coloring_cover_gate: measuredGate,
-        coloring_progress_percent: 94,
-        coloring_current_step_label: `Cover verified (${provider}, split v1) — chaining thumbnail + assemble`,
-        awaiting: "cover_pdf_publish",
-        cover_upgrade_pending: false,
-        cover_pending_verify: null,
-      },
     }).eq("id", ebookId);
 
     // Chain thumbnail (distinct fitted asset) + assemble (PDF).
