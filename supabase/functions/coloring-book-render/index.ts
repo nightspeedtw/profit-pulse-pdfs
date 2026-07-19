@@ -46,7 +46,7 @@ import { decideRepair, replanEscalatedPage, sanitizeSceneForColorability } from 
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 import { resolveTrimProfileKey, TRIM_PROFILES } from "../_shared/coloring/trim-lock.ts";
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS } from "../_shared/coloring/self-advance.ts";
-import { verifyAnatomyBatch, ANATOMY_VERIFIER_VERSION, type AnatomyPageVerdict } from "../_shared/coloring/anatomy-verify.ts";
+import { verifyAnatomyBatch, ANATOMY_VERIFIER_VERSION, hasDeformity, type AnatomyPageVerdict } from "../_shared/coloring/anatomy-verify.ts";
 import { speciesAnatomyRepairClause } from "../_shared/coloring/species-anatomy.ts";
 import { sanitizeMetadataPatchForPersist } from "../_shared/coloring/metadata-bloat-guard.ts";
 import {
@@ -664,13 +664,38 @@ Deno.serve(async (req: Request) => {
         } as any);
         continue;
       }
-      // Coloring Rulebook v2 — Essentials Only. Anatomy is advisory, not a
-      // hard gate. The garbage-floor sharpness gate already blocks unreadable
-      // pages. Never delete storage or increment attempts on anatomy defects.
+      // Coloring Rulebook v2 AMENDMENT — anatomy_deformity_hard_gate_v1
+      // (owner order 2026-07-19). Deformity (missing/extra/fused/floating
+      // limbs, mangled bodies) is a NON-WAIVABLE hard reject. Fantasy,
+      // stylization and cuteness still pass — enforced by the rubric.
+      // Non-deformity defects (blob/egg/unrecognizable) keep their existing
+      // reject path; other findings stay advisory so FPY learner mines them.
       (rec as any).anatomy_verdict = { ...v, storage_path: rec.storage_path };
+      const deformed = hasDeformity(v);
+      const unrecognizable = v.recognizable === false || (v.defects || []).some((d) =>
+        /unrecognizable_subject|blob_shape|egg_with_face/i.test(d)
+      );
+      const textContam = v.has_text === true || (v.defects || []).some((d) => /raw_art_has_text/i.test(d));
+
+      if (deformed || unrecognizable || textContam) {
+        // HARD reject — delete storage, drop from newRecords, log as gate
+        // failure so the repair ladder re-renders only this page.
+        try { await db.storage.from("ebook-covers").remove([rec.storage_path]); } catch { /* best-effort */ }
+        const gateLabel = deformed ? "anatomy_gate:deformity"
+          : unrecognizable ? "anatomy_gate:unrecognizable_subject"
+          : "anatomy_gate:text_contamination";
+        errors.push({
+          page: rec.page,
+          error: `${gateLabel}: ${v.defects.slice(0, 4).join("; ") || "anatomy_defect"}`,
+          reasons: ["anatomy_gate", ...v.defects],
+          anatomy: { species_key: v.species_key, score: v.anatomy_score, defects: v.defects, degraded: v.degraded },
+        } as any);
+        continue; // do NOT keep this record
+      }
+
       keptRecords.push(rec);
       if (!v.pass) {
-        // Log advisory-only so FPY learner still mines patterns.
+        // Non-deformity, non-unrecognizable, non-text findings — advisory.
         errors.push({
           page: rec.page,
           error: `anatomy_advisory: ${v.defects.slice(0, 4).join("; ") || "anatomy_defect"}`,

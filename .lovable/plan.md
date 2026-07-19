@@ -1,82 +1,65 @@
+## Root cause
 
-# Permanent Fix — Coloring-Book Cover Master Prompt
+The anatomy verifier already detects deformity (missing/extra/floating/fused limbs) — rubric is correct and fantasy beings (unicorns, dragons, mermaids, multi-armed deities, nine-tailed fox, etc.) are explicitly PASSED. But under **Coloring Rulebook v2 "Essentials Only"** the verdict was demoted to **advisory** in `coloring-book-render/index.ts` (line ~667), so deformed pages like the ones you flagged (pp. 7, 14, 27 — unicorns with missing back legs / body cut off / floating torsos) shipped into the PDF.
 
-Scope: `book_type='coloring_book'` ONLY. Picture-book / adult lanes untouched (scope guard `assertColoringOnly`).
+Uploaded pages show real deformity (not stylization):
+- p.7 — right unicorn only 2 legs visible (back legs missing behind the star-cat)
+- p.14 — left unicorn body/leg fused into the other unicorn, back legs missing
+- p.27 — center unicorn floating, no visible legs under the torso
 
-## 1. Canonical prompt module
+These are exactly what the rubric already calls "missing / floating / disembodied limbs" — they just weren't enforced.
 
-Replace the ad-hoc clauses in `_shared/coloring/ideogram-integrated-cover.ts::buildIdeogramIntegratedCoverPrompt` with a new dedicated module:
+## Rulebook v2 amendment — `anatomy_deformity_hard_gate_v1`
 
-`supabase/functions/_shared/coloring/master-cover-prompt.ts`
+Add ONE non-waivable hard gate to the coloring interior pipeline:
 
-Exports:
-- `COLORING_MASTER_COVER_PROMPT_VERSION = "coloring_master_cover_v1"`
-- `buildMasterColoringCoverPrompt(input)` — returns the English "short-form" master prompt (the automation variant the user provided), filling in these fields from the ebook row + page plan:
-  - `[BOOK TITLE]` — `ebooks.title`
-  - `[SUBTITLE]` — `ebooks.subtitle` (fallback `"A Fun Coloring Adventure"`)
-  - `[AGES]` — `"Ages {min}-{max}"`
-  - `[THEME]` — category / theme phrase
-  - `[MAIN CHARACTERS]` — resolved hero list (1-3)
-  - `[BACKGROUND ELEMENTS]` — from `defaultBackgroundHintFor(category)` + palette
-- Structural guards (throw on violation, mirrors `assertColoringCoverPromptIsTextless` pattern):
-  - Title/subtitle/age strings present verbatim
-  - No banned words: `watermark, logo, page number, website`
-  - Prompt length ≤ 3000 chars (Runware cap)
-  - Reference-image usage clause always present (interior refs are guidance-only, never copy)
-- `assertMasterPromptShape(prompt, {title, subtitle, ageBadge})` — called before dispatch.
+> **Deformity is a hard reject.** Fantasy species, stylization, cuteness, and canonical mythical forms remain allowed. Only anatomy defects on the creature's OWN canon (wrong count of standard parts, missing/extra/fused/severed/floating/disembodied limbs, mangled proportions) reject the page.
 
-Canonical composition (square-first per owner law):
-- 1:1 canvas, 8.5 × 8.5 in
-- Title occupies upper 30-40%, custom hand-drawn lettering
-- Hero 1-3 characters centered/lower half
-- Age badge in a corner
-- 0.25 in safe area
-- Bright pastel palette
-- Style: "premium children's coloring book cover, hand-lettered, print-ready"
-- Explicit: reference images are inspiration ONLY, redraw everything, do not reuse an interior page as the cover.
+Recognizability + text-contamination (Q2/Q3) already reject — no change.
 
-## 2. Wire it into the cover pipeline
+## Permanent code changes
 
-- `supabase/functions/coloring-book-cover/index.ts`: swap `buildIdeogramIntegratedCoverPrompt` → `buildMasterColoringCoverPrompt` for the coloring lane. Keep the same Runware Ideogram v3 dispatch, verifier (`verifyExactCoverText`), and spelling gate (non-waivable).
-- Trim resolution: force **square** (`square_8_5`) dims for the coloring lane — request `1088×1088` (or nearest Runware-supported square, e.g. 1024×1024) instead of the 8.5:11 portrait numbers. Add `runwareSquare = 1088` to `dims`.
-- Overlay compositor (`coloring-cover-compositor.ts`): keep the shrink-to-fit title treatment as a fallback safety net when the baked title fails the verifier (already implemented).
-- Thumbnail (`coloring-book-thumbnail` step / renderThumbnail): re-render 600×776 → **change to 600×600 square** to match new trim.
+1. **`supabase/functions/_shared/coloring/anatomy-verify.ts`**
+   - Add exported `DEFORMITY_DEFECT_PATTERNS` (regex list: `extra_limb`, `missing_limb`, `fused`, `severed`, `floating`, `disembodied`, `frankenstein`, `wrong.*count`, `mangled`, `crushed`, `twisted`).
+   - Add `isDeformityDefect(defect: string): boolean` and `hasDeformity(verdict): boolean`.
+   - Bump `ANATOMY_VERIFIER_VERSION` → `v6:deformity_hard_gate` so cached advisory verdicts re-measure.
 
-## 3. Fix the LATEST book first (single-book validation)
+2. **`supabase/functions/coloring-book-render/index.ts`** (the advisory branch at ~line 667)
+   - Split the failing verdict into two paths:
+     - `hasDeformity(v)` → **reject**: delete storage object, decrement page from `newRecords`, log `anatomy_gate` (not `anatomy_advisory`), bump per-page attempts, feed into existing `anatomy_structural` repair ladder with `speciesAnatomyRepairClause(subject)` appended to the next prompt.
+     - other defects (blob/egg/unrecognizable/text) keep current handling.
+   - Cap at 3 anatomy re-renders per page; then park the book with reason `anatomy_deformity_unrecoverable` for owner review (never silently ship).
 
-Book: `Superhero Unicorn Fantasy Coloring Book` (`d6da92a8`). Latest live book; cover currently self-art fallback.
+3. **Regression test** — `src/__tests__/coloring-anatomy-deformity-hard-gate.test.ts`
+   - Given a verdict with `defects: ["missing_limb: back legs absent"]`, the render pipeline must reject and NOT emit an advisory pass.
+   - Given `defects: ["eyelashes on unicorn"]` (stylization), must pass.
+   - Given a unicorn (fantasy), no rejection on horn/wings.
 
-Sequence (owner's order):
-1. Deploy new master-prompt module + wire-in.
-2. Reset that one book's cover state: clear `cover_url`, `cover_bg_url`, `thumb_url`; reset `coloring_cover_invocations = 0`, `coloring_cover_ideogram_attempts = []`; keep interior pages intact.
-3. Invoke `coloring-book-cover` once for `d6da92a8` — generates cover via new master prompt using 3 interior pages as refs.
-4. Invoke `coloring-book-thumbnail` — regenerates square thumbnail.
-5. Owner reviews cover + thumbnail against the uploaded reference.
-6. **Only if approved**: invoke `coloring-book-assemble` + `coloring-book-publish` to rebuild the PDF with new cover.
+## One-off fix for the latest book
 
-## 4. Regression tests
+Target: `d6da92a8-5eaa-455e-9d00-8b8780cae9d1` ("Superhero Unicorn Fantasy Coloring Book").
 
-New: `src/lib/coloringMasterCoverPrompt.test.ts`
-- Master prompt contains title/subtitle/age verbatim
-- Master prompt contains reference-image "inspiration only, do not copy" clause
-- Assertion throws when title missing
-- Assertion throws when banned word present
-- Square dims returned for `square_8_5` books
+1. Query `ebook_pages_kids` for the book's interior pages, download each storage object.
+2. Run `verifyAnatomyBatch` (new v6 rubric) against all interior pages in one pass.
+3. For every page where `hasDeformity(verdict) === true`:
+   - Delete the storage object.
+   - Clear the page's `image_url` / mark `needs_rerender=true`.
+   - Enqueue only that page through the existing `anatomy_structural` repair ladder (prompt gets `speciesAnatomyRepairClause('unicorn')` appended: "must show all four legs, no fused bodies, no floating torsos, full canonical form visible").
+4. When all flagged pages return `pass=true`, re-run `coloring-book-assemble` → republish.
+5. Do **not** re-render pages that already pass — cost-bounded and preserves the good art.
 
-## 5. Non-goals
+Expected: pp. 7, 14, 27 (and any siblings the verifier flags) regenerate with complete four-legged unicorns; the rest of the book is untouched; book returns to `live` with the same cover.
 
-- No changes to picture-book covers.
-- No new provider.
-- Do NOT lower any QC gate.
-- Do NOT touch story/manuscript lanes.
+## Files to edit
 
-## Technical details
+- `supabase/functions/_shared/coloring/anatomy-verify.ts` — add taxonomy helpers, bump version
+- `supabase/functions/coloring-book-render/index.ts` — split advisory vs hard-reject on deformity
+- `src/__tests__/coloring-anatomy-deformity-hard-gate.test.ts` — regression fixture
+- `.lovable/coloring-rulebook-v2-amendments.md` — record `anatomy_deformity_hard_gate_v1`
+- `pipeline_skills` row — register the amendment
 
-Files to add / edit:
-- ADD `supabase/functions/_shared/coloring/master-cover-prompt.ts`
-- EDIT `supabase/functions/coloring-book-cover/index.ts` (~line 22 import, ~line 420 prompt build, dims resolver)
-- EDIT `supabase/functions/_shared/coloring/ideogram-integrated-cover.ts` (add square dim support + accept externally-built prompt via optional `promptOverride`)
-- EDIT thumbnail renderer for square output
-- ADD `src/lib/coloringMasterCoverPrompt.test.ts`
+## Out of scope
 
-Rollout: deploy → run for `d6da92a8` (cover+thumb only) → owner approval → PDF assemble.
+- No changes to Q2 (recognizability) or Q3 (text) — already hard gates.
+- No changes to the cover pipeline.
+- No threshold lowering anywhere. Fantasy remains fully allowed.

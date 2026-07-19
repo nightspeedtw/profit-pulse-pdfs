@@ -16,8 +16,8 @@ import {
 import { normalizeDefect } from "../../supabase/functions/_shared/coloring/first-pass-learner.ts";
 
 describe("anatomy_deformity_only_v2 — verifier rubric contents", () => {
-  it("verifier version bumped so stale verdicts re-measure (v5 adds recognizability)", () => {
-    expect(ANATOMY_VERIFIER_VERSION).toBe("v5:deformity_only+recognizable");
+  it("verifier version bumped so stale verdicts re-measure (v6 promotes deformity to hard gate)", () => {
+    expect(ANATOMY_VERIFIER_VERSION).toBe("v6:deformity_hard_gate");
   });
 
   it("rubric asks the ONE deformity question", () => {
