@@ -19,10 +19,11 @@ const ADMIN_URL   = "https://www.secretpdf.co/admin";
 
 const CRITICAL_COOLDOWN_HOURS = 6;
 const DEFAULT_DAILY_SPEND_CEILING_USD = 10;
+const DEAD_THRESHOLD_MS = 60_000; // owner: alert if system quiet >60s
 
 const CRITICAL_CLASSES = new Set([
   "worker_dead", "provider_blocked", "spend_ceiling",
-  "queue_frozen", "unbounded_retry",
+  "queue_frozen", "unbounded_retry", "system_dead",
 ]);
 
 type Alert = {
@@ -85,6 +86,35 @@ async function q(sb: any, sql: string, params?: any[]): Promise<any[]> {
 async function runChecks(sb: any): Promise<Alert[]> {
   const alerts: Alert[] = [];
   const now = Date.now();
+
+  // (a0) SYSTEM-DEAD watchdog: newest heartbeat across all sources > 60s old.
+  try {
+    const { data: hbRows } = await sb
+      .from("system_heartbeat")
+      .select("source,last_beat_at")
+      .order("last_beat_at", { ascending: false })
+      .limit(20);
+    if (!hbRows || hbRows.length === 0) {
+      // No heartbeat table entries yet — skip on cold start.
+    } else {
+      const newest = new Date(hbRows[0].last_beat_at).getTime();
+      const ageMs = now - newest;
+      if (ageMs > DEAD_THRESHOLD_MS) {
+        alerts.push({
+          alert_class: "system_dead",
+          severity: "critical",
+          title: `🔴 SYSTEM DEAD — no heartbeat for ${Math.round(ageMs/1000)}s (threshold ${DEAD_THRESHOLD_MS/1000}s)`,
+          body: `Newest heartbeat: ${hbRows[0].source} @ ${hbRows[0].last_beat_at}\nAll sources:\n` +
+            hbRows.map((r: any) => `• ${r.source} — ${r.last_beat_at}`).join("\n") +
+            `\n\nAdmin: ${ADMIN_URL}`,
+          evidence: { newest_source: hbRows[0].source, age_ms: ageMs, sources: hbRows },
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("system_dead check failed", (e as Error).message);
+  }
+
 
   // (a) worker heartbeat stale >15 min while queue non-empty.
   // SOURCE OF TRUTH: generation_settings.coloring_autopilot.last_worker_tick_at
@@ -334,7 +364,43 @@ function renderAlertHtml(a: Alert): string {
 
 // deno-lint-ignore no-explicit-any
 async function persistAndMaybeEmail(sb: any, alerts: Alert[]) {
+  const activeClasses = new Set(alerts.map(a => a.alert_class));
+
+  // AUTO-RESOLVE: any currently-unresolved critical row whose class is NOT in
+  // this tick's detected set is considered fixed. This is what removes the
+  // banner from the admin UI automatically when the underlying condition
+  // clears (owner: "ถ้าแก้แล้วให้ลบออกจากหน้าจอ").
+  const { data: unresolved } = await sb.from("alert_log")
+    .select("id,alert_class,severity")
+    .is("resolved_at", null)
+    .eq("severity", "critical");
+  const toResolve = (unresolved ?? [])
+    .filter((r: any) => !activeClasses.has(r.alert_class) && r.alert_class !== "system_dead")
+    .map((r: any) => r.id);
+  if (toResolve.length) {
+    await sb.from("alert_log").update({
+      resolved_at: new Date().toISOString(),
+      resolved_by: "auto_condition_cleared",
+    }).in("id", toResolve);
+  }
+
   for (const a of alerts) {
+    // Dedupe: if a matching unresolved row for this class already exists,
+    // skip the insert (avoid banner spam). We still refresh evidence.
+    const { data: existing } = await sb.from("alert_log")
+      .select("id")
+      .eq("alert_class", a.alert_class)
+      .is("resolved_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing?.id) {
+      await sb.from("alert_log").update({
+        title: a.title, body: a.body, evidence: a.evidence ?? {},
+      }).eq("id", existing.id);
+      continue;
+    }
+
     const send = await shouldSendEmail(sb, a.alert_class);
     let emailResult: { ok: boolean; id?: string; error?: string } = { ok: false };
     if (send) {
@@ -346,6 +412,7 @@ async function persistAndMaybeEmail(sb: any, alerts: Alert[]) {
       title: a.title,
       body: a.body,
       evidence: a.evidence ?? {},
+      dedupe_key: a.alert_class,
       email_sent: emailResult.ok,
       email_message_id: emailResult.id ?? null,
       email_error: send ? (emailResult.ok ? null : emailResult.error) : (CRITICAL_CLASSES.has(a.alert_class) ? "cooldown_active" : "info_class_no_email"),
@@ -415,28 +482,59 @@ Deno.serve(async (req) => {
 
   try {
     if (mode === "status") {
-      const since = new Date(Date.now() - CRITICAL_COOLDOWN_HOURS * 3600 * 1000).toISOString();
+      // Owner: show ONE incident at a time (queue). Most recent unresolved
+      // critical wins; the rest are counted as `queued`.
       const { data } = await sb.from("alert_log")
-        .select("alert_class,title,body,severity,created_at")
+        .select("id,alert_class,title,body,severity,created_at,evidence")
         .eq("severity","critical")
-        .gte("created_at", since)
+        .is("resolved_at", null)
         .order("created_at", { ascending: false })
         .limit(20);
-      // dedupe by class, keep latest
+      const rows = (data ?? []);
+      // Dedupe by class (keep latest).
       const seen = new Set<string>();
       const active = [] as any[];
-      for (const r of (data ?? [])) {
+      for (const r of rows) {
         if (seen.has(r.alert_class)) continue;
         seen.add(r.alert_class);
         active.push(r);
       }
+      const current = active[0] ?? null;
+      const queued = Math.max(0, active.length - 1);
       const { data: lastCheck } = await sb.from("platform_settings").select("value_json").eq("key","health_last_check_at").maybeSingle();
+      const { data: freeze } = await sb.from("platform_settings").select("value_json").eq("key","autopilot_frozen").maybeSingle();
+      const { data: hbRows } = await sb.from("system_heartbeat").select("source,last_beat_at").order("last_beat_at",{ascending:false}).limit(10);
+      const newestHb = hbRows?.[0]?.last_beat_at ?? null;
+      const dead = newestHb ? (Date.now() - new Date(newestHb).getTime()) > DEAD_THRESHOLD_MS : false;
       return new Response(JSON.stringify({
         ok: true,
-        active_critical: active,
+        current_incident: current,
+        queued_incidents: queued,
+        active_critical: active, // legacy shape for older banners
+        autopilot_frozen: !!freeze?.value_json?.frozen,
+        heartbeat: { newest: newestHb, dead, sources: hbRows ?? [] },
         last_checked_at: lastCheck?.value_json?.at ?? null,
         resend_configured: !!(LOVABLE_API_KEY && RESEND_API_KEY),
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (mode === "resolve") {
+      const body = await req.json().catch(() => ({}));
+      const id = body?.id as string | undefined;
+      const alertClass = body?.alert_class as string | undefined;
+      if (!id && !alertClass) return new Response(JSON.stringify({ error: "id or alert_class required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" }});
+      let q = sb.from("alert_log").update({ resolved_at: new Date().toISOString(), resolved_by: "manual_admin" }).is("resolved_at", null);
+      q = id ? q.eq("id", id) : q.eq("alert_class", alertClass!);
+      const { error } = await q;
+      if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" }});
+      return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" }});
+    }
+    if (mode === "freeze" || mode === "unfreeze") {
+      const frozen = mode === "freeze";
+      await sb.from("platform_settings").upsert({
+        key: "autopilot_frozen",
+        value_json: { frozen, set_at: new Date().toISOString(), reason: frozen ? "manual_admin_freeze" : "manual_admin_unfreeze" },
+      }, { onConflict: "key" });
+      return new Response(JSON.stringify({ ok: true, frozen }), { headers: { ...corsHeaders, "Content-Type": "application/json" }});
     }
     if (mode === "digest") {
       const r = await runDigest(sb);
@@ -445,6 +543,7 @@ Deno.serve(async (req) => {
     // default: check
     const alerts = await runChecks(sb);
     await persistAndMaybeEmail(sb, alerts);
+    await sb.from("platform_settings").upsert({ key: "health_last_check_at", value_json: { at: new Date().toISOString() } }, { onConflict: "key" });
     return new Response(JSON.stringify({
       ok: true,
       alerts_count: alerts.length,

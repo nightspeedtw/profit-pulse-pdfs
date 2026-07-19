@@ -136,8 +136,18 @@ Deno.serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
   try {
-    const { run_id, force_finish } = await req.json();
+    const { run_id, force_finish, override_freeze } = await req.json();
     if (!run_id) return json({ error: 'run_id required' }, 400);
+
+    // ── OWNER FREEZE SWITCH ────────────────────────────────────────────
+    if (!override_freeze) {
+      const { isAutopilotFrozen, writeHeartbeat } = await import('../_shared/freeze-guard.ts');
+      if (await isAutopilotFrozen(supabase)) {
+        await writeHeartbeat(supabase, 'autopilot-kids-pipeline', { skipped: 'autopilot_frozen', run_id });
+        return json({ ok: true, skipped: 'autopilot_frozen', run_id });
+      }
+      await writeHeartbeat(supabase, 'autopilot-kids-pipeline', { run_id });
+    }
 
     const { data: run, error: runErr } = await supabase
       .from('autopilot_kids_runs')

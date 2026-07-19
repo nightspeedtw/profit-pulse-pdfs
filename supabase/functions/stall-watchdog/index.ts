@@ -20,6 +20,7 @@ import {
   TERMINAL_STATUSES,
 } from "../_shared/stall-sla.ts";
 import { CURRENT_COLORING_REPAIR_REGIME } from "../_shared/coloring/repair-regime.ts";
+import { isAutopilotFrozen, writeHeartbeat } from "../_shared/freeze-guard.ts";
 
 declare const Deno: any;
 const corsHeaders = {
@@ -49,9 +50,11 @@ async function fireAndForget(fn: string, body: Record<string, unknown>) {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   let manual = false;
+  let overrideFreeze = false;
   try {
     const body = await req.clone().json().catch(() => ({}));
     manual = !!body?.manual;
+    overrideFreeze = !!body?.override_freeze;
     if (manual) {
       const supplied = req.headers.get("x-admin-passcode") ?? body?.passcode ?? "";
       if (supplied !== PASSCODE) return json({ error: "unauthenticated" }, 401);
@@ -59,6 +62,14 @@ Deno.serve(async (req: Request) => {
   } catch { /* cron path */ }
 
   const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+
+  // ── OWNER FREEZE SWITCH ──────────────────────────────────────────────
+  if (!overrideFreeze && await isAutopilotFrozen(db)) {
+    await writeHeartbeat(db, "stall-watchdog", { skipped: "autopilot_frozen" });
+    return json({ ok: true, skipped: "autopilot_frozen" });
+  }
+  await writeHeartbeat(db, "stall-watchdog", {});
+
   const now = Date.now();
   const cutoff = new Date(now - STALL_THRESHOLD_MS).toISOString();
 
