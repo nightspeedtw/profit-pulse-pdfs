@@ -11,7 +11,7 @@
 //   - normal line-art: no oversized cluster → mask is untouched.
 
 import { describe, it, expect } from "vitest";
-import { computeDeFillKeepMask } from "../../supabase/functions/_shared/coloring/de-fill.ts";
+import { computeDeFillKeepMask } from "../../supabase/functions/_shared/coloring/de-fill-mask.ts";
 
 /** Rasterize a filled rectangle of 1s on a WxH grid. */
 function fillRect(w: number, h: number, x0: number, y0: number, x1: number, y1: number): Uint8Array {
