@@ -38,10 +38,21 @@ Deno.serve(async (req: Request) => {
     let body: any = {};
     try { body = await req.json(); } catch { /* cron */ }
     const manual = !!body.manual;
+    const overrideFreeze = !!body.override_freeze;
     if (manual) {
       const supplied = req.headers.get("x-admin-passcode") ?? body?.passcode ?? "";
       if (supplied !== PASSCODE) return json({ error: "unauthenticated" }, 401);
     }
+
+    // ── OWNER FREEZE SWITCH ────────────────────────────────────────────
+    // Autopilot is frozen. Cron ticks and non-override manual runs no-op.
+    if (!overrideFreeze && await isAutopilotFrozen(db)) {
+      result.skipped = "autopilot_frozen";
+      result.hint = "unfreeze via platform_settings.autopilot_frozen or manual call with override_freeze:true";
+      await writeHeartbeat(db, "coloring-worker-tick", { skipped: "autopilot_frozen" });
+      return json(result);
+    }
+    await writeHeartbeat(db, "coloring-worker-tick", {});
 
     const { data: gs } = await db
       .from("generation_settings").select("coloring_autopilot").eq("id", 1).maybeSingle();
