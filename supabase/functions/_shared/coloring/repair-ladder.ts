@@ -16,13 +16,16 @@ export type RepairAction = "repair" | "revise" | "simplify" | "escalate";
 
 export type FailureClass =
   | "minor_line_noise"
-  | "solid_black_fill"
+  // NOTE: solid_black_fill removed 2026-07-19 (coloring_rulebook_v1
+  // amendment: solid-black is no longer a coloring-lane gate).
   | "anatomy_structural"
   | "composition_off"
   | "off_category"
   | "text_or_watermark"
   | "sharpness_below_floor"
+  | "garbage_image_broken"
   | "unknown";
+
 
 export interface RepairDecision {
   action: RepairAction;
@@ -37,7 +40,7 @@ export function classifyFailure(reasons: string[]): FailureClass {
   if (/sharpness_below_floor|sharpness_gate/.test(s)) return "sharpness_below_floor";
   if (/watermark|signature|random_text|letters|raw_art_has_text|has_text|interior_text_contamination/.test(s)) return "text_or_watermark";
   if (/anatom|limb|finger|paw|horn|wing|tail|fin|face|eyes|beak|mouth|mermaid|balloon|leaf-shaped|malformed|fused|extra/.test(s)) return "anatomy_structural";
-  if (/solid.?black|black_pixel_ratio|black_cluster/.test(s)) return "solid_black_fill";
+  if (/garbage_image_broken/.test(s)) return "garbage_image_broken";
   if (/composition|cropped|margin|scale|centered/.test(s)) return "composition_off";
   if (/out_of_category|not in allowed_subjects|forbidden/.test(s)) return "off_category";
   if (/line|cleanliness|noise|jaggy/.test(s)) return "minor_line_noise";
@@ -48,13 +51,12 @@ const CORRECTIVE_CLAUSES: Record<FailureClass, string[]> = {
   minor_line_noise: [
     "Clean smooth continuous black contour lines, no sketch noise, no double lines",
   ],
-  solid_black_fill: [
-    "NO large solid-black fills anywhere",
-    "Every enclosed region MUST be white so a child can color it",
-    "Use outlines only, never filled black shapes",
-    "Suggest water with a few thin outline wave lines and bubbles only; NEVER fill water areas",
-    "No solid water mass, no shaded ocean background, no black sea silhouette",
+  // solid_black_fill clauses removed 2026-07-19 (coloring_rulebook_v1
+  // amendment). Kept an empty stub only if any legacy caller keys in.
+  garbage_image_broken: [
+    "Produce a readable coloring-page line drawing (not a mostly-black or unreadable frame); pure white background with clean black contour lines",
   ],
+
 
   anatomy_structural: [
     "Anatomically correct: exactly the expected number of limbs, fingers/paws, eyes, ears, wings, tails and horns for this subject",

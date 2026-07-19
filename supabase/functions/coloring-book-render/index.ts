@@ -442,27 +442,31 @@ Deno.serve(async (req: Request) => {
         const providerUsed = gen.provider;
         let verified = verifyImageAtBirth(bytes, page.canonical_page_number, MIN_IMAGE_BYTES);
 
-        // OWNER LAW solid_black_defill_v1 (2026-07-19): before the gate,
-        // run the deterministic de-fill post-processor. Oversized black
-        // fill patches become colorable regions (2-3 px outline retained),
-        // ground-shadow blobs are cleared, and only garbage pages that
-        // even de-fill cannot save are rejected for reroll.
+        // OWNER AMENDMENT (coloring_rulebook_v1_no_solid_black_gate,
+        // 2026-07-19): the solid-black gate is REMOVED from the coloring
+        // lane. Dark-subject books (orca, penguin, wolf, cow) must flow.
+        // De-fill remains as a SILENT ENHANCEMENT pass — if it can easily
+        // open large fills into colorable outlines, we keep the improved
+        // bytes; otherwise we keep the raw bytes as-is. The ONLY hard
+        // failure here is the garbage-page sanity floor: page is majority
+        // black / effectively unreadable (a broken image, not a "solid
+        // black" defect).
         const defill = await deFillOversizedBlack(bytes, DEFAULT_SOLID_BLACK_TH, DEFAULT_DE_FILL_TH);
-        if (defill.report.applied && defill.report.gate_after.pass && !defill.report.hard_giveup) {
+        if (defill.report.applied && !defill.report.hard_giveup) {
           bytes = defill.bytes;
           verified = verifyImageAtBirth(bytes, page.canonical_page_number, MIN_IMAGE_BYTES);
         }
-        const sb = defill.report.gate_after;
-        if (!sb.pass || defill.report.hard_giveup) {
+        if (defill.report.hard_giveup) {
           repairAttempts[String(page.canonical_page_number)] = attempt + 1;
           errors.push({
             page: page.canonical_page_number,
-            error: `solid_black_gate: ${sb.reasons.join("; ")}${defill.report.hard_giveup ? " [hard_giveup]" : ""}`,
-            reasons: sb.reasons,
+            error: `garbage_image_broken: majority-black unreadable image (ratio_after=${defill.report.black_ratio_after.toFixed(3)})`,
+            reasons: ["garbage_image_broken"],
             de_fill_report: defill.report,
           } as any);
           continue;
         }
+
 
         // Sharpness gate — v5 authority is boundary_edge_strength only.
         // Sobel/Laplacian `score` is telemetry and cannot veto sparse pages.
@@ -686,7 +690,7 @@ Deno.serve(async (req: Request) => {
         const reasons: string[] = Array.isArray(e.reasons) ? e.reasons : (typeof e.reasons === "string" ? [e.reasons] : []);
         const rawStrings = [e.error, ...reasons].filter(Boolean) as string[];
         const gate = /anatomy_gate/i.test(e.error ?? "") ? "anatomy"
-                   : /solid[- ]?black/i.test(e.error ?? "") ? "solid_black"
+                   : /garbage_image_broken/i.test(e.error ?? "") ? "garbage_image"
                    : /sharpness|boundary/i.test(e.error ?? "") ? "sharpness"
                    : "other";
         for (const s of rawStrings) {
