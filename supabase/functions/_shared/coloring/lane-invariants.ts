@@ -36,3 +36,34 @@ export function assertColoringLaneInvariant(row: {
     );
   }
 }
+
+/**
+ * SCOPE GUARD (coloring_rulebook_v1_scope_guard, 2026-07-19).
+ *
+ * EVERY rule shipped under coloring_rulebook_v1 (rulebook, anatomy
+ * deformity-only, cover interiors-as-ref, title-spelling law, de-fill,
+ * waiver/learning mode, coloring pricing, age-band chips, solid-black
+ * removal, garbage-image sanity floor, etc.) applies ONLY to rows with
+ * `book_type === 'coloring_book'`.
+ *
+ * Any shared module that branches into coloring-lane behaviour MUST call
+ * `assertColoringOnly(bookType, moduleName)` at the entry so a
+ * picture_book/novel row hitting the same shared code path throws
+ * loudly instead of silently applying coloring rules.
+ */
+export function assertColoringOnly(
+  bookType: string | null | undefined,
+  moduleName: string,
+): void {
+  if (bookType !== "coloring_book") {
+    throw new Error(
+      `coloring_rulebook_v1_scope_guard: module '${moduleName}' invoked on book_type='${bookType ?? "null"}' — coloring-lane rules must NEVER run on non-coloring rows.`,
+    );
+  }
+}
+
+/** Non-throwing variant for shared code paths that want to no-op on non-coloring rows. */
+export function isColoringLane(bookType: string | null | undefined): boolean {
+  return bookType === "coloring_book";
+}
+
