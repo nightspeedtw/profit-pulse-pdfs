@@ -160,7 +160,10 @@ Deno.serve(async (req: Request) => {
           coloring_page_plan: pagePlan,
           coloring_style_contract: styleContract,
           coloring_workflow_version: "v1",
+          coloring_rulebook_version: "coloring_rulebook_v1",
+          coloring_band_theme_advisory: bandThemeAdvisory,
           coloring_format: page_count <= 4 ? "mini_test" : "standard",
+
         },
       })
       .select("id")
