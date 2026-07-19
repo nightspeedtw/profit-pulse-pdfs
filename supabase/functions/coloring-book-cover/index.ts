@@ -640,6 +640,31 @@ Deno.serve(async (req: Request) => {
     // SKIPPED ENTIRELY (single-typography-source rule) — Ideogram's baked
     // lettering IS the final cover.
     const ideogramAttempts: any[] = [];
+    // Owner law 'coloring_master_cover_v1' (2026-07-19): resolve the row's
+    // trim profile ONCE and derive both the generator dims (so square books
+    // actually render square) and the master prompt's aspect descriptor.
+    const _trim = getTrimProfile(row as any);
+    const trimDims = {
+      runwareWidth: _trim.runwareIdeogram.width,
+      runwareHeight: _trim.runwareIdeogram.height,
+      runwareFallbackWidth: _trim.runwareIdeogram.fallbackWidth,
+      runwareFallbackHeight: _trim.runwareIdeogram.fallbackHeight,
+      gptImageSize: _trim.gptImageSize,
+    };
+    const masterPromptAspect = _trim.key === "square_8_5"
+      ? "8.5 x 8.5 inches, square 1:1"
+      : "8.5 x 11 inches, portrait";
+    const masterPrompt = buildMasterColoringCoverPrompt({
+      title: row.title,
+      subtitle,
+      ageBadge,
+      theme: categoryNameFinal,
+      mainCharacters: heroSubjects.slice(0, 3),
+      backgroundElements: heroSubjects.slice(3, 8),
+      aspectDescriptor: masterPromptAspect,
+      categoryName: categoryNameFinal,
+      hasInteriorReferences: Array.isArray(referenceImageURLs) && referenceImageURLs.length > 0,
+    });
     // Owner order 2026-07-17: on text-only failure, subsequent attempts must
     // INPAINT just the text region on the same base image rather than reroll
     // the entire cover. This preserves art that already passed
