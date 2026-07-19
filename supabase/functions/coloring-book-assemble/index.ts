@@ -277,29 +277,24 @@ Deno.serve(async (req: Request) => {
       const v = (p as any).anatomy_verdict;
       if (v) anatomyByPage.set(p.page, v as AnatomyPageVerdict);
     }
-    // Persist final anatomy table now that every page is measured + passing.
-    await patchMeta(db, ebook_id, {
-      coloring_assembly: {
-        ...((meta as any).coloring_assembly ?? {}),
-        anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
-        anatomy_summary: anatomySummary,
-      },
-    });
-
-
-    const persistedCoverGate = (meta.coloring_cover_gate as any) ?? (meta.coloring_cover as any)?.measured_gate ?? null;
-    if (!persistedCoverGate?.scorecard) {
+    // Persist anatomy table (advisory) if any verdicts were carried through.
+    if (anatomyByPage.size > 0) {
       await patchMeta(db, ebook_id, {
         coloring_assembly: {
-          sharpness_table: sharpnessTable,
-          cover_gate_pass: false,
-          cover_gate_reasons: ["cover_unmeasured"],
-          blocked_at: new Date().toISOString(),
+          ...((meta as any).coloring_assembly ?? {}),
+          anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
         },
-        coloring_current_step_label: "Assembly blocked — cover has no measured gate evidence",
+      });
+    }
+
+    // Coloring Rulebook v2 — cover gate is enforced at publish-contract
+    // (spelling non-waivable). Assemble accepts any present cover_url.
+    if (!row.cover_url) {
+      await patchMeta(db, ebook_id, {
+        coloring_current_step_label: "Assembly blocked — cover missing; regenerating",
       });
       chain("coloring-book-cover", { ebook_id, force: true });
-      return json({ error: "cover_unmeasured", action: "regenerate_cover" }, 422);
+      return json({ error: "cover_missing", action: "regenerate_cover" }, 422);
     }
 
     const doc = await PDFDocument.create();
