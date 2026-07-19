@@ -25,6 +25,7 @@ import { loadActivePreventionRules, indexRulesBySpecies, pickLearnedRulesFor, le
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
 import { classifyProviderError } from "../_shared/covers/provider-errors.ts";
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS, fireAndForgetPost } from "../_shared/coloring/self-advance.ts";
+import { atomicPatchMeta } from "../_shared/kids-metadata.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -35,6 +36,10 @@ const IDEOGRAM_GEN_TIMEOUT_MS = 70_000;
 const MAX_COVER_INVOCATIONS_PER_BOOK = 8;
 const COVER_RETRY_CEILING_REASON = "coloring_cover_retry_ceiling_reached";
 const SPLIT_VERSION = "coloring_cover_split_v1_generate";
+// Awaited generate→verify chain budget. Verify is one fetch + one
+// downsampled decode + a couple vision calls (~30s). Keep slack so the
+// generate isolate doesn't return before verify finishes advancing state.
+const VERIFY_CHAIN_TIMEOUT_MS = 55_000;
 
 function json(x: unknown, status = 200) {
   return new Response(JSON.stringify(x), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -45,11 +50,12 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
     p.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
   });
 }
+// Race-safe metadata patch. Uses atomic_patch_ebooks_kids_meta RPC so
+// concurrent generate/verify invocations cannot clobber each other's
+// jsonb writes (the root cause of the cover-loop stall). Pass `null` for
+// any key that should be removed from metadata.
 async function patchMeta(db: any, id: string, patch: Record<string, unknown>) {
-  const { data } = await db.from("ebooks_kids").select("metadata").eq("id", id).single();
-  const merged = { ...(data?.metadata ?? {}), ...patch };
-  await db.from("ebooks_kids").update({ metadata: merged }).eq("id", id);
-  return merged;
+  return await atomicPatchMeta(db, id, patch);
 }
 function uniq(xs: unknown[]): string[] {
   const out: string[] = []; const seen = new Set<string>();
