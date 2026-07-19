@@ -364,7 +364,43 @@ function renderAlertHtml(a: Alert): string {
 
 // deno-lint-ignore no-explicit-any
 async function persistAndMaybeEmail(sb: any, alerts: Alert[]) {
+  const activeClasses = new Set(alerts.map(a => a.alert_class));
+
+  // AUTO-RESOLVE: any currently-unresolved critical row whose class is NOT in
+  // this tick's detected set is considered fixed. This is what removes the
+  // banner from the admin UI automatically when the underlying condition
+  // clears (owner: "ถ้าแก้แล้วให้ลบออกจากหน้าจอ").
+  const { data: unresolved } = await sb.from("alert_log")
+    .select("id,alert_class,severity")
+    .is("resolved_at", null)
+    .eq("severity", "critical");
+  const toResolve = (unresolved ?? [])
+    .filter((r: any) => !activeClasses.has(r.alert_class) && r.alert_class !== "system_dead")
+    .map((r: any) => r.id);
+  if (toResolve.length) {
+    await sb.from("alert_log").update({
+      resolved_at: new Date().toISOString(),
+      resolved_by: "auto_condition_cleared",
+    }).in("id", toResolve);
+  }
+
   for (const a of alerts) {
+    // Dedupe: if a matching unresolved row for this class already exists,
+    // skip the insert (avoid banner spam). We still refresh evidence.
+    const { data: existing } = await sb.from("alert_log")
+      .select("id")
+      .eq("alert_class", a.alert_class)
+      .is("resolved_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing?.id) {
+      await sb.from("alert_log").update({
+        title: a.title, body: a.body, evidence: a.evidence ?? {},
+      }).eq("id", existing.id);
+      continue;
+    }
+
     const send = await shouldSendEmail(sb, a.alert_class);
     let emailResult: { ok: boolean; id?: string; error?: string } = { ok: false };
     if (send) {
@@ -376,6 +412,7 @@ async function persistAndMaybeEmail(sb: any, alerts: Alert[]) {
       title: a.title,
       body: a.body,
       evidence: a.evidence ?? {},
+      dedupe_key: a.alert_class,
       email_sent: emailResult.ok,
       email_message_id: emailResult.id ?? null,
       email_error: send ? (emailResult.ok ? null : emailResult.error) : (CRITICAL_CLASSES.has(a.alert_class) ? "cooldown_active" : "info_class_no_email"),
