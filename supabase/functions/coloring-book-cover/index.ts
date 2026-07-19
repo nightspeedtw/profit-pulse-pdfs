@@ -591,7 +591,7 @@ Deno.serve(async (req: Request) => {
       });
       attempt.ended_at = new Date().toISOString();
       attempt.status = "accepted_self_art_retry_ceiling";
-      attempt.checks = { accepted_via: "self_art_deterministic_cover", reason: COVER_RETRY_CEILING_REASON, self_art };
+      attempt.checks = { accepted_via: "self_art_deterministic_cover", reason: COVER_RETRY_CEILING_REASON, self_art: selfArt };
       return await persistAcceptedCover({
         finalBytes: composed.finalBytes,
         artOnlyBytes: composed.artOnlyBytes,
