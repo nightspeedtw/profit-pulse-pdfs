@@ -828,8 +828,9 @@ Deno.serve(async (req: Request) => {
           rgba: finalRgba, width: finalW, height: finalH,
           frame: { width: finalW, height: finalH, safe_margin: Math.max(8, Math.floor(60 * finalW / COLORING_COVER_WIDTH)), elements: [] },
           requiredStrings: [row.title],
-          optionalStrings: [subtitle, ageBadge],
+          optionalStrings: [subtitle, ageBadge].filter(Boolean),
           detectedText: verdict.transcribed_raw,
+          expectedAspect: CANVAS_W / CANVAS_H,
         });
 
         if (!renderedProof.pass) {
