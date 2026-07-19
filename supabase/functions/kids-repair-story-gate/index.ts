@@ -22,6 +22,7 @@ import { logAiCost, costDb } from '../_shared/cost-log.ts';
 import { loadRepairGuidanceForDimension, loadStoryCraftBlock, repairGuidanceForDimension } from '../_shared/story-craft-skill.ts';
 import { smartChat } from '../_shared/direct-fallback.ts';
 import { STORY_GATE } from '../_shared/story-gate-thresholds.ts';
+import { assertPaidCeiling, isBudgetCeilingError, parkOnPaidCeiling } from '../_shared/paid-ceiling.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -152,6 +153,11 @@ Return ONLY the new manuscript body in markdown. English only.`;
 }
 
 async function rewriteManuscript(system: string, user: string, ebook_id: string | undefined, attempt: number): Promise<string> {
+  // top5_source_fix_v1: HARD paid-call ceiling — group `kids_repair_story_any`
+  // caps at 8 rewrites / 24h regardless of how many times the invocation
+  // counter is reset by other pipeline steps clobbering storefront_meta.
+  // Callers catch BudgetCeilingError and park the book (see handler below).
+  await assertPaidCeiling({ ebook_id, step: 'kids_repair_story_gate_rewrite' });
   // COST FIX: cheap-tier-first. Attempts 1-2 run on gemini-2.5-flash
   // (~$0.0009/call vs $0.068 on pro — 75x cheaper per RATES table in ai.ts).
   // Only the final attempt escalates to pro. This drops story-gate rewrite
@@ -258,6 +264,11 @@ Deno.serve(async (req) => {
       try {
         rewritten = await rewriteManuscript(system, user, ebook_id, i);
       } catch (e) {
+        if (isBudgetCeilingError(e)) {
+          await parkOnPaidCeiling(ebook_id, e, db);
+          return json({ ok: true, result: 'parked_paid_ceiling', ebook_id,
+            group: e.group, count: e.count, attempts_done: i - 1 });
+        }
         attempts.push({ attempt: i, scores: {}, passed: false, blockers: [`rewrite_error: ${(e as Error).message.slice(0, 160)}`], word_count: 0 });
         continue;
       }

@@ -16,6 +16,7 @@ import { runKidsStoryJudge, type StoryReport } from '../_shared/kids-story-judge
 import { computeManuscriptHash } from '../_shared/manuscript-hash.ts';
 import { logAiCost, costDb } from '../_shared/cost-log.ts';
 import { STORY_GATE } from '../_shared/story-gate-thresholds.ts';
+import { assertPaidCeiling, isBudgetCeilingError, parkOnPaidCeiling } from '../_shared/paid-ceiling.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -83,6 +84,8 @@ Return ONLY the new manuscript body in markdown. English only.`;
 }
 
 async function rewriteOnce(system: string, user: string, ebook_id?: string): Promise<string> {
+  // top5_source_fix_v1: enforce paid-call ceiling before spending.
+  await assertPaidCeiling({ ebook_id, step: 'kids_surgical_story_repair' });
   const model = 'google/gemini-2.5-pro';
   const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
@@ -152,6 +155,10 @@ Deno.serve(async (req) => {
     try {
       rewritten = await rewriteOnce(system, user, ebook_id);
     } catch (e) {
+      if (isBudgetCeilingError(e)) {
+        await parkOnPaidCeiling(ebook_id, e, db);
+        return json({ ok: true, result: 'parked_paid_ceiling', ebook_id, group: e.group, count: e.count });
+      }
       return json({ ok: false, error: `surgical_rewrite_failed: ${(e as Error).message.slice(0, 200)}`, before_scores: beforeScores }, 500);
     }
     if (!rewritten || rewritten.length < 400) {
