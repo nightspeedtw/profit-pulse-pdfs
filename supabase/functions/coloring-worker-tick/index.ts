@@ -12,6 +12,7 @@ import { CURRENT_COLORING_REPAIR_REGIME } from "../_shared/coloring/repair-regim
 import { readLaneGuards, sumFalSpendToday, clearProviderBillingBlocked } from "../_shared/fal-billing.ts";
 import { readCfBillingLockedUntil } from "../_shared/image-providers.ts";
 import { dispatchPostNoWait } from "../_shared/coloring/self-advance.ts";
+import { isAutopilotFrozen, writeHeartbeat } from "../_shared/freeze-guard.ts";
 
 declare const Deno: any;
 
