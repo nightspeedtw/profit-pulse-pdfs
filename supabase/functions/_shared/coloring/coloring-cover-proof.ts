@@ -31,6 +31,8 @@ export interface RenderedCoverProofInput {
   /** Nice-to-have strings (subtitle, age badge). Missing → warning only. */
   optionalStrings?: string[];
   detectedText: string;
+  /** Optional override for expected aspect ratio (default = 8.5/11 portrait). Use 1.0 for square_8_5 books. */
+  expectedAspect?: number;
 }
 
 export interface RenderedCoverProof {
