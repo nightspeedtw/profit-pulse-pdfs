@@ -39,7 +39,9 @@ export const COLORING_HARD_FAIL_ZERO_KEYS = [
   "duplicate_image_hash",
   "invalid_svg",
   "anatomy_defect",         // NEW — extra/missing/fused/malformed limbs, fingers, faces, wings, tails
-  "large_solid_black_area", // NEW — filled black regions kill colorable space
+  // NOTE: large_solid_black_area removed 2026-07-19 (coloring_rulebook_v1
+  // amendment: solid-black is no longer a gate on the coloring lane).
+
   "copyrighted_ip",         // NEW — recognizable IP / living-artist style imitation
 ] as const;
 

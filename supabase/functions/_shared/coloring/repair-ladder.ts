@@ -16,13 +16,16 @@ export type RepairAction = "repair" | "revise" | "simplify" | "escalate";
 
 export type FailureClass =
   | "minor_line_noise"
-  | "solid_black_fill"
+  // NOTE: solid_black_fill removed 2026-07-19 (coloring_rulebook_v1
+  // amendment: solid-black is no longer a coloring-lane gate).
   | "anatomy_structural"
   | "composition_off"
   | "off_category"
   | "text_or_watermark"
   | "sharpness_below_floor"
+  | "garbage_image_broken"
   | "unknown";
+
 
 export interface RepairDecision {
   action: RepairAction;
