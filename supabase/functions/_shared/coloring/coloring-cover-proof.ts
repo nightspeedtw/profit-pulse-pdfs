@@ -198,7 +198,7 @@ export function renderedColoringCoverProof(input: RenderedCoverProofInput): Rend
     width: input.width,
     height: input.height,
     aspect_ratio: Number(aspect.toFixed(4)),
-    expected_aspect_ratio: Number(LETTER_ASPECT.toFixed(4)),
+    expected_aspect_ratio: Number(expectedAspect.toFixed(4)),
     portrait_aspect_pass,
     art_region,
     overlays_in_frame,
