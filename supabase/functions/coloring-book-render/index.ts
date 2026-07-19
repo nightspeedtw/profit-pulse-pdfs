@@ -78,8 +78,15 @@ declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+let sharedDb: ReturnType<typeof createClient> | null = null;
+function dbClient() {
+  if (sharedDb) return sharedDb;
+  sharedDb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+  return sharedDb;
+}
+
 const CALIBRATION_COUNT = 4;   // pages rendered before owner style-lock review
-const BATCH_SIZE = 3;          // pages rendered per invocation post-calibration (reduced from 6 to stay under 150s edge CPU cap; see known-regressions.md#generating-status-zombie-v1)
+const BATCH_SIZE = 1;          // one page per invocation: prevents backend connection storms while Runware is primary
 const MIN_IMAGE_BYTES = 8_000; // verify-at-birth: real line-art is well above this
 
 interface StoredPage {
@@ -99,6 +106,11 @@ function json(x: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+function isTransientBackendConnectionError(e: unknown): boolean {
+  const msg = String((e as Error)?.message ?? e ?? "");
+  return /Too many connections|Hot standby mode is disabled|database system is not accepting connections|SSL handshake failed|Error code 52[015]|\b52[015]\b|Web server is down|Cloudflare error page/i.test(msg);
 }
 
 async function sha256Hex(s: string): Promise<string> {
@@ -153,7 +165,7 @@ Deno.serve(async (req: Request) => {
     const { ebook_id } = await req.json();
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
 
-    const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+    const db = dbClient();
 
     // Lane-level guard: don't burn a single FAL call while billing/quota
     // is blocked or today's budget cap is reached. Keeps the row parked in
