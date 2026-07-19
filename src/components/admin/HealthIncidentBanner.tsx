@@ -149,40 +149,73 @@ function translate(a: ActiveCritical): Plain {
   }
 }
 
+async function callHealthMonitor(mode: string, body?: Record<string, unknown>) {
+  const { data, error } = await supabase.functions.invoke(`health-monitor?mode=${mode}`, { body: body ?? {} });
+  if (error) throw error;
+  return data;
+}
+
 export function HealthIncidentBanner() {
   const [status, setStatus] = useState<StatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = async () => {
+    try {
+      const projectRef = "atccyjuwimibyoocpiwi";
+      const res = await fetch(
+        `https://${projectRef}.supabase.co/functions/v1/health-monitor?mode=status`,
+        { headers: { apikey: (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string) ?? "" } },
+      );
+      if (res.ok) setStatus(await res.json());
+    } catch {
+      try {
+        const data = await callHealthMonitor("status");
+        if (data) setStatus(data as StatusPayload);
+      } catch { /* ignore */ }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
-      try {
-        const projectRef = "atccyjuwimibyoocpiwi";
-        const res = await fetch(
-          `https://${projectRef}.supabase.co/functions/v1/health-monitor?mode=status`,
-          { headers: { apikey: (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string) ?? "" } },
-        );
-        if (!cancelled && res.ok) setStatus(await res.json());
-      } catch (e) {
-        console.warn("health-monitor status fetch failed", e);
-        // fallback via supabase.functions.invoke (POST) so we still get *something*
-        try {
-          const { data } = await supabase.functions.invoke("health-monitor", { body: { mode: "status" } });
-          if (!cancelled && data) setStatus(data as StatusPayload);
-        } catch { /* ignore */ }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-      timer = setTimeout(tick, 60_000);
+      if (cancelled) return;
+      await refresh();
+      timer = setTimeout(tick, 30_000);
     };
     tick();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, []);
 
+  const resolveCurrent = async () => {
+    const cur = status?.current_incident ?? status?.active_critical?.[0];
+    if (!cur) return;
+    setBusy(true);
+    try {
+      await callHealthMonitor("resolve", cur.id ? { id: cur.id } : { alert_class: cur.alert_class });
+      await refresh();
+    } finally { setBusy(false); }
+  };
+
+  const toggleFreeze = async () => {
+    setBusy(true);
+    try {
+      await callHealthMonitor(status?.autopilot_frozen ? "unfreeze" : "freeze");
+      await refresh();
+    } finally { setBusy(false); }
+  };
+
   if (loading || !status) return null;
-  const active = status.active_critical ?? [];
-  if (active.length === 0) {
+
+  const current = status.current_incident ?? status.active_critical?.[0] ?? null;
+  const queued = status.queued_incidents ?? Math.max(0, (status.active_critical?.length ?? 0) - 1);
+  const frozen = !!status.autopilot_frozen;
+  const dead = !!status.heartbeat?.dead;
+
+  if (!current && !frozen && !dead) {
     if (!status.resend_configured) {
       return (
         <Card className="border border-amber-500/60 bg-amber-500/5">
@@ -195,62 +228,75 @@ export function HealthIncidentBanner() {
     return null;
   }
 
+  const p = current ? translate(current) : null;
+
   return (
-    <Card className="border-2 border-red-600 bg-red-500/5">
+    <Card className={`border-2 ${frozen ? "border-blue-600 bg-blue-500/5" : "border-red-600 bg-red-500/5"}`}>
       <CardContent className="p-4 space-y-3">
         <div className="flex items-start gap-3">
-          <div className="p-2 rounded bg-red-500/20">
-            <AlertOctagon className="h-5 w-5 text-red-600 animate-pulse" />
+          <div className={`p-2 rounded ${frozen ? "bg-blue-500/20" : "bg-red-500/20"}`}>
+            <AlertOctagon className={`h-5 w-5 ${frozen ? "text-blue-600" : "text-red-600 animate-pulse"}`} />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] font-mono uppercase tracking-wide text-red-700 dark:text-red-400">
-              Active incident{active.length > 1 ? "s" : ""} · ตรวจล่าสุด {ago(status.last_checked_at)}
+            <div className={`text-[11px] font-mono uppercase tracking-wide ${frozen ? "text-blue-700 dark:text-blue-400" : "text-red-700 dark:text-red-400"}`}>
+              {frozen ? "AUTOPILOT FROZEN" : "Active incident"} · ตรวจล่าสุด {ago(status.last_checked_at)}
+              {queued > 0 && <span className="ml-2">· คิวถัดไป {queued}</span>}
+              {dead && <span className="ml-2 text-red-700">· heartbeat DEAD ({ago(status.heartbeat?.newest)})</span>}
             </div>
-            <div className="text-base font-semibold text-red-700 dark:text-red-400">
-              🔴 {active.length} เหตุการณ์วิกฤต / {active.length} critical condition{active.length > 1 ? "s" : ""} active
+            <div className={`text-base font-semibold ${frozen ? "text-blue-700 dark:text-blue-400" : "text-red-700 dark:text-red-400"}`}>
+              {frozen ? "🧊 Autopilot หยุดค้างตามคำสั่ง — ไม่มี dispatch อัตโนมัติ" : `🔴 ${p?.th ?? current?.title}`}
             </div>
+            {!frozen && p && (
+              <div className="text-xs text-muted-foreground">{p.en}</div>
+            )}
           </div>
-          <Badge variant="outline" className="border-red-600 text-red-700">
-            {status.resend_configured ? "email: live" : "email: pending"}
-          </Badge>
+          <div className="flex flex-col items-end gap-1">
+            <Badge variant="outline" className={frozen ? "border-blue-600 text-blue-700" : "border-red-600 text-red-700"}>
+              {status.resend_configured ? "email: live" : "email: pending"}
+            </Badge>
+            <button
+              onClick={toggleFreeze}
+              disabled={busy}
+              className={`text-[11px] px-2 py-1 rounded border ${frozen ? "border-blue-600 text-blue-700 hover:bg-blue-500/10" : "border-muted-foreground text-muted-foreground hover:bg-muted"}`}
+            >
+              {frozen ? "▶ Unfreeze autopilot" : "⏸ Freeze autopilot"}
+            </button>
+          </div>
         </div>
 
-        <ul className="space-y-3">
-          {active.map((a) => {
-            const p = translate(a);
-            return (
-              <li key={a.alert_class} className="rounded-md border border-red-600/30 bg-background/50 p-3">
-                <div className="flex items-start gap-2">
-                  <div className="text-xl leading-none">{p.emoji}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-foreground">{p.th}</div>
-                    <div className="text-xs text-muted-foreground">{p.en}</div>
-                    {p.entities.length > 0 && (
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {p.entities.map((e, i) => (
-                          <span key={i} className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[280px]">
-                            {e}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div className="mt-2 text-xs text-foreground/80">
-                      <span className="font-semibold text-red-700 dark:text-red-400">ต้องทำ / next: </span>
-                      {p.hint}
-                    </div>
-                    <div className="mt-1 text-[10px] font-mono text-muted-foreground">
-                      class={a.alert_class} · detected {ago(a.created_at)}
-                    </div>
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        {current && p && !frozen && (
+          <div className="rounded-md border border-red-600/30 bg-background/50 p-3">
+            {p.entities.length > 0 && (
+              <div className="mb-1.5 flex flex-wrap gap-1">
+                {p.entities.map((e, i) => (
+                  <span key={i} className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[280px]">
+                    {e}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="text-xs text-foreground/80">
+              <span className="font-semibold text-red-700 dark:text-red-400">ต้องทำ / next: </span>
+              {p.hint}
+            </div>
+            <div className="mt-2 flex items-center justify-between">
+              <div className="text-[10px] font-mono text-muted-foreground">
+                class={current.alert_class} · detected {ago(current.created_at)}
+              </div>
+              <button
+                onClick={resolveCurrent}
+                disabled={busy}
+                className="text-xs px-2 py-1 rounded border border-green-600 text-green-700 hover:bg-green-500/10"
+              >
+                ✓ Mark resolved
+              </button>
+            </div>
+          </div>
+        )}
 
-        {loading && (
+        {busy && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" />refreshing…
+            <Loader2 className="h-3 w-3 animate-spin" />working…
           </div>
         )}
       </CardContent>
