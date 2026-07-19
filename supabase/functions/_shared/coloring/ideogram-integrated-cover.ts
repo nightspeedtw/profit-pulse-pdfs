@@ -271,7 +271,8 @@ async function runwareIdeogramOnce(
   width: number,
   height: number,
 ): Promise<IdeogramCoverResult> {
-  const prompt = buildIdeogramIntegratedCoverPrompt(request);
+  const prompt = request.promptOverride ?? buildIdeogramIntegratedCoverPrompt(request);
+
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
