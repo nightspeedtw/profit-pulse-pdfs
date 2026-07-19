@@ -69,6 +69,15 @@ export interface IdeogramCoverRequest {
     runwareFallbackHeight: number;
     gptImageSize: "1024x1024" | "1024x1536" | "1536x1024";
   };
+  /**
+   * Owner law 'coloring_master_cover_v1' (2026-07-19): the coloring lane
+   * builds its cover prompt via _shared/coloring/master-cover-prompt.ts and
+   * passes it here as `promptOverride`. When set, this string REPLACES the
+   * legacy `buildIdeogramIntegratedCoverPrompt` output for every provider
+   * (Runware, GPT Image, Fal emergency). Structural gates in the master
+   * prompt module guarantee the title/subtitle/age strings appear verbatim.
+   */
+  promptOverride?: string;
 }
 
 export interface IdeogramCoverResult {
@@ -262,7 +271,8 @@ async function runwareIdeogramOnce(
   width: number,
   height: number,
 ): Promise<IdeogramCoverResult> {
-  const prompt = buildIdeogramIntegratedCoverPrompt(request);
+  const prompt = request.promptOverride ?? buildIdeogramIntegratedCoverPrompt(request);
+
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -343,7 +353,8 @@ async function generateViaFalEmergency(
 ): Promise<IdeogramCoverResult> {
   if (!FAL_KEY) throw new Error("provider_unconfigured:FAL_KEY_missing");
   const timeoutMs = opts.timeoutMs ?? 60_000;
-  const prompt = buildIdeogramIntegratedCoverPrompt(request);
+  const prompt = (request as any).promptOverride ?? buildIdeogramIntegratedCoverPrompt(request);
+
   const body = {
     prompt, aspect_ratio: "3:4", rendering_speed: "BALANCED", style: "AUTO",
     expand_prompt: false, num_images: 1,
@@ -387,7 +398,8 @@ async function generateViaGptImage(
   opts: { timeoutMs?: number },
 ): Promise<IdeogramCoverResult> {
   if (!hasOpenAIDirect()) throw new Error("provider_unconfigured:OPENAI_API_KEY_missing");
-  const prompt = buildIdeogramIntegratedCoverPrompt(request);
+  const prompt = (request as any).promptOverride ?? buildIdeogramIntegratedCoverPrompt(request);
+
   // NOTE: gpt-image-1 does not accept `referenceImageURLs` via /v1/images/generations.
   // Character continuity comes from the prompt's CHARACTER CONTINUITY clause,
   // which already describes the interior cast in text form. If the rolling
@@ -520,7 +532,7 @@ export async function generateIdeogramTextInpaint(
   opts: { timeoutMs?: number; seed?: number } = {},
 ): Promise<IdeogramCoverResult> {
   if (!RUNWARE_API_KEY) throw new Error("provider_unconfigured:RUNWARE_API_KEY_missing");
-  const prompt = buildIdeogramIntegratedCoverPrompt(request);
+  const prompt = (request as any).promptOverride ?? buildIdeogramIntegratedCoverPrompt(request);
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

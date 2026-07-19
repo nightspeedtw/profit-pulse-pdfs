@@ -33,6 +33,8 @@ import { detectBlankRegions } from "../_shared/covers/blank-detect.ts";
 import { renderColoringSelfArtCover, SELF_ART_COVER_VERSION } from "../_shared/coloring/self-art-cover.ts";
 import { composeColoringCover, fitCoverArtToPortraitCanvas, COLORING_COVER_COMPOSITOR_VERSION, COLORING_COVER_HEIGHT, COLORING_COVER_WIDTH } from "../_shared/coloring/coloring-cover-compositor.ts";
 import { generateIdeogramIntegratedCover, generateIdeogramTextInpaint, IDEOGRAM_INTEGRATED_COVER_VERSION } from "../_shared/coloring/ideogram-integrated-cover.ts";
+import { buildMasterColoringCoverPrompt, COLORING_MASTER_COVER_PROMPT_VERSION } from "../_shared/coloring/master-cover-prompt.ts";
+import { getTrimProfile } from "../_shared/coloring/trim-lock.ts";
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
 import { renderedColoringCoverProof } from "../_shared/coloring/coloring-cover-proof.ts";
 import { readQcMode, waiveOrBlock } from "../_shared/coloring/qc-mode.ts";
@@ -638,6 +640,31 @@ Deno.serve(async (req: Request) => {
     // SKIPPED ENTIRELY (single-typography-source rule) — Ideogram's baked
     // lettering IS the final cover.
     const ideogramAttempts: any[] = [];
+    // Owner law 'coloring_master_cover_v1' (2026-07-19): resolve the row's
+    // trim profile ONCE and derive both the generator dims (so square books
+    // actually render square) and the master prompt's aspect descriptor.
+    const _trim = getTrimProfile(row as any);
+    const trimDims = {
+      runwareWidth: _trim.runwareIdeogram.width,
+      runwareHeight: _trim.runwareIdeogram.height,
+      runwareFallbackWidth: _trim.runwareIdeogram.fallbackWidth,
+      runwareFallbackHeight: _trim.runwareIdeogram.fallbackHeight,
+      gptImageSize: _trim.gptImageSize,
+    };
+    const masterPromptAspect = _trim.key === "square_8_5"
+      ? "8.5 x 8.5 inches, square 1:1"
+      : "8.5 x 11 inches, portrait";
+    const masterPrompt = buildMasterColoringCoverPrompt({
+      title: row.title,
+      subtitle,
+      ageBadge,
+      theme: categoryNameFinal,
+      mainCharacters: heroSubjects.slice(0, 3),
+      backgroundElements: heroSubjects.slice(3, 8),
+      aspectDescriptor: masterPromptAspect,
+      categoryName: categoryNameFinal,
+      hasInteriorReferences: Array.isArray(referenceImageURLs) && referenceImageURLs.length > 0,
+    });
     // Owner order 2026-07-17: on text-only failure, subsequent attempts must
     // INPAINT just the text region on the same base image rather than reroll
     // the entire cover. This preserves art that already passed
@@ -662,6 +689,7 @@ Deno.serve(async (req: Request) => {
                 forbiddenBackgrounds: forbiddenSubjects,
                 referenceImageURLs,
                 ebook_id,
+                dims: trimDims,
                 baseImageBytes: lastPassingArtBytes!,
               }, { timeoutMs: IDEOGRAM_GEN_TIMEOUT_MS, seed: attemptIndex * 2017 }),
               IDEOGRAM_GEN_TIMEOUT_MS + 5_000,
@@ -680,6 +708,8 @@ Deno.serve(async (req: Request) => {
                 forbiddenBackgrounds: forbiddenSubjects,
                 referenceImageURLs,
                 ebook_id,
+                dims: trimDims,
+                promptOverride: masterPrompt,
               }, { timeoutMs: IDEOGRAM_GEN_TIMEOUT_MS, seed: attemptIndex * 1009, db }),
               IDEOGRAM_GEN_TIMEOUT_MS + 5_000,
               `ideogram_a${attemptIndex}`,
