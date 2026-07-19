@@ -69,6 +69,13 @@ Deno.serve(async (req: Request) => {
       }, 422);
     }
     const pagePlan = generatePagePlan({ ...category, coloring_page_count: page_count });
+    // top5_source_fix_v1 (quality_at_the_source): plan-time DFM swap for
+    // known-low-FPY (subject, bucket) combos. SOLID_BLACK/ANATOMY defects
+    // are prevented by never illustrating a combo whose historical yield is
+    // < 60% when a healthier bucket exists for the same subject. Missing
+    // ledger data = allow (learning path).
+    const { swaps: fpySwaps } = await applyFpyPlanSwaps(pagePlan.plan, sb, "coloring_interior");
+    (pagePlan as { fpy_swaps?: unknown }).fpy_swaps = fpySwaps;
     const planIssues = validatePagePlan(pagePlan.plan, category);
     const blocking = planIssues.filter((i) =>
       i.code === "DUPLICATE_CONCEPT" || i.code === "OUT_OF_CATEGORY" || i.code === "FORBIDDEN_SUBJECT"
