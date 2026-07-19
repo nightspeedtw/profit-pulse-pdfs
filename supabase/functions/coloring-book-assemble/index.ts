@@ -519,8 +519,9 @@ Deno.serve(async (req: Request) => {
       spelling_ok: (meta.coloring_cover as any)?.spelling_verified !== false,
     });
 
+    const persistedCoverGate: any = ((meta as any).coloring_cover_gate as any) ?? ((meta as any).coloring_cover as any)?.measured_gate ?? {};
     const measuredCoverScorecard = {
-      ...persistedCoverGate.scorecard,
+      ...(persistedCoverGate.scorecard ?? {}),
       page_count_matches_final_pdf: pageCount === expectedPageCount,
     };
     const coverGate = coloringCoverGate(measuredCoverScorecard);
