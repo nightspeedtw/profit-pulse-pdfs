@@ -258,6 +258,41 @@ async function checkStoryGateBypass(): Promise<Finding[]> {
   return findings;
 }
 
+async function checkFirstPassYield(): Promise<Finding[]> {
+  // Owner doctrine "quality_at_the_source" (2026-07-19): report FPY per
+  // book (last 7d) with target ladder 85% → 95%. Any week the trend does
+  // NOT climb = the prevention stack isn't learning → investigate.
+  const findings: Finding[] = [];
+  const { data: books } = await _sb.from("v_book_fpy")
+    .select("book_id,call_class,pages,first_pass_pages,fpy_pct,last_event_at")
+    .gte("last_event_at", new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString());
+  const rows = (Array.isArray(books) ? books : []) as any[];
+  if (rows.length === 0) return findings;
+
+  const perBook = rows.map((r) => ({
+    book_id: r.book_id, call_class: r.call_class,
+    pages: r.pages, first_pass_pages: r.first_pass_pages,
+    fpy_pct: Number(r.fpy_pct ?? 0),
+  }));
+  const overall = perBook.length
+    ? perBook.reduce((s, r) => s + r.fpy_pct, 0) / perBook.length
+    : 0;
+  const laggards = perBook.filter((r) => r.fpy_pct < 85);
+
+  findings.push({
+    check_key: "fpy_weekly_report",
+    severity: overall < 85 ? "warning" : "info",
+    defect_class: "quality_at_the_source",
+    title: `FPY 7d avg = ${Math.round(overall * 10) / 10}% across ${perBook.length} book(s) — target 85% → 95%`,
+    detail: laggards.length
+      ? `${laggards.length} book(s) below the 85% floor. Investigate: gold-reference gaps, low-FPY (subject,scene) combos still in plans, provider drift.`
+      : "All tracked books at or above the 85% floor.",
+    evidence: { overall_fpy_pct: Math.round(overall * 10) / 10, per_book: perBook.slice(0, 25), laggards: laggards.slice(0, 25) },
+    affected_count: laggards.length,
+  });
+  return findings;
+}
+
 async function runAllChecks(): Promise<Finding[]> {
   const groups = await Promise.all([
     checkPersistenceContract(),
@@ -267,6 +302,7 @@ async function runAllChecks(): Promise<Finding[]> {
     checkUnboundedRetry(),
     checkResourceLimit(),
     checkStoryGateBypass(),
+    checkFirstPassYield(),
   ]);
   return groups.flat();
 }
