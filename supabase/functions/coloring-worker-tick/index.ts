@@ -9,9 +9,9 @@
 import { corsHeaders as baseCors } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { CURRENT_COLORING_REPAIR_REGIME } from "../_shared/coloring/repair-regime.ts";
-import { readLaneGuards, sumFalSpendToday, DEFAULT_FAL_DAILY_BUDGET_USD, patchLaneCfg, clearProviderBillingBlocked } from "../_shared/fal-billing.ts";
+import { readLaneGuards, sumFalSpendToday, clearProviderBillingBlocked } from "../_shared/fal-billing.ts";
 import { readCfBillingLockedUntil } from "../_shared/image-providers.ts";
-import { fireAndForgetPost } from "../_shared/coloring/self-advance.ts";
+import { dispatchPostNoWait } from "../_shared/coloring/self-advance.ts";
 
 declare const Deno: any;
 
@@ -102,24 +102,13 @@ Deno.serve(async (req: Request) => {
     result.woken = woken;
     result.still_waiting = stillWaiting;
 
-    const cap = Number((guards.cfg.fal_daily_budget_usd as number | undefined) ?? DEFAULT_FAL_DAILY_BUDGET_USD);
-    if (cap > 0) {
+    // Coloring lane doctrine: fal.ai is permanently cut. Legacy FAL spend is
+    // telemetry only and must never pause coloring production again.
+    result.fal_permanently_cut = true;
+    try {
       const spent = await sumFalSpendToday(db);
-      result.fal_spent_today_usd = Number(spent.toFixed(4));
-      result.fal_daily_cap_usd = cap;
-      if (spent >= cap) {
-        await patchLaneCfg(db, {
-          fal_budget_cap: {
-            reached: true, spent_usd: spent, cap_usd: cap,
-            day_utc: new Date().toISOString().slice(0, 10),
-            at: new Date().toISOString(),
-          },
-        });
-        result.skipped = "fal_budget_cap_reached";
-        await recordTick(db, result);
-        return json(result);
-      }
-    }
+      result.legacy_fal_spent_today_usd = Number(spent.toFixed(4));
+    } catch (_e) { /* telemetry-only */ }
 
     // Throughput invariant: missing `max_parallel` must NOT collapse the
     // factory to one-at-a-time. Default to the configured batch size so a
@@ -236,7 +225,8 @@ Deno.serve(async (req: Request) => {
       } else {
         result.focus_skipped = { ebook_id: focusEbookId, status: row?.pipeline_status ?? "not_found" };
       }
-    } else {
+    }
+    if (queued.length === 0) {
       // Fetch a larger candidate window so we can filter out rows we just
       // dispatched (cooldown) without starving the remaining queue when
       // the top-N are stuck bouncing on the same terminal-ish stage.
@@ -393,11 +383,11 @@ Deno.serve(async (req: Request) => {
         target = row.pdf_url ? "coloring-book-publish" : "coloring-book-assemble";
       }
 
-      const outcome = await fireAndForgetPost(
+      const outcome = dispatchPostNoWait(
         `${_SB_URL}/functions/v1/${target}`,
         { Authorization: `Bearer ${_SB_KEY}`, apikey: _SB_KEY },
         { ebook_id: row.id, ...(awaiting === "publish_candidate" || awaiting === "owner_final_verification" ? { mode: "candidate" } : {}) },
-        3_000,
+        1_000,
       );
       // Stamp cooldown so the next tick doesn't re-pick the same row before
       // the target stage has had time to complete (or park itself).

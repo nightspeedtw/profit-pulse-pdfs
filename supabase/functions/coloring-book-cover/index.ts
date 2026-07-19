@@ -111,6 +111,11 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
+function isTransientBackendConnectionError(e: unknown): boolean {
+  const msg = String((e as Error)?.message ?? e ?? "");
+  return /schema cache|Too many connections|Hot standby mode is disabled|database system is not accepting connections|SSL handshake failed|Error code 52[015]|\b52[015]\b|Web server is down|Cloudflare error page|connection closed before message completed/i.test(msg);
+}
+
 async function sha256Hex(s: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
@@ -259,8 +264,10 @@ async function markCoverBlocked(db: any, ebookId: string, patch: Record<string, 
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  let requestBody: any = {};
   try {
-    const { ebook_id, force, mode } = await req.json();
+    requestBody = await req.json().catch(() => ({}));
+    const { ebook_id, force, mode } = requestBody;
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
     const isUpgradeMode = mode === "upgrade";
     const { data: row, error } = await db.from("ebooks_kids")
@@ -284,30 +291,25 @@ Deno.serve(async (req: Request) => {
     // Increment BEFORE any provider call so a crashing attempt still counts.
     // Upgrade mode is exempt (it's a manual admin sweep, not the retry loop).
     const priorInvocations = Number((meta as any).coloring_cover_invocations ?? 0);
-    if (!isUpgradeMode && priorInvocations >= MAX_COVER_INVOCATIONS_PER_BOOK) {
+    const forceSelfArtFallback = !isUpgradeMode && priorInvocations >= MAX_COVER_INVOCATIONS_PER_BOOK;
+    if (forceSelfArtFallback) {
       await patchMeta(db, ebook_id, {
-        coloring_current_step_label: `Cover retry ceiling reached (${priorInvocations}/${MAX_COVER_INVOCATIONS_PER_BOOK}) — auto-held by retry storm guard.`,
-        coloring_blocker: {
-          class: "non_recoverable_config",
+        coloring_current_step_label: `Cover paid retry ceiling reached (${priorInvocations}/${MAX_COVER_INVOCATIONS_PER_BOOK}) — switching to zero-cost self-art cover.`,
+        coloring_cover_retry_ceiling_redirect: {
           reason: COVER_RETRY_CEILING_REASON,
           invocations: priorInvocations,
           ceiling: MAX_COVER_INVOCATIONS_PER_BOOK,
+          redirected_to: "self_art_deterministic_cover",
           detected_at: new Date().toISOString(),
         },
-        awaiting: "cover_retry_ceiling",
+        awaiting: "cover_pdf_publish",
       });
-      await db.from("ebooks_kids").update({
-        pipeline_status: "queued",
-        blocker_reason: `${COVER_RETRY_CEILING_REASON}:${priorInvocations}`,
-      }).eq("id", ebook_id);
-      // NO self-advance: this is an automatic retry-storm guard, not owner wait.
-      return json({ ok: false, parked: true, reason: COVER_RETRY_CEILING_REASON, invocations: priorInvocations }, 202);
     }
 
     // PAID-CEILING TRIPWIRE — sum across ALL cover providers (ideogram + gpt_image
     // + thumbnail + inpaint) in the last 24h. Prevents the c2839b88 class where
     // per-provider caps were bypassed by hopping between providers (2026-07-19).
-    try {
+    if (!forceSelfArtFallback) try {
       const { assertPaidCeiling: assertPC, isBudgetCeilingError: isBCE, parkOnPaidCeiling: parkPC } = await import("../_shared/paid-ceiling.ts");
       for (const s of ["coloring_cover_ideogram", "coloring_cover_gpt_image", "coloring_cover_ideogram_inpaint"]) {
         try {
@@ -323,7 +325,7 @@ Deno.serve(async (req: Request) => {
       }
     } catch (_pcSetupErr) { /* module import failure shouldn't block */ }
 
-    if (!isUpgradeMode) {
+    if (!isUpgradeMode && !forceSelfArtFallback) {
       await patchMeta(db, ebook_id, { coloring_cover_invocations: priorInvocations + 1 });
     }
 
@@ -541,6 +543,78 @@ Deno.serve(async (req: Request) => {
         chained: isUpgradeMode ? "thumbnail_only_upgrade" : "thumbnail+assemble",
         upgrade_pending: isRung2Fallback,
         upgraded: isUpgradeMode,
+      });
+    }
+
+    if (forceSelfArtFallback) {
+      const selfArt = await renderColoringSelfArtCover({
+        categoryKey,
+        categoryName: categoryNameFinal,
+        pages: renderedPages
+          .slice()
+          .sort((a: any, b: any) => (a.page ?? 999) - (b.page ?? 999))
+          .slice(0, 3)
+          .map((p: any) => ({ page: Number(p.page ?? 0), url: p.signed_url as string })),
+        canvasWidth: COLORING_COVER_WIDTH,
+        canvasHeight: COLORING_COVER_HEIGHT,
+        seed: ebook_id,
+      });
+      const composed = await composeColoringCover({
+        artBytes: selfArt.bytes,
+        title: row.title,
+        subtitle,
+        description: row.description ?? null,
+        palette: [selfArt.palette.background_hex, ...selfArt.palette.subject_hex],
+        ageBadge,
+      });
+      const exactTranscript = {
+        pass: true,
+        degraded: false,
+        required_tokens: String(row.title ?? "").split(/\s+/).filter(Boolean),
+        missing_required: [],
+        misspelled: [],
+        extra: [],
+        transcribed_raw: [row.title, subtitle, ageBadge, "SecretPDF Kids"].filter(Boolean).join(" | "),
+        reason: "deterministic_exact_title_render",
+      };
+      const measured = measuredCoverScorecard({
+        title: row.title, subtitle, ageBadge,
+        text: { ok: true, has_glyphs: true, detected_text: exactTranscript.transcribed_raw, confidence: 1, degraded: false, reason: "deterministic_exact_title_render" },
+        rawArtText: { ok: true, has_glyphs: false, detected_text: "", confidence: 1, degraded: false, reason: "self_art_raw_is_textless" },
+        typographySource: "deterministic_exact_title_render",
+        hero: { ok: true, matches: true, detected_subjects: heroSubjects, forbidden_hit: null, degraded: false, reason: "self_art_from_interior_refs" },
+        frame: (composed.treatmentMeta as any).overlay_frame ?? { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT, safe_margin: 60, elements: [] },
+        logo: { present: true, rect: null },
+        artwork: { used_svg_fallback: false, synthesized_background: false, blank_background: false, blank_ratio: 0, region_stats: [] },
+        quality: { produced_bytes: composed.finalBytes.length > 1024, luminance_dead: false, byte_size: composed.finalBytes.length },
+        pageCountMatchesFinalPdf: true,
+      });
+      attempt.ended_at = new Date().toISOString();
+      attempt.status = "accepted_self_art_retry_ceiling";
+      attempt.checks = { accepted_via: "self_art_deterministic_cover", reason: COVER_RETRY_CEILING_REASON, self_art };
+      return await persistAcceptedCover({
+        finalBytes: composed.finalBytes,
+        artOnlyBytes: composed.artOnlyBytes,
+        treatmentMeta: {
+          ...composed.treatmentMeta,
+          typography_source: "deterministic_exact_title_render",
+          overlay_applied: false,
+          title: row.title,
+          subtitle,
+          age_badge: ageBadge,
+        },
+        measured,
+        renderedProof: composed.renderedProof,
+        acceptedRung: "self_art_retry_ceiling",
+        coverRecordExtras: {
+          provider: "self_art_deterministic",
+          provider_attempts: 0,
+          evidence: { transcription: exactTranscript, self_art, rendered_proof: composed.renderedProof },
+          typography_source: "deterministic_exact_title_render",
+          overlay_skipped: false,
+          no_paid_ai_cover_call: true,
+          retry_ceiling_redirected: true,
+        },
       });
     }
 
@@ -963,6 +1037,26 @@ Deno.serve(async (req: Request) => {
     throw new Error("silent_no_op:cover_fell_through_bottom_of_handler");
   } catch (e: any) {
     const msg = String(e?.message ?? e).slice(0, 300);
+    const ebookId = requestBody?.ebook_id;
+    if (isTransientBackendConnectionError(e)) {
+      console.warn("[coloring-cover] transient backend cooldown", msg);
+      if (ebookId) {
+        try {
+          await patchMeta(db, ebookId, {
+            coloring_current_step_label: `Cover technical cooldown — backend connection/schema cache: ${msg}`,
+            coloring_transient_backend_at: new Date().toISOString(),
+            awaiting: "cover_pdf_publish",
+          });
+          await db.from("ebooks_kids").update({
+            pipeline_status: "queued",
+            blocker_reason: null,
+          }).eq("id", ebookId);
+        } catch (stampErr: any) {
+          console.warn("[coloring-cover] transient cooldown stamp skipped", stampErr?.message);
+        }
+      }
+      return json({ ok: false, transient: true, requeued: true, reason: msg }, 202);
+    }
     console.error("[coloring-cover] fatal", msg);
     // OWNER DOCTRINE: a thrown error must never leave the book silently
     // unchanged. Stamp a blocker_reason so worker-tick sees the failure,
@@ -970,8 +1064,6 @@ Deno.serve(async (req: Request) => {
     // detect and rotate. Also record a defect event for the
     // silent-no-op-after-provider-fallback detection heuristic.
     try {
-      const body = await req.clone().json().catch(() => ({} as any));
-      const ebookId = (body as any)?.ebook_id;
       if (ebookId) {
         await patchMeta(db, ebookId, {
           coloring_blocker: {

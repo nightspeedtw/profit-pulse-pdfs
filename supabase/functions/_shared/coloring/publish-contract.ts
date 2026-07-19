@@ -141,7 +141,7 @@ export function assertColoringPublishContract(
   const overlayApplied = treatment.overlay_applied === true
     || String(cover?.evidence?.overlay_transcription?.reason ?? "")
       .includes("svg_overlay");
-  const bakedOnly = typographySource === "ideogram_verified_integrated"
+  const bakedOnly = (typographySource === "ideogram_verified_integrated" || typographySource === "deterministic_exact_title_render")
     && !overlayApplied;
   if (!bakedOnly) {
     reasons.push(

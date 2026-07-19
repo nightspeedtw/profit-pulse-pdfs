@@ -78,8 +78,15 @@ declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+let sharedDb: ReturnType<typeof createClient> | null = null;
+function dbClient() {
+  if (sharedDb) return sharedDb;
+  sharedDb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+  return sharedDb;
+}
+
 const CALIBRATION_COUNT = 4;   // pages rendered before owner style-lock review
-const BATCH_SIZE = 3;          // pages rendered per invocation post-calibration (reduced from 6 to stay under 150s edge CPU cap; see known-regressions.md#generating-status-zombie-v1)
+const BATCH_SIZE = 1;          // one page per invocation: prevents backend connection storms while Runware is primary
 const MIN_IMAGE_BYTES = 8_000; // verify-at-birth: real line-art is well above this
 
 interface StoredPage {
@@ -99,6 +106,11 @@ function json(x: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+function isTransientBackendConnectionError(e: unknown): boolean {
+  const msg = String((e as Error)?.message ?? e ?? "");
+  return /Too many connections|Hot standby mode is disabled|database system is not accepting connections|SSL handshake failed|Error code 52[015]|\b52[015]\b|Web server is down|Cloudflare error page/i.test(msg);
 }
 
 async function sha256Hex(s: string): Promise<string> {
@@ -153,7 +165,7 @@ Deno.serve(async (req: Request) => {
     const { ebook_id } = await req.json();
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
 
-    const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+    const db = dbClient();
 
     // Lane-level guard: don't burn a single FAL call while billing/quota
     // is blocked or today's budget cap is reached. Keeps the row parked in
@@ -577,6 +589,16 @@ Deno.serve(async (req: Request) => {
           });
           return json({ ok: false, halted: true, reason: parkState, wake_at: wake.toISOString(), detail: e.message });
         }
+        if (isTransientBackendConnectionError(e)) {
+          console.warn(`[coloring-render] transient backend issue on page ${page.canonical_page_number}; cooldown retry`, e?.message ?? e);
+          errors.push({
+            page: page.canonical_page_number,
+            error: `technical_backend_transient: ${String(e?.message ?? e).slice(0, 200)}`,
+            reasons: ["technical_backend_transient"],
+            technical_state: true,
+          } as any);
+          break;
+        }
         console.error(`[coloring-render] page ${page.canonical_page_number} failed`, e?.message);
         repairAttempts[String(page.canonical_page_number)] = attempt + 1;
         errors.push({ page: page.canonical_page_number, error: e?.message ?? String(e) });
@@ -782,6 +804,21 @@ Deno.serve(async (req: Request) => {
           coloring_last_errors: perPageTrimmed,
         });
         return json({ ok: false, stage: stageLabel, reason: parkState, wake_at: wake.toISOString(), errors: perPageTrimmed }, 200);
+      }
+      const looksTransientBackend = errors.some((e: any) => e?.technical_state || isTransientBackendConnectionError(e?.error));
+      if (looksTransientBackend) {
+        await db.from("ebooks_kids").update({
+          pipeline_status: "queued",
+          blocker_reason: null,
+          next_retry_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+        }).eq("id", ebook_id);
+        await patchMeta(db, ebook_id, {
+          coloring_progress_percent: percent,
+          coloring_current_step_label: `Backend connection cooldown — retrying ${stageLabel} shortly`,
+          coloring_last_errors: perPageTrimmed,
+        });
+        await scheduleSelfAdvance(db, ebook_id, { delayMs: 2 * 60_000, reason: `technical_backend_cooldown:${stageLabel}` });
+        return json({ ok: false, stage: stageLabel, reason: "technical_backend_cooldown", errors: perPageTrimmed, self_advance: true }, 200);
       }
       // Whole batch failed — surface as blocker but keep queued for retry.
       await db.from("ebooks_kids").update({
