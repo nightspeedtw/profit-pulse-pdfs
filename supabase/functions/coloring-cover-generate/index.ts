@@ -249,11 +249,29 @@ Deno.serve(async (req: Request) => {
     });
     await db.from("ebooks_kids").update({ pipeline_status: "queued", blocker_reason: null }).eq("id", ebookId);
 
-    // Fire verify immediately; worker-tick is the safety net if this drops.
-    await fireAndForgetPost(`${SUPABASE_URL}/functions/v1/coloring-cover-verify`,
-      { Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY }, { ebook_id: ebookId }, 3_000);
+    // AWAITED chain (was fire-and-forget → caused race where verify read
+    // stale metadata before the generate's atomic patch had landed, so
+    // verify saw no_pending_verify and looped). We now block on verify;
+    // its 45s budget fits well inside the edge-function wallclock.
+    let verifyResult: any = null;
+    try {
+      const resp = await withTimeout(
+        fetch(`${SUPABASE_URL}/functions/v1/coloring-cover-verify`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ ebook_id: ebookId }),
+        }),
+        VERIFY_CHAIN_TIMEOUT_MS, "verify_chain",
+      );
+      verifyResult = await resp.json().catch(() => ({ ok: resp.ok, status: resp.status }));
+    } catch (chainErr: any) {
+      // Verify timed out or crashed — worker-tick will pick it up next
+      // sweep. Do NOT clear cover_pending_verify here; the pending record
+      // is exactly what the next verify invocation needs.
+      verifyResult = { chained: false, error: String(chainErr?.message ?? chainErr).slice(0, 200) };
+    }
 
-    return json({ ok: true, phase: "generate", provider: ideo.provider, invocation: priorInvocations + 1, pending_path: up.path, chained: "verify" });
+    return json({ ok: true, phase: "generate", provider: ideo.provider, invocation: priorInvocations + 1, pending_path: up.path, chained: "verify", verify: verifyResult });
   } catch (e: any) {
     const msg = String(e?.message ?? e).slice(0, 300);
     console.error("[coloring-cover-generate] fatal", msg);
