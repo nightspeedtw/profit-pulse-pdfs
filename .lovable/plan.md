@@ -1,146 +1,73 @@
+## Coloring Rulebook v2 — "Essentials Only"
 
-# Etsy-Grade Sale Page + Autonomous Promotion Engine
+**Owner intent:** หนังสือระบายสีไม่ต้องมีเนื้อเรื่อง. ระบบต้องผ่านง่ายขึ้น. เหลือเงื่อนไข "จำเป็นจริง" 3 ข้อ:
 
-Two workstreams built as one coherent system. Stage A ships a visible win on the test book; Stage B lands the engine + admin panel; Stage C wires storefront surfaces to it.
+1. **ชื่อเรื่องน่าซื้อ** — title telegraphs fun + subject (parent-buyable).
+2. **ตัวสะกดบนปกถูก 100%** — non-waivable (คงไว้).
+3. **ปกกับข้างในเป็นเรื่องเดียวกัน** — cover-last, ใช้ interior เป็น reference.
 
----
-
-## Stage A — Sale page upgrade (`/kids/coloring/:id`, verify on `c2839b88` "Fierce Floral")
-
-**Goal:** Match QuirkyFindsPH gallery caliber with honest metrics and real countdowns.
-
-### A1. Gallery lineup (branded cards, code-rendered text, spelling-gated)
-Composited cards rendered as PNG at assemble time (reuse existing marketing-thumbnail infra), stored in `ebook_assets` and surfaced in the product gallery in this order:
-1. **Cover mockup hero** (existing).
-2. **"COLORING SAMPLES" grid card** — 6 interior pages on brand background, page numbers.
-3. **"COLORED IN DIFFERENT MEDIUMS" card** — same interior page rendered 3× (colored pencil / marker / crayon) via Runware img2img on one line-art page. Cached per book.
-4. **"WHAT YOU GET" card** — PDF + JPEG ZIP + page count + trim + print-ready icons.
-5. **"HOW IT WORKS" card** — 3-step (buy → instant download → print).
-
-Add helper `_shared/coloring/gallery-cards.ts` + edge fn `coloring-gallery-cards` invoked from the publish pipeline. All text rendered via server-side SVG → PNG (no model-baked text), passed through the existing spelling gate.
-
-### A2. Dual deliverable: PDF **and** per-page JPEG ZIP
-- New step in `kids-build-picture-pdf` (coloring path): after PDF assembly, pack interior page PNGs → JPEG @ 300 DPI → `pages.zip`. Upload to `ebook-pdfs` bucket.
-- Extend `download_grants` / `kids_download_grants` to include a second signed URL `zip_url`.
-- `download-ebook` edge fn returns both.
-- Sales copy: "Instant download — high-res PDF + per-page JPEG ZIP".
-
-### A3. Honest trust-metrics block (Etsy-style)
-New `TrustMetricsBlock.tsx`. When no real reviews:
-- "5.0 · SecretPDF editorial QC"
-- "5.0 · File quality (print-ready verified)"
-- "100% · QC gates passed"
-- Tooltip: platform quality review, will be replaced by buyer metrics as they arrive.
-When `product_review_stats.count > threshold`: swap to real "Item quality / Service / Recommend %" derived from reviews.
-
-### A4. Real urgency only
-- `<PromoCountdown>` reads the book's active `promo_windows` row and counts down to its real `ends_at`. If no window → hide.
-- Omit "X in carts" entirely until real cart telemetry exists (documented as future).
+Everything else (per-page 95/98 thresholds, duplicate rate <5%, uniqueness dHash, anatomy=95, colorability=92, weighted book gate ≥92, per-page floor 88, category presence prominence, etc.) becomes **advisory / auto-enhance**, not release-blocking.
 
 ---
 
-## Stage B — Promotion autopilot engine
+### Changes (all scoped `book_type='coloring_book'` via `assertColoringOnly`)
 
-### B1. Schema (migration)
+**A. Gate simplification — `supabase/functions/_shared/coloring/gates.ts`**
+- Replace `coloringPageGate` hard thresholds with a minimal **garbage floor**:
+  - reject only if: `line_art_cleanliness < 70`, `printability < 70`, or any hard-fail in a reduced set: `watermark`, `random_text`, `signature`, `copyrighted_ip`, `invalid_svg`, `garbage_image_broken`.
+  - Drop from hard-fail: `duplicate_page`, `duplicate_image_hash`, `out_of_category_object`, `cropped_subject`, `grayscale_area`, `anatomy_defect` (anatomy stays as advisory-only per rulebook amendment).
+- Replace `coloringBookWeightedGate` with a **thin release check**:
+  - keep `spelling_ok` (cover typography) as non-waivable.
+  - drop `weighted_avg ≥ 92`, `per_page_floor ≥ 88`, `duplicate_scene_rate ≤ 0.05`, `hard_fails_total`.
+- `coloringCoverGate` keeps only:
+  - `title_readability ≥ 85` (was 95)
+  - `spelling_ok` non-waivable
+  - `cover_interior_match` (NEW — see B)
+  - drop: `cover_category_match ≥ 98`, `cover_quality ≥ 92`, `age_label_present`, `logo_present`, `page_count_matches_final_pdf` (moved to build-time assertion, not a QC score), `blank_background` (already covered by garbage floor).
+- `coloringReleaseGate` reduced to: `pdf_opens`, `cover_gate_pass`, `zero_prohibited_artifacts` (spelling + copyrighted_ip only).
 
-```text
-promo_windows        one active row per book at a time
-  id, book_id, book_type ('coloring'|'picture'|'adult'),
-  kind ('rotation'|'flash'|'boost'|'core'),
-  discount_pct, sale_price_cents, anchor_price_cents,
-  starts_at, ends_at, active bool,
-  source ('autopilot'|'manual'), created_by
+**B. Cover-last "interior is the reference" — enforce a single path**
+- `coloring-worker-tick`: ensure a coloring book cannot dispatch cover work until **≥60% of interior pages exist** (already partial — tighten & make sole path; remove any pre-interior cover fast-path).
+- `coloring-book-cover` / `coloring-cover-generate`: require `interior_refs` (3 sampled interior pages) as inputs; reject invocation without them.
+- Add `cover_interior_match` grader (vision): compares 3 sampled interior pages vs cover for subject/style parity. Passes ≥70. Failure → single inpaint/regenerate retry, then accept (no ceiling storm).
 
-promo_rules          singleton config (JSONB)
-  discount_bands {min,max}, cycle_days {min,max},
-  flash_per_type {coloring,picture,adult},
-  margin_floor_cents, boost_threshold {sales, days},
-  charm_endings [.99,.73,.49], autopilot_enabled bool
+**C. Title-quality micro-gate (replaces story gate for coloring)**
+- New tiny check in `coloring-book-start`: title must (a) include the primary subject/category noun, (b) be 3–8 words, (c) not be generic ("Coloring Book", "Fun Pages"). One rewrite max via `google_direct`; then accept.
+- No story gate, no generic-risk, no premium score, no manuscript judges on the coloring lane. `lane-invariants.ts` already blocks these — extend test coverage.
 
-promo_events         audit trail
-  id, book_id, event ('window_open'|'window_close'|'reprice'|
-    'flash_selected'|'boost_enter'|'boost_exit'|'core_lock'),
-  before_cents, after_cents, discount_pct, window_id,
-  reason text, created_at
+**D. Escalation storm relief**
+- `MAX_COVER_INVOCATIONS_PER_BOOK`: keep 8 absolute; but with looser gates, most books accept on attempt 1–2.
+- Remove page-level regenerate loops driven by thresholds we just dropped (duplicate/anatomy/uniqueness → log advisory only).
 
-ebooks_kids / ebooks additions:
-  anchor_price_cents  (set ONCE at first publish; never overwritten)
-  core_promo bool     (manual-promo lock; excludes from autopilot)
-  bestseller_rank int (nullable)
-  velocity_score numeric
-```
+**E. `pipeline_skills` doctrine**
+- Register `coloring_rulebook_v2_essentials_only` with the 3 essentials + the removed gates list + rationale ("coloring has no story; over-gating caused false rejections & spend storms").
 
-All tables: GRANT to authenticated + service_role, RLS: public SELECT on `promo_windows` where active, admin-only writes.
+**F. Regression tests**
+- `src/__tests__/coloring-rulebook-v2-essentials.test.ts`:
+  - garbage page rejected; ordinary page passes without hitting old 95/98 thresholds.
+  - cover with misspelled title rejected (non-waivable).
+  - cover generated before interiors → refused.
+  - cover mismatched with interiors → one retry, then either pass or garbage-only reject.
+  - picture_book lane untouched (scope guard).
 
-### B2. Engine (`promo-autopilot` edge fn, cron every 15 min)
-For each `book_type`:
-1. **Close expired windows** → log `window_close`, restore base sale or open next.
-2. **Rotation**: books with no active window (and `core_promo=false`) get a new window: discount ∈ [band.min, band.max], length ∈ [cycle.min, cycle.max] days, both jittered per book. Compute `sale = max(anchor*(1-d/100), margin_floor)` then snap to nearest charm ending. Skip if snap would violate floor.
-3. **Flash-of-the-day** (00:00 UTC daily job piggybacked on same cron): pick N random eligible books per type, override with deep discount, `ends_at = next midnight`.
-4. **Bestseller ranks**: recompute from `book_sales_ledger` (fallback `coloring_book_events` views), write `bestseller_rank`.
-5. **Slow-mover boost**: books with sales < threshold after N days since publish → enter `kind='boost'` window (deeper discount, "Hidden Gems" rail). Auto-exit when velocity recovers.
-6. **Core-promo exclusion**: enforced in the SELECT (`WHERE core_promo=false`) — impossible to double-book.
-
-Every mutation writes `promo_events`. Digest logs a summary line.
-
-### B3. Admin surface
-- **`/admin/promotions/autopilot`** — master toggle, rule tuner (bands, cycle range, flash counts, margin floor, boost thresholds), live table of active windows, recent events feed.
-- **`/admin/promotions/manual`** — CORE promos: pick books, set discount + window, saves with `source='manual'` and flips `core_promo=true`. On expiry, cron flips it back.
-- Both use `PricingPanel` patterns; live preview of charm-snapped price.
-
-### B4. Sale-price wiring
-Replace `deriveSalePricing` synthesis fallback with a lookup:
-1. If active `promo_windows` row → use its `sale_price_cents` + `anchor_price_cents`.
-2. Else fall back to current deterministic synthesis (kept as safety net).
-`list-storefront` fn joins active windows. Cards + product page display real discount %, real countdown, and (when applicable) "Flash Deal" / "Best Seller" / "Hidden Gem" badges.
-
-### B5. Storefront surfaces
-- Homepage "Today's Flash Deals" strip (3 per type).
-- Category page "Best Sellers" rail (top 8 by rank).
-- Category page "Hidden Gems" rail (active boost windows).
-- Product page badges + countdown from A4.
+**G. Rescue sweep**
+- One-shot SQL update: coloring books currently parked on dropped gates (`weighted_avg`, `per_page_floor`, `duplicate_scene_rate`, `cover_category_match`, `anatomy_defect`, `cover_quality`, `age_label_present`, `logo_present`) → reset to `queued` for re-evaluation under v2. Do NOT rescue: `spelling_ok=false`, `copyrighted_ip`, `garbage_image_broken`, `paid_ceiling`.
 
 ---
 
-## Guardrails (enforced in code, not just docs)
-- **Anchor immutability**: DB trigger blocks `UPDATE anchor_price_cents` once set.
-- **No fake countdowns**: `<PromoCountdown>` requires a real `promo_windows.ends_at`; renders nothing otherwise.
-- **No overlap**: `promo_windows` has partial unique index `(book_id) WHERE active`. Engine SELECT excludes `core_promo=true`.
-- **Margin floor**: engine rejects any computed price < floor before insert.
-- **Full audit**: every mutation → `promo_events` row.
+### Files touched
+- `supabase/functions/_shared/coloring/gates.ts` (rewrite)
+- `supabase/functions/coloring-book-start/index.ts` (title micro-gate; drop story-ish checks)
+- `supabase/functions/coloring-worker-tick/index.ts` (cover-last enforcement)
+- `supabase/functions/coloring-book-cover/index.ts` + `coloring-cover-generate/index.ts` (require interior refs; add `cover_interior_match`)
+- `supabase/functions/coloring-book-publish/index.ts` (use thin release check)
+- `supabase/functions/_shared/coloring/lane-invariants.ts` (extend forbidden list)
+- New: `supabase/functions/_shared/coloring/cover-interior-match.ts`
+- New test: `src/__tests__/coloring-rulebook-v2-essentials.test.ts`
+- DB: register skill in `pipeline_skills`; rescue update on `ebooks_kids` coloring rows.
 
----
-
-## Delivery order & verification per stage
-
-| Stage | Ships | Verify on |
-|---|---|---|
-| A1 gallery cards | new cards visible in product gallery | `/kids/coloring/c2839b88` |
-| A2 JPEG ZIP | download returns PDF + zip_url | download flow on Fierce Floral |
-| A3 trust block | honest metrics render | product page |
-| A4 countdown | shows only when window exists (nothing yet — proves the guardrail) | product page |
-| B1 schema | migration approved | admin |
-| B2 engine + cron | first rotation writes windows + events | admin events feed |
-| B3 admin panels | toggle + tune + manual promos | `/admin/promotions/*` |
-| B4 sale-price wiring | product cards show engine prices | `/kids/coloring`, product page |
-| B5 rails | flash / bestseller / hidden gems rails render | homepage + categories |
-
----
-
-## Technical notes
-- Reuse `_shared/coloring/pricing.ts` for charm-ending + floor helpers; extend, don't fork.
-- Cron: single 15-min `promo-autopilot` schedule via `pg_cron` + `pg_net`; midnight flash-selection detected inside handler by UTC boundary check (no second schedule needed).
-- Mockup-medium image caching keyed by `(book_id, page_id, medium)`; only regenerate on cache miss.
-- Charm endings applied after floor check to avoid re-crossing the floor.
-- Existing `deriveSalePricing` becomes fallback only; primary source is engine.
-- No changes to Shopify / royalty / exchange code (P0 boundary respected).
-
----
-
-## Assumptions (flagging for correction)
-- "Different mediums" card renders **one representative page** in 3 media, not every page (cost control). Correct me if you want all pages.
-- Flash-of-the-day count defaults to **3 per type** as spec'd; adjustable via `promo_rules`.
-- Anchor price = the price at first `listing_status='live'` transition. Books already live get anchor backfilled from current `price` on migration.
-- Cart-adds telemetry is out of scope this round; "X in carts" element stays hidden until we add cart tracking.
-
-Approve and I'll execute Stage A immediately, then B in one migration + engine push, then C wire-up.
+### Not touched
+- Picture-book lane (all novel/story gates remain).
+- Spelling gate (non-waivable, stays).
+- Copyright / garbage / broken-PDF hard fails.
+- Budget/paid-ceiling machinery.
