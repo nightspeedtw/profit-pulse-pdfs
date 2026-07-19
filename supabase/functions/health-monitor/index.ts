@@ -87,6 +87,35 @@ async function runChecks(sb: any): Promise<Alert[]> {
   const alerts: Alert[] = [];
   const now = Date.now();
 
+  // (a0) SYSTEM-DEAD watchdog: newest heartbeat across all sources > 60s old.
+  try {
+    const { data: hbRows } = await sb
+      .from("system_heartbeat")
+      .select("source,last_beat_at")
+      .order("last_beat_at", { ascending: false })
+      .limit(20);
+    if (!hbRows || hbRows.length === 0) {
+      // No heartbeat table entries yet — skip on cold start.
+    } else {
+      const newest = new Date(hbRows[0].last_beat_at).getTime();
+      const ageMs = now - newest;
+      if (ageMs > DEAD_THRESHOLD_MS) {
+        alerts.push({
+          alert_class: "system_dead",
+          severity: "critical",
+          title: `🔴 SYSTEM DEAD — no heartbeat for ${Math.round(ageMs/1000)}s (threshold ${DEAD_THRESHOLD_MS/1000}s)`,
+          body: `Newest heartbeat: ${hbRows[0].source} @ ${hbRows[0].last_beat_at}\nAll sources:\n` +
+            hbRows.map((r: any) => `• ${r.source} — ${r.last_beat_at}`).join("\n") +
+            `\n\nAdmin: ${ADMIN_URL}`,
+          evidence: { newest_source: hbRows[0].source, age_ms: ageMs, sources: hbRows },
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("system_dead check failed", (e as Error).message);
+  }
+
+
   // (a) worker heartbeat stale >15 min while queue non-empty.
   // SOURCE OF TRUTH: generation_settings.coloring_autopilot.last_worker_tick_at
   // — this is what coloring-worker-tick actually writes every cron cycle.
