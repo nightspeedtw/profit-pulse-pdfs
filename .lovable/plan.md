@@ -1,48 +1,82 @@
-สาเหตุ retry หลายรอบที่ตรวจพบตอนนี้มี 4 จุดหลัก:
 
-1. **Cover retry วนจาก metadata บวม**
-   - `coloring_cover_single_attempt` และ `coloring_cover_ideogram_attempts` ยังมีข้อมูลใหญ่ประมาณ 10MB ต่อคีย์
-   - ทำให้ทุกครั้งที่ระบบอัปเดตแถวนี้ backend ต้องเขียน JSON ก้อนใหญ่มาก เสี่ยง timeout/คิววน/ฐานข้อมูลหน่วง
+# Permanent Fix — Coloring-Book Cover Master Prompt
 
-2. **Cover มีไฟล์จริงแล้ว แต่ metadata cover contract หาย**
-   - แถว `d6da92a8` มี `cover_url` และ `thumbnail_url` แล้ว
-   - แต่ metadata ไม่มี `coloring_cover` / `coloring_cover_gate` ทำให้ขั้นต่อไปมองว่า cover ยังไม่ครบ แล้วกลับไปเส้นทาง cover retry ได้
+Scope: `book_type='coloring_book'` ONLY. Picture-book / adult lanes untouched (scope guard `assertColoringOnly`).
 
-3. **Assembly retry จากการเรียก `waiveOrBlock` ผิด signature**
-   - ฟังก์ชันจริงรับ object เดียว
-   - assembly เคยเรียกผิดรูปแบบบางจุด ทำให้เกิด `Cannot read properties of undefined (reading 'slice')` และวนกลับคิว
+## 1. Canonical prompt module
 
-4. **Self-advance/requeue กำลัง retry ปัญหาเชิงเทคนิคเหมือนปัญหาคุณภาพ**
-   - บาง blocker เช่น metadata missing, cover contract missing, assembly crash ควรถูกแก้ state/contract ก่อน ไม่ใช่ schedule retry ต่อเนื่อง
+Replace the ad-hoc clauses in `_shared/coloring/ideogram-integrated-cover.ts::buildIdeogramIntegratedCoverPrompt` with a new dedicated module:
 
-แผนแก้ถาวร:
+`supabase/functions/_shared/coloring/master-cover-prompt.ts`
 
-1. **Patch assembly ให้ไม่ crash**
-   - ตรวจทุกจุดที่เรียก `waiveOrBlock` ใน `coloring-book-assemble`
-   - แก้ให้ใช้ object signature เท่านั้น
-   - เพิ่ม guard ให้ `reasons` เป็น array เสมอ เพื่อไม่เกิด `.slice()` crash อีก
+Exports:
+- `COLORING_MASTER_COVER_PROMPT_VERSION = "coloring_master_cover_v1"`
+- `buildMasterColoringCoverPrompt(input)` — returns the English "short-form" master prompt (the automation variant the user provided), filling in these fields from the ebook row + page plan:
+  - `[BOOK TITLE]` — `ebooks.title`
+  - `[SUBTITLE]` — `ebooks.subtitle` (fallback `"A Fun Coloring Adventure"`)
+  - `[AGES]` — `"Ages {min}-{max}"`
+  - `[THEME]` — category / theme phrase
+  - `[MAIN CHARACTERS]` — resolved hero list (1-3)
+  - `[BACKGROUND ELEMENTS]` — from `defaultBackgroundHintFor(category)` + palette
+- Structural guards (throw on violation, mirrors `assertColoringCoverPromptIsTextless` pattern):
+  - Title/subtitle/age strings present verbatim
+  - No banned words: `watermark, logo, page number, website`
+  - Prompt length ≤ 3000 chars (Runware cap)
+  - Reference-image usage clause always present (interior refs are guidance-only, never copy)
+- `assertMasterPromptShape(prompt, {title, subtitle, ageBadge})` — called before dispatch.
 
-2. **ทำ metadata bloat cleanup แบบถาวร**
-   - เพิ่ม sanitizer/compact helper ที่ล้าง `_rawBytes`, base64, transcript ยาว, reason ยาว ก่อน persist
-   - จำกัด attempt history เหลือ 5 รายการจริงทุก write path
-   - เพิ่ม regression test ว่า metadata attempt history ไม่มี raw bytes และไม่โตเกินเพดาน
+Canonical composition (square-first per owner law):
+- 1:1 canvas, 8.5 × 8.5 in
+- Title occupies upper 30-40%, custom hand-drawn lettering
+- Hero 1-3 characters centered/lower half
+- Age badge in a corner
+- 0.25 in safe area
+- Bright pastel palette
+- Style: "premium children's coloring book cover, hand-lettered, print-ready"
+- Explicit: reference images are inspiration ONLY, redraw everything, do not reuse an interior page as the cover.
 
-3. **ซ่อม cover contract เมื่อมี cover_url แล้ว**
-   - ถ้า `cover_url`/thumbnail มีอยู่ แต่ `coloring_cover` หรือ `coloring_cover_gate` หาย ให้สร้าง minimal accepted cover metadata จาก asset ปัจจุบัน
-   - ไม่กลับไปจ่ายเงิน generate cover ใหม่ถ้า asset มีแล้ว
-   - ใช้ publish-contract เป็นจุดบังคับ spelling non-waivable ต่อไป
+## 2. Wire it into the cover pipeline
 
-4. **แยก technical retry ออกจาก quality retry**
-   - technical crash/missing metadata/oversized metadata จะถูก mark เป็น incident/blocker ชัดเจน ไม่ยิง provider ซ้ำ
-   - quality retry เฉพาะกรณีที่ยังต้อง generate asset จริง และอยู่ใต้ ceiling เท่านั้น
+- `supabase/functions/coloring-book-cover/index.ts`: swap `buildIdeogramIntegratedCoverPrompt` → `buildMasterColoringCoverPrompt` for the coloring lane. Keep the same Runware Ideogram v3 dispatch, verifier (`verifyExactCoverText`), and spelling gate (non-waivable).
+- Trim resolution: force **square** (`square_8_5`) dims for the coloring lane — request `1088×1088` (or nearest Runware-supported square, e.g. 1024×1024) instead of the 8.5:11 portrait numbers. Add `runwareSquare = 1088` to `dims`.
+- Overlay compositor (`coloring-cover-compositor.ts`): keep the shrink-to-fit title treatment as a fallback safety net when the baked title fails the verifier (already implemented).
+- Thumbnail (`coloring-book-thumbnail` step / renderThumbnail): re-render 600×776 → **change to 600×600 square** to match new trim.
 
-5. **กู้เล่ม `Superhero Unicorn Fantasy Coloring Book` ต่อจนจบ**
-   - prune metadata ของเล่มนี้ให้เล็กลง
-   - rebuild cover metadata contract จาก cover/thumbnail ที่มีอยู่
-   - trigger assembly ด้วย `override_freeze:true`
-   - ถ้า assembly ผ่าน ให้ chain publish ต่อ
+## 3. Fix the LATEST book first (single-book validation)
 
-6. **ยืนยันผล**
-   - ตรวจว่าเล่มมี `pdf_url`, `cover_url`, `thumbnail_url`
-   - ตรวจว่า metadata ไม่บวมซ้ำ
-   - ตรวจ logs ว่าไม่มี retry loop ใหม่จาก cover/assemble
+Book: `Superhero Unicorn Fantasy Coloring Book` (`d6da92a8`). Latest live book; cover currently self-art fallback.
+
+Sequence (owner's order):
+1. Deploy new master-prompt module + wire-in.
+2. Reset that one book's cover state: clear `cover_url`, `cover_bg_url`, `thumb_url`; reset `coloring_cover_invocations = 0`, `coloring_cover_ideogram_attempts = []`; keep interior pages intact.
+3. Invoke `coloring-book-cover` once for `d6da92a8` — generates cover via new master prompt using 3 interior pages as refs.
+4. Invoke `coloring-book-thumbnail` — regenerates square thumbnail.
+5. Owner reviews cover + thumbnail against the uploaded reference.
+6. **Only if approved**: invoke `coloring-book-assemble` + `coloring-book-publish` to rebuild the PDF with new cover.
+
+## 4. Regression tests
+
+New: `src/lib/coloringMasterCoverPrompt.test.ts`
+- Master prompt contains title/subtitle/age verbatim
+- Master prompt contains reference-image "inspiration only, do not copy" clause
+- Assertion throws when title missing
+- Assertion throws when banned word present
+- Square dims returned for `square_8_5` books
+
+## 5. Non-goals
+
+- No changes to picture-book covers.
+- No new provider.
+- Do NOT lower any QC gate.
+- Do NOT touch story/manuscript lanes.
+
+## Technical details
+
+Files to add / edit:
+- ADD `supabase/functions/_shared/coloring/master-cover-prompt.ts`
+- EDIT `supabase/functions/coloring-book-cover/index.ts` (~line 22 import, ~line 420 prompt build, dims resolver)
+- EDIT `supabase/functions/_shared/coloring/ideogram-integrated-cover.ts` (add square dim support + accept externally-built prompt via optional `promptOverride`)
+- EDIT thumbnail renderer for square output
+- ADD `src/lib/coloringMasterCoverPrompt.test.ts`
+
+Rollout: deploy → run for `d6da92a8` (cover+thumb only) → owner approval → PDF assemble.
