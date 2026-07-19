@@ -51,6 +51,43 @@ function json(x: unknown, status = 200) {
   });
 }
 
+// ─── PERMANENT METADATA BLOAT GUARD (owner law: 'metadata_never_toasts') ───
+// Every prior "cover parked" write persisted `ideogramAttempts` verbatim,
+// which retained `_rawBytes` (raw PNG Uint8Arrays, ~2MB each) and full
+// verdict transcripts. After 4-8 attempts the row's JSONB grew past
+// 10-20 MB, forcing every subsequent UPDATE into a TOAST rewrite and
+// causing statement timeouts / 57P03 rejections. Fix at source: strip
+// bytes + truncate long strings + cap history depth on the way in.
+// If this cap or the sanitizer is removed, the DB will re-bloat and
+// covers will re-stall — do not shortcut it.
+const MAX_ATTEMPT_HISTORY = 5;
+function sanitizeAttemptForPersist(a: any): any {
+  if (!a || typeof a !== "object") return a;
+  const { _rawBytes, _verdict, ...rest } = a as any;
+  const clone: any = { ...rest };
+  const c = clone.checks;
+  if (c && typeof c === "object") {
+    const t = c.transcription;
+    if (t && typeof t === "object") {
+      clone.checks = {
+        ...c,
+        transcription: {
+          pass: t.pass ?? null,
+          reason: typeof t.reason === "string" ? t.reason.slice(0, 240) : t.reason ?? null,
+          transcribed_raw: typeof t.transcribed_raw === "string" ? t.transcribed_raw.slice(0, 240) : undefined,
+        },
+      };
+    }
+  }
+  if (typeof clone.reason === "string") clone.reason = clone.reason.slice(0, 240);
+  return clone;
+}
+function sanitizeAttemptsForPersist(list: any): any[] {
+  if (!Array.isArray(list)) return [];
+  const cleaned = list.map(sanitizeAttemptForPersist);
+  return cleaned.slice(-MAX_ATTEMPT_HISTORY);
+}
+
 function fireAndForget(fn: string, body: Record<string, unknown>) {
   const doIt = async () => {
     try {
