@@ -155,6 +155,10 @@ Deno.serve(async (req) => {
     try {
       rewritten = await rewriteOnce(system, user, ebook_id);
     } catch (e) {
+      if (isBudgetCeilingError(e)) {
+        await parkOnPaidCeiling(ebook_id, e, db);
+        return json({ ok: true, result: 'parked_paid_ceiling', ebook_id, group: e.group, count: e.count });
+      }
       return json({ ok: false, error: `surgical_rewrite_failed: ${(e as Error).message.slice(0, 200)}`, before_scores: beforeScores }, 500);
     }
     if (!rewritten || rewritten.length < 400) {
