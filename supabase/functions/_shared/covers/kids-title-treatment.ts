@@ -140,17 +140,20 @@ async function loadCoverLogoB64(): Promise<string | null> {
   }
 }
 
-/** Split title into ≤ maxLines balanced lines, favouring visual balance. */
-export function splitTitleLines(title: string, maxLines = 3): string[] {
+/** Split title into ≤ maxLines balanced lines, favouring visual balance.
+ * Owner law (shrink-to-fit, 2026): NEVER truncate a title. Long titles get
+ * more stacked lines (up to 5) so downstream font-sizing can shrink to fit
+ * without dropping words. */
+export function splitTitleLines(title: string, maxLines = 5): string[] {
   const words = title.trim().split(/\s+/).filter(Boolean);
   if (words.length <= 1) return words.length ? [words[0]] : [""];
   const totalLen = title.length;
+  // Aim for ~14 chars per line as the sweet spot, but always keep every word.
   const wantLines = Math.min(maxLines, Math.max(1, Math.ceil(totalLen / 14)));
-  const wordsPerLine = Math.ceil(words.length / wantLines);
+  const wordsPerLine = Math.max(1, Math.ceil(words.length / wantLines));
   const lines: string[] = [];
-  for (let i = 0; i < wantLines; i++) {
-    const slice = words.slice(i * wordsPerLine, (i + 1) * wordsPerLine);
-    if (slice.length) lines.push(slice.join(" "));
+  for (let i = 0; i < words.length; i += wordsPerLine) {
+    lines.push(words.slice(i, i + wordsPerLine).join(" "));
   }
   return lines;
 }
