@@ -314,18 +314,16 @@ Deno.serve(async (req: Request) => {
     // MUST match the PDF trim ratio (8.5:11). If it doesn't, fit-COVER
     // below will clip the baked title/edge glyphs. In learning mode we
     // ledger and continue; in strict mode we block the assemble.
+    // Coloring Rulebook v2 — cover aspect is advisory. Any drift is bounded
+    // by cover generation; blocking here just loops us back to cover regen.
     const aspect = checkCoverAspect(coverBytes, profileKey);
     if (!aspect.pass) {
-      const mode = await readQcMode(db, ebook_id);
-      const outcome = await waiveOrBlock(db, ebook_id, {
-        gate: "cover_aspect_match",
-        reason: aspect.reason ?? "cover_aspect_mismatch",
-        detail: { actual: aspect, expected_ratio: aspect.expected_ratio },
-        mode,
+      await patchMeta(db, ebook_id, {
+        coloring_assembly: {
+          ...((meta as any).coloring_assembly ?? {}),
+          cover_aspect_advisory: { actual: aspect, expected_ratio: aspect.expected_ratio, at: new Date().toISOString() },
+        },
       });
-      if (outcome.blocked) {
-        return json({ error: "cover_aspect_mismatch", detail: aspect }, 422);
-      }
     }
     const coverImg = await embedAny(doc, coverBytes);
     {
