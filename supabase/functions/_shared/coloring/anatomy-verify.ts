@@ -57,7 +57,54 @@ export interface AnatomyPageVerdict {
 // subject rather than an amorphous blob? Category/subject fit remains a
 // SEPARATE gate; recognizability is not "does it belong in this category"
 // but "can a parent see WHAT this shape is supposed to be".
-export const ANATOMY_VERIFIER_VERSION = "v5:deformity_only+recognizable";
+// v6 — anatomy_deformity_hard_gate_v1 (owner order 2026-07-19). Deformity
+// (missing/extra/fused/floating/severed/disembodied limbs, mangled bodies,
+// wrong count of standard parts) is a NON-WAIVABLE hard reject for coloring
+// interior pages. Fantasy/stylization/cuteness still PASS. Version bumped so
+// stale advisory verdicts re-measure under the new enforcement.
+export const ANATOMY_VERIFIER_VERSION = "v6:deformity_hard_gate";
+
+/**
+ * Deformity taxonomy — patterns that indicate a REAL anatomy defect on the
+ * creature's own canonical form. Matched against verdict.defects strings
+ * (verifier output) or repair-taxonomy pattern keys.
+ */
+export const DEFORMITY_DEFECT_PATTERNS: RegExp[] = [
+  /\bextra[_ ]limb\b/i,
+  /\bmissing[_ ]limb\b/i,
+  /\bmissing[_ ]legs?\b/i,
+  /\bmissing[_ ]arms?\b/i,
+  /\bfused\b/i,
+  /\bsevered\b/i,
+  /\bfloating[_ ]limb\b/i,
+  /\bfloating[_ ]torso\b/i,
+  /\bdisembodied\b/i,
+  /\bfrankenstein\b/i,
+  /\bwrong[_ ]count\b/i,
+  /\b(?:5|five|6|six)[_ ]legs\b/i,
+  /\b(?:6|six|7|seven)[_ ]fingers?\b/i,
+  /\b3[_ ]arms?\b/i,
+  /\bmangled\b/i,
+  /\bcrushed\b/i,
+  /\btwisted\b/i,
+  /\bbroken[_ ]body\b/i,
+  /\bincoherent[_ ]body\b/i,
+  /\bdeformed\b/i,
+  /\bmalformed\b/i,
+];
+
+export function isDeformityDefect(defect: string | null | undefined): boolean {
+  if (!defect) return false;
+  return DEFORMITY_DEFECT_PATTERNS.some((r) => r.test(defect));
+}
+
+export function hasDeformity(
+  verdict: Pick<AnatomyPageVerdict, "defects" | "degraded"> | null | undefined,
+): boolean {
+  if (!verdict || verdict.degraded) return false;
+  const defects = Array.isArray(verdict.defects) ? verdict.defects : [];
+  return defects.some(isDeformityDefect);
+}
 
 export interface AnatomyInputPage {
   page: number;
