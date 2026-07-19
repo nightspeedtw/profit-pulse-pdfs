@@ -316,8 +316,8 @@ Deno.serve(async (req: Request) => {
     // ledger and continue; in strict mode we block the assemble.
     const aspect = checkCoverAspect(coverBytes, profileKey);
     if (!aspect.pass) {
-      const mode = await readQcMode(db, ebookId);
-      const outcome = await waiveOrBlock(db, ebookId, {
+      const mode = await readQcMode(db, ebook_id);
+      const outcome = await waiveOrBlock(db, ebook_id, {
         gate: "cover_aspect_match",
         reason: aspect.reason ?? "cover_aspect_mismatch",
         detail: { actual: aspect, expected_ratio: aspect.expected_ratio },
