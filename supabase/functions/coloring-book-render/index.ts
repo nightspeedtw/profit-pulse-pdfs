@@ -40,6 +40,7 @@ import {
 import { verifyImageAtBirth, type ImageKind } from "../_shared/coloring/image-kind.ts";
 import { rehydratePagePlan } from "../_shared/coloring/plan-rehydrate.ts";
 import { analyzeSolidBlack, DEFAULT_SOLID_BLACK_TH } from "../_shared/coloring/solid-black.ts";
+import { deFillOversizedBlack, DEFAULT_DE_FILL_TH } from "../_shared/coloring/de-fill.ts";
 import { computeSharpness } from "../_shared/coloring/sharpness-gate.ts";
 import { decideRepair, replanEscalatedPage, sanitizeSceneForColorability } from "../_shared/coloring/repair-ladder.ts";
 import { uploadAndSignImage } from "../_shared/versioned-assets.ts";
