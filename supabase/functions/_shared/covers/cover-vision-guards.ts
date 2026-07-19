@@ -24,6 +24,8 @@
 
 // @ts-nocheck  Deno edge runtime
 
+import { gradeCategoryPresence, type DetectedSubject } from "./category-presence-grader.ts";
+
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY");
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
@@ -44,6 +46,14 @@ export interface HeroVerdict {
   forbidden_hit: string | null;
   degraded: boolean;
   reason: string;
+  // AMENDMENT coloring_rulebook_v1 (2026-07-19): presence+prominence grading.
+  // Populated when the amended verifier ran; null on degraded/legacy paths.
+  presence?: {
+    foreground_category_count: number;
+    prominent_category_count: number;
+    total_category_count: number;
+    child_present: boolean;
+  } | null;
 }
 
 const VISION_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
@@ -212,9 +222,64 @@ export async function transcribeGlyphs(bytes: Uint8Array, timeoutMs = 15_000): P
 }
 
 /**
- * Verify the cover hero matches the category's allowed subjects. A "Sea
- * Animals" cover showing a human girl fails. Degraded = fail-safe true.
+ * AMENDMENT coloring_rulebook_v1 (2026-07-19): the cover-hero check
+ * grades PRESENCE and DOMINANCE of category subjects, not exclusion of
+ * humans. A human child alongside prominent sea animals PASSES; a
+ * child-only cover on a Sea Animals book FAILS.
+ *
+ * Pass rule (see category-presence-grader): at least one category
+ * subject is truly foregrounded AND the total prominent (foreground +
+ * midground) count of category subjects is ≥ 2 (or the foregrounded
+ * count alone is ≥ 2). Humans are neutral — never a defect on their
+ * own, never counted toward the category quota.
+ *
+ * Degraded (transport/parse failure) = fail-safe true.
  */
+function buildPresencePrompt(opts: {
+  category_name: string;
+  allowed_subjects: string[];
+  forbidden_subjects: string[];
+}): string {
+  return [
+    "You are a subject classifier for a children's coloring-book cover.",
+    `The book's category is: "${opts.category_name}".`,
+    `On-category subjects for this book are: ${JSON.stringify(opts.allowed_subjects)}.`,
+    opts.forbidden_subjects.length ? `Forbidden (do not treat as category matches): ${JSON.stringify(opts.forbidden_subjects)}.` : "",
+    "Human children (kids, babies, toddlers) are ALLOWED as appeal companions on the cover — they are NEVER a defect. They just do not count toward the category subject quota.",
+    "Enumerate EVERY visible primary subject in the composition (up to 8). For each, return: name (concrete noun phrase, e.g. 'orange clownfish', 'sea turtle', 'human girl'); prominence (one of \"foreground\", \"midground\", \"background\"); is_human_child (true iff a human aged ~0-12); category_match (true iff the subject is semantically covered by the on-category list — humans are NOT category matches unless the category itself is people).",
+    "Also return forbidden_hit: a CONCRETE creature/object you literally see that clearly belongs to the forbidden list, or null. Never echo an abstract category label ('exotic species', 'modern city') — return null unless you can name the specific offending thing.",
+    "Output STRICT JSON: {\"subjects\":[{\"name\":string,\"prominence\":\"foreground\"|\"midground\"|\"background\",\"is_human_child\":boolean,\"category_match\":boolean}],\"forbidden_hit\":string|null}.",
+  ].filter(Boolean).join(" ");
+}
+
+interface PresenceResponse {
+  subjects?: Array<{ name?: string; prominence?: string; is_human_child?: boolean; category_match?: boolean }>;
+  forbidden_hit?: string | null;
+}
+
+function normalizePresence(
+  raw: PresenceResponse | null,
+  forbidden: string[],
+  categoryName: string,
+): {
+  detected_subjects: string[];
+  forbidden_hit: string | null;
+  verdict: ReturnType<typeof gradeCategoryPresence>;
+} {
+  const subjectsIn: DetectedSubject[] = Array.isArray(raw?.subjects) ? raw!.subjects!.slice(0, 8).map((s) => ({
+    name: String(s?.name ?? "").slice(0, 60),
+    prominence: (s?.prominence === "foreground" || s?.prominence === "midground" || s?.prominence === "background") ? s.prominence : "background",
+    is_human_child: !!s?.is_human_child,
+    category_match: !!s?.category_match,
+  })) : [];
+  const detected_subjects = subjectsIn.map((s) => s.name).filter(Boolean).slice(0, 6);
+  const rawHit = String(raw?.forbidden_hit ?? "").trim();
+  const isAbstractHit = rawHit.length > 0 && forbidden.some((f) => f.trim().toLowerCase() === rawHit.toLowerCase());
+  const forbidden_hit = rawHit.length > 0 && !isAbstractHit ? rawHit : null;
+  const verdict = gradeCategoryPresence({ detected: subjectsIn, category_name: categoryName });
+  return { detected_subjects, forbidden_hit, verdict };
+}
+
 export async function verifyCategoryHero(
   bytes: Uint8Array,
   opts: {
@@ -227,47 +292,33 @@ export async function verifyCategoryHero(
   const allowed = (opts.allowed_subjects ?? []).filter(Boolean);
   const forbidden = (opts.forbidden_subjects ?? []).filter(Boolean);
   if (allowed.length === 0) {
-    return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined" };
+    return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined", presence: null };
   }
-  const prompt = [
-    "You are a subject classifier for a children's coloring-book cover.",
-    `The book's category is: "${opts.category_name}".`,
-    `The cover hero MUST be one of these subjects: ${JSON.stringify(allowed)}.`,
-    forbidden.length ? `The cover MUST NOT show any of: ${JSON.stringify(forbidden)}.` : "",
-    "Output STRICT JSON: {\"detected_subjects\": string[], \"matches_allowed\": boolean, \"forbidden_hit\": string|null, \"reason\": string}.",
-    "detected_subjects = short concrete noun phrases for the primary characters/subjects you actually see (e.g. 'red fox', 'cow', 'oak tree'). Max 6.",
-    "matches_allowed = true if at least one detected subject is semantically covered by the allowed list.",
-    "forbidden_hit = a CONCRETE creature/object you literally see (e.g. 'tiger', 'skyscraper') that clearly belongs to the forbidden list. NEVER echo an abstract category label like 'exotic species' or 'modern city' verbatim — return null unless you can name the specific offending thing.",
-  ].filter(Boolean).join(" ");
+  const prompt = buildPresencePrompt({ category_name: opts.category_name, allowed_subjects: allowed, forbidden_subjects: forbidden });
   try {
-    const j = await visionJson<{ detected_subjects: string[]; matches_allowed: boolean; forbidden_hit: string | null; reason: string }>(bytes, prompt, timeoutMs);
+    const j = await visionJson<PresenceResponse>(bytes, prompt, timeoutMs);
     if (!j) {
-      return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_gemini_key_or_empty_response" };
+      return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_gemini_key_or_empty_response", presence: null };
     }
-    // Deformity-only doctrine + false-positive guard: `forbidden_hit` alone
-    // does NOT fail the cover. We only fail when the hero is genuinely off
-    // category (matches_allowed=false). Additionally, an abstract forbidden
-    // label (e.g. "exotic species", "modern city") echoed back verbatim is
-    // discarded — those are category buckets, not concrete detections.
-    const detected = Array.isArray(j.detected_subjects) ? j.detected_subjects.slice(0, 6) : [];
-    const rawHit = (j.forbidden_hit ?? "").trim();
-    const isAbstractHit = rawHit.length > 0 && forbidden.some((f) => f.trim().toLowerCase() === rawHit.toLowerCase());
-    const concreteHit = rawHit.length > 0 && !isAbstractHit ? rawHit : null;
-    const matches = !!j.matches_allowed; // primary signal
+    const { detected_subjects, forbidden_hit, verdict } = normalizePresence(j, forbidden, opts.category_name);
     return {
-      ok: matches,
-      matches,
-      detected_subjects: detected,
-      forbidden_hit: concreteHit,
+      ok: verdict.ok,
+      matches: verdict.ok,
+      detected_subjects,
+      forbidden_hit,
       degraded: false,
-      reason: matches
-        ? `hero_ok:${detected.join("|").slice(0, 80)}${concreteHit ? `;non_blocking_forbidden=${concreteHit}` : ""}`
-        : (concreteHit
-            ? `forbidden_hit:${concreteHit}`
-            : `wrong_subject:detected=${detected.join("|").slice(0, 80)}`),
+      reason: verdict.ok
+        ? `${verdict.reason}${forbidden_hit ? `;non_blocking_forbidden=${forbidden_hit}` : ""}`
+        : (forbidden_hit ? `forbidden_hit:${forbidden_hit};${verdict.reason}` : verdict.reason),
+      presence: {
+        foreground_category_count: verdict.foreground_category_count,
+        prominent_category_count: verdict.prominent_category_count,
+        total_category_count: verdict.total_category_count,
+        child_present: verdict.child_present,
+      },
     };
   } catch (e) {
-    return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: `guard_error:${(e as Error).message.slice(0, 120)}` };
+    return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: `guard_error:${(e as Error).message.slice(0, 120)}`, presence: null };
   }
 }
 
@@ -347,25 +398,31 @@ export async function verifyCategoryHeroByUrl(
 ): Promise<HeroVerdict> {
   const allowed = (opts.allowed_subjects ?? []).filter(Boolean);
   const forbidden = (opts.forbidden_subjects ?? []).filter(Boolean);
-  if (allowed.length === 0) return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined" };
-  const prompt = [
-    "You are a subject classifier for a children's coloring-book cover.",
-    `Category: "${opts.category_name}".`,
-    `Hero MUST be one of: ${JSON.stringify(allowed)}.`,
-    forbidden.length ? `MUST NOT show any of: ${JSON.stringify(forbidden)}.` : "",
-    "Output STRICT JSON: {\"detected_subjects\": string[], \"matches_allowed\": boolean, \"forbidden_hit\": string|null, \"reason\": string}.",
-    "forbidden_hit = CONCRETE creature/object name only, or null.",
-  ].filter(Boolean).join(" ");
+  if (allowed.length === 0) return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined", presence: null };
+  // AMENDMENT coloring_rulebook_v1 (2026-07-19): presence+prominence grading;
+  // humans are neutral appeal companions, never a defect on their own.
+  const prompt = buildPresencePrompt({ category_name: opts.category_name, allowed_subjects: allowed, forbidden_subjects: forbidden });
   try {
-    const j = await gatewayVisionJsonByUrl<{ detected_subjects: string[]; matches_allowed: boolean; forbidden_hit: string | null; reason: string }>(url, prompt, timeoutMs);
-    if (!j) return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "gateway_unavailable_url_variant" };
-    const detected = Array.isArray(j.detected_subjects) ? j.detected_subjects.slice(0, 6) : [];
-    const rawHit = (j.forbidden_hit ?? "").trim();
-    const isAbstractHit = rawHit.length > 0 && forbidden.some((f) => f.trim().toLowerCase() === rawHit.toLowerCase());
-    const concreteHit = rawHit.length > 0 && !isAbstractHit ? rawHit : null;
-    const matches = !!j.matches_allowed;
-    return { ok: matches, matches, detected_subjects: detected, forbidden_hit: concreteHit, degraded: false, reason: matches ? `hero_ok:${detected.join("|").slice(0, 80)}` : (concreteHit ? `forbidden_hit:${concreteHit}` : `wrong_subject:detected=${detected.join("|").slice(0, 80)}`) };
+    const j = await gatewayVisionJsonByUrl<PresenceResponse>(url, prompt, timeoutMs);
+    if (!j) return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "gateway_unavailable_url_variant", presence: null };
+    const { detected_subjects, forbidden_hit, verdict } = normalizePresence(j, forbidden, opts.category_name);
+    return {
+      ok: verdict.ok,
+      matches: verdict.ok,
+      detected_subjects,
+      forbidden_hit,
+      degraded: false,
+      reason: verdict.ok
+        ? `${verdict.reason}${forbidden_hit ? `;non_blocking_forbidden=${forbidden_hit}` : ""}`
+        : (forbidden_hit ? `forbidden_hit:${forbidden_hit};${verdict.reason}` : verdict.reason),
+      presence: {
+        foreground_category_count: verdict.foreground_category_count,
+        prominent_category_count: verdict.prominent_category_count,
+        total_category_count: verdict.total_category_count,
+        child_present: verdict.child_present,
+      },
+    };
   } catch (e) {
-    return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: `guard_error:${(e as Error).message.slice(0, 120)}` };
+    return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: `guard_error:${(e as Error).message.slice(0, 120)}`, presence: null };
   }
 }
