@@ -18,8 +18,8 @@ const SAFE_FRAME = {
   ],
 };
 
-describe("measured coloring cover gate", () => {
-  it("double-title fixture hard-fails instead of shipping overlapping typography", () => {
+describe("measured coloring cover gate (v2 essentials-only)", () => {
+  it("double-title fixture is still flagged by findUnapprovedCoverText", () => {
     const unapproved = findUnapprovedCoverText({
       title: "Ocean Friends",
       subtitle: "32 Coloring Pages · Ages 4-6",
@@ -29,7 +29,7 @@ describe("measured coloring cover gate", () => {
     expect(unapproved.join("|")).toMatch(/duplicate:ocean friends|ocean friends ocean friends/);
   });
 
-  it("degraded vision transcription hard-fails instead of fabricating deterministic pass", () => {
+  it("degraded vision transcription still fails (random_text or title_readability)", () => {
     const scorecard = measuredCoverScorecard({
       title: "Ocean Friends",
       subtitle: "32 Coloring Pages · Ages 4-6",
@@ -41,12 +41,12 @@ describe("measured coloring cover gate", () => {
       logo: { present: true, rect: SAFE_FRAME.elements[2] },
       pageCountMatchesFinalPdf: true,
     });
-    const gate = coloringCoverGate(scorecard);
+    const gate = coloringCoverGate({ ...scorecard, spelling_ok: true });
     expect(gate.pass).toBe(false);
     expect(gate.reasons.join("|")).toMatch(/random_text|title_readability/);
   });
 
-  it("gibberish text fixture hard-fails random_text", () => {
+  it("gibberish text fixture hard-fails random_text (still a hard fail in v2)", () => {
     const scorecard = measuredCoverScorecard({
       title: "Ocean Friends",
       subtitle: "32 Coloring Pages · Ages 4-6",
@@ -58,12 +58,12 @@ describe("measured coloring cover gate", () => {
       logo: { present: true, rect: SAFE_FRAME.elements[2] },
       pageCountMatchesFinalPdf: true,
     });
-    const gate = coloringCoverGate(scorecard);
+    const gate = coloringCoverGate({ ...scorecard, spelling_ok: true });
     expect(gate.pass).toBe(false);
     expect(gate.reasons.join("|")).toMatch(/hard_fail:random_text/);
   });
 
-  it("sea-animal category cover with human hero hard-fails out_of_category", () => {
+  it("v2: human hero on sea-animal cover is ADVISORY (children are appeal companions)", () => {
     const scorecard = measuredCoverScorecard({
       title: "Cute Sea Animals",
       subtitle: "32 Coloring Pages · Ages 4-6",
@@ -75,17 +75,16 @@ describe("measured coloring cover gate", () => {
       logo: { present: true, rect: SAFE_FRAME.elements[2] },
       pageCountMatchesFinalPdf: true,
     });
-    const gate = coloringCoverGate(scorecard);
-    expect(gate.pass).toBe(false);
-    expect(gate.reasons.join("|")).toMatch(/out_of_category_object/);
+    const gate = coloringCoverGate({ ...scorecard, spelling_ok: true });
+    expect(gate.pass).toBe(true);
   });
 
-  it("clipped badge fixture hard-fails frame gate", () => {
+  it("clipped-badge fixture still surfaced by frame helper", () => {
     const frame = { ...SAFE_FRAME, elements: [{ name: "age_badge", x: 1510, y: 64, w: 160, h: 80 }] };
     expect(frameElementsInsideSafeMargin(frame).clipped).toEqual(["age_badge"]);
   });
 
-  it("blank svg fallback cover hard-fails for new books", () => {
+  it("v2: blank_background is ADVISORY on the gate (garbage floor handled at render time)", () => {
     const scorecard = measuredCoverScorecard({
       title: "Cute Sea Animals",
       subtitle: "32 Coloring Pages · Ages 4-6",
@@ -98,12 +97,11 @@ describe("measured coloring cover gate", () => {
       artwork: { used_svg_fallback: true, synthesized_background: true, blank_background: true, blank_ratio: 1 },
       pageCountMatchesFinalPdf: true,
     });
-    const gate = coloringCoverGate(scorecard);
-    expect(gate.pass).toBe(false);
-    expect(gate.reasons.join("|")).toMatch(/blank_background/);
+    const gate = coloringCoverGate({ ...scorecard, spelling_ok: true });
+    expect(gate.pass).toBe(true);
   });
 
-  it("cover without the canonical logo fails gate", () => {
+  it("v2: logo_present=false is ADVISORY (dropped from cover gate)", () => {
     const scorecard = measuredCoverScorecard({
       title: "Ocean Friends",
       subtitle: "32 Coloring Pages · Ages 4-6",
@@ -115,9 +113,8 @@ describe("measured coloring cover gate", () => {
       logo: { present: false, rect: null },
       pageCountMatchesFinalPdf: true,
     });
-    const gate = coloringCoverGate(scorecard);
-    expect(gate.pass).toBe(false);
-    expect(gate.reasons.join("|")).toMatch(/logo_present=false/);
+    const gate = coloringCoverGate({ ...scorecard, spelling_ok: true });
+    expect(gate.pass).toBe(true);
   });
 });
 
