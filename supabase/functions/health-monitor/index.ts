@@ -19,10 +19,11 @@ const ADMIN_URL   = "https://www.secretpdf.co/admin";
 
 const CRITICAL_COOLDOWN_HOURS = 6;
 const DEFAULT_DAILY_SPEND_CEILING_USD = 10;
+const DEAD_THRESHOLD_MS = 60_000; // owner: alert if system quiet >60s
 
 const CRITICAL_CLASSES = new Set([
   "worker_dead", "provider_blocked", "spend_ceiling",
-  "queue_frozen", "unbounded_retry",
+  "queue_frozen", "unbounded_retry", "system_dead",
 ]);
 
 type Alert = {
