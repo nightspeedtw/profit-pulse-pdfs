@@ -177,7 +177,8 @@ export function measureFinalArtRegionVariance(rgba: Uint8Array, width: number, h
 
 export function renderedColoringCoverProof(input: RenderedCoverProofInput): RenderedCoverProof {
   const aspect = input.width / Math.max(1, input.height);
-  const portrait_aspect_pass = Math.abs(aspect - LETTER_ASPECT) <= 0.012;
+  const expectedAspect = typeof input.expectedAspect === "number" && input.expectedAspect > 0 ? input.expectedAspect : LETTER_ASPECT;
+  const portrait_aspect_pass = Math.abs(aspect - expectedAspect) <= 0.012;
   const art_region = measureFinalArtRegionVariance(input.rgba, input.width, input.height);
   const overlays_in_frame = assertProofOverlayInsideSafeMargin(input.frame);
   // Back-compat: if only legacy flat `approvedStrings` was supplied, treat
