@@ -478,15 +478,20 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
   });
   const rand = seedFrom(input.title);
 
-  const lines = splitTitleLines(input.title, 3);
+  const lines = splitTitleLines(input.title, 5);
   const longest = Math.max(...lines.map((l) => l.length));
   const titleY0 = Math.round(H * 0.16);
-  const lineGap = Math.round(H * 0.10);
-  // Fit longest line into ~68% of canvas width.
+  // Shrink-to-fit (owner law): font must fit BOTH width (~68% of canvas)
+  // and height (title cluster ≤ 34% of canvas). Never truncate a title —
+  // drop font size to a legibility floor (40px) instead.
   const targetPx = W * 0.68;
   const approxChar = 0.62;
+  const maxHeightPx = H * 0.34;
   let fontSize = Math.floor(targetPx / Math.max(6, longest * approxChar));
-  fontSize = Math.max(80, Math.min(fontSize, 200));
+  const heightCap = Math.floor(maxHeightPx / Math.max(1, lines.length * 1.15));
+  fontSize = Math.min(fontSize, heightCap, 200);
+  fontSize = Math.max(40, fontSize);
+  const lineGap = Math.round(fontSize * 1.15);
 
   const trimmedSubtitle = (input.subtitle ?? "").trim();
   const showSubtitle = trimmedSubtitle.length > 0 && trimmedSubtitle.length <= 40;
