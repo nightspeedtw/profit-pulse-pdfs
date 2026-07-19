@@ -398,25 +398,31 @@ export async function verifyCategoryHeroByUrl(
 ): Promise<HeroVerdict> {
   const allowed = (opts.allowed_subjects ?? []).filter(Boolean);
   const forbidden = (opts.forbidden_subjects ?? []).filter(Boolean);
-  if (allowed.length === 0) return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined" };
-  const prompt = [
-    "You are a subject classifier for a children's coloring-book cover.",
-    `Category: "${opts.category_name}".`,
-    `Hero MUST be one of: ${JSON.stringify(allowed)}.`,
-    forbidden.length ? `MUST NOT show any of: ${JSON.stringify(forbidden)}.` : "",
-    "Output STRICT JSON: {\"detected_subjects\": string[], \"matches_allowed\": boolean, \"forbidden_hit\": string|null, \"reason\": string}.",
-    "forbidden_hit = CONCRETE creature/object name only, or null.",
-  ].filter(Boolean).join(" ");
+  if (allowed.length === 0) return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "no_allowed_subjects_defined", presence: null };
+  // AMENDMENT coloring_rulebook_v1 (2026-07-19): presence+prominence grading;
+  // humans are neutral appeal companions, never a defect on their own.
+  const prompt = buildPresencePrompt({ category_name: opts.category_name, allowed_subjects: allowed, forbidden_subjects: forbidden });
   try {
-    const j = await gatewayVisionJsonByUrl<{ detected_subjects: string[]; matches_allowed: boolean; forbidden_hit: string | null; reason: string }>(url, prompt, timeoutMs);
-    if (!j) return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "gateway_unavailable_url_variant" };
-    const detected = Array.isArray(j.detected_subjects) ? j.detected_subjects.slice(0, 6) : [];
-    const rawHit = (j.forbidden_hit ?? "").trim();
-    const isAbstractHit = rawHit.length > 0 && forbidden.some((f) => f.trim().toLowerCase() === rawHit.toLowerCase());
-    const concreteHit = rawHit.length > 0 && !isAbstractHit ? rawHit : null;
-    const matches = !!j.matches_allowed;
-    return { ok: matches, matches, detected_subjects: detected, forbidden_hit: concreteHit, degraded: false, reason: matches ? `hero_ok:${detected.join("|").slice(0, 80)}` : (concreteHit ? `forbidden_hit:${concreteHit}` : `wrong_subject:detected=${detected.join("|").slice(0, 80)}`) };
+    const j = await gatewayVisionJsonByUrl<PresenceResponse>(url, prompt, timeoutMs);
+    if (!j) return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: "gateway_unavailable_url_variant", presence: null };
+    const { detected_subjects, forbidden_hit, verdict } = normalizePresence(j, forbidden, opts.category_name);
+    return {
+      ok: verdict.ok,
+      matches: verdict.ok,
+      detected_subjects,
+      forbidden_hit,
+      degraded: false,
+      reason: verdict.ok
+        ? `${verdict.reason}${forbidden_hit ? `;non_blocking_forbidden=${forbidden_hit}` : ""}`
+        : (forbidden_hit ? `forbidden_hit:${forbidden_hit};${verdict.reason}` : verdict.reason),
+      presence: {
+        foreground_category_count: verdict.foreground_category_count,
+        prominent_category_count: verdict.prominent_category_count,
+        total_category_count: verdict.total_category_count,
+        child_present: verdict.child_present,
+      },
+    };
   } catch (e) {
-    return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: `guard_error:${(e as Error).message.slice(0, 120)}` };
+    return { ok: true, matches: true, detected_subjects: [], forbidden_hit: null, degraded: true, reason: `guard_error:${(e as Error).message.slice(0, 120)}`, presence: null };
   }
 }
