@@ -69,6 +69,15 @@ export interface IdeogramCoverRequest {
     runwareFallbackHeight: number;
     gptImageSize: "1024x1024" | "1024x1536" | "1536x1024";
   };
+  /**
+   * Owner law 'coloring_master_cover_v1' (2026-07-19): the coloring lane
+   * builds its cover prompt via _shared/coloring/master-cover-prompt.ts and
+   * passes it here as `promptOverride`. When set, this string REPLACES the
+   * legacy `buildIdeogramIntegratedCoverPrompt` output for every provider
+   * (Runware, GPT Image, Fal emergency). Structural gates in the master
+   * prompt module guarantee the title/subtitle/age strings appear verbatim.
+   */
+  promptOverride?: string;
 }
 
 export interface IdeogramCoverResult {
