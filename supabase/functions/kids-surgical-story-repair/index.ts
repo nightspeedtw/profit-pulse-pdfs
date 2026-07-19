@@ -16,6 +16,7 @@ import { runKidsStoryJudge, type StoryReport } from '../_shared/kids-story-judge
 import { computeManuscriptHash } from '../_shared/manuscript-hash.ts';
 import { logAiCost, costDb } from '../_shared/cost-log.ts';
 import { STORY_GATE } from '../_shared/story-gate-thresholds.ts';
+import { assertPaidCeiling, isBudgetCeilingError, parkOnPaidCeiling } from '../_shared/paid-ceiling.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
