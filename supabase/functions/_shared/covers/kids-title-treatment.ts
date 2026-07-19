@@ -140,17 +140,20 @@ async function loadCoverLogoB64(): Promise<string | null> {
   }
 }
 
-/** Split title into ≤ maxLines balanced lines, favouring visual balance. */
-export function splitTitleLines(title: string, maxLines = 3): string[] {
+/** Split title into ≤ maxLines balanced lines, favouring visual balance.
+ * Owner law (shrink-to-fit, 2026): NEVER truncate a title. Long titles get
+ * more stacked lines (up to 5) so downstream font-sizing can shrink to fit
+ * without dropping words. */
+export function splitTitleLines(title: string, maxLines = 5): string[] {
   const words = title.trim().split(/\s+/).filter(Boolean);
   if (words.length <= 1) return words.length ? [words[0]] : [""];
   const totalLen = title.length;
+  // Aim for ~14 chars per line as the sweet spot, but always keep every word.
   const wantLines = Math.min(maxLines, Math.max(1, Math.ceil(totalLen / 14)));
-  const wordsPerLine = Math.ceil(words.length / wantLines);
+  const wordsPerLine = Math.max(1, Math.ceil(words.length / wantLines));
   const lines: string[] = [];
-  for (let i = 0; i < wantLines; i++) {
-    const slice = words.slice(i * wordsPerLine, (i + 1) * wordsPerLine);
-    if (slice.length) lines.push(slice.join(" "));
+  for (let i = 0; i < words.length; i += wordsPerLine) {
+    lines.push(words.slice(i, i + wordsPerLine).join(" "));
   }
   return lines;
 }
@@ -475,15 +478,20 @@ export async function renderKidsTitleTreatment(input: TitleTreatmentInput): Prom
   });
   const rand = seedFrom(input.title);
 
-  const lines = splitTitleLines(input.title, 3);
+  const lines = splitTitleLines(input.title, 5);
   const longest = Math.max(...lines.map((l) => l.length));
   const titleY0 = Math.round(H * 0.16);
-  const lineGap = Math.round(H * 0.10);
-  // Fit longest line into ~68% of canvas width.
+  // Shrink-to-fit (owner law): font must fit BOTH width (~68% of canvas)
+  // and height (title cluster ≤ 34% of canvas). Never truncate a title —
+  // drop font size to a legibility floor (40px) instead.
   const targetPx = W * 0.68;
   const approxChar = 0.62;
+  const maxHeightPx = H * 0.34;
   let fontSize = Math.floor(targetPx / Math.max(6, longest * approxChar));
-  fontSize = Math.max(80, Math.min(fontSize, 200));
+  const heightCap = Math.floor(maxHeightPx / Math.max(1, lines.length * 1.15));
+  fontSize = Math.min(fontSize, heightCap, 200);
+  fontSize = Math.max(40, fontSize);
+  const lineGap = Math.round(fontSize * 1.15);
 
   const trimmedSubtitle = (input.subtitle ?? "").trim();
   const showSubtitle = trimmedSubtitle.length > 0 && trimmedSubtitle.length <= 40;
