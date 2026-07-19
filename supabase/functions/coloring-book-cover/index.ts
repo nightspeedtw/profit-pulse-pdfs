@@ -689,6 +689,7 @@ Deno.serve(async (req: Request) => {
                 forbiddenBackgrounds: forbiddenSubjects,
                 referenceImageURLs,
                 ebook_id,
+                dims: trimDims,
                 baseImageBytes: lastPassingArtBytes!,
               }, { timeoutMs: IDEOGRAM_GEN_TIMEOUT_MS, seed: attemptIndex * 2017 }),
               IDEOGRAM_GEN_TIMEOUT_MS + 5_000,
