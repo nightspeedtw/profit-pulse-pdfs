@@ -42,6 +42,7 @@ import { computeCoverFingerprint, findDuplicateCover, DUPLICATE_HAMMING_THRESHOL
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
 function json(x: unknown, status = 200) {
   return new Response(JSON.stringify(x), {
@@ -99,7 +100,7 @@ const MAX_IDEOGRAM_ATTEMPTS = 1;
 // ceiling is hit, the book parks with a distinct terminal-ish blocker that
 // worker-tick's LANE_BLOCKED filter skips — permanent, non-waivable, non-self-
 // advancing. Human/admin resets by clearing metadata.coloring_cover_invocations.
-const MAX_COVER_INVOCATIONS_PER_BOOK = 5;
+const MAX_COVER_INVOCATIONS_PER_BOOK = 8;
 const COVER_RETRY_CEILING_REASON = "coloring_cover_retry_ceiling_reached";
 
 
@@ -262,8 +263,6 @@ Deno.serve(async (req: Request) => {
     const { ebook_id, force, mode } = await req.json();
     if (!ebook_id) return json({ error: "ebook_id required" }, 400);
     const isUpgradeMode = mode === "upgrade";
-    const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
-
     const { data: row, error } = await db.from("ebooks_kids")
       .select("id, book_type, title, subtitle, description, metadata, cover_url")
       .eq("id", ebook_id).maybeSingle();
@@ -287,7 +286,7 @@ Deno.serve(async (req: Request) => {
     const priorInvocations = Number((meta as any).coloring_cover_invocations ?? 0);
     if (!isUpgradeMode && priorInvocations >= MAX_COVER_INVOCATIONS_PER_BOOK) {
       await patchMeta(db, ebook_id, {
-        coloring_current_step_label: `Cover retry ceiling reached (${priorInvocations}/${MAX_COVER_INVOCATIONS_PER_BOOK}). Parked for human review — admin must inspect and reset metadata.coloring_cover_invocations to resume.`,
+        coloring_current_step_label: `Cover retry ceiling reached (${priorInvocations}/${MAX_COVER_INVOCATIONS_PER_BOOK}) — auto-held by retry storm guard.`,
         coloring_blocker: {
           class: "non_recoverable_config",
           reason: COVER_RETRY_CEILING_REASON,
@@ -295,13 +294,13 @@ Deno.serve(async (req: Request) => {
           ceiling: MAX_COVER_INVOCATIONS_PER_BOOK,
           detected_at: new Date().toISOString(),
         },
-        awaiting: "human_review",
+        awaiting: "cover_retry_ceiling",
       });
       await db.from("ebooks_kids").update({
         pipeline_status: "queued",
         blocker_reason: `${COVER_RETRY_CEILING_REASON}:${priorInvocations}`,
       }).eq("id", ebook_id);
-      // NO scheduleSelfAdvance — this is a terminal park until a human resets.
+      // NO self-advance: this is an automatic retry-storm guard, not owner wait.
       return json({ ok: false, parked: true, reason: COVER_RETRY_CEILING_REASON, invocations: priorInvocations }, 202);
     }
 
@@ -315,7 +314,7 @@ Deno.serve(async (req: Request) => {
           await assertPC({ ebook_id, step: s, supabase: db });
         } catch (ce) {
           if (isBCE(ce)) {
-            console.error(`[coloring-cover] paid-ceiling hit ${s} for ebook=${ebook_id} — parking`);
+            console.error(`[coloring-cover] paid-ceiling hit ${s} for ebook=${ebook_id} — requeueing with cooldown`);
             await parkPC(ebook_id, ce, db);
             return json({ ok: false, parked: true, reason: ce.message }, 200);
           }
@@ -971,11 +970,10 @@ Deno.serve(async (req: Request) => {
     // detect and rotate. Also record a defect event for the
     // silent-no-op-after-provider-fallback detection heuristic.
     try {
-      const dbFallback = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
       const body = await req.clone().json().catch(() => ({} as any));
       const ebookId = (body as any)?.ebook_id;
       if (ebookId) {
-        await patchMeta(dbFallback, ebookId, {
+        await patchMeta(db, ebookId, {
           coloring_blocker: {
             class: "cover_function_threw",
             reason: `cover_fatal:${msg}`,
@@ -983,11 +981,11 @@ Deno.serve(async (req: Request) => {
           },
           coloring_current_step_label: `Cover function threw: ${msg}`,
         });
-        await dbFallback.from("ebooks_kids").update({
+        await db.from("ebooks_kids").update({
           pipeline_status: "queued",
           blocker_reason: `coloring_cover_fatal:${msg}`.slice(0, 300),
         }).eq("id", ebookId);
-        await dbFallback.from("coloring_book_events").insert({
+        await db.from("coloring_book_events").insert({
           ebook_kids_id: ebookId,
           event_type: "cover_function_threw",
           metadata: { error: msg, at: new Date().toISOString() },

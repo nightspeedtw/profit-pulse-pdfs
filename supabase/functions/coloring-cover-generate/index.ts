@@ -29,9 +29,10 @@ import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS, fireAndForgetPost }
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
 const IDEOGRAM_GEN_TIMEOUT_MS = 70_000;
-const MAX_COVER_INVOCATIONS_PER_BOOK = 5;
+const MAX_COVER_INVOCATIONS_PER_BOOK = 8;
 const COVER_RETRY_CEILING_REASON = "coloring_cover_retry_ceiling_reached";
 const SPLIT_VERSION = "coloring_cover_split_v1_generate";
 
@@ -67,7 +68,6 @@ function compactSeaAnatomy(subjects: string[]): string {
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
   let ebookId: string | null = null;
   try {
     const body = await req.json().catch(() => ({}));
@@ -109,9 +109,9 @@ Deno.serve(async (req: Request) => {
     const priorInvocations = Number((meta as any).coloring_cover_invocations ?? 0);
     if (priorInvocations >= MAX_COVER_INVOCATIONS_PER_BOOK) {
       await patchMeta(db, ebookId, {
-        coloring_current_step_label: `Cover retry ceiling reached (${priorInvocations}/${MAX_COVER_INVOCATIONS_PER_BOOK}) — parked for human review.`,
+        coloring_current_step_label: `Cover retry ceiling reached (${priorInvocations}/${MAX_COVER_INVOCATIONS_PER_BOOK}) — auto-held by retry storm guard.`,
         coloring_blocker: { class: "non_recoverable_config", reason: COVER_RETRY_CEILING_REASON, invocations: priorInvocations, ceiling: MAX_COVER_INVOCATIONS_PER_BOOK, detected_at: new Date().toISOString() },
-        awaiting: "human_review",
+        awaiting: "cover_retry_ceiling",
       });
       await db.from("ebooks_kids").update({ pipeline_status: "queued", blocker_reason: `${COVER_RETRY_CEILING_REASON}:${priorInvocations}` }).eq("id", ebookId);
       return json({ ok: false, parked: true, reason: COVER_RETRY_CEILING_REASON, invocations: priorInvocations }, 202);
