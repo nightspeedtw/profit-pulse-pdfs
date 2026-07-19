@@ -372,10 +372,16 @@ async function generateIdea(ctx: Ctx): Promise<StepResult> {
     { requiredKey: 'title', requiredKeys: ['description', 'main_character'] },
     'generate_idea',
   );
+  // COUNTER-LEAK FIX (2026-07-19, top5_source_fix_v1): storefront_meta
+  // carries the story_gate_repair_invocations ceiling counter and admin_params
+  // (age_band). Never overwrite it wholesale — always MERGE so the paid-call
+  // ceiling cannot be bypassed by a pipeline resume that regenerates the
+  // concept.
+  const existingMetaForIdea = (ctx.ebook.storefront_meta as Record<string, unknown> | null) ?? {};
   await ctx.supabase.from('ebooks_kids').update({
     title: parsed.title, subtitle: parsed.subtitle, description: parsed.description,
     storefront_title: parsed.title, storefront_subtitle: parsed.subtitle,
-    storefront_meta: { main_character: parsed.main_character },
+    storefront_meta: { ...existingMetaForIdea, main_character: parsed.main_character },
     status: 'writing', pipeline_status: 'writing',
   }).eq('id', ctx.ebookId);
   return { output: parsed };
