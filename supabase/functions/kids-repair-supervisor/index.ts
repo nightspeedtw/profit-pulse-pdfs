@@ -208,8 +208,17 @@ export function detectBlocker(ebook: Record<string, unknown>, latestFailedStep: 
   }
 
   // 1. Story gate — direct step failure OR persisted scorecard flag.
+  //
+  // RESCUE (2026-07-19): if the stored verdict passes (sg.passed === true) we
+  // must NEVER reclassify as a story_gate blocker even when a stale
+  // pipeline_step_logs row still names 'story_gate' as the last failed step.
+  // A passing verdict delivered on the final attempt still counts — the budget
+  // cap limits future spend, it must not void a delivered pass.
   const sg = sc.story_gate as { passed?: boolean; scores?: Record<string, number> } | undefined;
-  if (stepName === 'story_gate' || (sg && sg.passed === false)) {
+  if (sg?.passed === true) {
+    // Fall through: let non-story-gate classifiers run, or return null below
+    // so the supervisor resumes the pipeline instead of shelving.
+  } else if (stepName === 'story_gate' || (sg && sg.passed === false)) {
     const scores = sg?.scores ?? {};
     // Empty/absent scores = INFRASTRUCTURE result (gate crashed, produced no
     // verdict), never a quality verdict. Do NOT consume story_gate budget or
