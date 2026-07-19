@@ -707,6 +707,8 @@ Deno.serve(async (req: Request) => {
                 forbiddenBackgrounds: forbiddenSubjects,
                 referenceImageURLs,
                 ebook_id,
+                dims: trimDims,
+                promptOverride: masterPrompt,
               }, { timeoutMs: IDEOGRAM_GEN_TIMEOUT_MS, seed: attemptIndex * 1009, db }),
               IDEOGRAM_GEN_TIMEOUT_MS + 5_000,
               `ideogram_a${attemptIndex}`,
