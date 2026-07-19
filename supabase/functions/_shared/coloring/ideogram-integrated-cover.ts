@@ -398,7 +398,8 @@ async function generateViaGptImage(
   opts: { timeoutMs?: number },
 ): Promise<IdeogramCoverResult> {
   if (!hasOpenAIDirect()) throw new Error("provider_unconfigured:OPENAI_API_KEY_missing");
-  const prompt = buildIdeogramIntegratedCoverPrompt(request);
+  const prompt = (request as any).promptOverride ?? buildIdeogramIntegratedCoverPrompt(request);
+
   // NOTE: gpt-image-1 does not accept `referenceImageURLs` via /v1/images/generations.
   // Character continuity comes from the prompt's CHARACTER CONTINUITY clause,
   // which already describes the interior cast in text form. If the rolling
