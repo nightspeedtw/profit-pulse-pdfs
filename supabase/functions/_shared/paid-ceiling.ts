@@ -26,13 +26,13 @@ export const STEP_CEILING_OVERRIDES: Record<string, number> = {
   // Coloring covers already have a stricter per-book invocation ceiling in
   // the cover workers. Keep the paid-call ceiling high enough that legacy
   // cost_log rows do not strand otherwise recoverable books.
-  coloring_cover_ideogram: 40,
-  coloring_cover_gpt_image: 40,
-  coloring_cover_ideogram_inpaint: 40,
+  coloring_cover_ideogram: 80,
+  coloring_cover_gpt_image: 80,
+  coloring_cover_ideogram_inpaint: 80,
 };
 
 export const GROUP_CEILING_OVERRIDES: Record<string, number> = {
-  coloring_cover_any: 40,
+  coloring_cover_any: 80,
 };
 
 export class BudgetCeilingError extends Error {
