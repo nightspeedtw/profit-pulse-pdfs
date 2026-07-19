@@ -236,7 +236,8 @@ Deno.serve(async (req: Request) => {
       } else {
         result.focus_skipped = { ebook_id: focusEbookId, status: row?.pipeline_status ?? "not_found" };
       }
-    } else {
+    }
+    if (queued.length === 0) {
       // Fetch a larger candidate window so we can filter out rows we just
       // dispatched (cooldown) without starving the remaining queue when
       // the top-N are stuck bouncing on the same terminal-ish stage.
