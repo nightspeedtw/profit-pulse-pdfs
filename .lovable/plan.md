@@ -1,73 +1,53 @@
-## Coloring Rulebook v2 — "Essentials Only"
+## เป้าหมาย
+1. **Freeze Autopilot ทันที** — หยุด auto-retry / auto-requeue / cron dispatch ทั้งหมด (coloring + kids lanes)
+2. **แจ้งปัญหาทีละอย่าง** — Admin UI แสดง incident เดียวต่อรอบ, แก้แล้วหายจากจอ
+3. **Watchdog 1 นาที** — ถ้าระบบเงียบ >60s แจ้งเตือนทันที
 
-**Owner intent:** หนังสือระบายสีไม่ต้องมีเนื้อเรื่อง. ระบบต้องผ่านง่ายขึ้น. เหลือเงื่อนไข "จำเป็นจริง" 3 ข้อ:
+## แผนดำเนินการ
 
-1. **ชื่อเรื่องน่าซื้อ** — title telegraphs fun + subject (parent-buyable).
-2. **ตัวสะกดบนปกถูก 100%** — non-waivable (คงไว้).
-3. **ปกกับข้างในเป็นเรื่องเดียวกัน** — cover-last, ใช้ interior เป็น reference.
+### Step 1 — Freeze switch (DB + code guard)
+- เพิ่ม flag `generation_settings.autopilot_frozen = true`
+- ทุก worker tick (`coloring-worker-tick`, `autopilot-kids-pipeline`, `stall-watchdog`, `nightly-self-audit`, health cron auto-requeue) เช็ค flag นี้เป็นอันดับแรก → ถ้า true = return ทันที ไม่ dispatch, ไม่ retry, ไม่ requeue
+- ปิด pg_cron jobs ที่ auto-tick (เก็บไว้ manual trigger เท่านั้น)
+- ยกเลิก in-flight `next_retry_at` เพื่อไม่ให้เด้งเอง
 
-Everything else (per-page 95/98 thresholds, duplicate rate <5%, uniqueness dHash, anatomy=95, colorability=92, weighted book gate ≥92, per-page floor 88, category presence prominence, etc.) becomes **advisory / auto-enhance**, not release-blocking.
+### Step 2 — Issue Queue (แจ้งทีละอย่าง, ลบเมื่อแก้)
+- ใช้ตาราง `alert_log` ที่มีอยู่ + เพิ่มคอลัมน์ `resolved_at`, `dedupe_key`
+- Health-monitor เขียน incident 1 row ต่อ `dedupe_key` (เช่น `provider:cloudflare_exhausted`, `book:xxx:cover_stuck`) — ถ้ามี unresolved row เดิม ไม่สร้างซ้ำ
+- Admin UI (`HealthIncidentBanner.tsx`) แสดง **incident เดียว** ที่ severity สูงสุด/เก่าสุด พร้อมปุ่ม "Mark resolved" → set `resolved_at`
+- เมื่อ resolved → หายจากจอ, ตัวถัดไปขึ้นมาแทน
 
----
+### Step 3 — Dead-system watchdog (60s)
+- เพิ่ม `system_heartbeat` table (`last_beat_at`)
+- Worker/cron ใดๆ ที่ทำงานเขียน heartbeat
+- Health-monitor cron ลด interval → ทุก 1 นาที (หรือ client-side polling ใน Admin UI ทุก 30s)
+- ถ้า `now() - last_beat_at > 60s` → สร้าง incident `system_dead` severity=critical + ส่ง Resend email
+- Banner แสดงป้าย 🔴 "SYSTEM DEAD Xm ago" ทันที
 
-### Changes (all scoped `book_type='coloring_book'` via `assertColoringOnly`)
+## ไฟล์ที่จะแตะ
 
-**A. Gate simplification — `supabase/functions/_shared/coloring/gates.ts`**
-- Replace `coloringPageGate` hard thresholds with a minimal **garbage floor**:
-  - reject only if: `line_art_cleanliness < 70`, `printability < 70`, or any hard-fail in a reduced set: `watermark`, `random_text`, `signature`, `copyrighted_ip`, `invalid_svg`, `garbage_image_broken`.
-  - Drop from hard-fail: `duplicate_page`, `duplicate_image_hash`, `out_of_category_object`, `cropped_subject`, `grayscale_area`, `anatomy_defect` (anatomy stays as advisory-only per rulebook amendment).
-- Replace `coloringBookWeightedGate` with a **thin release check**:
-  - keep `spelling_ok` (cover typography) as non-waivable.
-  - drop `weighted_avg ≥ 92`, `per_page_floor ≥ 88`, `duplicate_scene_rate ≤ 0.05`, `hard_fails_total`.
-- `coloringCoverGate` keeps only:
-  - `title_readability ≥ 85` (was 95)
-  - `spelling_ok` non-waivable
-  - `cover_interior_match` (NEW — see B)
-  - drop: `cover_category_match ≥ 98`, `cover_quality ≥ 92`, `age_label_present`, `logo_present`, `page_count_matches_final_pdf` (moved to build-time assertion, not a QC score), `blank_background` (already covered by garbage floor).
-- `coloringReleaseGate` reduced to: `pdf_opens`, `cover_gate_pass`, `zero_prohibited_artifacts` (spelling + copyrighted_ip only).
+**Backend:**
+- `supabase/migrations/*` — เพิ่ม `autopilot_frozen`, `system_heartbeat`, `alert_log.resolved_at/dedupe_key`
+- `supabase/functions/coloring-worker-tick/index.ts` — freeze guard ที่บรรทัดแรก
+- `supabase/functions/autopilot-kids-pipeline/index.ts` — freeze guard
+- `supabase/functions/stall-watchdog/index.ts` — freeze guard
+- `supabase/functions/health-monitor/index.ts` — heartbeat check + dedupe + 60s dead alert
+- `supabase/functions/_shared/heartbeat.ts` (ใหม่) — helper เขียน heartbeat
 
-**B. Cover-last "interior is the reference" — enforce a single path**
-- `coloring-worker-tick`: ensure a coloring book cannot dispatch cover work until **≥60% of interior pages exist** (already partial — tighten & make sole path; remove any pre-interior cover fast-path).
-- `coloring-book-cover` / `coloring-cover-generate`: require `interior_refs` (3 sampled interior pages) as inputs; reject invocation without them.
-- Add `cover_interior_match` grader (vision): compares 3 sampled interior pages vs cover for subject/style parity. Passes ≥70. Failure → single inpaint/regenerate retry, then accept (no ceiling storm).
+**Frontend:**
+- `src/components/admin/HealthIncidentBanner.tsx` — แสดง 1 incident + resolve button + dead-timer polling ทุก 30s
+- `src/pages/admin/*` — ปุ่ม "🧊 Freeze / ▶ Unfreeze Autopilot"
 
-**C. Title-quality micro-gate (replaces story gate for coloring)**
-- New tiny check in `coloring-book-start`: title must (a) include the primary subject/category noun, (b) be 3–8 words, (c) not be generic ("Coloring Book", "Fun Pages"). One rewrite max via `google_direct`; then accept.
-- No story gate, no generic-risk, no premium score, no manuscript judges on the coloring lane. `lane-invariants.ts` already blocks these — extend test coverage.
+**Cron:**
+- ปิด/หยุด pg_cron auto-tick jobs (เก็บ manual endpoint ไว้)
 
-**D. Escalation storm relief**
-- `MAX_COVER_INVOCATIONS_PER_BOOK`: keep 8 absolute; but with looser gates, most books accept on attempt 1–2.
-- Remove page-level regenerate loops driven by thresholds we just dropped (duplicate/anatomy/uniqueness → log advisory only).
-
-**E. `pipeline_skills` doctrine**
-- Register `coloring_rulebook_v2_essentials_only` with the 3 essentials + the removed gates list + rationale ("coloring has no story; over-gating caused false rejections & spend storms").
-
-**F. Regression tests**
-- `src/__tests__/coloring-rulebook-v2-essentials.test.ts`:
-  - garbage page rejected; ordinary page passes without hitting old 95/98 thresholds.
-  - cover with misspelled title rejected (non-waivable).
-  - cover generated before interiors → refused.
-  - cover mismatched with interiors → one retry, then either pass or garbage-only reject.
-  - picture_book lane untouched (scope guard).
-
-**G. Rescue sweep**
-- One-shot SQL update: coloring books currently parked on dropped gates (`weighted_avg`, `per_page_floor`, `duplicate_scene_rate`, `cover_category_match`, `anatomy_defect`, `cover_quality`, `age_label_present`, `logo_present`) → reset to `queued` for re-evaluation under v2. Do NOT rescue: `spelling_ok=false`, `copyrighted_ip`, `garbage_image_broken`, `paid_ceiling`.
+## Definition of done
+- กด Freeze → ไม่มี edge function invocation ใหม่ใน 5 นาที (ตรวจ `cost_log`)
+- ปัญหาเดียวขึ้นจอต่อครั้ง, กด resolve แล้วหาย
+- ตัดไฟ DB → banner ขึ้น "SYSTEM DEAD" ภายใน 60s + email เข้า
 
 ---
 
-### Files touched
-- `supabase/functions/_shared/coloring/gates.ts` (rewrite)
-- `supabase/functions/coloring-book-start/index.ts` (title micro-gate; drop story-ish checks)
-- `supabase/functions/coloring-worker-tick/index.ts` (cover-last enforcement)
-- `supabase/functions/coloring-book-cover/index.ts` + `coloring-cover-generate/index.ts` (require interior refs; add `cover_interior_match`)
-- `supabase/functions/coloring-book-publish/index.ts` (use thin release check)
-- `supabase/functions/_shared/coloring/lane-invariants.ts` (extend forbidden list)
-- New: `supabase/functions/_shared/coloring/cover-interior-match.ts`
-- New test: `src/__tests__/coloring-rulebook-v2-essentials.test.ts`
-- DB: register skill in `pipeline_skills`; rescue update on `ebooks_kids` coloring rows.
-
-### Not touched
-- Picture-book lane (all novel/story gates remain).
-- Spelling gate (non-waivable, stays).
-- Copyright / garbage / broken-PDF hard fails.
-- Budget/paid-ceiling machinery.
+**คำถามก่อนลงมือ:**
+1. Freeze แบบ **หยุดทุกอย่าง** (รวม in-flight books ที่กำลัง render อยู่ก็ไม่ต่อ) หรือแค่ **หยุด dispatch ใหม่** (ปล่อยที่วิ่งอยู่จบ)?
+2. ปุ่ม "Mark resolved" ให้ manual เท่านั้น หรือให้ระบบ auto-resolve เมื่อเงื่อนไขหาย (เช่น Cloudflare quota reset)?
