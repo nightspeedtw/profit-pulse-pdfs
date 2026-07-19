@@ -268,84 +268,14 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, action: sharpnessDecision.action, pages: sharpnessDecision.failures, sharpness_table: sharpnessTable }, 202);
     }
 
-    // ── ANATOMY SWEEP (measured, not constants) ────────────────────────
-    // Legacy pages predate the anatomy verifier — sweep them in batches of 6.
-    // Any anatomy_defect page is removed from metadata + requeued for regen.
-    // A page without a fresh verdict is treated as UNMEASURED (block release).
-    //
-    // INCREMENTAL SWEEP (permanent class fix, owner order #1): trust a stored
-    // verdict only when it was measured against the same asset — verdicts
-    // carry `storage_path`, and a regenerated page ships a new versioned
-    // path so its old verdict is discarded automatically.
+    // Coloring Rulebook v2 — Essentials Only. Assemble-time anatomy sweep
+    // is DISABLED. The render step measures + logs anatomy advisories; the
+    // sharpness/garbage-floor gate above already blocks unreadable pages.
+    // Fetching 32 PNGs into memory here was causing WORKER_RESOURCE_LIMIT.
     const anatomyByPage = new Map<number, AnatomyPageVerdict>();
     for (const p of pages) {
       const v = (p as any).anatomy_verdict;
-      const samePath = v && (!v.storage_path || v.storage_path === p.storage_path);
-      if (v && v.measured_version === ANATOMY_VERIFIER_VERSION && !v.degraded && samePath) {
-        anatomyByPage.set(p.page, v as AnatomyPageVerdict);
-      }
-    }
-    const anatomyMissing = pages.filter((p) => !anatomyByPage.has(p.page));
-    for (let i = 0; i < anatomyMissing.length; i += 8) {
-      const chunk = anatomyMissing.slice(i, i + 8);
-      const assembleCategoryKey = ((meta.coloring_page_plan as any)?.category_key)
-        ?? (meta as any).category_key
-        ?? ((meta as any).coloring_category_meta?.category_key);
-      const inputs = await Promise.all(chunk.map(async (p) => ({
-        page: p.page,
-        subject: String(p.primary_subject ?? "unknown"),
-        bytes: await fetchBytes(p.signed_url),
-        mime: p.mime || "image/png",
-        category_key: assembleCategoryKey,
-        scene: (p as any).scene_setting ?? (p as any).scene,
-        storage_path: p.storage_path,
-      })));
-      const verdicts = await verifyAnatomyBatch(inputs, { db });
-      // Stamp storage_path into each verdict so future sweeps can prove
-      // the verdict belongs to THIS specific asset version.
-      for (let j = 0; j < verdicts.length; j++) {
-        (verdicts[j] as any).storage_path = inputs[j].storage_path;
-      }
-      for (const v of verdicts) anatomyByPage.set(v.page, v);
-      // Persist verdicts back onto the page record too, so a future
-      // assemble entry sees them without re-measuring the same bytes.
-      const verdictByPage = new Map<number, AnatomyPageVerdict>();
-      for (const v of verdicts) verdictByPage.set(v.page, v);
-      const updatedPages = pages.map((pp) => {
-        const nv = verdictByPage.get(pp.page);
-        return nv ? { ...pp, anatomy_verdict: nv } : pp;
-      });
-      for (let k = 0; k < pages.length; k++) pages[k] = updatedPages[k];
-      await patchMeta(db, ebook_id, {
-        coloring_pages: pages,
-        coloring_assembly: {
-          ...((meta as any).coloring_assembly ?? {}),
-          anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
-          anatomy_sweep_updated_at: new Date().toISOString(),
-        },
-        coloring_current_step_label: `Assembly anatomy sweep ${anatomyByPage.size}/${pages.length}`,
-      });
-    }
-    const anatomySummary = summarizeBookAnatomy(
-      [...anatomyByPage.values()],
-      pages.map((p) => p.page),
-    );
-    const anatomyFailedPages = anatomySummary.hard_fail_pages.map((p) => p.page);
-    // Coloring Rulebook v2 — Essentials Only. Anatomy at assemble time is
-    // advisory. The garbage-floor sharpness gate blocks unreadable pages;
-    // anatomy defects are recorded for the FPY learner but never block
-    // publish. Never delete pages, never loop back to render.
-    if (anatomyFailedPages.length > 0 || !anatomySummary.every_page_measured) {
-      const priorAssembly = (((meta as any).coloring_assembly ?? {}) as Record<string, unknown>);
-      await patchMeta(db, ebook_id, {
-        coloring_assembly: {
-          ...priorAssembly,
-          anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
-          anatomy_summary: anatomySummary,
-          anatomy_advisory_at: new Date().toISOString(),
-          anatomy_advisory_pages: anatomyFailedPages,
-        },
-      });
+      if (v) anatomyByPage.set(p.page, v as AnatomyPageVerdict);
     }
     // Persist final anatomy table now that every page is measured + passing.
     await patchMeta(db, ebook_id, {
