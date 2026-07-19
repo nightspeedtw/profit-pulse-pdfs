@@ -83,6 +83,8 @@ Return ONLY the new manuscript body in markdown. English only.`;
 }
 
 async function rewriteOnce(system: string, user: string, ebook_id?: string): Promise<string> {
+  // top5_source_fix_v1: enforce paid-call ceiling before spending.
+  await assertPaidCeiling({ ebook_id, step: 'kids_surgical_story_repair' });
   const model = 'google/gemini-2.5-pro';
   const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
