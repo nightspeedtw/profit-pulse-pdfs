@@ -230,7 +230,7 @@ export async function latchCfBillingUntilNextUtcMidnight(db: any, ebook_id?: str
  * as-is so the caller surfaces a real error instead of silent inaction.
  */
 // deno-lint-ignore no-explicit-any
-export async function readImageProviderPolicy(db: any): Promise<ImageProviderPolicy> {
+export async function readImageProviderPolicy(db: any, call_class = "coloring_interior"): Promise<ImageProviderPolicy> {
   let base = DEFAULT_IMAGE_PROVIDER_POLICY;
   let cfg: Record<string, unknown> = {};
   try {
@@ -255,23 +255,47 @@ export async function readImageProviderPolicy(db: any): Promise<ImageProviderPol
   const cfBlocked = !!cfLatch || !!pbb?.cloudflare?.active;
   const falBlocked = !!pbb?.fal?.active || !!(cfg.billing_blocked as any)?.active;
   const runwareBlocked = !!pbb?.runware?.active;
-  // Runware requires an API key to be usable. If missing, mark it dry so we
-  // fall through to CF/fal instead of burning a round-trip per page.
   const runwareUnconfigured = !Deno.env.get("RUNWARE_API_KEY");
 
   const dry = (p: ImageProviderId) =>
-    // fal.ai is PERMANENTLY CUT — always ineligible regardless of DB policy
-    // or billing status. Owner decision 2026-07-18.
     p === "fal_flux_schnell" ||
     (p === "cloudflare_flux_schnell" && cfBlocked) ||
     (p === "runware_flux_schnell" && (runwareBlocked || runwareUnconfigured));
 
-  const chain = [base.interiors.primary, base.interiors.fallback, base.interiors.fallback2]
+  // Owner doctrine "quality_at_the_source": route by MEASURED FPY when
+  // history is thick enough. v_call_class_provider_fpy is refreshed
+  // implicitly on every read. Providers with insufficient sample fall to
+  // the configured chain order.
+  let ordered: ImageProviderId[] = [];
+  try {
+    const { data: fpyRows } = await db.from("v_call_class_provider_fpy")
+      .select("provider,attempts,fpy_pct").eq("call_class", call_class);
+    const providerKeyToId: Record<string, ImageProviderId> = {
+      runware_direct: "runware_flux_schnell",
+      cloudflare_direct: "cloudflare_flux_schnell",
+      fal_direct: "fal_flux_schnell",
+      runware: "runware_flux_schnell",
+      cloudflare: "cloudflare_flux_schnell",
+      fal: "fal_flux_schnell",
+      runware_flux_schnell: "runware_flux_schnell",
+      cloudflare_flux_schnell: "cloudflare_flux_schnell",
+      fal_flux_schnell: "fal_flux_schnell",
+    };
+    const ranked = (Array.isArray(fpyRows) ? fpyRows : [])
+      .map((r: any) => ({
+        id: providerKeyToId[r.provider] as ImageProviderId | undefined,
+        attempts: r.attempts ?? 0,
+        fpy: r.fpy_pct ?? 0,
+      }))
+      .filter((r: any) => r.id && r.attempts >= 5)
+      .sort((a: any, b: any) => b.fpy - a.fpy)
+      .map((r: any) => r.id as ImageProviderId);
+    for (const p of ranked) if (!ordered.includes(p) && !dry(p)) ordered.push(p);
+  } catch (_e) { /* fall through */ }
+
+  const configuredChain = [base.interiors.primary, base.interiors.fallback, base.interiors.fallback2]
     .filter(Boolean) as ImageProviderId[];
-  const ordered: ImageProviderId[] = [];
-  for (const p of chain) {
-    if (!ordered.includes(p) && !dry(p)) ordered.push(p);
-  }
+  for (const p of configuredChain) if (!ordered.includes(p) && !dry(p)) ordered.push(p);
   if (ordered.length === 0) return base;
   const finalPolicy = {
     interiors: {
@@ -280,7 +304,7 @@ export async function readImageProviderPolicy(db: any): Promise<ImageProviderPol
       fallback2: ordered[2] ?? null,
     },
   };
-  console.log(`[image-providers] policy chain=${ordered.join(",")} runware_key=${!!Deno.env.get("RUNWARE_API_KEY")} cf_blocked=${cfBlocked} fal_blocked=${falBlocked} runware_blocked=${runwareBlocked}`);
+  console.log(`[image-providers] call_class=${call_class} chain=${ordered.join(",")} cf_blocked=${cfBlocked} fal_blocked=${falBlocked} runware_blocked=${runwareBlocked}`);
   return finalPolicy;
 }
 

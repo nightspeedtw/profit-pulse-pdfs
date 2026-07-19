@@ -228,14 +228,19 @@ async function renderOneTextOnly(
   // billing-blocked provider (per provider_billing_blocked latches) is
   // skipped instead of hard-crashing every page. Hardcoded fal here was the
   // provider-monoculture defect from provider_resilience_character_reference.
-  const policy = (await readImageProviderPolicy(db)).interiors;
+  // First-shot quality regime (owner doctrine quality_at_the_source,
+  // 2026-07-19): default to steps=8. A first-shot pass at $0.003-0.006
+  // beats 3 retries at low quality.
+  const policy = (await readImageProviderPolicy(db, "kids_interior")).interiors;
   const { bytes, provider } = await generateImageWithFailover(
-    { prompt, image_size: "square_hd", num_inference_steps: 4, ebook_id: ebookId, step },
+    { prompt, image_size: "square_hd", num_inference_steps: 8, ebook_id: ebookId, step },
     policy,
     db,
   );
   return { bytes, model: provider, prompt };
 }
+
+
 
 
 export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Promise<SceneRecord[]> {

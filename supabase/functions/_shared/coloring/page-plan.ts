@@ -5,6 +5,7 @@
 import type { ColoringCategory } from "./category.ts";
 import type { PagePlanEntry } from "./style-contract.ts";
 import { assertSpeciesCoverage } from "./species-anatomy.ts";
+import { applyFpyPlanSwaps } from "./fpy-lookup.ts";
 
 
 // Scene taxonomy — every book distributes across these buckets so pages
@@ -235,4 +236,20 @@ export function validatePagePlan(
   }
 
   return issues;
+}
+
+/**
+ * DESIGN-FOR-MANUFACTURABILITY (owner doctrine "quality_at_the_source",
+ * 2026-07-19). After validation, consult v_subject_scene_provider_fpy
+ * and swap any (subject, scene_bucket) whose historical first-pass yield
+ * is < 60% (sample_size ≥ 5) for a proven high-FPY bucket for the same
+ * subject. Combos swapped OUT are recorded to public.practice_backlog so
+ * they get worked on offline — not in a customer's book.
+ *
+ * Zero-cost prevention: runs before any paid render. Safe to call with a
+ * cold DB (no history → no swaps).
+ */
+// deno-lint-ignore no-explicit-any
+export async function applyPlanTimeQualityFilter(plan: PagePlanEntry[], db: any, call_class = "coloring_interior") {
+  return await applyFpyPlanSwaps(plan, db, call_class);
 }
