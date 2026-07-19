@@ -19,11 +19,14 @@ export type Database = {
           alert_class: string
           body: string
           created_at: string
+          dedupe_key: string | null
           email_error: string | null
           email_message_id: string | null
           email_sent: boolean
           evidence: Json
           id: string
+          resolved_at: string | null
+          resolved_by: string | null
           severity: string
           title: string
         }
@@ -31,11 +34,14 @@ export type Database = {
           alert_class: string
           body: string
           created_at?: string
+          dedupe_key?: string | null
           email_error?: string | null
           email_message_id?: string | null
           email_sent?: boolean
           evidence?: Json
           id?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
           severity: string
           title: string
         }
@@ -43,11 +49,14 @@ export type Database = {
           alert_class?: string
           body?: string
           created_at?: string
+          dedupe_key?: string | null
           email_error?: string | null
           email_message_id?: string | null
           email_sent?: boolean
           evidence?: Json
           id?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
           severity?: string
           title?: string
         }
@@ -4628,6 +4637,24 @@ export type Database = {
           status?: string
           title?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      system_heartbeat: {
+        Row: {
+          detail: Json
+          last_beat_at: string
+          source: string
+        }
+        Insert: {
+          detail?: Json
+          last_beat_at?: string
+          source: string
+        }
+        Update: {
+          detail?: Json
+          last_beat_at?: string
+          source?: string
         }
         Relationships: []
       }
