@@ -353,7 +353,8 @@ async function generateViaFalEmergency(
 ): Promise<IdeogramCoverResult> {
   if (!FAL_KEY) throw new Error("provider_unconfigured:FAL_KEY_missing");
   const timeoutMs = opts.timeoutMs ?? 60_000;
-  const prompt = buildIdeogramIntegratedCoverPrompt(request);
+  const prompt = (request as any).promptOverride ?? buildIdeogramIntegratedCoverPrompt(request);
+
   const body = {
     prompt, aspect_ratio: "3:4", rendering_speed: "BALANCED", style: "AUTO",
     expand_prompt: false, num_images: 1,
