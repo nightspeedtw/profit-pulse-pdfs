@@ -238,6 +238,9 @@ async function renderOneTextOnly(
     db,
   );
   return { bytes, model: provider, prompt };
+}
+
+
 
 
 export async function renderInteriorIllustrations(opts: RenderInteriorOpts): Promise<SceneRecord[]> {
