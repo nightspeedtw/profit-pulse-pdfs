@@ -331,95 +331,21 @@ Deno.serve(async (req: Request) => {
       pages.map((p) => p.page),
     );
     const anatomyFailedPages = anatomySummary.hard_fail_pages.map((p) => p.page);
+    // Coloring Rulebook v2 — Essentials Only. Anatomy at assemble time is
+    // advisory. The garbage-floor sharpness gate blocks unreadable pages;
+    // anatomy defects are recorded for the FPY learner but never block
+    // publish. Never delete pages, never loop back to render.
     if (anatomyFailedPages.length > 0 || !anatomySummary.every_page_measured) {
-      const badPages = new Set<number>([...anatomyFailedPages, ...anatomySummary.unmeasured_pages]);
-      const attempts = { ...(((meta as any).coloring_repair_attempts as Record<string, number>) ?? {}) };
-      for (const p of badPages) attempts[String(p)] = Math.max(1, attempts[String(p)] ?? 0);
-
-      // BOUNDED LOOP GUARD — permanent class fix for the assemble↔render
-      // anatomy loop. Every assembly-time rejection on the SAME failing
-      // pages increments a cycle counter; once we exceed MAX cycles we
-      // stop the loop and park the book in `failed` awaiting owner verdict.
-      // Never lower the anatomy threshold, never bypass the gate — just
-      // stop looping forever on unfixable pages.
       const priorAssembly = (((meta as any).coloring_assembly ?? {}) as Record<string, unknown>);
-      const priorCycle = Number((priorAssembly.anatomy_gate_cycle as number | undefined) ?? 0);
-      const priorFailKey = String((priorAssembly.anatomy_gate_last_fail_key as string | undefined) ?? "");
-      const failKey = [...badPages].sort((a, b) => a - b).join(",");
-      const sameFailure = priorFailKey === failKey;
-      const nextCycle = sameFailure ? priorCycle + 1 : 1;
-      const MAX_ANATOMY_CYCLES = WAIVER_REPAIR_ATTEMPTS;
-
-      if (nextCycle > MAX_ANATOMY_CYCLES) {
-        // BATCH-LEARNING WAIVER MODE (owner law: batch_learning_rounds).
-        // After WAIVER_REPAIR_ATTEMPTS quick repair cycles on the same
-        // failing pages, we RECORD the defect and PROCEED to the next
-        // stage with the best available assets. Measurement continues;
-        // only the repair loop is capped. The consolidated-skill upgrade
-        // between rounds is where these defects get permanently fixed.
-        const { data: gsRow } = await db.from("generation_settings")
-          .select("coloring_autopilot").eq("id", 1).maybeSingle();
-        const round = Number(((gsRow?.coloring_autopilot as any)?.learning_round) ?? 1);
-        let mergedMeta = meta as Record<string, unknown>;
-        for (const p of badPages) {
-          const verdict = anatomyByPage.get(p);
-          const reasons = verdict?.hard_fail_reasons ?? verdict?.reasons ?? [`unmeasured_or_failed_page_${p}`];
-          mergedMeta = {
-            ...mergedMeta,
-            defect_ledger: appendDefectLedger(mergedMeta, {
-              stage: "assemble",
-              gate: "anatomy",
-              page: p,
-              reasons: Array.isArray(reasons) ? reasons : [String(reasons)],
-              attempts: attempts[String(p)] ?? nextCycle,
-              evidence_url: (pages.find((pp) => pp.page === p)?.signed_url) ?? null,
-              round,
-            }),
-          };
-        }
-        await patchMeta(db, ebook_id, {
-          defect_ledger: mergedMeta.defect_ledger,
-          coloring_assembly: {
-            ...priorAssembly,
-            anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
-            anatomy_summary: anatomySummary,
-            anatomy_gate_cycle: nextCycle,
-            anatomy_gate_last_fail_key: failKey,
-            waived_at: new Date().toISOString(),
-            waived_reason: `anatomy_gate_waived_after_${MAX_ANATOMY_CYCLES}_attempts:pages=${[...badPages].join(",")}`,
-          },
-          coloring_current_step_label: `Anatomy waiver (round ${round}) — pages ${[...badPages].join(", ")} logged to defect ledger; proceeding to publish candidate`,
-        });
-        // Fall through — do NOT return. Assembly continues with the
-        // current page set (best available). Never delete pages here.
-      } else {
-        await patchMeta(db, ebook_id, {
-          coloring_pages: pages.filter((p) => !badPages.has(p.page)),
-          coloring_repair_attempts: attempts,
-          coloring_assembly: {
-            ...priorAssembly,
-            anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
-            anatomy_summary: anatomySummary,
-            anatomy_gate_cycle: nextCycle,
-            anatomy_gate_last_fail_key: failKey,
-            blocked_at: new Date().toISOString(),
-            blocked_reason: `anatomy_gate:cycle=${nextCycle}/${MAX_ANATOMY_CYCLES}:${anatomyFailedPages.length ? `defects=${anatomyFailedPages.join(",")}` : ""}${anatomySummary.unmeasured_pages.length ? `;unmeasured=${anatomySummary.unmeasured_pages.join(",")}` : ""}`,
-          },
-          coloring_current_step_label: `Assembly anatomy sweep rejected pages ${[...badPages].join(", ")} — regen cycle ${nextCycle}/${MAX_ANATOMY_CYCLES}`,
-          coloring_progress_percent: 90,
-          awaiting: "render",
-        });
-        await db.from("ebooks_kids").update({ pipeline_status: "queued", blocker_reason: null, pdf_url: null }).eq("id", ebook_id);
-        chain("coloring-book-render", { ebook_id });
-        return json({
-          ok: false,
-          action: "regen_for_anatomy",
-          pages: [...badPages],
-          cycle: nextCycle,
-          max_cycles: MAX_ANATOMY_CYCLES,
+      await patchMeta(db, ebook_id, {
+        coloring_assembly: {
+          ...priorAssembly,
+          anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
           anatomy_summary: anatomySummary,
-        }, 202);
-      }
+          anatomy_advisory_at: new Date().toISOString(),
+          anatomy_advisory_pages: anatomyFailedPages,
+        },
+      });
     }
     // Persist final anatomy table now that every page is measured + passing.
     await patchMeta(db, ebook_id, {
