@@ -532,7 +532,7 @@ export async function generateIdeogramTextInpaint(
   opts: { timeoutMs?: number; seed?: number } = {},
 ): Promise<IdeogramCoverResult> {
   if (!RUNWARE_API_KEY) throw new Error("provider_unconfigured:RUNWARE_API_KEY_missing");
-  const prompt = buildIdeogramIntegratedCoverPrompt(request);
+  const prompt = (request as any).promptOverride ?? buildIdeogramIntegratedCoverPrompt(request);
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
