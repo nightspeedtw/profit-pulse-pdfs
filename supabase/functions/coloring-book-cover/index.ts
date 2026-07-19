@@ -376,12 +376,11 @@ Deno.serve(async (req: Request) => {
     const ageMin = ((meta.coloring_category_meta as any)?.target_age_min) ?? 4;
     const ageMax = ((meta.coloring_category_meta as any)?.target_age_max) ?? 6;
     const ageBadge = `Ages ${ageMin}-${ageMax}`;
-    // Subtitle kept SHORT so Ideogram actually renders it. The historic
-    // "N Coloring Pages · Ages X-Y" form embedded marketing metadata the
-    // model consistently dropped, causing every book to fail text-verify
-    // on missing "N pages" tokens. Page count lives on the product page,
-    // not the cover.
-    const subtitle = `A Coloring Adventure`;
+    // OWNER LAW (Rulebook v2 "essentials only", 2026-07-19): coloring-book
+    // covers carry ONLY title + age badge. Subtitles caused Ideogram to
+    // hallucinate decorative words ("Collorcery", "Collorctey") and burn
+    // the retry ceiling. Subtitle is now empty for the coloring lane.
+    const subtitle = ``;
 
     // Load category allowed/forbidden subjects for the hero-verification gate.
     const categoryKey = ((meta.coloring_page_plan as any)?.category_key as string)
@@ -651,7 +650,14 @@ Deno.serve(async (req: Request) => {
       runwareFallbackHeight: _trim.runwareIdeogram.fallbackHeight,
       gptImageSize: _trim.gptImageSize,
     };
-    const masterPromptAspect = _trim.key === "square_8_5"
+    // Owner law native-trim-ratio-only: canvas MUST match the row's trim
+    // aspect so `fitCoverArtToPortraitCanvas` doesn't throw
+    // `cover_art_off_trim_ratio` for square_8_5 books. Portrait books keep
+    // the historical portrait canvas; square books get an equal-side canvas.
+    const _isSquare = _trim.key === "square_8_5";
+    const CANVAS_W = _isSquare ? COLORING_COVER_WIDTH : COLORING_COVER_WIDTH;
+    const CANVAS_H = _isSquare ? COLORING_COVER_WIDTH : COLORING_COVER_HEIGHT;
+    const masterPromptAspect = _isSquare
       ? "8.5 x 8.5 inches, square 1:1"
       : "8.5 x 11 inches, portrait";
     const masterPrompt = buildMasterColoringCoverPrompt({
@@ -794,7 +800,7 @@ Deno.serve(async (req: Request) => {
         }
         // ACCEPTED. Fit to portrait 8.5x11 canvas AND skip overlay typography.
 
-        const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT);
+        const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, CANVAS_W, CANVAS_H);
         // Rendered proof still runs on the final PNG (art-region variance + frame safety)
         // but the approved-strings check is fed the VERIFIED transcript so
         // detected text stays in-bounds of what we already proved matches.
@@ -822,8 +828,9 @@ Deno.serve(async (req: Request) => {
           rgba: finalRgba, width: finalW, height: finalH,
           frame: { width: finalW, height: finalH, safe_margin: Math.max(8, Math.floor(60 * finalW / COLORING_COVER_WIDTH)), elements: [] },
           requiredStrings: [row.title],
-          optionalStrings: [subtitle, ageBadge],
+          optionalStrings: [subtitle, ageBadge].filter(Boolean),
           detectedText: verdict.transcribed_raw,
+          expectedAspect: CANVAS_W / CANVAS_H,
         });
 
         if (!renderedProof.pass) {
@@ -976,7 +983,7 @@ Deno.serve(async (req: Request) => {
           console.error("[coloring-cover] waiver fingerprint failed", fpErr?.message);
         }
 
-        const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT);
+        const finalBytes = await fitCoverArtToPortraitCanvas(rawBytes, CANVAS_W, CANVAS_H);
 
         // Log defect to ledger
         const { data: rowMetaRow } = await db.from("ebooks_kids").select("metadata").eq("id", ebook_id).maybeSingle();

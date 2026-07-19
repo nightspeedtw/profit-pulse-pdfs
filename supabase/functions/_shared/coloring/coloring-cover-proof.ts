@@ -31,6 +31,8 @@ export interface RenderedCoverProofInput {
   /** Nice-to-have strings (subtitle, age badge). Missing → warning only. */
   optionalStrings?: string[];
   detectedText: string;
+  /** Optional override for expected aspect ratio (default = 8.5/11 portrait). Use 1.0 for square_8_5 books. */
+  expectedAspect?: number;
 }
 
 export interface RenderedCoverProof {
@@ -175,7 +177,8 @@ export function measureFinalArtRegionVariance(rgba: Uint8Array, width: number, h
 
 export function renderedColoringCoverProof(input: RenderedCoverProofInput): RenderedCoverProof {
   const aspect = input.width / Math.max(1, input.height);
-  const portrait_aspect_pass = Math.abs(aspect - LETTER_ASPECT) <= 0.012;
+  const expectedAspect = typeof input.expectedAspect === "number" && input.expectedAspect > 0 ? input.expectedAspect : LETTER_ASPECT;
+  const portrait_aspect_pass = Math.abs(aspect - expectedAspect) <= 0.012;
   const art_region = measureFinalArtRegionVariance(input.rgba, input.width, input.height);
   const overlays_in_frame = assertProofOverlayInsideSafeMargin(input.frame);
   // Back-compat: if only legacy flat `approvedStrings` was supplied, treat
@@ -195,7 +198,7 @@ export function renderedColoringCoverProof(input: RenderedCoverProofInput): Rend
     width: input.width,
     height: input.height,
     aspect_ratio: Number(aspect.toFixed(4)),
-    expected_aspect_ratio: Number(LETTER_ASPECT.toFixed(4)),
+    expected_aspect_ratio: Number(expectedAspect.toFixed(4)),
     portrait_aspect_pass,
     art_region,
     overlays_in_frame,
