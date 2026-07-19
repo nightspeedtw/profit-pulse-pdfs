@@ -124,8 +124,11 @@ describe("summarizeBookAnatomy (assemble gate)", () => {
   });
 });
 
-// ── Book gate: unmeasured/failed anatomy pulls anatomy_correctness down
-describe("coloringBookWeightedGate reads MEASURED anatomy min (not 95)", () => {
+// v2 (coloring_rulebook_v2_essentials_only): anatomy is ADVISORY on the
+// coloring lane. The book gate only blocks on spelling. Weighted average
+// still reflects measured anatomy (for admin display), but the gate does
+// not reject on it.
+describe("coloringBookWeightedGate (v2: anatomy is advisory)", () => {
   const base = {
     theme_fit: 96, age_fit: 96,
     line_art_cleanliness: 96, colorability: 94,
@@ -137,11 +140,15 @@ describe("coloringBookWeightedGate reads MEASURED anatomy min (not 95)", () => {
     spelling_ok: true,
   };
 
-  it("measured min 42 FAILS what a constant 95 used to pass silently", () => {
+  it("measured anatomy of 42 no longer blocks release (advisory only)", () => {
     const measured = coloringBookWeightedGate({ ...base, anatomy_correctness: 42 });
-    const legacyConstant = coloringBookWeightedGate({ ...base, anatomy_correctness: 95 });
-    expect(measured.pass).toBe(false);
-    expect(legacyConstant.pass).toBe(true);
-    expect(measured.weighted_avg).toBeLessThan(legacyConstant.weighted_avg);
+    expect(measured.pass).toBe(true);
+    expect(measured.weighted_avg).toBeLessThan(90);
+  });
+
+  it("spelling_ok=false is the only non-waivable book-level failure", () => {
+    const bad = coloringBookWeightedGate({ ...base, anatomy_correctness: 95, spelling_ok: false });
+    expect(bad.pass).toBe(false);
+    expect(bad.reasons.join("|")).toMatch(/spelling_ok/);
   });
 });

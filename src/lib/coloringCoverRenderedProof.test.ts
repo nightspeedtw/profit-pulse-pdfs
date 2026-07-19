@@ -74,7 +74,7 @@ describe("cover rendered-proof: art layer non-blank (owner law)", () => {
     expect(ev.blank_ratio).toBe(0);
   });
 
-  it("blank_background=true propagates into the measured cover scorecard as a hard fail", () => {
+  it("v2: blank_background propagates into the scorecard as ADVISORY (not a gate reject)", () => {
     const SAFE_FRAME = {
       width: 1600,
       height: 1600,
@@ -97,9 +97,10 @@ describe("cover rendered-proof: art layer non-blank (owner law)", () => {
       artwork: { used_svg_fallback: false, synthesized_background: false, blank_background: true, blank_ratio: 0.66 },
       pageCountMatchesFinalPdf: true,
     });
-    const gate = coloringCoverGate(scorecard);
-    expect(gate.pass).toBe(false);
-    expect(gate.reasons.join("|")).toMatch(/blank_background/);
+    const gate = coloringCoverGate({ ...scorecard, spelling_ok: true });
+    // Coloring Rulebook v2: blank_background is caught at the render-time
+    // garbage floor (garbage_image_broken), not by this scorecard gate.
+    expect(gate.pass).toBe(true);
   });
 });
 
