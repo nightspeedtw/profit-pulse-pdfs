@@ -4802,6 +4802,10 @@ export type Database = {
       }
     }
     Functions: {
+      atomic_patch_ebooks_kids_meta: {
+        Args: { p_id: string; p_patch: Json }
+        Returns: Json
+      }
       exchange_buy_amount: {
         Args: {
           p_amount_gross: number

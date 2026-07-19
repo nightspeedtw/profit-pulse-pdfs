@@ -30,6 +30,7 @@ import { fitCoverArtToPortraitCanvas, COLORING_COVER_COMPOSITOR_VERSION, COLORIN
 import { resolveTrimProfileKey, TRIM_PROFILES } from "../_shared/coloring/trim-lock.ts";
 import { computeCoverFingerprint, findDuplicateCover, DUPLICATE_HAMMING_THRESHOLD } from "../_shared/coloring/cover-uniqueness.ts";
 import { scheduleSelfAdvance, SELF_ADVANCE_DELAY_BACKOFF_MS, fireAndForgetPost } from "../_shared/coloring/self-advance.ts";
+import { atomicPatchMeta } from "../_shared/kids-metadata.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -41,11 +42,9 @@ const SPLIT_VERSION = "coloring_cover_split_v1_verify";
 function json(x: unknown, status = 200) {
   return new Response(JSON.stringify(x), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
+// Race-safe metadata patch — see _shared/kids-metadata.ts.
 async function patchMeta(db: any, id: string, patch: Record<string, unknown>) {
-  const { data } = await db.from("ebooks_kids").select("metadata").eq("id", id).single();
-  const merged = { ...(data?.metadata ?? {}), ...patch };
-  await db.from("ebooks_kids").update({ metadata: merged }).eq("id", id);
-  return merged;
+  return await atomicPatchMeta(db, id, patch);
 }
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -284,20 +283,21 @@ Deno.serve(async (req: Request) => {
       split_v1: { generated_pending_path: pendingStoragePath, verified_at: new Date().toISOString() },
     };
 
+    // Atomic patch (see _shared/kids-metadata.ts): pass only the delta so
+    // a concurrent writer cannot be clobbered by re-spreading stale `meta`.
+    await patchMeta(db, ebookId, {
+      coloring_cover: coverRecord,
+      coloring_cover_gate: measuredGate,
+      coloring_progress_percent: 94,
+      coloring_current_step_label: `Cover verified (${provider}, split v1) — chaining thumbnail + assemble`,
+      awaiting: "cover_pdf_publish",
+      cover_upgrade_pending: false,
+      cover_pending_verify: null,
+    });
     await db.from("ebooks_kids").update({
       cover_url: up.signedUrl,
       thumbnail_url: up.signedUrl,
       blocker_reason: null,
-      metadata: {
-        ...meta,
-        coloring_cover: coverRecord,
-        coloring_cover_gate: measuredGate,
-        coloring_progress_percent: 94,
-        coloring_current_step_label: `Cover verified (${provider}, split v1) — chaining thumbnail + assemble`,
-        awaiting: "cover_pdf_publish",
-        cover_upgrade_pending: false,
-        cover_pending_verify: null,
-      },
     }).eq("id", ebookId);
 
     // Chain thumbnail (distinct fitted asset) + assemble (PDF).
