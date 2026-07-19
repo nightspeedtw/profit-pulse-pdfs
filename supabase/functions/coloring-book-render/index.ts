@@ -663,24 +663,21 @@ Deno.serve(async (req: Request) => {
         } as any);
         continue;
       }
-      if (v.pass) {
-        // Stamp storage_path onto verdict so assemble's incremental sweep
-        // can prove the verdict belongs to THIS specific asset version.
-        (rec as any).anatomy_verdict = { ...v, storage_path: rec.storage_path };
-        keptRecords.push(rec);
-        continue;
+      // Coloring Rulebook v2 — Essentials Only. Anatomy is advisory, not a
+      // hard gate. The garbage-floor sharpness gate already blocks unreadable
+      // pages. Never delete storage or increment attempts on anatomy defects.
+      (rec as any).anatomy_verdict = { ...v, storage_path: rec.storage_path };
+      keptRecords.push(rec);
+      if (!v.pass) {
+        // Log advisory-only so FPY learner still mines patterns.
+        errors.push({
+          page: rec.page,
+          error: `anatomy_advisory: ${v.defects.slice(0, 4).join("; ") || "anatomy_defect"}`,
+          reasons: ["anatomy_advisory", ...v.defects],
+          anatomy: { species_key: v.species_key, score: v.anatomy_score, defects: v.defects, degraded: v.degraded },
+          advisory: true,
+        } as any);
       }
-      // Failed anatomy — remove uploaded object + requeue via repair ladder.
-      try { await db.storage.from("ebook-covers").remove([rec.storage_path]); } catch (_e) { /* best-effort */ }
-      const prior = repairAttempts[String(rec.page)] ?? 0;
-      repairAttempts[String(rec.page)] = prior + 1;
-      const clause = speciesAnatomyRepairClause(rec.primary_subject, v.defects);
-      errors.push({
-        page: rec.page,
-        error: `anatomy_gate: ${v.defects.slice(0, 4).join("; ") || "anatomy_defect"}`,
-        reasons: ["anatomy_structural", ...v.defects, clause],
-        anatomy: { species_key: v.species_key, score: v.anatomy_score, defects: v.defects, degraded: v.degraded },
-      } as any);
     }
     // Replace newRecords with anatomy-approved records only.
     newRecords.length = 0;

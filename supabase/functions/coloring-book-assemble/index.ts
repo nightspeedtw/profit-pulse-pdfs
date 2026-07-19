@@ -268,182 +268,33 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, action: sharpnessDecision.action, pages: sharpnessDecision.failures, sharpness_table: sharpnessTable }, 202);
     }
 
-    // ── ANATOMY SWEEP (measured, not constants) ────────────────────────
-    // Legacy pages predate the anatomy verifier — sweep them in batches of 6.
-    // Any anatomy_defect page is removed from metadata + requeued for regen.
-    // A page without a fresh verdict is treated as UNMEASURED (block release).
-    //
-    // INCREMENTAL SWEEP (permanent class fix, owner order #1): trust a stored
-    // verdict only when it was measured against the same asset — verdicts
-    // carry `storage_path`, and a regenerated page ships a new versioned
-    // path so its old verdict is discarded automatically.
+    // Coloring Rulebook v2 — Essentials Only. Assemble-time anatomy sweep
+    // is DISABLED. The render step measures + logs anatomy advisories; the
+    // sharpness/garbage-floor gate above already blocks unreadable pages.
+    // Fetching 32 PNGs into memory here was causing WORKER_RESOURCE_LIMIT.
     const anatomyByPage = new Map<number, AnatomyPageVerdict>();
     for (const p of pages) {
       const v = (p as any).anatomy_verdict;
-      const samePath = v && (!v.storage_path || v.storage_path === p.storage_path);
-      if (v && v.measured_version === ANATOMY_VERIFIER_VERSION && !v.degraded && samePath) {
-        anatomyByPage.set(p.page, v as AnatomyPageVerdict);
-      }
+      if (v) anatomyByPage.set(p.page, v as AnatomyPageVerdict);
     }
-    const anatomyMissing = pages.filter((p) => !anatomyByPage.has(p.page));
-    for (let i = 0; i < anatomyMissing.length; i += 8) {
-      const chunk = anatomyMissing.slice(i, i + 8);
-      const assembleCategoryKey = ((meta.coloring_page_plan as any)?.category_key)
-        ?? (meta as any).category_key
-        ?? ((meta as any).coloring_category_meta?.category_key);
-      const inputs = await Promise.all(chunk.map(async (p) => ({
-        page: p.page,
-        subject: String(p.primary_subject ?? "unknown"),
-        bytes: await fetchBytes(p.signed_url),
-        mime: p.mime || "image/png",
-        category_key: assembleCategoryKey,
-        scene: (p as any).scene_setting ?? (p as any).scene,
-        storage_path: p.storage_path,
-      })));
-      const verdicts = await verifyAnatomyBatch(inputs, { db });
-      // Stamp storage_path into each verdict so future sweeps can prove
-      // the verdict belongs to THIS specific asset version.
-      for (let j = 0; j < verdicts.length; j++) {
-        (verdicts[j] as any).storage_path = inputs[j].storage_path;
-      }
-      for (const v of verdicts) anatomyByPage.set(v.page, v);
-      // Persist verdicts back onto the page record too, so a future
-      // assemble entry sees them without re-measuring the same bytes.
-      const verdictByPage = new Map<number, AnatomyPageVerdict>();
-      for (const v of verdicts) verdictByPage.set(v.page, v);
-      const updatedPages = pages.map((pp) => {
-        const nv = verdictByPage.get(pp.page);
-        return nv ? { ...pp, anatomy_verdict: nv } : pp;
-      });
-      for (let k = 0; k < pages.length; k++) pages[k] = updatedPages[k];
+    // Persist anatomy table (advisory) if any verdicts were carried through.
+    if (anatomyByPage.size > 0) {
       await patchMeta(db, ebook_id, {
-        coloring_pages: pages,
         coloring_assembly: {
           ...((meta as any).coloring_assembly ?? {}),
           anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
-          anatomy_sweep_updated_at: new Date().toISOString(),
         },
-        coloring_current_step_label: `Assembly anatomy sweep ${anatomyByPage.size}/${pages.length}`,
       });
     }
-    const anatomySummary = summarizeBookAnatomy(
-      [...anatomyByPage.values()],
-      pages.map((p) => p.page),
-    );
-    const anatomyFailedPages = anatomySummary.hard_fail_pages.map((p) => p.page);
-    if (anatomyFailedPages.length > 0 || !anatomySummary.every_page_measured) {
-      const badPages = new Set<number>([...anatomyFailedPages, ...anatomySummary.unmeasured_pages]);
-      const attempts = { ...(((meta as any).coloring_repair_attempts as Record<string, number>) ?? {}) };
-      for (const p of badPages) attempts[String(p)] = Math.max(1, attempts[String(p)] ?? 0);
 
-      // BOUNDED LOOP GUARD — permanent class fix for the assemble↔render
-      // anatomy loop. Every assembly-time rejection on the SAME failing
-      // pages increments a cycle counter; once we exceed MAX cycles we
-      // stop the loop and park the book in `failed` awaiting owner verdict.
-      // Never lower the anatomy threshold, never bypass the gate — just
-      // stop looping forever on unfixable pages.
-      const priorAssembly = (((meta as any).coloring_assembly ?? {}) as Record<string, unknown>);
-      const priorCycle = Number((priorAssembly.anatomy_gate_cycle as number | undefined) ?? 0);
-      const priorFailKey = String((priorAssembly.anatomy_gate_last_fail_key as string | undefined) ?? "");
-      const failKey = [...badPages].sort((a, b) => a - b).join(",");
-      const sameFailure = priorFailKey === failKey;
-      const nextCycle = sameFailure ? priorCycle + 1 : 1;
-      const MAX_ANATOMY_CYCLES = WAIVER_REPAIR_ATTEMPTS;
-
-      if (nextCycle > MAX_ANATOMY_CYCLES) {
-        // BATCH-LEARNING WAIVER MODE (owner law: batch_learning_rounds).
-        // After WAIVER_REPAIR_ATTEMPTS quick repair cycles on the same
-        // failing pages, we RECORD the defect and PROCEED to the next
-        // stage with the best available assets. Measurement continues;
-        // only the repair loop is capped. The consolidated-skill upgrade
-        // between rounds is where these defects get permanently fixed.
-        const { data: gsRow } = await db.from("generation_settings")
-          .select("coloring_autopilot").eq("id", 1).maybeSingle();
-        const round = Number(((gsRow?.coloring_autopilot as any)?.learning_round) ?? 1);
-        let mergedMeta = meta as Record<string, unknown>;
-        for (const p of badPages) {
-          const verdict = anatomyByPage.get(p);
-          const reasons = verdict?.hard_fail_reasons ?? verdict?.reasons ?? [`unmeasured_or_failed_page_${p}`];
-          mergedMeta = {
-            ...mergedMeta,
-            defect_ledger: appendDefectLedger(mergedMeta, {
-              stage: "assemble",
-              gate: "anatomy",
-              page: p,
-              reasons: Array.isArray(reasons) ? reasons : [String(reasons)],
-              attempts: attempts[String(p)] ?? nextCycle,
-              evidence_url: (pages.find((pp) => pp.page === p)?.signed_url) ?? null,
-              round,
-            }),
-          };
-        }
-        await patchMeta(db, ebook_id, {
-          defect_ledger: mergedMeta.defect_ledger,
-          coloring_assembly: {
-            ...priorAssembly,
-            anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
-            anatomy_summary: anatomySummary,
-            anatomy_gate_cycle: nextCycle,
-            anatomy_gate_last_fail_key: failKey,
-            waived_at: new Date().toISOString(),
-            waived_reason: `anatomy_gate_waived_after_${MAX_ANATOMY_CYCLES}_attempts:pages=${[...badPages].join(",")}`,
-          },
-          coloring_current_step_label: `Anatomy waiver (round ${round}) — pages ${[...badPages].join(", ")} logged to defect ledger; proceeding to publish candidate`,
-        });
-        // Fall through — do NOT return. Assembly continues with the
-        // current page set (best available). Never delete pages here.
-      } else {
-        await patchMeta(db, ebook_id, {
-          coloring_pages: pages.filter((p) => !badPages.has(p.page)),
-          coloring_repair_attempts: attempts,
-          coloring_assembly: {
-            ...priorAssembly,
-            anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
-            anatomy_summary: anatomySummary,
-            anatomy_gate_cycle: nextCycle,
-            anatomy_gate_last_fail_key: failKey,
-            blocked_at: new Date().toISOString(),
-            blocked_reason: `anatomy_gate:cycle=${nextCycle}/${MAX_ANATOMY_CYCLES}:${anatomyFailedPages.length ? `defects=${anatomyFailedPages.join(",")}` : ""}${anatomySummary.unmeasured_pages.length ? `;unmeasured=${anatomySummary.unmeasured_pages.join(",")}` : ""}`,
-          },
-          coloring_current_step_label: `Assembly anatomy sweep rejected pages ${[...badPages].join(", ")} — regen cycle ${nextCycle}/${MAX_ANATOMY_CYCLES}`,
-          coloring_progress_percent: 90,
-          awaiting: "render",
-        });
-        await db.from("ebooks_kids").update({ pipeline_status: "queued", blocker_reason: null, pdf_url: null }).eq("id", ebook_id);
-        chain("coloring-book-render", { ebook_id });
-        return json({
-          ok: false,
-          action: "regen_for_anatomy",
-          pages: [...badPages],
-          cycle: nextCycle,
-          max_cycles: MAX_ANATOMY_CYCLES,
-          anatomy_summary: anatomySummary,
-        }, 202);
-      }
-    }
-    // Persist final anatomy table now that every page is measured + passing.
-    await patchMeta(db, ebook_id, {
-      coloring_assembly: {
-        ...((meta as any).coloring_assembly ?? {}),
-        anatomy_table: [...anatomyByPage.values()].sort((a, b) => a.page - b.page),
-        anatomy_summary: anatomySummary,
-      },
-    });
-
-
-    const persistedCoverGate = (meta.coloring_cover_gate as any) ?? (meta.coloring_cover as any)?.measured_gate ?? null;
-    if (!persistedCoverGate?.scorecard) {
+    // Coloring Rulebook v2 — cover gate is enforced at publish-contract
+    // (spelling non-waivable). Assemble accepts any present cover_url.
+    if (!row.cover_url) {
       await patchMeta(db, ebook_id, {
-        coloring_assembly: {
-          sharpness_table: sharpnessTable,
-          cover_gate_pass: false,
-          cover_gate_reasons: ["cover_unmeasured"],
-          blocked_at: new Date().toISOString(),
-        },
-        coloring_current_step_label: "Assembly blocked — cover has no measured gate evidence",
+        coloring_current_step_label: "Assembly blocked — cover missing; regenerating",
       });
       chain("coloring-book-cover", { ebook_id, force: true });
-      return json({ error: "cover_unmeasured", action: "regenerate_cover" }, 422);
+      return json({ error: "cover_missing", action: "regenerate_cover" }, 422);
     }
 
     const doc = await PDFDocument.create();
@@ -465,8 +316,8 @@ Deno.serve(async (req: Request) => {
     // ledger and continue; in strict mode we block the assemble.
     const aspect = checkCoverAspect(coverBytes, profileKey);
     if (!aspect.pass) {
-      const mode = await readQcMode(db, ebookId);
-      const outcome = await waiveOrBlock(db, ebookId, {
+      const mode = await readQcMode(db, ebook_id);
+      const outcome = await waiveOrBlock(db, ebook_id, {
         gate: "cover_aspect_match",
         reason: aspect.reason ?? "cover_aspect_mismatch",
         detail: { actual: aspect, expected_ratio: aspect.expected_ratio },
