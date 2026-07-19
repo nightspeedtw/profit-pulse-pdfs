@@ -44,6 +44,14 @@ export interface HeroVerdict {
   forbidden_hit: string | null;
   degraded: boolean;
   reason: string;
+  // AMENDMENT coloring_rulebook_v1 (2026-07-19): presence+prominence grading.
+  // Populated when the amended verifier ran; null on degraded/legacy paths.
+  presence?: {
+    foreground_category_count: number;
+    prominent_category_count: number;
+    total_category_count: number;
+    child_present: boolean;
+  } | null;
 }
 
 const VISION_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
