@@ -153,6 +153,11 @@ Return ONLY the new manuscript body in markdown. English only.`;
 }
 
 async function rewriteManuscript(system: string, user: string, ebook_id: string | undefined, attempt: number): Promise<string> {
+  // top5_source_fix_v1: HARD paid-call ceiling — group `kids_repair_story_any`
+  // caps at 8 rewrites / 24h regardless of how many times the invocation
+  // counter is reset by other pipeline steps clobbering storefront_meta.
+  // Callers catch BudgetCeilingError and park the book (see handler below).
+  await assertPaidCeiling({ ebook_id, step: 'kids_repair_story_gate_rewrite' });
   // COST FIX: cheap-tier-first. Attempts 1-2 run on gemini-2.5-flash
   // (~$0.0009/call vs $0.068 on pro — 75x cheaper per RATES table in ai.ts).
   // Only the final attempt escalates to pro. This drops story-gate rewrite
