@@ -438,18 +438,28 @@ Deno.serve(async (req: Request) => {
           ebook_id: ebook_id,
           step: `coloring_${stageLabel}_page_${page.canonical_page_number}${attempt >= 1 ? "_repair" : ""}`,
         }, imagePolicy, db);
-        const bytes = gen.bytes;
+        let bytes = gen.bytes;
         const providerUsed = gen.provider;
-        const verified = verifyImageAtBirth(bytes, page.canonical_page_number, MIN_IMAGE_BYTES);
+        let verified = verifyImageAtBirth(bytes, page.canonical_page_number, MIN_IMAGE_BYTES);
 
-        // Deterministic solid-black + white-bg check BEFORE upload.
-        const sb = await analyzeSolidBlack(bytes, DEFAULT_SOLID_BLACK_TH);
-        if (!sb.pass) {
+        // OWNER LAW solid_black_defill_v1 (2026-07-19): before the gate,
+        // run the deterministic de-fill post-processor. Oversized black
+        // fill patches become colorable regions (2-3 px outline retained),
+        // ground-shadow blobs are cleared, and only garbage pages that
+        // even de-fill cannot save are rejected for reroll.
+        const defill = await deFillOversizedBlack(bytes, DEFAULT_SOLID_BLACK_TH, DEFAULT_DE_FILL_TH);
+        if (defill.report.applied && defill.report.gate_after.pass && !defill.report.hard_giveup) {
+          bytes = defill.bytes;
+          verified = verifyImageAtBirth(bytes, page.canonical_page_number, MIN_IMAGE_BYTES);
+        }
+        const sb = defill.report.gate_after;
+        if (!sb.pass || defill.report.hard_giveup) {
           repairAttempts[String(page.canonical_page_number)] = attempt + 1;
           errors.push({
             page: page.canonical_page_number,
-            error: `solid_black_gate: ${sb.reasons.join("; ")}`,
+            error: `solid_black_gate: ${sb.reasons.join("; ")}${defill.report.hard_giveup ? " [hard_giveup]" : ""}`,
             reasons: sb.reasons,
+            de_fill_report: defill.report,
           } as any);
           continue;
         }
@@ -484,6 +494,20 @@ Deno.serve(async (req: Request) => {
           render_params: { ...INTERIOR_GEN_PARAMS },
           image_provider: providerUsed,
           image_provider_attempts: gen.attempts,
+          de_fill: {
+            version: defill.report.version,
+            applied: defill.report.applied,
+            saved_by_defill: defill.report.saved_by_defill,
+            raw_hash: defill.report.raw_hash,
+            processed_hash: defill.report.processed_hash,
+            black_ratio_before: defill.report.black_ratio_before,
+            black_ratio_after: defill.report.black_ratio_after,
+            largest_cluster_before: defill.report.largest_cluster_before,
+            largest_cluster_after: defill.report.largest_cluster_after,
+            clusters_defilled: defill.report.clusters_defilled,
+            shadows_cleared: defill.report.shadows_cleared,
+            pixels_whitened: defill.report.pixels_whitened,
+          },
           sharpness: {
             score: sharp.score,
             sobel_mean: sharp.sobel_mean,
