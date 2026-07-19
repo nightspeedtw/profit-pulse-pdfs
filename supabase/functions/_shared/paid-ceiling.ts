@@ -57,12 +57,15 @@ export const STEP_GROUPS: Record<string, RegExp> = {
   kids_repair_story_any: /^(kids_repair_story_gate|kids_surgical_story_repair)/,
 };
 
+let sharedDb: ReturnType<typeof createClient> | null = null;
 function db() {
-  return createClient(
+  if (sharedDb) return sharedDb;
+  sharedDb = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     { auth: { persistSession: false } },
   );
+  return sharedDb;
 }
 
 /**
