@@ -41,7 +41,7 @@ const BANNED_WORDS = ["watermark", "logo", "page number", "website"];
 
 export function buildMasterColoringCoverPrompt(input: MasterColoringCoverInput): string {
   const title = (input.title ?? "").trim();
-  const subtitle = (input.subtitle ?? "").trim() || "A Fun Coloring Adventure";
+  const subtitle = (input.subtitle ?? "").trim(); // OWNER LAW: empty subtitle = omit entirely (Rulebook v2 essentials-only)
   const ageBadge = (input.ageBadge ?? "").trim();
   const theme = (input.theme ?? input.categoryName ?? "cheerful children's coloring theme").trim();
   const mains = (input.mainCharacters ?? []).filter(Boolean).slice(0, 3);
@@ -49,29 +49,40 @@ export function buildMasterColoringCoverPrompt(input: MasterColoringCoverInput):
   const aspect = (input.aspectDescriptor ?? "8.5 x 8.5 inches, square 1:1").trim();
   const mainStr = mains.length ? mains.join(", ") : "1-3 adorable friendly characters that fit the theme";
   const bgStr = bgs.length ? bgs.join(", ") : "soft pastel scenery, gentle clouds, sparkles";
+  const hasSubtitle = subtitle.length > 0;
 
   const refClause = input.hasInteriorReferences
     ? "The attached interior pages are visual REFERENCE ONLY for theme, character design, line style, and age level. Do NOT copy, paste, trace, or reuse any interior page directly. Do NOT enlarge an interior page into the cover. REDRAW and REINTERPRET the characters and scene as a brand-new, commercially marketable cover illustration."
     : "";
 
+  const textElementsList = hasSubtitle
+    ? `"${title}", "${subtitle}", "${ageBadge}"`
+    : `"${title}", "${ageBadge}"`;
+  const spellingContract = hasSubtitle
+    ? `SPELLING CONTRACT — the title must read EXACTLY "${title}", the subtitle must read EXACTLY "${subtitle}", the age badge must read EXACTLY "${ageBadge}". Count the letters and check twice. Do NOT invent, drop, duplicate, transpose, hyphenate, split, or join any letter.`
+    : `SPELLING CONTRACT — the title must read EXACTLY "${title}" and the age badge must read EXACTLY "${ageBadge}". Count the letters and check twice. Do NOT invent, drop, duplicate, transpose, hyphenate, split, or join any letter. Do NOT add ANY subtitle, tagline, descriptor, or decorative word — the cover carries ONLY the title and the age badge.`;
+  const layoutClause = hasSubtitle
+    ? `The title must use large CUSTOM HAND-DRAWN illustrated lettering, not a plain standard system font. The lettering must be bold, rounded, playful, highly readable, correctly spelled letter-for-letter, visually integrated with the theme (subtle themed accents like stars, hearts, sparkles, rainbows, clouds, flowers are welcome), with a thick clean outline and warm fill colors. Place the main title inside the upper 30-40% of the cover. Place the subtitle immediately beneath the title on its own line. Place the age label inside a clear round badge in an upper or lower corner.`
+    : `The title must use large CUSTOM HAND-DRAWN illustrated lettering, not a plain standard system font. The lettering must be bold, rounded, playful, highly readable, correctly spelled letter-for-letter, visually integrated with the theme (subtle themed accents like stars, hearts, sparkles, rainbows, clouds, flowers are welcome), with a thick clean outline and warm fill colors. Place the main title inside the upper 30-40% of the cover. Place the age label inside a clear round badge in an upper or lower corner. There is NO subtitle line — do not invent one.`;
+
   const prompt = [
     `Create a premium front cover for a children's coloring book.`,
     refClause,
     `Book title: "${title}".`,
-    `Subtitle: "${subtitle}".`,
+    hasSubtitle ? `Subtitle: "${subtitle}".` : `NO subtitle — the cover has no subtitle line at all.`,
     `Age label: "${ageBadge}".`,
     `Theme: ${theme}.`,
     `Main characters: ${mainStr}.`,
     `Background elements: ${bgStr}.`,
     `Canvas size: ${aspect} front cover.`,
     `Use 1-3 newly illustrated main characters in a cute, friendly, expressive style with rounded shapes, cheerful faces, big kind eyes, and lively poses. Place the characters in the center or lower half of the cover. Build a bright, colorful, joyful background that supports the theme without becoming cluttered — clear foreground, midground, and background layers.`,
-    `The title must use large CUSTOM HAND-DRAWN illustrated lettering, not a plain standard system font. The lettering must be bold, rounded, playful, highly readable, correctly spelled letter-for-letter, visually integrated with the theme (subtle themed accents like stars, hearts, sparkles, rainbows, clouds, flowers are welcome), with a thick clean outline and warm fill colors. Place the main title inside the upper 30-40% of the cover. Place the subtitle immediately beneath the title on its own line. Place the age label inside a clear round badge in an upper or lower corner.`,
+    layoutClause,
     `SAFE-AREA — every letter, glyph, character, and important element must stay at least 0.25 inches away from the trim edge (interior 92% of the canvas). Nothing may be cropped by the edge. Nothing important may touch the border. Give the title generous breathing room; if the title is long, break it onto 2-3 balanced lines rather than letting a word run edge-to-edge.`,
     `Use bright cheerful pastel colors (pink, sky blue, mint, lavender, soft yellow, peach, cream) with strong contrast, clean outlines, balanced spacing, and a professional visual hierarchy. The cover must look attractive to children and trustworthy to parents, and must remain readable as a small online marketplace thumbnail.`,
-    `Include ONLY these three text elements anywhere in the image: "${title}", "${subtitle}", "${ageBadge}". No other words, taglines, credits, publisher name, price, page count, banner text, sound-effect words, character-name captions, or letter-shaped ornaments. Every ornament must be a pure graphic shape (star, dot, heart, leaf, sparkle) — never a letter or word.`,
-    `SPELLING CONTRACT — the title must read EXACTLY "${title}", the subtitle must read EXACTLY "${subtitle}", the age badge must read EXACTLY "${ageBadge}". Count the letters and check twice. Do NOT invent, drop, duplicate, transpose, hyphenate, split, or join any letter.`,
+    `Include ONLY these text elements anywhere in the image: ${textElementsList}. No other words, taglines, credits, publisher name, price, page count, banner text, sound-effect words, character-name captions, or letter-shaped ornaments. Every ornament must be a pure graphic shape (star, dot, heart, leaf, sparkle) — never a letter or word.`,
+    spellingContract,
     `Style: premium children's coloring book cover, whimsical, cheerful, clean composition, polished illustration, custom hand-drawn title lettering, strong visual hierarchy, professional book cover design, parent-friendly, kid-friendly, suitable for online marketplace thumbnail, high-resolution, print-ready composition.`,
-    `NEGATIVE — no watermark, no logo, no page numbers, no website URL, no extra text, no misspelled words, no duplicated title, no copied interior page, no photorealism, no 3D rendering, no photograph, no cluttered composition, no scary imagery, no tiny hard-to-see linework, no dark muddy palette.`,
+    `NEGATIVE — no watermark, no logo, no page numbers, no website URL, no extra text, no subtitle, no tagline, no descriptor word, no misspelled words, no duplicated title, no copied interior page, no photorealism, no 3D rendering, no photograph, no cluttered composition, no scary imagery, no tiny hard-to-see linework, no dark muddy palette.`,
   ].filter(Boolean).join(" ");
 
   return capAndAssert(prompt, { title, subtitle, ageBadge });
