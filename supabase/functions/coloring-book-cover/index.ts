@@ -650,7 +650,14 @@ Deno.serve(async (req: Request) => {
       runwareFallbackHeight: _trim.runwareIdeogram.fallbackHeight,
       gptImageSize: _trim.gptImageSize,
     };
-    const masterPromptAspect = _trim.key === "square_8_5"
+    // Owner law native-trim-ratio-only: canvas MUST match the row's trim
+    // aspect so `fitCoverArtToPortraitCanvas` doesn't throw
+    // `cover_art_off_trim_ratio` for square_8_5 books. Portrait books keep
+    // the historical portrait canvas; square books get an equal-side canvas.
+    const _isSquare = _trim.key === "square_8_5";
+    const CANVAS_W = _isSquare ? COLORING_COVER_WIDTH : COLORING_COVER_WIDTH;
+    const CANVAS_H = _isSquare ? COLORING_COVER_WIDTH : COLORING_COVER_HEIGHT;
+    const masterPromptAspect = _isSquare
       ? "8.5 x 8.5 inches, square 1:1"
       : "8.5 x 11 inches, portrait";
     const masterPrompt = buildMasterColoringCoverPrompt({
