@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Download, FileText, Star } from "lucide-react";
 import type { KidsTheme } from "@/lib/kidsTaxonomy";
 import { deriveSalePricing, derivePlatformReview, PLATFORM_REVIEW_TOOLTIP } from "@/lib/storefrontPricing";
+import { ensureColoringLabel } from "@/lib/coloring-title";
 
 export interface KidsBookCardData {
   id: string;
@@ -37,6 +38,9 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
   const isColoring = book.book_type === "coloring_book";
   const productHref = isColoring ? `/kids/coloring/${book.id}` : `/product/${book.id}`;
   const image = (isColoring && book.thumbnail_url) ? book.thumbnail_url : book.cover_url;
+  // Owner order 2026-07-20: coloring cards must always advertise "Coloring Book"
+  // so titles like "Cyber City Countdown" don't confuse buyers.
+  const displayTitle = isColoring ? ensureColoringLabel(book.title) : book.title;
 
   const pricing = deriveSalePricing(book.id, book.price_cents, book.storefront_meta);
   const rating = derivePlatformReview(book.id);
@@ -44,7 +48,7 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
   return (
     <Link
       to={productHref}
-      aria-label={`ดูรายละเอียด ${book.title}`}
+      aria-label={`ดูรายละเอียด ${displayTitle}`}
       className={[
         "group flex flex-col animate-fade-in-up",
         isStrip ? "flex-shrink-0 w-56 md:w-64" : "",
@@ -59,7 +63,7 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
         {image ? (
           <img
             src={image}
-            alt={book.title}
+            alt={displayTitle}
             loading="lazy"
             className={`absolute inset-0 w-full h-full ${isColoring ? "object-contain" : "object-cover object-center"} transition-transform duration-500 group-hover:scale-[1.03]`}
           />
@@ -78,10 +82,10 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
       {/* Meta rows — tight vertical rhythm, no extra padding container. */}
       <div className="mt-2 flex flex-col gap-1">
         <h3
-          title={book.title}
+          title={displayTitle}
           className="truncate text-[15px] leading-snug text-foreground group-hover:underline"
         >
-          {book.title}
+          {displayTitle}
         </h3>
 
         <div

@@ -20,6 +20,7 @@ import SocialProofBadges from "@/components/product/SocialProofBadges";
 import CompleteTheSetBundle from "@/components/product/CompleteTheSetBundle";
 import FlipbookPreview from "@/components/product/FlipbookPreview";
 import ReviewSummary from "@/components/product/ReviewSummary";
+import { ensureColoringLabel } from "@/lib/coloring-title";
 
 interface Row {
   id: string;
@@ -136,15 +137,16 @@ export default function ColoringProduct() {
     ? meta.contact_sheet_thumbs.slice(0, 10)
     : previewUrls.slice(0, 6);
 
-  const seoTitle = `${book.title} — Printable Coloring Book Ages ${ageMin}-${ageMax} (${pageCount} pages)`;
-  const seoDesc = `Instant PDF download. ${pageCount} unique ${categoryName.toLowerCase()} coloring pages for ages ${ageMin}–${ageMax}. Print at home on 8.5×11 paper, personal-use license, no ads, no repeats.`.slice(0, 160);
+  const displayTitle = ensureColoringLabel(book.title);
+  const seoTitle = `${displayTitle} — Printable Coloring Book Ages ${ageMin}-${ageMax} (${pageCount} pages)`;
+  const seoDesc = `Instant PDF download. ${pageCount} unique ${categoryName.toLowerCase()} coloring pages for ages ${ageMin}–${ageMax}. Print at home on 8.5×8.5 in square paper, personal-use license, no ads, no repeats.`.slice(0, 160);
   const canonical = typeof window !== "undefined" ? `${window.location.origin}/kids/coloring/${book.id}` : `/kids/coloring/${book.id}`;
   const ogImage = book.thumbnail_url || book.cover_url || undefined;
 
   const productJsonLd = {
     "@context": "https://schema.org",
     "@type": "Product",
-    name: book.title,
+    name: displayTitle,
     description: seoDesc,
     image: ogImage ? [ogImage] : undefined,
     category: `${categoryName} coloring book, ages ${ageMin}-${ageMax}`,
@@ -249,13 +251,13 @@ export default function ColoringProduct() {
               <button
                 type="button"
                 onClick={openPreview}
-                aria-label={`Preview inside ${book.title}`}
+                aria-label={`Preview inside ${displayTitle}`}
                 className="relative aspect-square bg-white border-2 border-foreground overflow-hidden group rounded-md"
               >
                 {main ? (
                   <img
                     src={main}
-                    alt={isCoverSlot ? book.title : `${book.title} — sample ${safeIdx}`}
+                    alt={isCoverSlot ? displayTitle : `${displayTitle} — sample ${safeIdx}`}
                     className="w-full h-full object-contain"
                   />
                 ) : (
@@ -281,7 +283,7 @@ export default function ColoringProduct() {
                     </button>
                   ))}
                   {gallery.length >= 2 && (
-                    <FlipbookPreview images={gallery} title={book.title || "Coloring book"} />
+                    <FlipbookPreview images={gallery} title={displayTitle} />
                   )}
                 </div>
               )}
@@ -303,7 +305,7 @@ export default function ColoringProduct() {
           </div>
 
           <h1 className="font-display text-4xl md:text-5xl leading-tight tracking-tight break-words">
-            {book.title}
+            {displayTitle}
           </h1>
           {book.subtitle && (
             <p className="text-base md:text-lg text-muted-foreground">{book.subtitle}</p>
@@ -354,7 +356,7 @@ export default function ColoringProduct() {
 
           <ul className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs md:text-sm text-muted-foreground">
             <li className="inline-flex items-center gap-2"><Download className="h-3.5 w-3.5" /> Instant PDF</li>
-            <li className="inline-flex items-center gap-2"><Printer className="h-3.5 w-3.5" /> 8.5×11 print-ready</li>
+            <li className="inline-flex items-center gap-2"><Printer className="h-3.5 w-3.5" /> 8.5×8.5 in square, print-ready</li>
             <li className="inline-flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5" /> Personal-use license</li>
             <li className="inline-flex items-center gap-2"><Sparkles className="h-3.5 w-3.5" /> Secure checkout</li>
           </ul>
@@ -415,7 +417,7 @@ export default function ColoringProduct() {
                 onClick={openPreview}
                 className="relative aspect-square border-2 border-border overflow-hidden group bg-white"
               >
-                <img src={u} alt={`${book.title} sample page ${i + 1}`} loading="lazy" className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500" />
+                <img src={u} alt={`${displayTitle} sample page ${i + 1}`} loading="lazy" className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500" />
                 <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-background/90 border border-foreground text-[10px] font-mono uppercase tracking-widest">
                   Preview
                 </span>
@@ -470,7 +472,7 @@ export default function ColoringProduct() {
       {/* ── Complete-the-set bundle (auto, discounted) ──────────────── */}
       <CompleteTheSetBundle
         ebookId={book.id}
-        ebookTitle={book.title || "This book"}
+        ebookTitle={displayTitle}
         ebookPriceCents={priceCents}
         ebookCoverUrl={book.cover_url}
         siblings={siblings}
@@ -520,7 +522,7 @@ export default function ColoringProduct() {
 
       <ColoringPreviewLightbox
         ebookId={book.id}
-        title={book.title}
+        title={displayTitle}
         coverUrl={book.cover_url}
         previewUrls={previewUrls}
         open={preview}
