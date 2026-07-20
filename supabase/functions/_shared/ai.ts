@@ -196,6 +196,7 @@ export async function aiJSON<T>(opts: {
   }
 
   // --- gateway path ---
+  assertGatewayAllowed("aiJSON");
   if (!key) throw new Error("LOVABLE_API_KEY not configured");
 
   async function call(maxTokens: number) {
