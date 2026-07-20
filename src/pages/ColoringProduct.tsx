@@ -305,7 +305,7 @@ export default function ColoringProduct() {
           </div>
 
           <h1 className="font-display text-4xl md:text-5xl leading-tight tracking-tight break-words">
-            {book.title}
+            {displayTitle}
           </h1>
           {book.subtitle && (
             <p className="text-base md:text-lg text-muted-foreground">{book.subtitle}</p>
