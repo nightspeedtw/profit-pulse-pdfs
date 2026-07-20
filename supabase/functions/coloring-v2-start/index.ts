@@ -17,7 +17,10 @@ const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const db = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
-const ALLOWED_BANDS = new Set(["4-6", "7-9", "8-12", "13+"]);
+// V2 generation age bands. Note: "all" is a UI filter only and MUST NOT be
+// accepted here. Legacy V2 slugs "7-9" and "13+" are rejected.
+const ALLOWED_BANDS = new Set(["2-4", "4-6", "6-8", "8-12", "13-17", "all-ages"]);
+const RANDOMIZABLE_BANDS = ["2-4", "4-6", "6-8", "8-12", "13-17", "all-ages"];
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
