@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Search, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import KidsHeroCompact from "@/components/kids/KidsHeroCompact";
 import { KidsBookCard, type KidsBookCardData } from "@/components/kids/KidsBookCard";
 import { KidsSectionNav } from "@/components/kids/KidsSectionNav";
+import { KidsCategorySection } from "@/components/kids/KidsCategorySection";
+import { KidsFinalCta } from "@/components/kids/KidsFinalCta";
 import { PreviewLightbox } from "@/components/kids/PreviewLightbox";
 import { resolveAgeChip, bookMatchesAgeChip, bookIsForKids } from "@/lib/kidsCatalogTaxonomy";
 import { bookMatchesType } from "@/lib/kidsBookTypes";
@@ -117,7 +119,6 @@ export default function Kids() {
     catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -129,14 +130,18 @@ export default function Kids() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  const filtersActive = !!(type || age || query.trim());
+  const catalogLabel = filtersActive ? "Your Selected Adventures" : "Magical Shelf";
+
   return (
     <>
       <KidsSectionNav />
 
-      <div className="sticky top-[8rem] z-30 border-b border-border/60 bg-background/95 backdrop-blur">
+      {/* Search bar — magical lavender glass, matches the filter theme */}
+      <div className="sticky top-[8.25rem] z-20 border-b border-[#DED7F2]/70 bg-[#FFFDF8]/85 backdrop-blur-md">
         <div className="mx-auto max-w-[1600px] px-4 py-3">
           <div className="relative">
-            <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-muted-foreground">
+            <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[#6F688C]">
               <Search className="h-4 w-4" aria-hidden="true" />
             </span>
             <input
@@ -146,10 +151,10 @@ export default function Kids() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search coloring books, stories, activities…"
               aria-label="Search kids books"
-              className="w-full rounded-full border border-input bg-muted/40 py-2.5 pl-10 pr-24 text-sm text-foreground shadow-sm outline-none ring-primary transition placeholder:text-muted-foreground focus:border-primary focus:bg-background focus:ring-2"
+              className="w-full rounded-full border border-[#DED7F2] bg-white/90 py-3 pl-11 pr-24 text-sm text-[#19163A] shadow-sm outline-none transition placeholder:text-[#6F688C]/80 focus:border-[#5B3FD6] focus:ring-2 focus:ring-[#5B3FD6]/25"
             />
-            <div className="pointer-events-none absolute inset-y-0 right-0 hidden items-center pr-4 text-xs text-muted-foreground sm:flex">
-              <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-sans">Ctrl K</kbd>
+            <div className="pointer-events-none absolute inset-y-0 right-0 hidden items-center pr-4 text-xs text-[#6F688C] sm:flex">
+              <kbd className="rounded border border-[#DED7F2] bg-[#F1EDFF] px-1.5 py-0.5 font-sans">Ctrl K</kbd>
             </div>
           </div>
         </div>
@@ -157,17 +162,27 @@ export default function Kids() {
 
       <KidsHeroCompact onCtaClick={scrollToCatalog} />
 
-      <div ref={catalogRef} className="mx-auto max-w-[1600px] px-4 pt-4 text-xs font-mono uppercase tracking-widest text-muted-foreground">
-        {filtered.length} {filtered.length === 1 ? "book" : "books"}
+      <KidsCategorySection books={kidsEligible} />
+
+      <div ref={catalogRef} className="mx-auto max-w-[1600px] px-4">
+        <div className="flex items-baseline gap-2 pt-2 pb-1">
+          <Sparkles className="h-4 w-4 text-[#FFC44D]" strokeWidth={2} aria-hidden="true" />
+          <h2 className="font-display text-lg md:text-xl text-[#19163A]">
+            {catalogLabel}
+            <span className="ml-2 text-[#6F688C] font-sans font-normal text-sm md:text-base">
+              · {filtered.length} {filtered.length === 1 ? "Book" : "Books"}
+            </span>
+          </h2>
+        </div>
       </div>
 
-      <section aria-label="Kids book catalog" className="mx-auto max-w-[1600px] px-4 py-6 md:py-10">
+      <section aria-label="Kids book catalog" className="mx-auto max-w-[1600px] px-4 pt-4 pb-8 md:pb-12">
         {loading ? (
           <div className="flex justify-center py-16">
-            <Loader2 className="h-8 w-8 animate-spin text-accent" />
+            <Loader2 className="h-8 w-8 animate-spin text-[#5B3FD6]" />
           </div>
         ) : filtered.length === 0 ? (
-          <EmptyState onClear={() => updateFilters({ type: null, subcategory: null, age: null })} />
+          <EmptyState onClear={() => { setQuery(""); updateFilters({ type: null, subcategory: null, age: null }); }} />
         ) : (
           <ul className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6">
             {filtered.map((b, i) => (
@@ -206,6 +221,8 @@ export default function Kids() {
         )}
       </section>
 
+      <KidsFinalCta />
+
       <PreviewLightbox
         open={!!previewBook}
         onClose={() => setPreviewBook(null)}
@@ -218,17 +235,20 @@ export default function Kids() {
 
 function EmptyState({ onClear }: { onClear: () => void }) {
   return (
-    <div className="mx-auto max-w-md rounded-2xl border border-dashed border-border bg-muted/30 p-8 text-center">
-      <p className="text-lg font-medium text-foreground">No books match those filters yet</p>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Try broadening your filters, or clear them to browse everything on the shelf.
+    <div className="mx-auto max-w-lg rounded-3xl border border-[#DED7F2] bg-gradient-to-br from-[#F8F6FF] to-[#FFF9EE] p-10 text-center shadow-[0_20px_40px_-24px_rgba(91,63,214,0.3)]">
+      <div className="mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-[#5B3FD6] to-[#3C7BFF] text-[#FFE19A]">
+        <Sparkles className="h-7 w-7" strokeWidth={2} />
+      </div>
+      <p className="font-display text-xl text-[#19163A]">No adventures match those filters yet.</p>
+      <p className="mt-2 text-sm text-[#6F688C]">
+        Try another age or book type, or clear the filters to see the full magical shelf.
       </p>
       <button
         type="button"
         onClick={onClear}
-        className="mt-5 inline-flex min-h-11 items-center rounded-full bg-accent px-5 text-sm font-semibold text-accent-foreground transition hover:opacity-90"
+        className="kids-cta-gold mt-6 inline-flex min-h-12 items-center rounded-full px-6 text-sm font-semibold"
       >
-        Clear filters
+        Show all books
       </button>
     </div>
   );
