@@ -1,7 +1,16 @@
-// coloring-v2-pdf — assembles 8.5x8.5in square PDF: cover + interiors.
+// coloring-v2-pdf — assembles 8.5x8.5in square PDF: cover + matter + interiors + certificate.
+// Matter pages design v2 (owner order 2026-07-20 — matter_pages_design_v2).
 // @ts-nocheck
-import { PDFDocument } from "npm:pdf-lib@1.17.1";
+import { PDFDocument, StandardFonts } from "npm:pdf-lib@1.17.1";
 import { advance, corsHeaders, db, fetchBook, fireStage, json, recordError, uploadAsset } from "../_shared/coloring-v2/state.ts";
+import {
+  resolveMatterStyle,
+  drawColoringTitlePage,
+  drawColoringCopyrightPage,
+  drawColoringHowToPage,
+  drawColoringCertificatePage,
+  defaultCopyrightText,
+} from "../_shared/coloring/matter-pages.ts";
 
 declare const Deno: any;
 
@@ -45,28 +54,88 @@ Deno.serve(async (req: Request) => {
       return new Uint8Array(await data.arrayBuffer());
     }
 
-    async function addImagePage(path: string) {
+    async function embedAny(bytes: Uint8Array, path: string) {
+      const lower = path.toLowerCase();
+      if (lower.endsWith(".png")) return await pdf.embedPng(bytes);
+      return await pdf.embedJpg(bytes);
+    }
+
+    async function addFullBleedImagePage(path: string) {
       const bytes = await downloadImage(path);
-      const img = path.toLowerCase().endsWith(".png")
-        ? await pdf.embedPng(bytes)
-        : await pdf.embedJpg(bytes);
+      const img = await embedAny(bytes, path);
       const page = pdf.addPage([TRIM_PT, TRIM_PT]);
       page.drawImage(img, { x: 0, y: 0, width: TRIM_PT, height: TRIM_PT });
     }
 
-    // Cover
-    await addImagePage(coverAsset.storage_path);
-    // Interiors
-    for (const it of interiors) await addImagePage(it.storage_path);
+    // Fonts + matter styling
+    const helv = await pdf.embedFont(StandardFonts.Helvetica);
+    const helvBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+    const ageMin = Number(book.age_min ?? 4);
+    const ageMax = Number(book.age_max ?? Math.max(6, ageMin + 2));
+    const style = resolveMatterStyle(ageMin, ageMax);
+    const ageBadge = `Ages ${ageMin}-${ageMax}`;
+    const subtitle = book.subtitle || `${interiors.length} Coloring Pages · ${ageBadge}`;
+    const brand = "A SecretPDF Kids coloring book";
+
+    // Grayscale vignettes reused from first 2 interior pages (0 extra AI cost).
+    const vignettes: any[] = [];
+    for (const src of interiors.slice(0, 2)) {
+      try {
+        const bytes = await downloadImage(src.storage_path);
+        const img = await embedAny(bytes, src.storage_path);
+        if (img) vignettes.push(img);
+      } catch { /* best-effort */ }
+    }
+
+    // 1) Full-bleed cover
+    await addFullBleedImagePage(coverAsset.storage_path);
+
+    // 2) Title page (matter_pages_design_v2)
+    {
+      const p = pdf.addPage([TRIM_PT, TRIM_PT]);
+      drawColoringTitlePage(
+        { page: p, pageW: TRIM_PT, pageH: TRIM_PT, style, font: helv, fontBold: helvBold, vignettes },
+        { title: book.title ?? "Coloring Book", subtitle, brand },
+      );
+    }
+    // 3) Copyright page
+    {
+      const p = pdf.addPage([TRIM_PT, TRIM_PT]);
+      drawColoringCopyrightPage(
+        { page: p, pageW: TRIM_PT, pageH: TRIM_PT, style, font: helv, fontBold: helvBold, vignettes },
+        { legalText: defaultCopyrightText() },
+      );
+    }
+    // 4) How-to page
+    {
+      const p = pdf.addPage([TRIM_PT, TRIM_PT]);
+      drawColoringHowToPage(
+        { page: p, pageW: TRIM_PT, pageH: TRIM_PT, style, font: helv, fontBold: helvBold, vignettes },
+        { totalPages: interiors.length },
+      );
+    }
+
+    // 5) Interior coloring pages (full-bleed)
+    for (const it of interiors) await addFullBleedImagePage(it.storage_path);
+
+    // 6) Certificate back page
+    {
+      const p = pdf.addPage([TRIM_PT, TRIM_PT]);
+      drawColoringCertificatePage(
+        { page: p, pageW: TRIM_PT, pageH: TRIM_PT, style, font: helv, fontBold: helvBold, vignettes },
+        { title: book.title ?? "Coloring Book", totalPages: interiors.length, ageBadge },
+      );
+    }
 
     const pdfBytes = await pdf.save();
+    const totalPageCount = pdf.getPageCount();
 
     const asset = await uploadAsset(book_id, "pdf", pdfBytes, "pdf",
-      { pages: 1 + interiors.length, size_bytes: pdfBytes.byteLength });
+      { pages: totalPageCount, size_bytes: pdfBytes.byteLength, matter_version: "matter_pages_design_v2" });
 
     await db().from("coloring_v2_pdf_artifacts").insert({
       book_id, storage_path: asset.storage_path, sha256: asset.sha256,
-      page_count: 1 + interiors.length, size_bytes: pdfBytes.byteLength, is_final: true,
+      page_count: totalPageCount, size_bytes: pdfBytes.byteLength, is_final: true,
     });
 
     await db().from("coloring_v2_books").update({
@@ -75,7 +144,7 @@ Deno.serve(async (req: Request) => {
 
     await advance(book_id, "pdf", "publish");
     await fireStage("coloring-v2-publish", { book_id });
-    return json({ ok: true, pdf_asset: asset.id, pages: 1 + interiors.length, next: "publish" });
+    return json({ ok: true, pdf_asset: asset.id, pages: totalPageCount, next: "publish", matter_version: "matter_pages_design_v2" });
   } catch (e: any) {
     await recordError(book_id, "pdf", e);
     return json({ error: e?.message ?? String(e) }, 500);
