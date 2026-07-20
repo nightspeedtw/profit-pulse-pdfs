@@ -123,7 +123,7 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
 
 
         <div className="flex items-baseline flex-wrap gap-x-1.5 gap-y-0">
-          <span className="text-[15px] font-bold text-accent tabular-nums">
+          <span className="text-[16px] font-extrabold text-red-600 tabular-nums">
             {pricing.priceLabel}
           </span>
           {pricing.originalLabel && (
@@ -132,13 +132,18 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
                 {pricing.originalLabel}
               </span>
               {pricing.discountPct != null && (
-                <span className="text-xs text-muted-foreground">
-                  ({pricing.discountPct}% off)
+                <span className="text-xs font-semibold text-red-600">
+                  −{pricing.discountPct}%
                 </span>
               )}
             </>
           )}
         </div>
+        {pricing.originalLabel && pricing.discountPct != null && (
+          <p className="text-[11px] font-medium text-green-700">
+            You save ${((Number(pricing.originalLabel.replace("$","")) - Number(pricing.priceLabel.replace("$","")))).toFixed(2)} today
+          </p>
+        )}
 
         <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
           <Download className="h-3 w-3" strokeWidth={2} />
