@@ -106,10 +106,12 @@ export default function Kids() {
 
   const filtered = useMemo(() => {
     const chip = resolveAgeChip(age);
+    const q = query.trim().toLowerCase();
     return kidsEligible
       .filter((b) => bookMatchesType(b, type, subcategory))
-      .filter((b) => (chip ? bookMatchesAgeChip(b, chip) : true));
-  }, [kidsEligible, type, subcategory, age]);
+      .filter((b) => (chip ? bookMatchesAgeChip(b, chip) : true))
+      .filter((b) => (q ? b.title.toLowerCase().includes(q) : true));
+  }, [kidsEligible, type, subcategory, age, query]);
 
   const scrollToCatalog = () => {
     catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
