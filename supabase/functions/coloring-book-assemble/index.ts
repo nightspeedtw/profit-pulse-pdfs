@@ -40,6 +40,14 @@ import { checkCoverAspect } from "../_shared/coloring/cover-aspect-gate.ts";
 import { fitContainCover, fitCoverFullBleed } from "../_shared/coloring/pdf-cover-fit.ts";
 import { getTrimProfile, TRIM_PROFILES, resolveTrimProfileKey } from "../_shared/coloring/trim-lock.ts";
 import { sanitizeMetadataPatchForPersist } from "../_shared/coloring/metadata-bloat-guard.ts";
+import {
+  resolveMatterStyle,
+  drawColoringTitlePage,
+  drawColoringCopyrightPage,
+  drawColoringHowToPage,
+  drawColoringCertificatePage,
+  defaultCopyrightText,
+} from "../_shared/coloring/matter-pages.ts";
 
 declare const Deno: any;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
