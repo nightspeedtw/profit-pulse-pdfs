@@ -18,7 +18,9 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 declare const Deno: any;
 
-const MIN_PRICE_CENTS = 500;
+// Owner directive: allow deep discounts landing final price in the $2–$5 range.
+// Absolute floor is $2 (200¢); campaigns may set their own floor above this.
+const MIN_PRICE_CENTS = 200;
 
 interface Campaign {
   id: string;
