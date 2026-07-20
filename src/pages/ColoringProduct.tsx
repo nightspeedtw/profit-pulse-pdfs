@@ -264,7 +264,7 @@ export default function ColoringProduct() {
                 </span>
               </button>
               {gallery.length > 1 && (
-                <div className={`grid gap-2 ${gallery.length >= 6 ? "grid-cols-6" : gallery.length === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
+                <div className={`grid gap-2 ${gallery.length >= 5 ? "grid-cols-6" : "grid-cols-5"}`}>
                   {gallery.map((u, i) => (
                     <button
                       key={`${u}-${i}`}
@@ -278,6 +278,9 @@ export default function ColoringProduct() {
                       <img src={u} alt="" loading="lazy" className="w-full h-full object-contain" />
                     </button>
                   ))}
+                  {gallery.length >= 2 && (
+                    <FlipbookPreview images={gallery} title={book.title || "Coloring book"} />
+                  )}
                 </div>
               )}
             </div>
