@@ -46,7 +46,61 @@ type DriveFile = {
   modifiedTime?: string;
   size?: string;
   parents?: string[];
+  thumbnailLink?: string;
 };
+
+async function fetchAndStoreThumbnail(
+  supa: ReturnType<typeof createClient>,
+  fileId: string,
+  thumbnailLink: string | undefined,
+): Promise<string | null> {
+  // Try candidate URLs in order: API-provided thumbnailLink (bumped size),
+  // then Drive's public thumbnail endpoint (works for shared/visible files).
+  const candidates: string[] = [];
+  if (thumbnailLink) {
+    candidates.push(thumbnailLink.replace(/=s\d+(-[a-z])?$/i, '=s1600'));
+  }
+  candidates.push(`https://drive.google.com/thumbnail?id=${fileId}&sz=w1600`);
+
+  for (const url of candidates) {
+    try {
+      const r = await fetch(url, { redirect: 'follow' });
+      if (!r.ok) {
+        console.warn(`[drive-importer] thumb ${fileId} ${r.status} @ ${url.slice(0, 60)}`);
+        continue;
+      }
+      const ct = r.headers.get('content-type') || 'image/jpeg';
+      if (!ct.startsWith('image/')) {
+        console.warn(`[drive-importer] thumb ${fileId} non-image ct=${ct}`);
+        continue;
+      }
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      if (bytes.byteLength < 500) {
+        console.warn(`[drive-importer] thumb ${fileId} tiny ${bytes.byteLength}b`);
+        continue;
+      }
+      const ext = ct.includes('png') ? 'png' : 'jpg';
+      const path = `drive/thumbs/${fileId}.${ext}`;
+      const { error } = await supa.storage
+        .from('ebook-pdfs')
+        .upload(path, bytes, { contentType: ct, upsert: true });
+      if (error) {
+        console.warn(`[drive-importer] thumb upload ${fileId}: ${error.message}`);
+        continue;
+      }
+      const { data: signed } = await supa.storage
+        .from('ebook-pdfs')
+        .createSignedUrl(path, 60 * 60 * 24 * 365 * 5);
+      console.log(`[drive-importer] thumb OK ${fileId} ${bytes.byteLength}b`);
+      return signed?.signedUrl ?? null;
+    } catch (e) {
+      console.warn(`[drive-importer] thumb err ${fileId}:`, e);
+    }
+  }
+  return null;
+}
+
+
 
 async function listFolder(folderId: string): Promise<DriveFile[]> {
   const all: DriveFile[] = [];
@@ -56,9 +110,10 @@ async function listFolder(folderId: string): Promise<DriveFile[]> {
     url.searchParams.set('q', `'${folderId}' in parents and trashed=false`);
     url.searchParams.set(
       'fields',
-      'nextPageToken, files(id,name,mimeType,modifiedTime,size,parents)',
+      'nextPageToken, files(id,name,mimeType,modifiedTime,size,parents,thumbnailLink)',
     );
     url.searchParams.set('pageSize', '200');
+
     if (pageToken) url.searchParams.set('pageToken', pageToken);
     const r = await fetch(url, { headers: driveHeaders() });
     if (!r.ok) throw new Error(`drive list ${folderId}: ${r.status} ${await r.text()}`);
@@ -169,6 +224,9 @@ Deno.serve(async (req) => {
         const title = prettyTitle(file.name);
         const baseSlug = slugify(file.name);
 
+        const thumbUrl = await fetchAndStoreThumbnail(supa, file.id, file.thumbnailLink);
+        const coverForKids = thumbUrl ?? '/placeholder.svg';
+
         const row = {
           drive_file_id: file.id,
           drive_modified_time: file.modifiedTime,
@@ -183,8 +241,13 @@ Deno.serve(async (req) => {
           file_size_bytes: file.size ? Number(file.size) : bytes.length,
           sha256: hash,
           status: 'live',
-          import_error: null,
+          import_error: thumbUrl
+            ? null
+            : `thumb-debug: hadLink=${!!file.thumbnailLink} link=${(file.thumbnailLink || '').slice(0, 80)}`,
         };
+
+
+
 
         if (existing) {
           await supa.from('drive_products').update(row).eq('id', existing.id);
@@ -198,34 +261,44 @@ Deno.serve(async (req) => {
         // /kids storefront and is filterable by book_type. Idempotent via
         // the unique `drive_file_id` column.
         const kidsBookType = category === 'coloring' ? 'coloring_book' : 'picture_book';
-        await supa
+        const kidsPayload = {
+          drive_file_id: file.id,
+          title,
+          book_type: kidsBookType,
+          pdf_url: signed?.signedUrl ?? null,
+          cover_url: coverForKids,
+          thumbnail_url: coverForKids,
+          price_cents: cfg.default_price_cents,
+          age_band: 'all_ages',
+          age_min: 2,
+          age_max: 12,
+          listing_status: 'live',
+          sellable: true,
+          pipeline_status: 'published',
+          ever_live: true,
+          storefront_meta: {
+            source: 'drive_import',
+            drive_file_id: file.id,
+            drive_parent_folder_name: parentName,
+          },
+        };
+        const { data: existingKid } = await supa
           .from('ebooks_kids')
-          .upsert(
-            {
-              drive_file_id: file.id,
-              title,
-              book_type: kidsBookType,
-              pdf_url: signed?.signedUrl ?? null,
-              // Placeholder cover so the live-assets guard doesn't demote to
-              // draft. Cover art can be regenerated later by the pipeline.
-              cover_url: '/placeholder.svg',
-              thumbnail_url: '/placeholder.svg',
-              price_cents: cfg.default_price_cents,
-              age_band: 'all_ages',
-              age_min: 2,
-              age_max: 12,
-              listing_status: 'live',
-              sellable: true,
-              pipeline_status: 'published',
-              ever_live: true,
-              storefront_meta: {
-                source: 'drive_import',
-                drive_file_id: file.id,
-                drive_parent_folder_name: parentName,
-              },
-            },
-            { onConflict: 'drive_file_id' },
-          );
+          .select('id')
+          .eq('drive_file_id', file.id)
+          .maybeSingle();
+        const { error: kidsErr } = existingKid
+          ? await supa.from('ebooks_kids').update(kidsPayload).eq('id', existingKid.id)
+          : await supa.from('ebooks_kids').insert(kidsPayload);
+        if (kidsErr) {
+          console.error('[drive-importer] kids upsert', file.id, kidsErr);
+          await supa
+            .from('drive_products')
+            .update({ import_error: `kids-upsert: ${kidsErr.message}`.slice(0, 400) })
+            .eq('drive_file_id', file.id);
+        }
+
+
 
       } catch (e) {
         const msg = `${file.name}: ${e instanceof Error ? e.message : String(e)}`;
