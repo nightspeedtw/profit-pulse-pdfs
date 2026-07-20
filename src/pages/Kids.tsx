@@ -3,7 +3,6 @@ import { useSearchParams } from "react-router-dom";
 import { Loader2, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import KidsHeroCompact from "@/components/kids/KidsHeroCompact";
-import KidsCategoryStrip from "@/components/kids/KidsCategoryStrip";
 import { KidsBookCard, type KidsBookCardData } from "@/components/kids/KidsBookCard";
 import { KidsSectionNav } from "@/components/kids/KidsSectionNav";
 import { PreviewLightbox } from "@/components/kids/PreviewLightbox";
