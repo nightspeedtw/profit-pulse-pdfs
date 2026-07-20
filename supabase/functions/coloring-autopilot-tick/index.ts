@@ -99,6 +99,13 @@ function weightedPick<T extends { weight?: number }>(items: T[]): T {
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // 2026-07-20: OWNER CUTOVER — V1 lane is shelved. This autopilot is a no-op.
+  // V2 autopilot (coloring-v2-autopilot) is now the sole creator of new
+  // coloring books.
+  return new Response(JSON.stringify({
+    ok: true, deprecated: true, lane: "coloring_v1", redirect_to: "coloring-v2-autopilot",
+    queued: [], skipped: "coloring_lane_v1_deprecated",
+  }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   const url = Deno.env.get("SUPABASE_URL")!;
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const db = createClient(url, service, { auth: { persistSession: false } });

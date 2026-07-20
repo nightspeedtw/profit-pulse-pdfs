@@ -33,6 +33,12 @@ const db = createClient(_SB_URL, _SB_KEY, { auth: { persistSession: false } });
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // 2026-07-20: OWNER CUTOVER — V1 lane shelved. Worker tick is no-op.
+  return new Response(JSON.stringify({
+    ok: true, deprecated: true, lane: "coloring_v1", redirect_to: "coloring-v2-tick",
+    dispatched: [], skipped: "coloring_lane_v1_deprecated",
+  }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  // eslint-disable-next-line no-unreachable
   const result: Record<string, unknown> = { tick_at: new Date().toISOString(), dispatched: [] };
 
   try {
