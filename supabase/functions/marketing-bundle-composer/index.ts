@@ -31,7 +31,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: books, error } = await db
     .from("ebooks_kids")
-    .select("id, title, book_type, age_range_min, age_range_max, price_cents, cover_url, category_slug, created_at")
+    .select("id, title, book_type, age_min, age_max, price_cents, cover_url, created_at")
     .eq("listing_status", "live")
     .eq("sellable", true)
     .not("cover_url", "is", null)
@@ -46,7 +46,7 @@ Deno.serve(async (req: Request) => {
   // Group by (age band, book_type) — one bundle per group.
   const groups = new Map<string, any[]>();
   for (const b of books ?? []) {
-    const band = `${b.age_range_min ?? "?"}-${b.age_range_max ?? "?"}`;
+    const band = `${b.age_min ?? "?"}-${b.age_max ?? "?"}`;
     const key = `${band}::${b.book_type ?? "misc"}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(b);

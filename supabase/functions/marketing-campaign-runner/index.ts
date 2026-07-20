@@ -96,7 +96,7 @@ async function activateCampaign(db: any, c: Campaign) {
   // 1) Discover eligible ebook_kids rows in scope.
   let q = db
     .from("ebooks_kids")
-    .select("id, book_type, age_range_min, age_range_max, price_cents")
+    .select("id, book_type, age_min, age_max, price_cents")
     .eq("listing_status", "live");
   if (c.audience_book_types && c.audience_book_types.length > 0) {
     q = q.in("book_type", c.audience_book_types);
@@ -108,7 +108,7 @@ async function activateCampaign(db: any, c: Campaign) {
     if (!c.audience_age_bands || c.audience_age_bands.length === 0) return true;
     // Match if the book's age range overlaps any listed band. Bands are freeform
     // strings like '0-3', '4-6', '5-7' etc.
-    const bookBand = `${b.age_range_min ?? ""}-${b.age_range_max ?? ""}`;
+    const bookBand = `${b.age_min ?? ""}-${b.age_max ?? ""}`;
     return c.audience_age_bands.includes(bookBand);
   });
 
