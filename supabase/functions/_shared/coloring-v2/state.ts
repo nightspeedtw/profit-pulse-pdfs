@@ -72,7 +72,7 @@ export async function callAiJson(prompt: string, system: string, model = "google
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Lovable-API-Key": key,
+      Authorization: `Bearer ${key}`,
     },
     body: JSON.stringify({
       model,
