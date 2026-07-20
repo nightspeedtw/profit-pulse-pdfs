@@ -1,100 +1,76 @@
+# Coloring Lane V2 — Full Pipeline Build + Test Book
 
-# Premium Coloring Book Lane V2 — Isolated Build Plan
+Isolated V2 lane (feature-flagged, `coloring_v2_*` tables, `coloring-v2-*` functions, `coloring-v2` bucket) already has `coloring-v2-start` and admin UI. This plan builds the remaining stages, wires them into a single tick loop, and ships a 32-page Ages 13-17 test book.
 
-Goal: build a **parallel** coloring pipeline (`coloring_v2_*`, `/admin/coloring-lab-v2`) that never mutates the existing lane's routes, tables, storage, functions, or status machine. Gated by `ENABLE_COLORING_LANE_V2` (default OFF).
+## Pipeline Contract
 
-## 0. Isolation contract (hard rules)
-- No edits to existing `coloring-*` edge functions, `ebooks_kids`, `coloring_*` tables (non-v2), `ebook-pdfs` / `ebook-covers` buckets, or existing routes.
-- New code is additive only. Old migrations untouched.
-- Namespaces:
-  - Routes: `/admin/coloring-lab-v2`, `/coloring-preview-v2/:bookId`
-  - DB prefix: `coloring_v2_`
-  - Storage bucket: `coloring-v2` (private)
-  - Edge functions prefix: `coloring-v2-`
-  - Log prefix: `[COLORING_V2]`
-  - Flag: `ENABLE_COLORING_LANE_V2` (client + server mirror in `src/config/features.ts` and `supabase/functions/_shared/features.ts`)
-- Regression guard: existing test suite must remain green; add explicit tests that old routes/functions are untouched.
+```text
+start (queued)
+ → concept        → style_bible
+ → page_plan      → interior_render (per page, parallel, N=32)
+ → cover_master   → cover_compose
+ → qc_visual      → repair_loop? (max 2)
+ → pdf_build      → publish (sellable=true)
+```
 
-## 1. Age bands (per user answer — expand site)
-Add new slugs used **only inside V2** (existing SEO/taxonomy unchanged):
-- `4-6` Big & Easy — 15–30 regions, thick lines, 1 focal subject
-- `7-9` Growing Detail — 30–60 regions
-- `8-12` Detailed Adventure — 50–100 regions
-- `13+` Advanced Coloring — 80–160 regions
+State stored in `coloring_v2_books.stage` + `coloring_v2_steps` (one row per stage attempt). All artifacts land in `coloring_v2_assets` with `kind` = `concept|style_bible|page_plan|interior|cover_master|cover_final|pdf`.
 
-Stored in new `coloring_v2_age_bands` seed table with density/line-weight/region targets driving prompt + QC thresholds. Existing `coloring_age_bands` untouched.
+## New Edge Functions
 
-## 2. Data model (new migrations, additive)
-Tables (all with `GRANT` + RLS + `service_role`):
-`coloring_v2_books`, `coloring_v2_runs`, `coloring_v2_steps`, `coloring_v2_style_bibles`, `coloring_v2_character_bibles`, `coloring_v2_page_plans`, `coloring_v2_assets`, `coloring_v2_provider_calls`, `coloring_v2_qc_runs`, `coloring_v2_qc_findings`, `coloring_v2_repairs`, `coloring_v2_pdf_artifacts`, `coloring_v2_storefront_packages`, `coloring_v2_age_bands`.
+1. **coloring-v2-concept** — Gemini 2.5 Pro. Input: theme, age band, page count. Output: title (short, catchy, spelling-locked), subtitle, hero list, motif inventory, parent hook. Stored on `coloring_v2_books` + asset row.
+2. **coloring-v2-style-bible** — Gemini 2.5 Pro. Age-to-art matrix (2-4 chunky, 4-6 simple, 6-8 medium, 8-12 detailed, 13-17 intricate/mandala, all-ages balanced). Emits line-weight, complexity score, negative prompts, ref palette. Persist to `coloring_v2_style_bibles`.
+3. **coloring-v2-page-plan** — Gemini 2.5 Pro. N distinct scenes, anti-clone check vs prior pages. Persist to `coloring_v2_page_plans` (1 row per page).
+4. **coloring-v2-render-page** — Runware `ideogram:4@1`, square 1088×1088, coloring-book prompt template + style bible refs. Anatomy/deformity gate reused from `_shared/coloring/anatomy-verify.ts`. Writes to `coloring-v2` bucket + `coloring_v2_assets`. Retries: max 2, then flag page for repair.
+5. **coloring-v2-cover** — runs only after ≥60% interiors done. Uses 3 interior refs + master-cover-prompt. Square 1088×1088. Title shrink-to-fit typography overlay.
+6. **coloring-v2-qc** — Gemini 2.5 Pro vision. Per-page findings → `coloring_v2_qc_findings`. Hard gates: title spelling, anatomy, cover-interior style match. Soft gates logged.
+7. **coloring-v2-repair** — regenerates only failed pages (max 2 attempts each), then re-QC.
+8. **coloring-v2-pdf** — 8.5×8.5 square trim, cover-first, interior sequence from page plan order. Stored in `ebook-pdfs/v2/` + `coloring_v2_pdf_artifacts`.
+9. **coloring-v2-publish** — inserts/updates `ebooks_kids` row (existing storefront), sets `sellable=true`, `book_type='coloring_book'`, links cover/pdf/thumb, logs event.
+10. **coloring-v2-tick** — cron-driven dispatcher: picks next book by stage, calls the right function, advances stage, respects `ENABLE_COLORING_LANE_V2` flag + `autopilot_frozen` kill-switch. Also handles heartbeat.
 
-Independent status columns: `generation_status`, `qc_status`, `sellability_status`, `publish_status` (publish default `draft`; requires human approval).
+## Shared Modules
 
-New private storage bucket `coloring-v2`, path `{book_id}/{run_id}/...`.
+- `_shared/coloring-v2/prompts.ts` — concept, style bible, page plan, render, QC prompt builders keyed by age band.
+- `_shared/coloring-v2/age-matrix.ts` — line weight, complexity, allowed motifs, forbidden motifs per band.
+- `_shared/coloring-v2/state.ts` — atomic stage advance via `atomic_patch_ebooks_kids_meta`-style RPC (new: `coloring_v2_advance_stage`).
+- Reuses: `_shared/coloring/anatomy-verify.ts`, `_shared/coloring/master-cover-prompt.ts`, `_shared/coloring/metadata-bloat-guard.ts`, `_shared/direct-fallback.ts`.
 
-## 3. Provider router (V2-only adapter)
-New `supabase/functions/_shared/coloring-v2/providers/` reusing existing secrets (`GEMINI_API_KEY`, `OPENAI_API_KEY`, `RUNWARE_API_KEY`) via new adapters — does NOT touch `_shared/image-providers.ts` or `_shared/runware.ts` behavior.
+## DB Migrations
 
-Roles:
-- **Gemini** — concept/plan/QC-editorial/vision
-- **OpenAI (gpt-image-2)** — primary cover, illustrated lettering layer, premium interior, precise inpaint repair
-- **Runware** — draft/fallback/upscale
+- Add `stage`, `stage_updated_at`, `attempt_count`, `last_error` to `coloring_v2_books` if missing.
+- New RPC `coloring_v2_advance_stage(p_book uuid, p_from text, p_to text, p_patch jsonb)` — CAS-style, prevents race.
+- Storage: reuse `coloring-v2` bucket (private, admin RLS).
 
-Every call records model, prompt version, seed, in/out hash, cost. No silent downgrade.
+## Frontend
 
-## 4. Pipeline stages (edge functions)
-1. `coloring-v2-start` — accept controls, create book row
-2. `coloring-v2-concept` — Gemini: 5 titles, subtitles, hook, uniqueness check vs v2 corpus, score ≥85 or regenerate
-3. `coloring-v2-style-bible` — style + character bible persisted
-4. `coloring-v2-page-plan` — exactly 16 or 32 unique scenes with fingerprints
-5. `coloring-v2-interior-render` — per-page generation w/ style bible + prior refs
-6. `coloring-v2-cover-compose` — layered: background art → illustrated title lettering (separate layer) → OCR spell verify → composite → badge → thumbnail readability at 160/320px
-7. `coloring-v2-qc` — measured rules (see §5)
-8. `coloring-v2-repair` — targeted per-artifact/region repair (inpaint first, full regen last), max 5/page, then `human_review_required`
-9. `coloring-v2-pdf-assemble` — real PDF 8.5×8.5, embedded fonts, real text layers for facts
-10. `coloring-v2-pdf-verify` — rasterize each page back to PNG, re-run QC
-11. `coloring-v2-storefront-package` — copy + previews (publish stays `draft` until human approval)
-12. `coloring-v2-tick` — isolated dispatcher (own cron, own lock names)
+- `/admin/coloring-lab-v2` — add live progress table (stage, attempts, last_error) polling `coloring_v2_books` + `coloring_v2_steps`. Manual "advance" and "retry stage" buttons.
+- Existing preview `/coloring-preview-v2/:bookId` — render pages from `coloring_v2_assets`.
 
-## 5. Automated QC rules (measured, no hardcoded pass)
-IMAGE_EXISTS, IMAGE_DIMENSIONS, SQUARE_ASPECT, SAFE_MARGIN (≥7%), PURE_WHITE_BACKGROUND, GRAYSCALE_PIXEL_RATIO, SOLID_BLACK_AREA_RATIO, LINE_DENSITY_BY_AGE, CLOSED_REGION_DISTRIBUTION, WATERMARK_DETECTION, OCR_UNEXPECTED_TEXT, DUPLICATE_SIMILARITY (pHash), PAGE_COMPOSITION_SIMILARITY, CHARACTER_CONSISTENCY, STYLE_CONSISTENCY, ANATOMY_ANOMALY, HAND_FINGER_ANOMALY, MECHANICAL_COHERENCE, CROPPED_SUBJECT, PRINT_LEGIBILITY, COVER_TITLE_SPELLING (non-waivable), COVER_THUMBNAIL_READABILITY.
+## Feature Flag Rollout
 
-Each finding: rule_id, severity, page, measured_value, threshold, evidence crop, repair action, retry count, verification.
+- Set `platform_settings.enable_coloring_lane_v2 = true` behind admin toggle.
+- `coloring-v2-tick` no-ops when flag off.
 
-## 6. Admin UI (`/admin/coloring-lab-v2`)
-Start form (age mode select/random from 4 V2 bands, theme select/custom/random/surprise, language, page count 16/32, complexity, facts on/off, cover mood, character auto/custom, provider mode, autopilot mode, seed lock, retry budget), progress timeline, per-step provider/model/cost, cover preview at full/320/160, page thumbnail grid with failure badges, finding drawer w/ evidence + before/after, actions: approve cover, regenerate/repair page, Auto Repair All, pause/resume, re-run QC, re-render PDF, download PDF + QC report, duplicate settings w/ new random theme. Experimental banner.
+## Test Book (Phase 2)
 
-Nav link appears only when flag ON.
+After all functions deploy + smoke test one page render:
+- Kick `coloring-v2-start` with `{ theme: "Mystic Mandalas & Sacred Geometry", ageBand: "13-17", pages: 32 }`.
+- Watch tick advance through all stages.
+- Success = row in `ebooks_kids` with `sellable=true`, cover + 32 interior pages, PDF ≤ 40MB, QC passed, visible in storefront.
 
-## 7. Customer preview (`/coloring-preview-v2/:bookId`)
-Read-only preview of approved cover + sample pages. Not linked in public nav. No purchase path.
+## Non-Goals
 
-## 8. Tests (additive)
-- Flag isolation (routes/functions gated)
-- Existing routes/functions unchanged (snapshot)
-- V2 table + storage isolation
-- Age-band prompt rule matrix
-- Exact page count 16 / 32
-- Gates: gray, watermark, unexpected OCR text, duplicate, cover spelling, safe margin, invalid PDF, missing page, publish gate, retry-exhaustion → `human_review_required`, idempotent resume
-- Regression run of existing coloring test files must remain green
+- No Shopify, SEO, royalty wiring.
+- No changes to V1 coloring lane or novel lanes.
+- No changes to age bands beyond what's already in `coloring_v2_age_bands`.
 
-## 9. Acceptance run (mandatory)
-Execute one real book after implementation:
-- 8.5×8.5, English, ages **8-12**, theme "Space and planets", 16 coloring pages, custom illustrated title lettering.
-- Must satisfy every criterion in §18 of master prompt (spell-correct cover, no title-box font look, 16 unique interiors, no watermark/gray/text, PDF opens and rasterizes, overall QC ≥90, typography ≥95, sellability = sellable, publish stays `draft`).
-- Report: files added, migrations, routes, functions, provider mapping, e2e result, QC scores, failed/repaired pages, PDF path, time, cost, unresolved findings.
+## Estimated Rollout
 
-## 10. Reference PDF
-The uploaded `Amazing_Earth_and_Space_PREMIUM_8.5x8.5.pdf` will be stored under `.lovable/coloring-v2/reference/` as a **quality benchmark only** (not copied into outputs) and used by QC rubric authors to calibrate density/line-weight thresholds.
+- Migrations + shared modules: 1 turn
+- Functions 1–5 (concept → cover): 2 turns
+- Functions 6–10 (QC → tick): 2 turns
+- Admin UI polling + flag toggle: 1 turn
+- Deploy + smoke test: 1 turn
+- Fire test book + verify: 1 turn
 
-## Technical notes
-- Flag lives in `src/config/features.ts` + `supabase/functions/_shared/features.ts` (mirror).
-- Cost-cap safety: V2 has its own daily USD ceiling separate from existing `paid-ceiling.ts`.
-- All V2 functions declare their own cron/lock names — no shared locks with v1.
-- Publish switch requires explicit UI click + admin role check via `has_role`.
-- Bucket `coloring-v2` created via `supabase--storage_create_bucket` (private), not SQL.
-
-## Explicitly out of scope
-- Auto-publish, Shopify, royalty/exchange integration, SEO landing generation for V2 books, migrating any v1 book into V2.
-
-Awaiting approval to switch to build mode and implement in this order: migrations → adapters → edge functions → admin UI → tests → acceptance run.
+Total ~8 turns. Each turn ends with a clear checkpoint before proceeding.
