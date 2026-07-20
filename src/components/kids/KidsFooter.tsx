@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { KIDS_BRAND_URLS } from "./KidsBrand";
-import footerLogo from "@/assets/secretpdf-kids-logo-footer.png.asset.json";
+import footerLogo from "@/assets/secretpdf-kids-logo-v2.png.asset.json";
 
 const SHOP: Array<{ label: string; href: string }> = [
   { label: "All Kids' Books", href: "/kids" },
