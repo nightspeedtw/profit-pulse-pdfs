@@ -226,7 +226,7 @@ export default function KidsAutopilot() {
 
       <KidsBatchOrderCard />
 
-      <ColoringAutopilotCard />
+      <ColoringV2AutopilotCard />
 
       {regressionPause && (
         <Card className="p-4 border-2 border-red-600 bg-red-50">
