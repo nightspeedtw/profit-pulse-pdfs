@@ -4,7 +4,6 @@ import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import KidsHeroCompact from "@/components/kids/KidsHeroCompact";
 import KidsCategoryStrip from "@/components/kids/KidsCategoryStrip";
-import KidsFilterToolbar from "@/components/kids/KidsFilterToolbar";
 import { KidsBookCard, type KidsBookCardData } from "@/components/kids/KidsBookCard";
 import { KidsSectionNav } from "@/components/kids/KidsSectionNav";
 import { PreviewLightbox } from "@/components/kids/PreviewLightbox";
