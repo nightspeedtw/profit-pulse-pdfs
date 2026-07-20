@@ -127,21 +127,26 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
       </g>`
     : "";
 
-  // Top "COLORING BOOK" chip.
+  // Top chip: "COLORING BOOK · AGES X-Y" — age is baked into the design,
+  // no floating pill anywhere else on the cover (owner order 2026-07-20).
   let topChipEl = "";
-  if (topLabel) {
-    const chipH = Math.round(H * 0.052);
-    const chipFont = Math.round(chipH * 0.5);
-    const chipW = Math.max(Math.round(W * 0.36), Math.round(topLabel.length * chipFont * 0.7));
+  const chipText = [topLabel, ageText].filter(Boolean).join("  ·  ");
+  if (chipText) {
+    const chipH = Math.round(H * 0.058);
+    const chipFont = Math.round(chipH * 0.48);
+    const chipW = Math.min(
+      W - Math.round(W * 0.08),
+      Math.max(Math.round(W * 0.42), Math.round(chipText.length * chipFont * 0.62)),
+    );
     const chipX = Math.round((W - chipW) / 2);
     const chipY = Math.round(H * 0.028);
     topChipEl = `
       <g>
         <rect x="${chipX}" y="${chipY}" width="${chipW}" height="${chipH}" rx="${chipH / 2}"
-              fill="#0F172A" opacity="0.85" stroke="#FFD635" stroke-width="3"/>
+              fill="#0F172A" opacity="0.88" stroke="#FFD635" stroke-width="3"/>
         <text x="${chipX + chipW / 2}" y="${chipY + chipH * 0.68}" text-anchor="middle"
               font-family="Fredoka" font-weight="700" font-size="${chipFont}"
-              fill="#FFD635" letter-spacing="3">${esc(topLabel)}</text>
+              fill="#FFD635" letter-spacing="2">${esc(chipText)}</text>
       </g>`;
   }
 
