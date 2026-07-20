@@ -37,6 +37,9 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
   const isColoring = book.book_type === "coloring_book";
   const productHref = isColoring ? `/kids/coloring/${book.id}` : `/product/${book.id}`;
   const image = (isColoring && book.thumbnail_url) ? book.thumbnail_url : book.cover_url;
+  // Owner order 2026-07-20: coloring cards must always advertise "Coloring Book"
+  // so titles like "Cyber City Countdown" don't confuse buyers.
+  const displayTitle = isColoring ? ensureColoringLabel(book.title) : book.title;
 
   const pricing = deriveSalePricing(book.id, book.price_cents, book.storefront_meta);
   const rating = derivePlatformReview(book.id);
