@@ -2360,6 +2360,105 @@ export type Database = {
           },
         ]
       }
+      drive_import_config: {
+        Row: {
+          default_price_cents: number
+          enabled: boolean
+          id: boolean
+          last_sync_at: string | null
+          last_sync_message: string | null
+          last_sync_status: string | null
+          root_folder_id: string
+          updated_at: string
+        }
+        Insert: {
+          default_price_cents?: number
+          enabled?: boolean
+          id?: boolean
+          last_sync_at?: string | null
+          last_sync_message?: string | null
+          last_sync_status?: string | null
+          root_folder_id: string
+          updated_at?: string
+        }
+        Update: {
+          default_price_cents?: number
+          enabled?: boolean
+          id?: boolean
+          last_sync_at?: string | null
+          last_sync_message?: string | null
+          last_sync_status?: string | null
+          root_folder_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      drive_products: {
+        Row: {
+          category: string
+          cover_url: string | null
+          created_at: string
+          description: string | null
+          drive_file_id: string
+          drive_modified_time: string | null
+          drive_parent_folder_id: string | null
+          drive_parent_folder_name: string | null
+          file_size_bytes: number | null
+          id: string
+          import_error: string | null
+          pdf_storage_path: string | null
+          pdf_url: string | null
+          price_cents: number
+          sha256: string | null
+          slug: string
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          category?: string
+          cover_url?: string | null
+          created_at?: string
+          description?: string | null
+          drive_file_id: string
+          drive_modified_time?: string | null
+          drive_parent_folder_id?: string | null
+          drive_parent_folder_name?: string | null
+          file_size_bytes?: number | null
+          id?: string
+          import_error?: string | null
+          pdf_storage_path?: string | null
+          pdf_url?: string | null
+          price_cents?: number
+          sha256?: string | null
+          slug: string
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          cover_url?: string | null
+          created_at?: string
+          description?: string | null
+          drive_file_id?: string
+          drive_modified_time?: string | null
+          drive_parent_folder_id?: string | null
+          drive_parent_folder_name?: string | null
+          file_size_bytes?: number | null
+          id?: string
+          import_error?: string | null
+          pdf_storage_path?: string | null
+          pdf_url?: string | null
+          price_cents?: number
+          sha256?: string | null
+          slug?: string
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ebook_assets: {
         Row: {
           byte_size: number | null
