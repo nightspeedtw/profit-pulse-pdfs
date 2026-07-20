@@ -76,11 +76,11 @@ Deno.serve(async (req: Request) => {
       ...(cfgRow?.value_json ?? {}),
     };
 
-    // ── LEGACY COVER SWEEP (no_popups_v5) ─────────────────────────────
-    // Any cover asset whose meta.overlay !== the current contract is legacy
-    // (chip/ribbon/banner/age-pill baked or drawn). Reset its book to stage
-    // 'cover' so this tick regenerates it with the clean overlay.
-    const CURRENT_OVERLAY = "premium_cover_overlay_v5_no_text_ever";
+    // ── LEGACY COVER SWEEP (cover_bake_only_v6) ───────────────────────
+    // Any cover asset whose meta.overlay !== the current bake-only contract
+    // is legacy (SVG-overlay text was composited on top). Reset its book to
+    // stage 'cover' so this tick regenerates it with title + age fully baked.
+    const CURRENT_OVERLAY = "cover_bake_only_v6_no_overlay_ever";
     const sweptBookIds: string[] = [];
     if (cfg.legacy_overlay_sweep !== false) {
       const { data: liveBooks } = await c.from("coloring_v2_books")
