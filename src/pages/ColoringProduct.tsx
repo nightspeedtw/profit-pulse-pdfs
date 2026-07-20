@@ -70,6 +70,8 @@ export default function ColoringProduct() {
   const [downloading, setDownloading] = useState(false);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const saleCfg = useSaleConfig();
+  const activeCampaign = useActiveCampaign(book?.id ?? null);
+  const suggestedBundle = useSuggestedBundle(book?.id ?? null);
 
   useEffect(() => {
     if (!id) return;
