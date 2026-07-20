@@ -202,7 +202,7 @@ Deno.serve(async (req: Request) => {
       overlay: COVER_OVERLAY_CONTRACT,
       text_mode: "bake_only",
       prompt_version: COLORING_MASTER_COVER_PROMPT_VERSION,
-      law: "cover_uses_ideogram_only_v7",
+      law: "cover_uses_gemini_openai_primary_v8",
     });
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
