@@ -1,4 +1,4 @@
-import logoFull from "@/assets/secretpdf-kids-logo.png.asset.json";
+import logoFull from "@/assets/secretpdf-kids-logo-v2.png.asset.json";
 import logoMark from "@/assets/secretpdf-kids-mark.png.asset.json";
 import { cn } from "@/lib/utils";
 
