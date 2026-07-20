@@ -14,6 +14,7 @@
 import { advance, corsHeaders, db, fetchBook, fireStage, json, recordError, signedUrl, uploadAsset } from "../_shared/coloring-v2/state.ts";
 import { buildMasterColoringCoverPrompt, COLORING_MASTER_COVER_PROMPT_VERSION } from "../_shared/coloring/master-cover-prompt.ts";
 import { getAgeProfile } from "../_shared/coloring-v2/age-matrix.ts";
+import { runwareInference } from "../_shared/runware.ts";
 import { renderImageWithFallback } from "../_shared/coloring-v2/image-fallback.ts";
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
 import { COVER_OVERLAY_CONTRACT } from "../_shared/coloring/premium-cover-overlay.ts";
@@ -22,8 +23,31 @@ declare const Deno: any;
 
 const IDEOGRAM_MODEL = "ideogram:4@1";
 const CANVAS = 1024;
-const BAKE_ATTEMPTS = 5;
+// OWNER FIX 2026-07-20: reduced from 5 → 3 to stop CF quota bleed on
+// OCR-reject loops (some books were burning 30–97 CF images @ cover stage).
+const BAKE_ATTEMPTS = 3;
 const NEGATIVE_PROMPT_BAKE = "any subtitle, any tagline, any 'COLORING BOOK' chip, any 'PAGE' text, any page number, any banner, any ribbon, any sticker, any sale badge, any popup pill, any watermark, any publisher name, any credits, any author line, any letter-shaped ornament, gibberish text, misspelled text, duplicate letters, extra typography, duplicated title, flat vector, line art, black and white, coloring page, uncolored";
+
+// OWNER LAW `cover_uses_ideogram_only_v7` (2026-07-20):
+//   Cover bake MUST go through Runware/Ideogram-4. Cloudflare Flux Schnell
+//   cannot render legible typography — it produced garbled titles that OCR
+//   rejected on every attempt, torching the free CF pool. Only fall back to
+//   the CF-primary path if Runware is provider_billing_locked, and in that
+//   fallback path we soft-accept the best attempt because typography quality
+//   is expected to be poor.
+async function renderCoverBake(opts: any): Promise<{ bytes: Uint8Array; provider: "runware" | "cloudflare_fallback" }> {
+  try {
+    const bytes = await runwareInference(opts);
+    return { bytes, provider: "runware" };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e ?? "");
+    const billingLocked = /insufficient|balance|credit|billing|payment required|402/i.test(msg);
+    if (!billingLocked) throw e;
+    console.warn(`[coloring-v2-cover] runware billing-locked; falling through to CF (typography will be weaker): ${msg.slice(0, 200)}`);
+    const bytes = await renderImageWithFallback(opts);
+    return { bytes, provider: "cloudflare_fallback" };
+  }
+}
 
 function ensureColoringBookInTitle(t: string): string {
   const s = (t ?? "").trim();
