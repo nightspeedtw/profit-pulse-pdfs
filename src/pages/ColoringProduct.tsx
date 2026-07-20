@@ -438,6 +438,19 @@ export default function ColoringProduct() {
         )}
       </section>
 
+      {/* ── Item details (Etsy-style, auto-generated) ────────────────── */}
+      <section className="container max-w-5xl py-8 border-t-2 border-border">
+        <h2 className="font-display text-2xl uppercase mb-4">Item details</h2>
+        <ItemDetailsSection
+          pageCount={pageCount}
+          ageMin={ageMin}
+          ageMax={ageMax}
+          categoryName={categoryName}
+          themes={Array.isArray(meta.themes) ? meta.themes.slice(0, 12) : []}
+        />
+      </section>
+
+
       {/* ── Long description ─────────────────────────────────────────── */}
       {descHtml && (
         <section className="container max-w-3xl py-8 border-t-2 border-border">
