@@ -6054,6 +6054,375 @@ export type Database = {
           },
         ]
       }
+      story_batch_v2_assets: {
+        Row: {
+          approved: boolean
+          book_id: string
+          bytes: number | null
+          created_at: string
+          id: string
+          meta: Json | null
+          model: string | null
+          page_number: number | null
+          provider: string | null
+          public_url: string | null
+          quality: string | null
+          role: string
+          sha256: string | null
+          storage_path: string | null
+          superseded_by: string | null
+        }
+        Insert: {
+          approved?: boolean
+          book_id: string
+          bytes?: number | null
+          created_at?: string
+          id?: string
+          meta?: Json | null
+          model?: string | null
+          page_number?: number | null
+          provider?: string | null
+          public_url?: string | null
+          quality?: string | null
+          role: string
+          sha256?: string | null
+          storage_path?: string | null
+          superseded_by?: string | null
+        }
+        Update: {
+          approved?: boolean
+          book_id?: string
+          bytes?: number | null
+          created_at?: string
+          id?: string
+          meta?: Json | null
+          model?: string | null
+          page_number?: number | null
+          provider?: string | null
+          public_url?: string | null
+          quality?: string | null
+          role?: string
+          sha256?: string | null
+          storage_path?: string | null
+          superseded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "story_batch_v2_assets_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "story_batch_v2_books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      story_batch_v2_batches: {
+        Row: {
+          actual_cost_cents: number
+          blocker_reason: string | null
+          budget_usd_cents: number
+          completed_at: string | null
+          created_at: string
+          id: string
+          label: string
+          language: string
+          paused: boolean
+          preflight_report: Json | null
+          projected_cost_cents: number | null
+          repair_reserve_pct: number
+          started_at: string | null
+          status: string
+          target_total: number
+          targets_by_age: Json
+          trim: string
+          updated_at: string
+        }
+        Insert: {
+          actual_cost_cents?: number
+          blocker_reason?: string | null
+          budget_usd_cents?: number
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          label?: string
+          language?: string
+          paused?: boolean
+          preflight_report?: Json | null
+          projected_cost_cents?: number | null
+          repair_reserve_pct?: number
+          started_at?: string | null
+          status?: string
+          target_total?: number
+          targets_by_age?: Json
+          trim?: string
+          updated_at?: string
+        }
+        Update: {
+          actual_cost_cents?: number
+          blocker_reason?: string | null
+          budget_usd_cents?: number
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          label?: string
+          language?: string
+          paused?: boolean
+          preflight_report?: Json | null
+          projected_cost_cents?: number | null
+          repair_reserve_pct?: number
+          started_at?: string | null
+          status?: string
+          target_total?: number
+          targets_by_age?: Json
+          trim?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      story_batch_v2_books: {
+        Row: {
+          age_band: string
+          batch_id: string
+          category_tags: string[] | null
+          character_bible: Json | null
+          concept_score: number | null
+          cost_cents: number
+          cover_asset_id: string | null
+          cover_brief: Json | null
+          cover_url: string | null
+          created_at: string
+          differentiation_note: string | null
+          final_qc_score: Json | null
+          hook: string | null
+          id: string
+          is_pilot: boolean
+          keywords: string[] | null
+          last_error: string | null
+          manuscript_md: string | null
+          overall_qc_score: number | null
+          page_plan: Json | null
+          parent_value: string | null
+          pdf_page_count: number | null
+          pdf_sha256: string | null
+          pdf_url: string | null
+          protagonist: string | null
+          qc_verdict: string | null
+          sellable: boolean
+          setting: string | null
+          slot_index: number
+          stage: string
+          stage_attempt_count: number
+          stage_updated_at: string
+          story_bible: Json | null
+          story_gate_score: Json | null
+          style_bible: Json | null
+          subtitle: string | null
+          synopsis: string | null
+          theme: string | null
+          thumbnail_url: string | null
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          age_band: string
+          batch_id: string
+          category_tags?: string[] | null
+          character_bible?: Json | null
+          concept_score?: number | null
+          cost_cents?: number
+          cover_asset_id?: string | null
+          cover_brief?: Json | null
+          cover_url?: string | null
+          created_at?: string
+          differentiation_note?: string | null
+          final_qc_score?: Json | null
+          hook?: string | null
+          id?: string
+          is_pilot?: boolean
+          keywords?: string[] | null
+          last_error?: string | null
+          manuscript_md?: string | null
+          overall_qc_score?: number | null
+          page_plan?: Json | null
+          parent_value?: string | null
+          pdf_page_count?: number | null
+          pdf_sha256?: string | null
+          pdf_url?: string | null
+          protagonist?: string | null
+          qc_verdict?: string | null
+          sellable?: boolean
+          setting?: string | null
+          slot_index: number
+          stage?: string
+          stage_attempt_count?: number
+          stage_updated_at?: string
+          story_bible?: Json | null
+          story_gate_score?: Json | null
+          style_bible?: Json | null
+          subtitle?: string | null
+          synopsis?: string | null
+          theme?: string | null
+          thumbnail_url?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          age_band?: string
+          batch_id?: string
+          category_tags?: string[] | null
+          character_bible?: Json | null
+          concept_score?: number | null
+          cost_cents?: number
+          cover_asset_id?: string | null
+          cover_brief?: Json | null
+          cover_url?: string | null
+          created_at?: string
+          differentiation_note?: string | null
+          final_qc_score?: Json | null
+          hook?: string | null
+          id?: string
+          is_pilot?: boolean
+          keywords?: string[] | null
+          last_error?: string | null
+          manuscript_md?: string | null
+          overall_qc_score?: number | null
+          page_plan?: Json | null
+          parent_value?: string | null
+          pdf_page_count?: number | null
+          pdf_sha256?: string | null
+          pdf_url?: string | null
+          protagonist?: string | null
+          qc_verdict?: string | null
+          sellable?: boolean
+          setting?: string | null
+          slot_index?: number
+          stage?: string
+          stage_attempt_count?: number
+          stage_updated_at?: string
+          story_bible?: Json | null
+          story_gate_score?: Json | null
+          style_bible?: Json | null
+          subtitle?: string | null
+          synopsis?: string | null
+          theme?: string | null
+          thumbnail_url?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "story_batch_v2_books_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "story_batch_v2_batches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      story_batch_v2_cost_ledger: {
+        Row: {
+          batch_id: string
+          book_id: string | null
+          cost_cents: number
+          created_at: string
+          id: string
+          kind: string
+          meta: Json | null
+          model: string
+          provider: string
+          provider_request_id: string | null
+          units: number | null
+        }
+        Insert: {
+          batch_id: string
+          book_id?: string | null
+          cost_cents: number
+          created_at?: string
+          id?: string
+          kind: string
+          meta?: Json | null
+          model: string
+          provider: string
+          provider_request_id?: string | null
+          units?: number | null
+        }
+        Update: {
+          batch_id?: string
+          book_id?: string | null
+          cost_cents?: number
+          created_at?: string
+          id?: string
+          kind?: string
+          meta?: Json | null
+          model?: string
+          provider?: string
+          provider_request_id?: string | null
+          units?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "story_batch_v2_cost_ledger_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "story_batch_v2_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "story_batch_v2_cost_ledger_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "story_batch_v2_books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      story_batch_v2_qc_findings: {
+        Row: {
+          book_id: string
+          code: string
+          created_at: string
+          detail: Json | null
+          gate: string
+          id: string
+          message: string | null
+          page_number: number | null
+          resolved_at: string | null
+          severity: string
+        }
+        Insert: {
+          book_id: string
+          code: string
+          created_at?: string
+          detail?: Json | null
+          gate: string
+          id?: string
+          message?: string | null
+          page_number?: number | null
+          resolved_at?: string | null
+          severity: string
+        }
+        Update: {
+          book_id?: string
+          code?: string
+          created_at?: string
+          detail?: Json | null
+          gate?: string
+          id?: string
+          message?: string | null
+          page_number?: number | null
+          resolved_at?: string | null
+          severity?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "story_batch_v2_qc_findings_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "story_batch_v2_books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       system_fix_instructions: {
         Row: {
           acceptance_test: string | null
