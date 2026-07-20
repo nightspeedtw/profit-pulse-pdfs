@@ -8,7 +8,7 @@ import { runwareInference } from "../_shared/runware.ts";
 declare const Deno: any;
 
 const IDEOGRAM_MODEL = "ideogram:4@1";
-const CANVAS = 1088;
+const CANVAS = 1024;
 const MAX_ATTEMPTS = 2;
 
 Deno.serve(async (req: Request) => {
