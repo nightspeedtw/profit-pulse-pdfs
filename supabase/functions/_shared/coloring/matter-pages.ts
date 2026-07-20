@@ -131,7 +131,9 @@ export interface MatterContext {
   font: any;      // regular
   fontBold: any;
   vignettes?: any[]; // optional embedded pdf-lib images from interior pages
+  logo?: any;        // optional embedded SecretPDF brand logo (pdf-lib image)
 }
+
 
 /** Full-page title with warm frame, subtitle, and "This book belongs to" nameplate. */
 export function drawColoringTitlePage(
