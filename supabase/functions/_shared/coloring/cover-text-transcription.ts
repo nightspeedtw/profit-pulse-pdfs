@@ -69,6 +69,20 @@ export function tokenize(s: string): string[] {
 // via the SecretPDF Kids logo footer if the model bakes it in.
 const CHROME_TOKENS = new Set(["secretpdf", "kids", "the", "a", "an"]);
 
+// OWNER LAW `no_popups_v5` (2026-07-21):
+//   These tokens are the exact words that the retired chip/ribbon/banner
+//   overlays used to draw. If Ideogram bakes any of them into a cover, that
+//   cover is REJECTED even in modes that would otherwise accept the token
+//   (e.g. when the title itself contains a permitted subword). This prevents
+//   the popup words from ever coming back through the AI layer.
+const HARD_BANNED_COVER_TOKENS = new Set([
+  "sale", "new", "free", "best", "bonus", "hot", "top", "premium", "off",
+  "coloring", "book", "books", "ages", "age", "kid", "kids",
+  "page", "pages", "chapter", "vol", "volume",
+  "look", "inside", "preview", "sample",
+  "publisher", "publishing", "presents", "author", "by",
+]);
+
 /**
  * Compare approved vs detected token bags. `misspelled` catches near-matches
  * (edit distance ≤ 1 on ≥4-char tokens) which are still failures — Ideogram
