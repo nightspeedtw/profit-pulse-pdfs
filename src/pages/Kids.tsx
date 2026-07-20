@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Loader2 } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import KidsHeroCompact from "@/components/kids/KidsHeroCompact";
 import KidsCategoryStrip from "@/components/kids/KidsCategoryStrip";
