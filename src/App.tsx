@@ -67,6 +67,8 @@ import AccountSupport from "./pages/account/Support.tsx";
 import AccountProfile from "./pages/account/Profile.tsx";
 import AccountSecurity from "./pages/account/Security.tsx";
 import AccountPrivacy from "./pages/account/Privacy.tsx";
+import AccountRoyalties from "./pages/account/Royalties.tsx";
+import RoyaltyConfig from "./pages/admin/RoyaltyConfig.tsx";
 
 
 const queryClient = new QueryClient();
@@ -124,6 +126,7 @@ const App = () => (
               <Route path="profile" element={<AccountProfile />} />
               <Route path="security" element={<AccountSecurity />} />
               <Route path="privacy" element={<AccountPrivacy />} />
+              <Route path="royalties" element={<AccountRoyalties />} />
             </Route>
 
           </Route>
@@ -144,6 +147,7 @@ const App = () => (
             <Route path="products" element={<Products />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="royalty-settings" element={<RoyaltySettings />} />
+            <Route path="royalty-config" element={<RoyaltyConfig />} />
             <Route path="marketing-autopilot" element={<MarketingAutopilot />} />
             <Route path="drive-importer" element={<DriveImporter />} />
             {FEATURES.ENABLE_STORY_BATCH_50_V2 && (
