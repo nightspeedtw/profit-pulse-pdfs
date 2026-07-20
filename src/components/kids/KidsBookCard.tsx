@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { FileText } from "lucide-react";
+import { Download, FileText } from "lucide-react";
 import type { KidsTheme } from "@/lib/kidsTaxonomy";
 import { deriveSalePricing } from "@/lib/storefrontPricing";
 import { EditorialQualityBadge } from "@/components/product/EditorialQualityBadge";
