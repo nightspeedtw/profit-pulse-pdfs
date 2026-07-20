@@ -186,6 +186,7 @@ Deno.serve(async (req: Request) => {
 
     return j({
       ok: true, planned: plan.length, created_today: createdToday, in_flight: inFlight,
+      legacy_covers_swept: sweptBookIds.length, swept_book_ids: sweptBookIds,
       plan, elapsed_ms: Date.now() - t0,
     });
   } catch (e: any) {
