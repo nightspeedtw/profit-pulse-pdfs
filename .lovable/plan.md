@@ -1,128 +1,78 @@
+## Phase 2 — Royalty Participation V1 (Data Model + Immutable Ledger + Admin Config)
 
-# SecretPDF Customer Accounts + Royalty Participation V1
+Hard-blocked from live purchase/payout. Backend infrastructure only. No customer-facing "buy shares" UI yet.
 
-This is a very large scope. I will build it as an **isolated module** in phases, with hard feature flags, without touching the existing book-generation, coloring, storybook, Drive-import, marketing, or PDF pipelines except through defined read-only integration points.
+### Scope
 
-Before I start writing code I need you to confirm scope, because Phases 2–4 involve real money, legal, and regulated activity that I should not silently ship.
+**In scope**
+- Namespaced tables for royalty holdings, per-book royalty pools, and an append-only double-entry ledger
+- Calculation engine (edge function) that turns a completed order into royalty accrual entries for shareholders
+- Admin config UI at `/admin/royalty-config` to enable royalty per book, set pool size, price per share, and reserve
+- Global kill switch (`platform_settings.royalty_live=false`) enforced by every mutation path
+- Read-only "My Royalties" page under `/account/royalties` showing holdings + accrued (unpaid) earnings
 
----
+**Out of scope (Phase 3+)**
+- Buying shares with real money
+- KYC/AML
+- Payouts (crypto or fiat)
+- Tax invoices
+- Secondary trading UI
 
-## Route map (new, isolated)
+### Data model (new tables, all `roy_` prefix to avoid legacy `rights_*` / `royalty_*` collisions)
 
-```text
-/account
-  /overview
-  /library
-  /orders
-  /orders/:id
-  /downloads
-  /invoices
-  /tax-profile
-  /wishlist
-  /notifications
-  /support
-  /profile
-  /security
-  /privacy
-/royalties                (gated by royalty_catalog_visible)
-  /overview
-  /books
-  /books/:id
-  /holdings
-  /earnings
-  /statements
-  /payouts
-  /wallet
-  /kyc
-/admin/accounts/*         (support/finance/compliance roles)
-/admin/royalties/*        (config, compliance checklist, ledger explorer, payout queue)
-```
+- `roy_book_config` — per-book: `book_id`, `book_kind` (`adult`|`kids`|`coloring_v2`), `enabled`, `total_shares`, `price_per_share_cents`, `reserve_shares`, `royalty_pct_of_net` (share of net revenue paid to shareholders, default 20%)
+- `roy_holdings` — `user_id`, `book_id`, `book_kind`, `shares`, `avg_cost_cents`; unique on (user_id, book_id, book_kind)
+- `roy_ledger` — append-only double-entry. Columns: `entry_id`, `txn_id` (groups paired entries), `account_type` (`shareholder_accrued`|`platform_reserve`|`pool_income`|`payout_pending`), `user_id` (nullable), `book_id`, `book_kind`, `direction` (`debit`|`credit`), `amount_cents`, `currency`, `source` (`order`|`adjustment`|`payout`), `source_ref`, `memo`, `created_at`. No updates, no deletes.
+- `roy_accrual_summary` — materialized per (user_id, book_id) rollup refreshed by the engine (fast read for account UI)
 
-All routes live under new folders `src/pages/account/`, `src/pages/royalties/`, `src/pages/admin/accounts/`, `src/pages/admin/royalties/`. No existing route is renamed or removed.
+All tables: RLS on. Holdings + summary readable by owner. Ledger readable only by admins. Config writable only by admins. Grants per rules.
 
----
+### Calculation engine
 
-## Feature flags (all default OFF except accounts)
+- Edge function `royalty-accrue-order` invoked (a) by an order-completion trigger stub and (b) manually from admin for backfill
+- Input: `order_id`
+- For each line item where the product has an active `roy_book_config`:
+  - Compute `net_revenue = gross - refunds - processor_fees - platform_take`
+  - `pool_amount = net_revenue * royalty_pct_of_net`
+  - Distribute pool pro-rata across `roy_holdings.shares / total_shares` (reserve shares stay with platform)
+  - Insert paired ledger entries (`pool_income` debit, `shareholder_accrued` credits per holder) inside a single txn
+  - Refresh `roy_accrual_summary` rows touched
+- Idempotent: unique index on (`source`, `source_ref`) so re-invoking the same order is a no-op
 
-Stored in `platform_settings` as a single JSON row:
+### Kill switch
 
-- `customer_accounts_enabled` — Phase 1 default ON in dev, OFF in prod until you approve
-- `google_login_enabled` — ON (already configured)
-- `tax_invoice_enabled` — OFF until compliant e-Tax provider is wired
-- `royalty_catalog_visible` — OFF
-- `royalty_purchase_enabled` — OFF (hard-blocked server-side)
-- `royalty_payout_enabled` — OFF (hard-blocked server-side)
+- `platform_settings.royalty_live boolean default false`
+- Every write path checks it; when false, the engine records a `skipped` audit row instead of mutating the ledger
+- Admin config UI shows a red banner when `royalty_live=false`
 
-Royalty program state machine stored per book: `DRAFT → LEGAL_REVIEW_REQUIRED → PROVIDERS_REQUIRED → SANDBOX → APPROVED → LIVE → PAUSED`. Default `LEGAL_REVIEW_REQUIRED`. Purchase/payout edge functions refuse unless state is `LIVE` **and** the two feature flags are true.
+### Admin UI (`/admin/royalty-config`)
 
----
+- List of books with search + kind filter
+- Per row: toggle enabled, set total_shares, price_per_share, reserve_shares, royalty_pct
+- Preview panel: given a hypothetical $X net revenue, show per-share payout
+- Ledger inspector tab (read-only, admin-only): filter by book, user, txn_id
 
-## Integration with existing system (read-only reuse)
+### Customer UI (`/account/royalties`)
 
-- Reuse existing Supabase auth (Google already active), `user_roles`, `has_role()`.
-- Reuse existing `orders`, `order_items`, `download_grants`, `product_pricing`, `wallets`, `wallet_transactions` where they fit; extend them additively with new columns instead of renaming.
-- New tables added under clear namespaces (`acct_*`, `roy_*`, `ledger_*`) to avoid colliding with existing `rights_*` / `royalty_*` trading tables from the earlier exchange prototype. Those legacy tables stay untouched.
+- Table of holdings: cover thumb, title, shares owned, avg cost, accrued (unpaid) earnings
+- Empty state: "Royalty participation opens soon" (since buying is Phase 3)
+- Seed data path: admin can grant shares manually from `/admin/royalty-config` for pilot users
 
-Conflict risks I want to flag:
+### Technical details
 
-1. You already have `rights_offerings`, `rights_holdings`, `rights_trades`, `royalty_holdings`, `royalty_earnings_ledger` from an earlier exchange lane. They implement a **different** model (per-share trading with treasury). I will **not** merge into them; the new module uses its own `roy_*` tables so the old prototype keeps working and can be retired later.
-2. `orders` / `order_items` already exist for storefront sales. I will extend them additively (add nullable `kind` column = `book_purchase` | `royalty_unit_purchase`) rather than fork.
-3. `wallets` exist for the exchange prototype (USD balance). The new payout module needs a separate `roy_wallets` (crypto payout wallet: address + network + verification) — different concept, so separate table.
+- Migration creates tables in this order per rules: CREATE → GRANT → ENABLE RLS → CREATE POLICY
+- `roy_ledger` uses a `BEFORE UPDATE OR DELETE` trigger that raises to enforce append-only
+- Double-entry invariant: DB trigger asserts `sum(debit) = sum(credit)` per `txn_id` on commit (deferred constraint via trigger on `roy_ledger` after statement)
+- `has_role(auth.uid(),'admin')` gates all admin policies
+- Frontend uses existing `@/integrations/supabase/client`; no new dependencies
 
----
+### Verification before "done"
 
-## Phase 1 deliverables (what I'll build this turn if you say go)
+1. Migration runs cleanly
+2. `/admin/royalty-config` loads, can toggle a pilot book
+3. Manually invoke `royalty-accrue-order` with a synthetic completed order id → ledger rows appear, sum(debit)=sum(credit), summary populated
+4. Second invocation with same order id = no-op (idempotency)
+5. `/account/royalties` shows holdings for a seeded user
+6. Kill switch off blocks all accruals
 
-Scope kept tight so it lands cleanly and safely:
-
-1. **Account shell + navigation** (`/account/*`), responsive, using existing shadcn + design tokens. Left nav desktop, sheet menu mobile.
-2. **Overview page** — greeting, verified-email banner, recent purchases (from existing `orders`), empty states.
-3. **My Library** — lists `download_grants` for the signed-in user, grid/list toggle, search, filter by format/language.
-4. **Downloads** — "Re-download" button that calls a new edge function `account-signed-download` which verifies entitlement server-side and returns a short-lived signed URL from storage. IDOR-safe, audit-logged into new `acct_download_events`.
-5. **Orders & Purchases** — list + detail view of existing `orders` scoped by `auth.uid()`.
-6. **Profile** — name, avatar, language, timezone (stored in new `acct_profiles`).
-7. **Security** — sessions, "Sign out all devices", provider display. Google users see "Manage password in Google Account" link (no fake change-password form). Email/password users get real change-password + forgot-password.
-8. **Privacy** — data export request (writes to `acct_data_requests`, processed manually for now), account deletion request with reauth + cooling-off (writes to `acct_deletion_requests`, no immediate destructive action).
-9. **Notifications** — new `acct_notifications` table + bell UI.
-10. **RLS everywhere** — every new table denies by default and scopes by `auth.uid()`; service-role only for grants/mutations that must be trusted.
-
-Explicitly **deferred out of Phase 1**:
-
-- Tax invoices / e-Tax provider integration (needs approved Thai e-Tax provider — I will NOT ship a homemade PDF labeled as tax invoice).
-- Wishlist (nice-to-have, small; can add if you want).
-- Support ticket system (can wire to existing support flow if you have one, otherwise add a minimal ticket table).
-
-## Phase 2 (separate turn, after Phase 1 is approved)
-
-Royalty **data model + admin config + calculation simulator + immutable double-entry ledger + read-only statements**. No live purchase, no payout. All hard-blocked server-side. This is the schema-heavy phase.
-
-## Phase 3 (separate turn, requires legal/provider inputs from you)
-
-KYC/KYB provider, AML/sanctions provider, licensed payment provider for unit purchase, crypto payout provider (sandbox first), reconciliation jobs.
-
-## Phase 4
-
-Controlled production launch behind compliance approval records. Requires you to upload legal opinions, agreement version, tax memo, etc., as records in `roy_compliance_approvals`. Flags flip only via admin action, never in code.
-
----
-
-## Technical section
-
-- **Migrations**: additive only, versioned. New tables + `GRANT SELECT, INSERT, UPDATE, DELETE ... TO authenticated` + `GRANT ALL ... TO service_role` + RLS enabled + policies scoped to `auth.uid()` per the project rules.
-- **Ledger**: `ledger_accounts`, `ledger_journals`, `ledger_entries` with a trigger enforcing `SUM(debit) = SUM(credit)` per journal and blocking `UPDATE`/`DELETE` on posted entries for non-service roles. Amounts stored as `BIGINT` minor units + `currency TEXT`, never floats.
-- **Idempotency**: every payment webhook and checkout endpoint takes an idempotency key with a unique index; duplicate deliveries return the original result.
-- **Signed downloads**: edge function checks `download_grants` for `(user_id, product_id, active, not_expired)`, then creates a 5-minute signed URL from `ebook-pdfs`. Never trusts a URL passed from the client.
-- **Google users password UX**: read `auth.identities` for the current user; if provider = `google` and no `email` identity, hide the password form entirely.
-- **Royalty math (Phase 2, not shipped yet)**: integer-minor-unit decimal, tax-inclusive vs exclusive both supported, `DNR = gross − refunds − chargebacks − tax_due − actual_processor_fee − permitted_deductions`, `holder_share = DNR × units / 100`, rounding + residual-cent allocation rule documented and unit-tested. No hard-coded 7%.
-- **Compliance gates**: purchase and payout edge functions check `roy_programs.state = 'LIVE'` **and** `platform_settings.royalty_purchase_enabled = true` (or `payout_enabled`) **and** all required `roy_compliance_approvals` present. Missing any → 403 with truthful reason. No bypass path.
-- **Tests (Phase 1)**: RLS cross-user access, IDOR on download URL, duplicate webhook grant, Google-user password form hidden, sign-out-all-devices, keyboard nav on library.
-
----
-
-## What I need from you before proceeding
-
-1. **Confirm phased approach** — I ship Phase 1 now (accounts + library + downloads + orders + profile + security + privacy + notifications). Phases 2–4 in separate turns.
-2. **Confirm additive integration** — I will NOT merge into legacy `rights_*` / `royalty_*` exchange tables; the new module uses its own `roy_*` namespace. OK?
-3. **Confirm tax-invoice deferral** — no e-Tax invoice UI in Phase 1 (waiting on approved provider). OK?
-
-Reply "go phase 1" and I start with the migration + account shell in the next turn.
+Ready to build. Confirm and I'll ship the migration + engine + both UIs.
