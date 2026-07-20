@@ -136,8 +136,9 @@ export default function ColoringProduct() {
     ? meta.contact_sheet_thumbs.slice(0, 10)
     : previewUrls.slice(0, 6);
 
-  const seoTitle = `${book.title} — Printable Coloring Book Ages ${ageMin}-${ageMax} (${pageCount} pages)`;
-  const seoDesc = `Instant PDF download. ${pageCount} unique ${categoryName.toLowerCase()} coloring pages for ages ${ageMin}–${ageMax}. Print at home on 8.5×11 paper, personal-use license, no ads, no repeats.`.slice(0, 160);
+  const displayTitle = ensureColoringLabel(book.title);
+  const seoTitle = `${displayTitle} — Printable Coloring Book Ages ${ageMin}-${ageMax} (${pageCount} pages)`;
+  const seoDesc = `Instant PDF download. ${pageCount} unique ${categoryName.toLowerCase()} coloring pages for ages ${ageMin}–${ageMax}. Print at home on 8.5×8.5 in square paper, personal-use license, no ads, no repeats.`.slice(0, 160);
   const canonical = typeof window !== "undefined" ? `${window.location.origin}/kids/coloring/${book.id}` : `/kids/coloring/${book.id}`;
   const ogImage = book.thumbnail_url || book.cover_url || undefined;
 
