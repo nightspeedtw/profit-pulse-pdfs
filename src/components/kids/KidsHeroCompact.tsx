@@ -1,4 +1,5 @@
 import heroImage from "@/assets/kids-hero-spark-dreams-v2.png.asset.json";
+import heroMobileImage from "@/assets/kids-hero-mobile-v1.png.asset.json";
 
 interface Props {
   onCtaClick: () => void;
@@ -6,20 +7,27 @@ interface Props {
 
 /**
  * Kids hero — magical night storybook.
- * The uploaded artwork already carries the headline/branding; we render it
- * responsive with balanced object-position (never leaning right on wide screens),
- * and place the CTA in a calm band below the image so it never covers characters,
- * faces, or the baked title.
+ * Uses a tall portrait artwork on mobile and the wide artwork on md+.
+ * Both variants have the headline baked in; the CTA sits in a band below.
  */
 export default function KidsHeroCompact({ onCtaClick }: Props) {
   return (
     <section aria-label="Kids hero" className="relative w-full overflow-hidden">
       <div className="relative w-full mx-auto max-w-[1600px] px-0 md:px-4">
         <div className="relative w-full overflow-hidden md:rounded-3xl bg-[#0d0a2f]">
+          {/* Mobile portrait */}
+          <img
+            src={heroMobileImage.url}
+            alt="Stories that spark dreams and imagination — magical books for young explorers"
+            className="block w-full h-auto md:hidden"
+            fetchPriority="high"
+            decoding="async"
+          />
+          {/* Tablet/desktop wide */}
           <img
             src={heroImage.url}
             alt="Stories that spark dreams and imagination — magical books for young explorers"
-            className="block w-full h-auto max-h-[560px] object-cover object-center"
+            className="hidden md:block w-full h-auto max-h-[560px] object-cover object-center"
             fetchPriority="high"
             decoding="async"
           />
@@ -27,6 +35,7 @@ export default function KidsHeroCompact({ onCtaClick }: Props) {
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#0d0a2f]/70 to-transparent" />
         </div>
       </div>
+
 
       {/* CTA band — sits under the hero image, never covering characters */}
       <div className="mx-auto max-w-[1600px] px-4 -mt-8 md:-mt-10 relative z-10">
