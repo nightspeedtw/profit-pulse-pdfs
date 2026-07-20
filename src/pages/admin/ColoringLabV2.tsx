@@ -162,14 +162,35 @@ export default function ColoringLabV2() {
         <CardHeader><CardTitle>Start a new V2 coloring book</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <Label>Age band</Label>
-            <Select value={ageBand} onValueChange={setAgeBand}>
+            <Label>Age mode</Label>
+            <Select value={ageMode} onValueChange={v => setAgeMode(v as typeof ageMode)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {bands.map(b => <SelectItem key={b.slug} value={b.slug}>{b.slug} · {b.label}</SelectItem>)}
+                <SelectItem value="select">Select age band</SelectItem>
+                <SelectItem value="random">Random age band</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {ageMode === "select" && (
+            <div>
+              <Label>Age band</Label>
+              <Select value={ageBand} onValueChange={setAgeBand}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {orderedBands.map(b => (
+                    <SelectItem key={b.slug} value={b.slug}>
+                      {b.slug === "all-ages" ? "All Ages" : `Ages ${b.slug}`} · {AGE_LABELS[b.slug] ?? b.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {ageMode === "random" && (
+            <div className="flex items-end text-sm text-muted-foreground">
+              Random draws from 2-4, 4-6, 6-8, 8-12, 13-17, All Ages. Never "All".
+            </div>
+          )}
           <div>
             <Label>Theme mode</Label>
             <Select value={themeMode} onValueChange={(v) => setThemeMode(v as typeof themeMode)}>
