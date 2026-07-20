@@ -132,7 +132,7 @@ Deno.serve(async (req: Request) => {
     const flightRemain = Math.max(0, cfg.max_in_flight - (inFlight ?? 0));
     let slots = Math.min(capRemain, flightRemain);
     if (overrideBatch && manual) slots = Math.min(slots || overrideBatch, overrideBatch);
-    if (slots <= 0) return j({ ok: true, skipped: "cap_or_flight_reached", created_today: createdToday, in_flight: inFlight });
+    if (slots <= 0) return j({ ok: true, skipped: "cap_or_flight_reached", created_today: createdToday, in_flight: inFlight, legacy_covers_swept: sweptBookIds.length, swept_book_ids: sweptBookIds });
 
     // Pick age bands round-robin from bands with fewest live books, then create.
     const { data: liveByBand } = await c.from("coloring_v2_books")
