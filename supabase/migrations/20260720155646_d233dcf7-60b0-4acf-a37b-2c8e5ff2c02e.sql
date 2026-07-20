@@ -1,0 +1,1 @@
+UPDATE public.platform_settings SET value_json='false'::jsonb, updated_at=now() WHERE key='autopilot_frozen';
