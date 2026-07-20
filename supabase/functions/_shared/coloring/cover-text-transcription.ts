@@ -396,7 +396,7 @@ export async function verifyExactCoverTextByUrl(
   const attempted_at = new Date().toISOString();
   const transcribed = await gatewayTranscribeByUrl(url, timeoutMs);
   if (!transcribed) {
-    return { pass: false, degraded: true, reason: "transcriber_unavailable_url_variant", transcribed_raw: "", transcribed_tokens: [], approved_tokens: dedupApproved, required_tokens: requiredTokens, optional_tokens: optionalTokens, missing: dedupApproved, missing_required: requiredTokens, missing_optional: optionalTokens, extra: [], misspelled: [], attempted_at };
+    return { pass: false, degraded: true, reason: "transcriber_unavailable_url_variant", transcribed_raw: "", transcribed_tokens: [], approved_tokens: dedupApproved, required_tokens: requiredTokens, optional_tokens: optionalTokens, missing: dedupApproved, missing_required: requiredTokens, missing_optional: optionalTokens, extra: [], misspelled: [], age_badge_count: 0, duplicate_age_badge: false, attempted_at };
   }
   const raw = String(transcribed.detected_text ?? "");
   const detectedTokens = Array.from(new Set(tokenize(raw)));
@@ -404,11 +404,13 @@ export async function verifyExactCoverTextByUrl(
   const missing_required = missing.filter((t) => requiredSet.has(t));
   const missing_optional = missing.filter((t) => !requiredSet.has(t));
   const misspelled_required = misspelled.filter((m) => requiredSet.has(m.split("→")[0]));
-  const pass = missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0;
+  const age_badge_count = countAgeBadges(raw);
+  const duplicate_age_badge = age_badge_count > 1;
+  const pass = missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0 && !duplicate_age_badge;
   const reason = pass
     ? (missing_optional.length || misspelled.length > misspelled_required.length
         ? `exact_match_with_optional_gaps:missing_optional=${missing_optional.length}`
         : "exact_match")
-    : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length}`;
-  return { pass, degraded: false, reason, transcribed_raw: raw, transcribed_tokens: detectedTokens, approved_tokens: dedupApproved, required_tokens: requiredTokens, optional_tokens: optionalTokens, missing, missing_required, missing_optional, extra, misspelled, attempted_at };
+    : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length},dup_age_badge=${duplicate_age_badge}`;
+  return { pass, degraded: false, reason, transcribed_raw: raw, transcribed_tokens: detectedTokens, approved_tokens: dedupApproved, required_tokens: requiredTokens, optional_tokens: optionalTokens, missing, missing_required, missing_optional, extra, misspelled, age_badge_count, duplicate_age_badge, attempted_at };
 }
