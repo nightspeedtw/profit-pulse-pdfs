@@ -105,16 +105,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Recursive walk: (folderId, folderName) queue
-    const queue: { id: string; name: string }[] = [
-      { id: cfg.root_folder_id, name: await getFolderName(cfg.root_folder_id) },
-    ];
-    const pdfs: { file: DriveFile; parentName: string }[] = [];
-
-    while (queue.length) {
-      const cur = queue.shift()!;
-      const children = await listFolder(cur.id);
-      for (const c of children) {
     // Recursive walk. Each queue entry carries the category inherited from
     // the nearest ancestor whose name matched a category keyword — so a PDF
     // inside "coloring book/subfolder/foo.pdf" is still tagged 'coloring'.
