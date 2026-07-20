@@ -159,13 +159,18 @@ export function runQa(item: QueueItem, cluster: Cluster, opts: {
     findings.push({ code: "duplicate_slug", severity: "critical", message: `Slug ${slug} already exists` });
     duplicate_risk_score = 100;
   }
-  const titleLc = title.toLowerCase();
+  // Strip generic brand/category tokens before comparing — otherwise every
+  // "…Printable PDFs for Kids | SecretPDF Kids" title collides.
+  const STOP = new Set(["for","the","a","an","and","of","to","in","on","with","printable","pdf","pdfs","kids","kid","secretpdf","instant","download","coloring","book","books","pages","from","by","your","our","best"]);
+  const tokens = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t && !STOP.has(t)));
+  const titleTokens = tokens(title);
   const nearDup = (opts.existingTitles ?? []).filter((t) => {
-    if (!t || !titleLc) return false;
-    const a = new Set(t.toLowerCase().split(/\W+/).filter(Boolean));
-    const b = new Set(titleLc.split(/\W+/).filter(Boolean));
-    const inter = [...a].filter((x) => b.has(x)).length;
-    return inter / Math.max(1, Math.min(a.size, b.size)) > 0.7;
+    if (!t || titleTokens.size === 0) return false;
+    const other = tokens(t);
+    if (other.size === 0) return false;
+    const inter = [...titleTokens].filter((x) => other.has(x)).length;
+    const union = new Set([...titleTokens, ...other]).size;
+    return inter / union > 0.75;
   });
   if (nearDup.length) {
     findings.push({ code: "title_cannibalization", severity: "critical", message: `Title too similar to ${nearDup.length} existing item(s)` });
