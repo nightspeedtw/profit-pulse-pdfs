@@ -313,7 +313,7 @@ export async function verifyExactCoverText(
   const hard_banned_hits = detectedTokens.filter((t) => HARD_BANNED_COVER_TOKENS.has(t) && !requiredSet.has(t) && !optionalSet.has(t));
   const pass = hard_banned_hits.length === 0 && (textlessMode
     ? (detectedTokens.length === 0 || detectedTokens.every((t) => CHROME_TOKENS.has(t)))
-    : (missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0 && !duplicate_age_badge));
+    : (missing_required.length === 0 && extra.length === 0 && misspelled.length === 0 && !duplicate_age_badge));
   const reason = pass
     ? "exact_match"
     : hard_banned_hits.length > 0
@@ -391,11 +391,17 @@ export async function verifyExactCoverTextByUrl(
   const misspelled_required = misspelled.filter((m) => requiredSet.has(m.split("→")[0]));
   const age_badge_count = countAgeBadges(raw);
   const duplicate_age_badge = age_badge_count > 1;
-  const pass = missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0 && !duplicate_age_badge;
+  const hard_banned_hits = detectedTokens.filter((t) => HARD_BANNED_COVER_TOKENS.has(t) && !requiredSet.has(t) && !optionalTokens.includes(t));
+  const pass = hard_banned_hits.length === 0
+    && missing_required.length === 0
+    && extra.length === 0
+    && misspelled_required.length === 0
+    && misspelled.length === 0
+    && !duplicate_age_badge;
   const reason = pass
-    ? (missing_optional.length || misspelled.length > misspelled_required.length
-        ? `exact_match_with_optional_gaps:missing_optional=${missing_optional.length}`
-        : "exact_match")
-    : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length},dup_age_badge=${duplicate_age_badge}`;
+    ? "exact_match"
+    : hard_banned_hits.length > 0
+      ? `hard_banned_tokens:${hard_banned_hits.join(",")}`
+      : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled=${misspelled.length},dup_age_badge=${duplicate_age_badge}`;
   return { pass, degraded: false, reason, transcribed_raw: raw, transcribed_tokens: detectedTokens, approved_tokens: dedupApproved, required_tokens: requiredTokens, optional_tokens: optionalTokens, missing, missing_required, missing_optional, extra, misspelled, age_badge_count, duplicate_age_badge, attempted_at };
 }

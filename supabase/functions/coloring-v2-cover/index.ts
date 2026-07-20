@@ -77,9 +77,9 @@ Deno.serve(async (req: Request) => {
       styleMode: styleMode as any,
     });
 
-    let bestBytes: Uint8Array | null = null;
-    let bestVerdict: any = null;
-    let bestExtras = Number.POSITIVE_INFINITY;
+    let passBytes: Uint8Array | null = null;
+    let passVerdict: any = null;
+    let lastVerdict: any = null;
     let lastErr: any = null;
 
     for (let attempt = 1; attempt <= BAKE_ATTEMPTS; attempt++) {
@@ -94,29 +94,35 @@ Deno.serve(async (req: Request) => {
           prompt_version: COLORING_MASTER_COVER_PROMPT_VERSION,
         });
         const verdict = await verifyExactCoverText(candidate, { title, subtitle: "", ageBadge });
-        const ex = extrasCount(verdict);
-        if (ex < bestExtras) { bestExtras = ex; bestBytes = candidate; bestVerdict = verdict; }
-        if (verdict.pass) break;
-        console.warn(`[coloring-v2-cover] bake attempt ${attempt} rejected: ${verdict.reason} extras=${JSON.stringify(verdict.extra)}`);
+        lastVerdict = verdict;
+        if (verdict.pass) { passBytes = candidate; passVerdict = verdict; break; }
+        console.warn(`[coloring-v2-cover] bake attempt ${attempt} rejected: ${verdict.reason} extras=${JSON.stringify(verdict.extra)} misspelled=${JSON.stringify(verdict.misspelled)}`);
       } catch (e) { lastErr = e; console.warn(`[coloring-v2-cover] bake attempt ${attempt} error:`, e?.message ?? e); }
     }
 
-    if (!bestBytes) throw new Error(`cover_render_failed:${lastErr?.message ?? bestVerdict?.reason ?? "unknown"}`);
+    // OWNER LAW `cover_bake_only_v6_hard_reject` (2026-07-20):
+    //   Never ship a cover that failed OCR. Misspellings, extras, hard-banned
+    //   tokens, or duplicate age badges = throw. The retry supervisor requeues
+    //   the book; garbled typography must never reach the storefront.
+    if (!passBytes || !passVerdict?.pass) {
+      const reason = lastVerdict?.reason ?? lastErr?.message ?? "unknown";
+      throw new Error(`cover_ocr_hard_reject_after_${BAKE_ATTEMPTS}_attempts:${reason}`);
+    }
 
-    const asset = await uploadAsset(book_id, "cover_final", bestBytes, "jpg", {
+    const asset = await uploadAsset(book_id, "cover_final", passBytes, "jpg", {
       prompt_len: bakePrompt.length, refs: refs.length,
-      ocr_verdict: bestVerdict?.reason ?? null,
-      ocr_pass: !!bestVerdict?.pass,
-      overlay: COVER_OVERLAY_CONTRACT, // "cover_bake_only_v6_no_overlay_ever"
+      ocr_verdict: passVerdict.reason,
+      ocr_pass: true,
+      overlay: COVER_OVERLAY_CONTRACT,
       text_mode: "bake_only",
       prompt_version: COLORING_MASTER_COVER_PROMPT_VERSION,
-      law: "cover_bake_only_v6",
+      law: "cover_bake_only_v6_hard_reject",
     });
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
     await advance(book_id, "cover", "qc");
     await fireStage("coloring-v2-qc", { book_id });
-    return json({ ok: true, cover_asset: asset.id, next: "qc", text_mode: "bake_only", ocr: bestVerdict?.reason ?? null });
+    return json({ ok: true, cover_asset: asset.id, next: "qc", text_mode: "bake_only", ocr: passVerdict.reason });
   } catch (e: any) {
     await recordError(book_id, "cover", e);
     return json({ error: e?.message ?? String(e) }, 500);
