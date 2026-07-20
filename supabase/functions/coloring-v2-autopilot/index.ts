@@ -128,9 +128,11 @@ Deno.serve(async (req: Request) => {
       .select("id", { count: "exact", head: true })
       .neq("publish_status", "live").neq("stage", "failed");
 
-    const capRemain = Math.max(0, cfg.daily_cap - (createdToday ?? 0));
-    const flightRemain = Math.max(0, cfg.max_in_flight - (inFlight ?? 0));
+    // daily_cap = 0 means unlimited; same for max_in_flight
+    const capRemain = cfg.daily_cap > 0 ? Math.max(0, cfg.daily_cap - (createdToday ?? 0)) : Number.POSITIVE_INFINITY;
+    const flightRemain = cfg.max_in_flight > 0 ? Math.max(0, cfg.max_in_flight - (inFlight ?? 0)) : Number.POSITIVE_INFINITY;
     let slots = Math.min(capRemain, flightRemain);
+    if (!Number.isFinite(slots)) slots = overrideBatch && manual ? overrideBatch : 25;
     if (overrideBatch && manual) slots = Math.min(slots || overrideBatch, overrideBatch);
     if (slots <= 0) return j({ ok: true, skipped: "cap_or_flight_reached", created_today: createdToday, in_flight: inFlight, legacy_covers_swept: sweptBookIds.length, swept_book_ids: sweptBookIds });
 
