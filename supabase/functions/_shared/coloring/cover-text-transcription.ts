@@ -313,7 +313,7 @@ export async function verifyExactCoverText(
   const hard_banned_hits = detectedTokens.filter((t) => HARD_BANNED_COVER_TOKENS.has(t) && !requiredSet.has(t) && !optionalSet.has(t));
   const pass = hard_banned_hits.length === 0 && (textlessMode
     ? (detectedTokens.length === 0 || detectedTokens.every((t) => CHROME_TOKENS.has(t)))
-    : (missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0 && !duplicate_age_badge));
+    : (missing_required.length === 0 && extra.length === 0 && misspelled.length === 0 && !duplicate_age_badge));
   const reason = pass
     ? "exact_match"
     : hard_banned_hits.length > 0
