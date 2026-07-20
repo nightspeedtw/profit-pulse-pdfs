@@ -73,11 +73,22 @@ export class ProviderUnconfiguredError extends Error {
 
 const CF_MAX_STEPS = 8;
 
-function cfCreds(): { accountId: string; token: string } | null {
-  const accountId = Deno.env.get("CF_ACCOUNT_ID");
-  const token = Deno.env.get("CF_API_TOKEN");
-  if (!accountId || !token) return null;
-  return { accountId, token };
+type CfCreds = { accountId: string; token: string; label: string };
+
+function cfCredsList(): CfCreds[] {
+  const list: CfCreds[] = [];
+  const a1 = Deno.env.get("CF_ACCOUNT_ID");
+  const t1 = Deno.env.get("CF_API_TOKEN");
+  if (a1 && t1) list.push({ accountId: a1, token: t1, label: "cf1" });
+  const a2 = Deno.env.get("CF_ACCOUNT_ID_2");
+  const t2 = Deno.env.get("CF_API_TOKEN_2");
+  if (a2 && t2) list.push({ accountId: a2, token: t2, label: "cf2" });
+  return list;
+}
+
+function cfCreds(): CfCreds | null {
+  const l = cfCredsList();
+  return l.length ? l[0] : null;
 }
 
 /**
@@ -90,18 +101,19 @@ function classifyCloudflareError(status: number, body: string): Error {
   if (isFalBillingLocked(status, body)) {
     return new FalBillingLockedError(status, `cloudflare: ${body.slice(0, 240)}`);
   }
+  // Cloudflare neuron-quota exhaustion returns 429 or a body mentioning
+  // "neurons" / "quota" / "rate limit" — treat as billing-locked so we
+  // rotate to the next account instead of burning page attempts.
+  if (status === 429 || /neuron|quota|rate.?limit|exceeded/i.test(body)) {
+    return new FalBillingLockedError(status, `cloudflare: ${body.slice(0, 240)}`);
+  }
   return new Error(`cloudflare @cf/flux-1-schnell ${status}: ${body.slice(0, 400)}`);
 }
 
 // Cloudflare Workers AI enforces a hard prompt length limit (2048 chars).
-// Truncate defensively at the adapter boundary so long compound prompts
-// still land on CF — the trailing detail our prompts append (learned
-// prevention clauses, category glossary) is safe to clip.
 const CF_MAX_PROMPT_CHARS = 2000;
 
-export async function cloudflareFluxSchnell(opts: GenerateImageOpts): Promise<Uint8Array> {
-  const creds = cfCreds();
-  if (!creds) throw new ProviderUnconfiguredError("cloudflare_flux_schnell", "CF_ACCOUNT_ID + CF_API_TOKEN not set");
+async function cfRunOnce(creds: CfCreds, opts: GenerateImageOpts): Promise<Uint8Array> {
   const steps = Math.min(CF_MAX_STEPS, Math.max(1, opts.num_inference_steps ?? 4));
   const prompt = opts.prompt.length > CF_MAX_PROMPT_CHARS
     ? opts.prompt.slice(0, CF_MAX_PROMPT_CHARS)
@@ -119,20 +131,16 @@ export async function cloudflareFluxSchnell(opts: GenerateImageOpts): Promise<Ui
     const txt = (await res.text()).slice(0, 800);
     throw classifyCloudflareError(res.status, txt);
   }
-  // Response shape: { result: { image: "<base64 jpeg>" }, success: true, ... }
   const j = await res.json();
   const b64: string | undefined = j?.result?.image;
   if (!b64) throw new Error(`cloudflare returned no image: ${JSON.stringify(j).slice(0, 300)}`);
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  // Cost log: Cloudflare Workers AI images run on the free-neurons tier for
-  // our current volume → cost_usd 0. Still log the row so the per-page
-  // provider attribution + daily-spend audit is complete.
   try {
     logAiCost(costDb(), {
       ebook_id: opts.ebook_id,
-      step: opts.step ?? "coloring_interior_cloudflare",
+      step: `${opts.step ?? "coloring_interior_cloudflare"}_${creds.label}`,
       model: "@cf/black-forest-labs/flux-1-schnell",
       images: 1,
       cost_usd: 0,
@@ -141,6 +149,29 @@ export async function cloudflareFluxSchnell(opts: GenerateImageOpts): Promise<Ui
   } catch (_e) { /* best-effort */ }
   return bytes;
 }
+
+export async function cloudflareFluxSchnell(opts: GenerateImageOpts): Promise<Uint8Array> {
+  const accounts = cfCredsList();
+  if (accounts.length === 0) {
+    throw new ProviderUnconfiguredError("cloudflare_flux_schnell", "CF_ACCOUNT_ID + CF_API_TOKEN not set");
+  }
+  let lastErr: unknown = null;
+  for (const creds of accounts) {
+    try {
+      return await cfRunOnce(creds, opts);
+    } catch (e) {
+      lastErr = e;
+      // Only rotate to next account on quota/billing-lock; hard errors bubble.
+      if (e instanceof FalBillingLockedError) {
+        console.warn(`[cloudflare] account ${creds.label} quota-latched; rotating to next account`);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
 
 // -------- Provider registry + dispatcher --------
 
