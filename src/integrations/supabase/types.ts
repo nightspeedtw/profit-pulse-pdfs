@@ -6385,6 +6385,233 @@ export type Database = {
         }
         Relationships: []
       }
+      seo_audit_log: {
+        Row: {
+          action: string
+          after_json: Json | null
+          before_json: Json | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string | null
+          id: string
+        }
+        Insert: {
+          action: string
+          after_json?: Json | null
+          before_json?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+        }
+        Update: {
+          action?: string
+          after_json?: Json | null
+          before_json?: Json | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
+      seo_autopilot_settings: {
+        Row: {
+          emergency_stop: boolean
+          enabled: boolean
+          id: boolean
+          max_blog_posts_per_day: number
+          max_draft_pages_per_day: number
+          max_programmatic_pages_per_day: number
+          max_public_pages_per_day: number
+          preferred_language: string
+          publish_mode: string
+          require_human_review_for_new_keyword_clusters: boolean
+          target_markets: Json
+          updated_at: string
+        }
+        Insert: {
+          emergency_stop?: boolean
+          enabled?: boolean
+          id?: boolean
+          max_blog_posts_per_day?: number
+          max_draft_pages_per_day?: number
+          max_programmatic_pages_per_day?: number
+          max_public_pages_per_day?: number
+          preferred_language?: string
+          publish_mode?: string
+          require_human_review_for_new_keyword_clusters?: boolean
+          target_markets?: Json
+          updated_at?: string
+        }
+        Update: {
+          emergency_stop?: boolean
+          enabled?: boolean
+          id?: boolean
+          max_blog_posts_per_day?: number
+          max_draft_pages_per_day?: number
+          max_programmatic_pages_per_day?: number
+          max_public_pages_per_day?: number
+          preferred_language?: string
+          publish_mode?: string
+          require_human_review_for_new_keyword_clusters?: boolean
+          target_markets?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      seo_content_queue: {
+        Row: {
+          aeo_score: number | null
+          body_md: string | null
+          created_at: string
+          duplicate_risk_score: number | null
+          faq: Json
+          geo_score: number | null
+          id: string
+          image_count: number | null
+          internal_links: Json
+          keyword_cluster_id: string | null
+          meta_description: string | null
+          meta_title: string | null
+          page_type: string
+          published_at: string | null
+          qa_findings: Json
+          scheduled_for: string | null
+          schema_json: Json
+          seo_score: number | null
+          status: string
+          target_slug: string | null
+          title: string | null
+          updated_at: string
+          word_count: number | null
+        }
+        Insert: {
+          aeo_score?: number | null
+          body_md?: string | null
+          created_at?: string
+          duplicate_risk_score?: number | null
+          faq?: Json
+          geo_score?: number | null
+          id?: string
+          image_count?: number | null
+          internal_links?: Json
+          keyword_cluster_id?: string | null
+          meta_description?: string | null
+          meta_title?: string | null
+          page_type?: string
+          published_at?: string | null
+          qa_findings?: Json
+          scheduled_for?: string | null
+          schema_json?: Json
+          seo_score?: number | null
+          status?: string
+          target_slug?: string | null
+          title?: string | null
+          updated_at?: string
+          word_count?: number | null
+        }
+        Update: {
+          aeo_score?: number | null
+          body_md?: string | null
+          created_at?: string
+          duplicate_risk_score?: number | null
+          faq?: Json
+          geo_score?: number | null
+          id?: string
+          image_count?: number | null
+          internal_links?: Json
+          keyword_cluster_id?: string | null
+          meta_description?: string | null
+          meta_title?: string | null
+          page_type?: string
+          published_at?: string | null
+          qa_findings?: Json
+          scheduled_for?: string | null
+          schema_json?: Json
+          seo_score?: number | null
+          status?: string
+          target_slug?: string | null
+          title?: string | null
+          updated_at?: string
+          word_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_content_queue_keyword_cluster_id_fkey"
+            columns: ["keyword_cluster_id"]
+            isOneToOne: false
+            referencedRelation: "seo_keyword_clusters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_keyword_clusters: {
+        Row: {
+          aeo_questions: string[]
+          cluster_key: string
+          cluster_name: string
+          competitor_keywords: string[]
+          created_at: string
+          geo_evidence_points: string[]
+          id: string
+          max_word_count: number
+          min_word_count: number
+          negative_keywords: string[]
+          primary_keyword: string
+          priority: number
+          recommended_images: number
+          search_intent: string
+          secondary_keywords: string[]
+          source: string
+          status: string
+          target_page_type: string
+          updated_at: string
+        }
+        Insert: {
+          aeo_questions?: string[]
+          cluster_key: string
+          cluster_name: string
+          competitor_keywords?: string[]
+          created_at?: string
+          geo_evidence_points?: string[]
+          id?: string
+          max_word_count?: number
+          min_word_count?: number
+          negative_keywords?: string[]
+          primary_keyword: string
+          priority?: number
+          recommended_images?: number
+          search_intent: string
+          secondary_keywords?: string[]
+          source?: string
+          status?: string
+          target_page_type: string
+          updated_at?: string
+        }
+        Update: {
+          aeo_questions?: string[]
+          cluster_key?: string
+          cluster_name?: string
+          competitor_keywords?: string[]
+          created_at?: string
+          geo_evidence_points?: string[]
+          id?: string
+          max_word_count?: number
+          min_word_count?: number
+          negative_keywords?: string[]
+          primary_keyword?: string
+          priority?: number
+          recommended_images?: number
+          search_intent?: string
+          secondary_keywords?: string[]
+          source?: string
+          status?: string
+          target_page_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       species_anatomy: {
         Row: {
           aliases: string[]
