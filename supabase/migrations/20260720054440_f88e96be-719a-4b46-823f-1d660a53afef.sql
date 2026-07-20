@@ -1,0 +1,1 @@
+UPDATE public.coloring_v2_books SET stage = 'cover', approved_cover_asset_id = NULL WHERE stage IN ('qc','publish','live') AND id IN (SELECT id FROM public.coloring_v2_books WHERE stage IN ('qc','publish','live'));
