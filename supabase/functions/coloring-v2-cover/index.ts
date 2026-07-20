@@ -16,7 +16,7 @@ import { buildMasterColoringCoverPrompt } from "../_shared/coloring/master-cover
 import { getAgeProfile } from "../_shared/coloring-v2/age-matrix.ts";
 import { runwareInference } from "../_shared/runware.ts";
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
-import { compositeOverlayOntoArt, renderPremiumCoverOverlayPng } from "../_shared/coloring/premium-cover-overlay.ts";
+import { compositeOverlayOntoArt, COVER_OVERLAY_CONTRACT, renderPremiumCoverOverlayPng } from "../_shared/coloring/premium-cover-overlay.ts";
 
 declare const Deno: any;
 
@@ -152,10 +152,10 @@ Deno.serve(async (req: Request) => {
     const asset = await uploadAsset(book_id, "cover_final", composited, "jpg", {
       prompt_len: titlePrompt.length, refs: refs.length,
       ocr_verdict: lastVerdict?.reason ?? null,
-      overlay: "premium_cover_overlay_v4_no_popups",
+      overlay: COVER_OVERLAY_CONTRACT,
       text_mode: textlessFallback ? "textless" : "title_only",
       prompt_version: PROMPT_VERSION,
-      law: "cover_text_overlay_only_v2",
+      law: "no_popups_v5",
     });
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 

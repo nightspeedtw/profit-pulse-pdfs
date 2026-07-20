@@ -69,6 +69,20 @@ export function tokenize(s: string): string[] {
 // via the SecretPDF Kids logo footer if the model bakes it in.
 const CHROME_TOKENS = new Set(["secretpdf", "kids", "the", "a", "an"]);
 
+// OWNER LAW `no_popups_v5` (2026-07-21):
+//   These tokens are the exact words that the retired chip/ribbon/banner
+//   overlays used to draw. If Ideogram bakes any of them into a cover, that
+//   cover is REJECTED even in modes that would otherwise accept the token
+//   (e.g. when the title itself contains a permitted subword). This prevents
+//   the popup words from ever coming back through the AI layer.
+const HARD_BANNED_COVER_TOKENS = new Set([
+  "sale", "new", "free", "best", "bonus", "hot", "top", "premium", "off",
+  "coloring", "book", "books", "ages", "age", "kid", "kids",
+  "page", "pages", "chapter", "vol", "volume",
+  "look", "inside", "preview", "sample",
+  "publisher", "publishing", "presents", "author", "by",
+]);
+
 /**
  * Compare approved vs detected token bags. `misspelled` catches near-matches
  * (edit distance ≤ 1 on ≥4-char tokens) which are still failures — Ideogram
@@ -297,16 +311,22 @@ export async function verifyExactCoverText(
   const misspelled_required = misspelled.filter((m) => requiredSet.has(m.split("→")[0]));
   const age_badge_count = countAgeBadges(raw);
   const duplicate_age_badge = age_badge_count > 1;
+  // OWNER LAW `no_popups_v5`: hard-banned chip/ribbon/banner tokens fail the
+  // gate regardless of mode, even if they appear as a substring of an
+  // approved title token.
+  const hard_banned_hits = detectedTokens.filter((t) => HARD_BANNED_COVER_TOKENS.has(t) && !requiredSet.has(t));
   // Textless mode: any glyph fails. Title-only mode: any extra token beyond
   // title (excluding chrome ignore-list) fails. Missing title also fails.
-  const pass = textlessMode
+  const pass = hard_banned_hits.length === 0 && (textlessMode
     ? (detectedTokens.length === 0 || detectedTokens.every((t) => CHROME_TOKENS.has(t)))
-    : (missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0 && age_badge_count === 0);
+    : (missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0 && age_badge_count === 0));
   const reason = pass
     ? "exact_match"
-    : textlessMode
-      ? `textless_violation:detected=${detectedTokens.length}`
-      : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length},age_badge=${age_badge_count}`;
+    : hard_banned_hits.length > 0
+      ? `hard_banned_tokens:${hard_banned_hits.join(",")}`
+      : textlessMode
+        ? `textless_violation:detected=${detectedTokens.length}`
+        : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length},age_badge=${age_badge_count}`;
   return {
     pass, degraded: false, reason,
     transcribed_raw: raw, transcribed_tokens: detectedTokens, approved_tokens: dedupApproved,
