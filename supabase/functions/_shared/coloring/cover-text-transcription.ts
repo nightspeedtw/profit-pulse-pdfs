@@ -67,7 +67,7 @@ export function tokenize(s: string): string[] {
 
 // Very small ignore set — approved chrome that may appear even in Tier-1 art
 // via the SecretPDF Kids logo footer if the model bakes it in.
-const CHROME_TOKENS = new Set(["secretpdf", "kids", "the", "a", "an"]);
+const CHROME_TOKENS = new Set(["secretpdf", "kids", "the", "a", "an", "detected", "text", "clusters"]);
 
 // OWNER LAW `cover_no_age_badge_v7` (2026-07-21):
 //   V2 covers no longer bake an "Ages X-Y" mark — the age is shown on the
@@ -290,7 +290,30 @@ async function geminiTranscribe(bytes: Uint8Array, timeoutMs: number): Promise<{
 // Use CF Workers AI vision as the primary OCR provider, iterating the same
 // CF account pool as the image renderers (cf1 → cf7).
 
-const CF_VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+// Ordered: llava-hf variant does NOT require a Community-License 'agree'
+// acknowledgement, so we try it first. Fall back to Meta llama-3.2-vision
+// (with auto-agree on 403). Any additional CF vision models can be added.
+const CF_VISION_MODELS = [
+  "@cf/meta/llama-3.2-11b-vision-instruct",
+  "@cf/llava-hf/llava-1.5-7b-hf",
+  "@cf/unum/uform-gen2-qwen-500m",
+];
+// Track per-account llama agreements sent this invocation to avoid repeats.
+const CF_AGREED = new Set<string>();
+
+async function cfSendAgree(accountId: string, token: string, model: string): Promise<boolean> {
+  try {
+    const r = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ prompt: "agree" }),
+      },
+    );
+    return r.ok;
+  } catch { return false; }
+}
 
 function cfOcrCreds(): { accountId: string; token: string; label: string }[] {
   const list: { accountId: string; token: string; label: string }[] = [];
@@ -321,11 +344,11 @@ async function cloudflareVisionTranscribe(bytes: Uint8Array, timeoutMs: number):
   if (accounts.length === 0) return null;
   const imageArr = Array.from(bytes);
   for (const acct of accounts) {
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort("cf_vision_timeout"), timeoutMs);
-    try {
-      const r = await fetch(
-        `https://api.cloudflare.com/client/v4/accounts/${acct.accountId}/ai/run/${CF_VISION_MODEL}`,
+    for (const model of CF_VISION_MODELS) {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort("cf_vision_timeout"), timeoutMs);
+      const doCall = async () => fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${acct.accountId}/ai/run/${model}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${acct.token}` },
@@ -338,26 +361,40 @@ async function cloudflareVisionTranscribe(bytes: Uint8Array, timeoutMs: number):
           signal: ac.signal,
         },
       );
-      clearTimeout(timer);
-      if (!r.ok) {
-        const body = await r.text().catch(() => "");
-        // Rotate to next account on quota / rate limit
-        if (r.status === 429 || /neurons|quota|rate limit|exceeded/i.test(body)) {
-          console.warn(`[cover-transcribe] cf-vision ${acct.label} quota (${r.status}), rotating`);
-          continue;
+      try {
+        let r = await doCall();
+        if (r.status === 403) {
+          const body = await r.text().catch(() => "");
+          if (/Model Agreement|submit the prompt 'agree'/i.test(body)) {
+            const agreeKey = `${acct.label}:${model}`;
+            if (!CF_AGREED.has(agreeKey)) {
+              const ok = await cfSendAgree(acct.accountId, acct.token, model);
+              CF_AGREED.add(agreeKey);
+              console.warn(`[cover-transcribe] cf-vision ${acct.label} ${model} auto-agree ${ok ? "ok" : "fail"}`);
+              if (ok) r = await doCall();
+            }
+          }
         }
-        console.warn(`[cover-transcribe] cf-vision ${acct.label} http_${r.status}: ${body.slice(0, 200)}`);
+        clearTimeout(timer);
+        if (!r.ok) {
+          const body = await r.text().catch(() => "");
+          if (r.status === 429 || /neurons|quota|rate limit|exceeded/i.test(body)) {
+            console.warn(`[cover-transcribe] cf-vision ${acct.label} ${model} quota (${r.status}), rotating account`);
+            break; // rotate account, skip other models for this acct
+          }
+          console.warn(`[cover-transcribe] cf-vision ${acct.label} ${model} http_${r.status}: ${body.slice(0, 200)}`);
+          continue; // try next model on same account
+        }
+        const j: any = await r.json().catch(() => null);
+        const text = j?.result?.response ?? j?.result?.description ?? "";
+        if (!text) { console.warn(`[cover-transcribe] cf-vision ${acct.label} ${model} empty response`); continue; }
+        const parsed = extractJsonBlob(String(text));
+        if (parsed) return parsed;
+      } catch (e: any) {
+        clearTimeout(timer);
+        console.warn(`[cover-transcribe] cf-vision ${acct.label} ${model} error: ${e?.message ?? e}`);
         continue;
       }
-      const j: any = await r.json().catch(() => null);
-      const text = j?.result?.response ?? j?.result?.description ?? "";
-      if (!text) { console.warn(`[cover-transcribe] cf-vision ${acct.label} empty response`); continue; }
-      const parsed = extractJsonBlob(String(text));
-      if (parsed) return parsed;
-    } catch (e: any) {
-      clearTimeout(timer);
-      console.warn(`[cover-transcribe] cf-vision ${acct.label} error: ${e?.message ?? e}`);
-      continue;
     }
   }
   return null;
