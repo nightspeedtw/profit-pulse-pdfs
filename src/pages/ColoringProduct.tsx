@@ -307,6 +307,7 @@ export default function ColoringProduct() {
 
           {(() => {
             const sp = deriveSalePricing(book.id, priceCents, book.storefront_meta);
+            const salesEndsLabel = saleCfg?.enabled ? formatSaleEnds(saleCfg.ends_at) : null;
             return (
               <div className="space-y-1">
                 <div className="inline-flex items-baseline flex-wrap gap-x-3 gap-y-1 border-2 border-foreground bg-background px-4 py-2">
@@ -320,7 +321,7 @@ export default function ColoringProduct() {
                   )}
                   {sp.discountPct != null && (
                     <span className="font-mono text-xs text-accent-foreground font-bold">
-                      ({sp.discountPct}% off)
+                      ({sp.discountPct}% off{salesEndsLabel ? ` · Sale ends ${salesEndsLabel}` : ""})
                     </span>
                   )}
                 </div>
@@ -330,6 +331,8 @@ export default function ColoringProduct() {
               </div>
             );
           })()}
+
+          <SocialProofBadges ebookId={book.id} />
 
           <button
             type="button"
