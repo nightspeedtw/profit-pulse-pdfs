@@ -25,6 +25,8 @@
 
 export const COLORING_MASTER_COVER_PROMPT_VERSION = "coloring_master_cover_v1";
 
+export type ColoringCoverStyleMode = "default" | "ya_scifi_cinematic";
+
 export interface MasterColoringCoverInput {
   title: string;
   subtitle: string;
@@ -35,7 +37,9 @@ export interface MasterColoringCoverInput {
   aspectDescriptor?: string;    // e.g. "8.5 x 8.5 inches, square 1:1" or "8.5 x 11 inches portrait"
   categoryName?: string;
   hasInteriorReferences?: boolean;
+  styleMode?: ColoringCoverStyleMode;
 }
+
 
 const BANNED_WORDS = ["watermark", "logo", "page number", "website"];
 
