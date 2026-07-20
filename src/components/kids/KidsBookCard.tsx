@@ -44,7 +44,6 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
   const displayTitle = isColoring ? ensureColoringLabel(book.title) : book.title;
 
   const pricing = deriveSalePricing(book.id, book.price_cents, book.storefront_meta);
-  const rating = derivePlatformReview(book.id);
 
   return (
     <Link
