@@ -12,6 +12,14 @@ import { emitColoringEvent } from "@/lib/coloringFunnelEvents";
 import { ColoringPreviewLightbox } from "@/components/kids/ColoringPreviewLightbox";
 import ProductRating from "@/components/product/ProductRating";
 import { deriveSalePricing } from "@/lib/storefrontPricing";
+import { useSaleConfig, formatSaleEnds } from "@/lib/saleConfig";
+import HighlightsBlock from "@/components/product/HighlightsBlock";
+import AddToCollectionButton from "@/components/product/AddToCollectionButton";
+import ItemDetailsSection from "@/components/product/ItemDetailsSection";
+import SocialProofBadges from "@/components/product/SocialProofBadges";
+import CompleteTheSetBundle from "@/components/product/CompleteTheSetBundle";
+import FlipbookPreview from "@/components/product/FlipbookPreview";
+import ReviewSummary from "@/components/product/ReviewSummary";
 
 interface Row {
   id: string;
@@ -56,6 +64,7 @@ export default function ColoringProduct() {
   const [preview, setPreview] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const saleCfg = useSaleConfig();
 
   useEffect(() => {
     if (!id) return;
@@ -257,7 +266,7 @@ export default function ColoringProduct() {
                 </span>
               </button>
               {gallery.length > 1 && (
-                <div className={`grid gap-2 ${gallery.length >= 6 ? "grid-cols-6" : gallery.length === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
+                <div className={`grid gap-2 ${gallery.length >= 5 ? "grid-cols-6" : "grid-cols-5"}`}>
                   {gallery.map((u, i) => (
                     <button
                       key={`${u}-${i}`}
@@ -271,6 +280,9 @@ export default function ColoringProduct() {
                       <img src={u} alt="" loading="lazy" className="w-full h-full object-contain" />
                     </button>
                   ))}
+                  {gallery.length >= 2 && (
+                    <FlipbookPreview images={gallery} title={book.title || "Coloring book"} />
+                  )}
                 </div>
               )}
             </div>
@@ -301,6 +313,7 @@ export default function ColoringProduct() {
 
           {(() => {
             const sp = deriveSalePricing(book.id, priceCents, book.storefront_meta);
+            const salesEndsLabel = saleCfg?.enabled ? formatSaleEnds(saleCfg.ends_at) : null;
             return (
               <div className="space-y-1">
                 <div className="inline-flex items-baseline flex-wrap gap-x-3 gap-y-1 border-2 border-foreground bg-background px-4 py-2">
@@ -314,7 +327,7 @@ export default function ColoringProduct() {
                   )}
                   {sp.discountPct != null && (
                     <span className="font-mono text-xs text-accent-foreground font-bold">
-                      ({sp.discountPct}% off)
+                      ({sp.discountPct}% off{salesEndsLabel ? ` · Sale ends ${salesEndsLabel}` : ""})
                     </span>
                   )}
                 </div>
@@ -324,6 +337,8 @@ export default function ColoringProduct() {
               </div>
             );
           })()}
+
+          <SocialProofBadges ebookId={book.id} />
 
           <button
             type="button"
@@ -335,6 +350,7 @@ export default function ColoringProduct() {
             {downloading ? "Preparing your PDF…" : "Download instantly — print at home"}
           </button>
 
+          <AddToCollectionButton ebookId={book.id} />
 
           <ul className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs md:text-sm text-muted-foreground">
             <li className="inline-flex items-center gap-2"><Download className="h-3.5 w-3.5" /> Instant PDF</li>
@@ -342,6 +358,13 @@ export default function ColoringProduct() {
             <li className="inline-flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5" /> Personal-use license</li>
             <li className="inline-flex items-center gap-2"><Sparkles className="h-3.5 w-3.5" /> Secure checkout</li>
           </ul>
+
+          <HighlightsBlock
+            pageCount={pageCount}
+            ageMin={ageMin}
+            ageMax={ageMax}
+            categoryName={categoryName}
+          />
         </div>
       </section>
 
@@ -421,6 +444,19 @@ export default function ColoringProduct() {
         )}
       </section>
 
+      {/* ── Item details (Etsy-style, auto-generated) ────────────────── */}
+      <section className="container max-w-5xl py-8 border-t-2 border-border">
+        <h2 className="font-display text-2xl uppercase mb-4">Item details</h2>
+        <ItemDetailsSection
+          pageCount={pageCount}
+          ageMin={ageMin}
+          ageMax={ageMax}
+          categoryName={categoryName}
+          themes={Array.isArray(meta.themes) ? meta.themes.slice(0, 12) : []}
+        />
+      </section>
+
+
       {/* ── Long description ─────────────────────────────────────────── */}
       {descHtml && (
         <section className="container max-w-3xl py-8 border-t-2 border-border">
@@ -430,6 +466,19 @@ export default function ColoringProduct() {
           />
         </section>
       )}
+
+      {/* ── Complete-the-set bundle (auto, discounted) ──────────────── */}
+      <CompleteTheSetBundle
+        ebookId={book.id}
+        ebookTitle={book.title || "This book"}
+        ebookPriceCents={priceCents}
+        ebookCoverUrl={book.cover_url}
+        siblings={siblings}
+      />
+
+      {/* ── Review summary (auto, real reviews only) ─────────────────── */}
+      <ReviewSummary ebookId={book.id} />
+
 
       {/* ── Cross-sell rail ─────────────────────────────────────────── */}
       {siblings.length > 0 && (
