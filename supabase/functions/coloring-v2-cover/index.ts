@@ -34,6 +34,7 @@ Deno.serve(async (req: Request) => {
       try { refs.push(await signedUrl(a.storage_path, 3600)); } catch { /* skip */ }
     }
 
+    const styleMode = book.cover_mood === "ya_scifi_cinematic" ? "ya_scifi_cinematic" : "default";
     const prompt = buildMasterColoringCoverPrompt({
       title: book.title ?? concept.title ?? "Untitled",
       subtitle: book.subtitle ?? concept.subtitle ?? "",
@@ -44,7 +45,9 @@ Deno.serve(async (req: Request) => {
       aspectDescriptor: "8.5 x 8.5 inches, square 1:1",
       categoryName: book.theme,
       hasInteriorReferences: refs.length > 0,
+      styleMode,
     });
+
 
     let bytes: Uint8Array | null = null;
     let lastErr: any = null;

@@ -1,76 +1,53 @@
-# Coloring Lane V2 — Full Pipeline Build + Test Book
+## เป้าหมาย
+สร้างหนังสือระบายสี Sci-Fi 1 เล่ม สำหรับเด็กโต (13-17) ผ่าน Coloring Lane V2 ที่เพิ่ง build เสร็จ พร้อมปกสไตล์ YA Sci-Fi มืออาชีพเลียน mood อ้างอิง (cinematic, dramatic lighting, cyberpunk city, lightning, dynamic hero pose) — **แต่คงกฎ line-art interior + cover ต้องเป็นภาพระบายสี ไม่ใช่ full-color illustration**
 
-Isolated V2 lane (feature-flagged, `coloring_v2_*` tables, `coloring-v2-*` functions, `coloring-v2` bucket) already has `coloring-v2-start` and admin UI. This plan builds the remaining stages, wires them into a single tick loop, and ships a 32-page Ages 13-17 test book.
+## สเปกเล่มทดสอบ
+- **Age band:** `13-17` (intricate line work, mandala-quality)
+- **Page count:** 32
+- **Theme:** "Neon Rebellion" — YA sci-fi, teen hero, cyberpunk cityscape, holographic UI, lightning storms, time-glitch motifs (นาฬิกา 11:11, floating papers/glyphs, geometric portals)
+- **Trim:** 8.5 × 8.5 นิ้ว (square, ตามกฎ SQUARE-FIRST)
+- **Provider:** Runware Ideogram 3.0 (`ideogram:4@1`)
 
-## Pipeline Contract
+## Cover — สไตล์ YA Sci-Fi (อ้างอิงภาพผู้ใช้)
+Cover ของ coloring book **ยังต้องเป็น line art ระบายได้** — ไม่สามารถส่ง full-color YA illustration ให้ลูกค้าระบาย แต่จะ inject "YA Sci-Fi Cinematic" mood เข้า `master-cover-prompt`:
+- Composition: hero teen มุมกล้อง 3/4, dynamic pose, wind-swept hair/scarf
+- Background: cyberpunk skyline + lightning bolts + floating holographic panels + glitch papers
+- Line-weight strategy: bold hero outline (5-7px) + fine detail background (2-3px) = premium hierarchy
+- Title treatment: shatter/glitch display font, 2 บรรทัด, subtitle "A Coloring Adventure"
+- ยังบังคับ: pure black ink on white, ไม่มี grayscale fill, ไม่มี text ใน AI layer (title วาดทับด้วย HTML overlay ตามเดิม)
 
-```text
-start (queued)
- → concept        → style_bible
- → page_plan      → interior_render (per page, parallel, N=32)
- → cover_master   → cover_compose
- → qc_visual      → repair_loop? (max 2)
- → pdf_build      → publish (sellable=true)
-```
+## Steps
+1. **Extend master-cover-prompt** — เพิ่ม `coverStyle: "ya_scifi_cinematic"` variant (dynamic hero + cyberpunk motifs + shatter title zone) โดยไม่กระทบ default coloring cover
+2. **Fire ยิงเล่ม** ผ่าน `coloring-v2-start`:
+   ```json
+   { "age_band": "13-17", "theme": "Neon Rebellion — a teen hero racing against a glitching city clock",
+     "page_count": 32, "cover_mood": "ya_scifi_cinematic",
+     "main_character_mode": "recurring_hero", "autopilot_mode": "full_auto",
+     "daily_cost_ceiling_usd": 15 }
+   ```
+3. **Monitor pipeline** — concept → style bible → page plan (32 หน้า distinct: hero portraits, city vistas, tech close-ups, portal/glitch patterns, action beats) → interior render → cover (จะรัน cover-last โดยใช้ 3 interior refs) → QC → PDF → publish
+4. **Verify** — เปิด `/admin/coloring-lab-v2` ดู progress, ตรวจ cover ว่า mood ตรง reference, ตรวจ anatomy (ห้าม deform), ตรวจ title spelling
+5. **Publish to storefront** — insert เข้า `ebooks_kids` แบบ auto ผ่าน `coloring-v2-publish` (มีอยู่แล้ว)
 
-State stored in `coloring_v2_books.stage` + `coloring_v2_steps` (one row per stage attempt). All artifacts land in `coloring_v2_assets` with `kind` = `concept|style_bible|page_plan|interior|cover_master|cover_final|pdf`.
+## รายละเอียดเทคนิค
+**Files to modify:**
+- `supabase/functions/_shared/coloring/master-cover-prompt.ts` — เพิ่ม `COVER_STYLE_PRESETS.ya_scifi_cinematic`
+- `supabase/functions/coloring-v2-cover/index.ts` — ส่ง `cover_mood` เป็น style preset key
+- `supabase/functions/coloring-v2-start/index.ts` — validate `cover_mood` ใน allowed list (`default`, `ya_scifi_cinematic`, etc.)
 
-## New Edge Functions
+**สิ่งที่จะไม่แตะ:**
+- v1 pipeline, threshold, gates, RLS, storefront components
+- Anatomy hard-gate (ยังบังคับ), title spelling hard-gate (ยังบังคับ)
+- Line-art law (pure black on white — ห้าม gray/color fill ใน interior + cover)
 
-1. **coloring-v2-concept** — Gemini 2.5 Pro. Input: theme, age band, page count. Output: title (short, catchy, spelling-locked), subtitle, hero list, motif inventory, parent hook. Stored on `coloring_v2_books` + asset row.
-2. **coloring-v2-style-bible** — Gemini 2.5 Pro. Age-to-art matrix (2-4 chunky, 4-6 simple, 6-8 medium, 8-12 detailed, 13-17 intricate/mandala, all-ages balanced). Emits line-weight, complexity score, negative prompts, ref palette. Persist to `coloring_v2_style_bibles`.
-3. **coloring-v2-page-plan** — Gemini 2.5 Pro. N distinct scenes, anti-clone check vs prior pages. Persist to `coloring_v2_page_plans` (1 row per page).
-4. **coloring-v2-render-page** — Runware `ideogram:4@1`, square 1088×1088, coloring-book prompt template + style bible refs. Anatomy/deformity gate reused from `_shared/coloring/anatomy-verify.ts`. Writes to `coloring-v2` bucket + `coloring_v2_assets`. Retries: max 2, then flag page for repair.
-5. **coloring-v2-cover** — runs only after ≥60% interiors done. Uses 3 interior refs + master-cover-prompt. Square 1088×1088. Title shrink-to-fit typography overlay.
-6. **coloring-v2-qc** — Gemini 2.5 Pro vision. Per-page findings → `coloring_v2_qc_findings`. Hard gates: title spelling, anatomy, cover-interior style match. Soft gates logged.
-7. **coloring-v2-repair** — regenerates only failed pages (max 2 attempts each), then re-QC.
-8. **coloring-v2-pdf** — 8.5×8.5 square trim, cover-first, interior sequence from page plan order. Stored in `ebook-pdfs/v2/` + `coloring_v2_pdf_artifacts`.
-9. **coloring-v2-publish** — inserts/updates `ebooks_kids` row (existing storefront), sets `sellable=true`, `book_type='coloring_book'`, links cover/pdf/thumb, logs event.
-10. **coloring-v2-tick** — cron-driven dispatcher: picks next book by stage, calls the right function, advances stage, respects `ENABLE_COLORING_LANE_V2` flag + `autopilot_frozen` kill-switch. Also handles heartbeat.
+## Success criteria
+- 32 interior pages ผ่าน QC (0 deformity, unique subjects)
+- Cover ได้ mood YA sci-fi (dynamic hero + city + lightning + glitch motifs) แต่ยังเป็น pure line art
+- Title สะกดถูก 100%
+- PDF 8.5×8.5 สร้างเสร็จ, published `sellable=true`
+- ใช้งบ ≤ $15
 
-## Shared Modules
-
-- `_shared/coloring-v2/prompts.ts` — concept, style bible, page plan, render, QC prompt builders keyed by age band.
-- `_shared/coloring-v2/age-matrix.ts` — line weight, complexity, allowed motifs, forbidden motifs per band.
-- `_shared/coloring-v2/state.ts` — atomic stage advance via `atomic_patch_ebooks_kids_meta`-style RPC (new: `coloring_v2_advance_stage`).
-- Reuses: `_shared/coloring/anatomy-verify.ts`, `_shared/coloring/master-cover-prompt.ts`, `_shared/coloring/metadata-bloat-guard.ts`, `_shared/direct-fallback.ts`.
-
-## DB Migrations
-
-- Add `stage`, `stage_updated_at`, `attempt_count`, `last_error` to `coloring_v2_books` if missing.
-- New RPC `coloring_v2_advance_stage(p_book uuid, p_from text, p_to text, p_patch jsonb)` — CAS-style, prevents race.
-- Storage: reuse `coloring-v2` bucket (private, admin RLS).
-
-## Frontend
-
-- `/admin/coloring-lab-v2` — add live progress table (stage, attempts, last_error) polling `coloring_v2_books` + `coloring_v2_steps`. Manual "advance" and "retry stage" buttons.
-- Existing preview `/coloring-preview-v2/:bookId` — render pages from `coloring_v2_assets`.
-
-## Feature Flag Rollout
-
-- Set `platform_settings.enable_coloring_lane_v2 = true` behind admin toggle.
-- `coloring-v2-tick` no-ops when flag off.
-
-## Test Book (Phase 2)
-
-After all functions deploy + smoke test one page render:
-- Kick `coloring-v2-start` with `{ theme: "Mystic Mandalas & Sacred Geometry", ageBand: "13-17", pages: 32 }`.
-- Watch tick advance through all stages.
-- Success = row in `ebooks_kids` with `sellable=true`, cover + 32 interior pages, PDF ≤ 40MB, QC passed, visible in storefront.
-
-## Non-Goals
-
-- No Shopify, SEO, royalty wiring.
-- No changes to V1 coloring lane or novel lanes.
-- No changes to age bands beyond what's already in `coloring_v2_age_bands`.
-
-## Estimated Rollout
-
-- Migrations + shared modules: 1 turn
-- Functions 1–5 (concept → cover): 2 turns
-- Functions 6–10 (QC → tick): 2 turns
-- Admin UI polling + flag toggle: 1 turn
-- Deploy + smoke test: 1 turn
-- Fire test book + verify: 1 turn
-
-Total ~8 turns. Each turn ends with a clear checkpoint before proceeding.
+## Risks & mitigations
+- **Ideogram อาจ render title ทับเอง** → prompt บังคับ `NO TEXT` + title วาดโดย HTML overlay (มีอยู่แล้ว)
+- **Cover อาจได้ shading/gray fill** เพราะพยายามทำ cinematic → prompt ต้องย้ำ "pure black line only, cinematic composition through LINE HIERARCHY only, no shading"
+- **13-17 band ยังใหม่** → ถ้า cover fail 3 ครั้ง จะ fallback เป็น default coloring cover style
