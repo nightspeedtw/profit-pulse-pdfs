@@ -141,10 +141,7 @@ Deno.serve(async (req: Request) => {
       const overlayPng = await renderPremiumCoverOverlayPng({
         width: CANVAS, height: CANVAS,
         ageBadge: ageBadgeUpper,
-        ribbonText: "SALE", showRibbon: true,
-        topLabel: "COLORING BOOK",
-        subtitle,
-        blurb,
+        showRibbon: false,
         fallbackTitle: textlessFallback ? title : "",
       });
       composited = await compositeOverlayOntoArt(bytes, overlayPng);
