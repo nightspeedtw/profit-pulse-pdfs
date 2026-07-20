@@ -401,16 +401,16 @@ export function ColoringAutopilotCard() {
         <div>
           <Label className="text-xs uppercase font-mono">Batch size (per run)</Label>
           <Input
-            type="number" min={1} max={20} value={cfg.batch_size}
-            onChange={(e) => update("batch_size", Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+            type="number" min={1} max={1000} value={cfg.batch_size}
+            onChange={(e) => update("batch_size", Math.max(1, Math.min(1000, Number(e.target.value) || 1)))}
           />
         </div>
 
         <div>
-          <Label className="text-xs uppercase font-mono">Daily cap (books/day)</Label>
+          <Label className="text-xs uppercase font-mono">Daily cap (0 = unlimited)</Label>
           <Input
-            type="number" min={0} max={100} value={cfg.daily_cap}
-            onChange={(e) => update("daily_cap", Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+            type="number" min={0} max={100000} value={cfg.daily_cap}
+            onChange={(e) => update("daily_cap", Math.max(0, Math.min(100000, Number(e.target.value) || 0)))}
           />
         </div>
 
