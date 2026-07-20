@@ -141,7 +141,7 @@ Deno.serve(async (req: Request) => {
     let bestBytes: Uint8Array | null = null;
     let bestExtras = Number.POSITIVE_INFINITY;
     let bestVerdict: any = null;
-    let bestProvider: "runware" | "cloudflare_fallback" | null = null;
+    let bestProvider: CoverProvider | null = null;
     let transcriberFailures = 0;
 
     for (let attempt = 1; attempt <= BAKE_ATTEMPTS; attempt++) {
