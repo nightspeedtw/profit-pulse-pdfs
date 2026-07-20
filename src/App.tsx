@@ -45,6 +45,10 @@ import KidsQcReport from "./pages/admin/KidsQcReport.tsx";
 import KidsLibrary from "./pages/admin/KidsLibrary.tsx";
 import Blog from "./pages/Blog.tsx";
 import BlogPost from "./pages/BlogPost.tsx";
+import { FEATURES } from "@/config/features.ts";
+import ColoringLabV2 from "./pages/admin/ColoringLabV2.tsx";
+import ColoringPreviewV2 from "./pages/ColoringPreviewV2.tsx";
+
 
 const queryClient = new QueryClient();
 
