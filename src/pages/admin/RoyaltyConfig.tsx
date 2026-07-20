@@ -33,29 +33,48 @@ interface Ledger {
   memo: string | null;
   created_at: string;
 }
+interface KycRow { id: string; user_id: string; status: string; provider: string; submitted_at: string | null; rejection_reason: string | null; }
+interface PayoutRow { id: string; user_id: string; amount_cents: number; status: string; requested_at: string; paid_at: string | null; admin_notes: string | null; }
+
 
 function usd(cents: number) { return `$${(Number(cents || 0) / 100).toFixed(2)}`; }
 
 export default function RoyaltyConfig() {
   const [live, setLive] = useState(false);
+  const [payoutsLive, setPayoutsLive] = useState(false);
+  const [kycRequired, setKycRequired] = useState(true);
+  const [minPayoutUsd, setMinPayoutUsd] = useState(50);
   const [loading, setLoading] = useState(true);
   const [cfgs, setCfgs] = useState<Cfg[]>([]);
   const [ledger, setLedger] = useState<Ledger[]>([]);
+  const [kycRows, setKycRows] = useState<KycRow[]>([]);
+  const [payoutRows, setPayoutRows] = useState<PayoutRow[]>([]);
   const [addBookId, setAddBookId] = useState("");
   const [addKind, setAddKind] = useState<"kids" | "adult" | "coloring_v2">("kids");
   const [accrueOrderId, setAccrueOrderId] = useState("");
   const [running, setRunning] = useState(false);
 
+
   async function load() {
     setLoading(true);
-    const [{ data: ps }, { data: c }, { data: l }] = await Promise.all([
+    const [{ data: ps }, { data: c }, { data: l }, { data: settings }, { data: kyc }, { data: pouts }] = await Promise.all([
       supabase.from("platform_settings").select("royalty_live").limit(1).maybeSingle(),
       supabase.from("roy_book_config").select("*").order("updated_at", { ascending: false }),
       supabase.from("roy_ledger").select("*").order("created_at", { ascending: false }).limit(100),
+      supabase.from("platform_settings").select("key,value_json").in("key", ["royalty_payouts_live", "royalty_kyc_required", "royalty_min_payout_usd"]),
+      supabase.from("roy_kyc_submissions").select("id,user_id,status,provider,submitted_at,rejection_reason").order("created_at", { ascending: false }).limit(50),
+      supabase.from("roy_payout_requests").select("id,user_id,amount_cents,status,requested_at,paid_at,admin_notes").order("created_at", { ascending: false }).limit(50),
     ]);
     setLive(!!(ps as any)?.royalty_live);
     setCfgs((c ?? []) as Cfg[]);
     setLedger((l ?? []) as Ledger[]);
+    setKycRows((kyc ?? []) as KycRow[]);
+    setPayoutRows((pouts ?? []) as PayoutRow[]);
+    for (const row of (settings ?? []) as any[]) {
+      if (row.key === "royalty_payouts_live") setPayoutsLive(row.value_json === true);
+      if (row.key === "royalty_kyc_required") setKycRequired(row.value_json !== false);
+      if (row.key === "royalty_min_payout_usd") setMinPayoutUsd(Number(row.value_json ?? 50));
+    }
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
@@ -66,6 +85,33 @@ export default function RoyaltyConfig() {
     setLive(next);
     toast.success(next ? "Royalty engine LIVE" : "Royalty engine paused");
   }
+
+  async function setJsonSetting(key: string, value: unknown, label: string) {
+    const { error } = await supabase.from("platform_settings").update({ value_json: value } as any).eq("key", key);
+    if (error) return toast.error(error.message);
+    toast.success(`${label} updated`);
+    load();
+  }
+
+  async function reviewKyc(id: string, status: "approved" | "rejected", reason?: string) {
+    const patch: any = { status, reviewed_at: new Date().toISOString() };
+    if (status === "rejected" && reason) patch.rejection_reason = reason;
+    const { error } = await supabase.from("roy_kyc_submissions").update(patch).eq("id", id);
+    if (error) return toast.error(error.message);
+    toast.success(`KYC ${status}`);
+    load();
+  }
+
+  async function reviewPayout(id: string, action: "approve" | "reject" | "mark_paid" | "cancel") {
+    const { data, error } = await supabase.functions.invoke("royalty-payout-review", {
+      body: { request_id: id, action },
+    });
+    if (error) return toast.error(error.message);
+    if ((data as any)?.error) return toast.error((data as any).error);
+    toast.success(`Payout ${action}`);
+    load();
+  }
+
 
   async function addBook() {
     if (!addBookId) return;
@@ -211,6 +257,115 @@ export default function RoyaltyConfig() {
           <p className="text-xs text-muted-foreground">Idempotent — safe to re-run.</p>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Payout & KYC settings</CardTitle></CardHeader>
+        <CardContent className="grid md:grid-cols-3 gap-4 items-end">
+          <div className="flex items-center justify-between border rounded p-3">
+            <div>
+              <div className="text-sm font-medium">Payouts live</div>
+              <div className="text-xs text-muted-foreground">Required to mark payouts as paid</div>
+            </div>
+            <Switch checked={payoutsLive} onCheckedChange={(v) => { setPayoutsLive(v); setJsonSetting("royalty_payouts_live", v, "Payouts live"); }} />
+          </div>
+          <div className="flex items-center justify-between border rounded p-3">
+            <div>
+              <div className="text-sm font-medium">KYC required</div>
+              <div className="text-xs text-muted-foreground">Block payout requests without approved KYC</div>
+            </div>
+            <Switch checked={kycRequired} onCheckedChange={(v) => { setKycRequired(v); setJsonSetting("royalty_kyc_required", v, "KYC required"); }} />
+          </div>
+          <div className="border rounded p-3">
+            <label className="text-xs text-muted-foreground">Minimum payout (USD)</label>
+            <Input type="number" min="1" defaultValue={minPayoutUsd}
+              onBlur={(e) => { const n = Number(e.target.value); setMinPayoutUsd(n); setJsonSetting("royalty_min_payout_usd", n, "Min payout"); }} />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>KYC queue ({kycRows.length})</CardTitle></CardHeader>
+        <CardContent className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2 pr-3">User</th>
+                <th className="py-2 pr-3">Provider</th>
+                <th className="py-2 pr-3">Status</th>
+                <th className="py-2 pr-3">Submitted</th>
+                <th className="py-2 pr-3">Reason</th>
+                <th className="py-2 pr-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {kycRows.map((k) => (
+                <tr key={k.id} className="border-b last:border-0">
+                  <td className="py-2 pr-3 font-mono text-xs">{k.user_id.slice(0, 8)}…</td>
+                  <td className="py-2 pr-3">{k.provider}</td>
+                  <td className="py-2 pr-3"><Badge variant="outline">{k.status}</Badge></td>
+                  <td className="py-2 pr-3 text-xs">{k.submitted_at ? new Date(k.submitted_at).toLocaleString() : "—"}</td>
+                  <td className="py-2 pr-3 text-xs text-muted-foreground">{k.rejection_reason ?? "—"}</td>
+                  <td className="py-2 pr-3 flex gap-2">
+                    {k.status === "pending" && (
+                      <>
+                        <Button size="sm" variant="default" onClick={() => reviewKyc(k.id, "approved")}>Approve</Button>
+                        <Button size="sm" variant="outline" onClick={() => { const r = prompt("Rejection reason?") ?? ""; if (r) reviewKyc(k.id, "rejected", r); }}>Reject</Button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {kycRows.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-muted-foreground">No submissions</td></tr>}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Payout queue ({payoutRows.length})</CardTitle></CardHeader>
+        <CardContent className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2 pr-3">User</th>
+                <th className="py-2 pr-3 text-right">Amount</th>
+                <th className="py-2 pr-3">Status</th>
+                <th className="py-2 pr-3">Requested</th>
+                <th className="py-2 pr-3">Paid</th>
+                <th className="py-2 pr-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payoutRows.map((p) => (
+                <tr key={p.id} className="border-b last:border-0">
+                  <td className="py-2 pr-3 font-mono text-xs">{p.user_id.slice(0, 8)}…</td>
+                  <td className="py-2 pr-3 text-right font-medium">{usd(p.amount_cents)}</td>
+                  <td className="py-2 pr-3"><Badge variant="outline">{p.status}</Badge></td>
+                  <td className="py-2 pr-3 text-xs">{new Date(p.requested_at).toLocaleString()}</td>
+                  <td className="py-2 pr-3 text-xs">{p.paid_at ? new Date(p.paid_at).toLocaleString() : "—"}</td>
+                  <td className="py-2 pr-3 flex flex-wrap gap-2">
+                    {p.status === "requested" && (
+                      <>
+                        <Button size="sm" onClick={() => reviewPayout(p.id, "approve")}>Approve</Button>
+                        <Button size="sm" variant="outline" onClick={() => reviewPayout(p.id, "reject")}>Reject</Button>
+                      </>
+                    )}
+                    {p.status === "approved" && (
+                      <>
+                        <Button size="sm" disabled={!payoutsLive} title={payoutsLive ? "" : "Enable payouts_live first"} onClick={() => reviewPayout(p.id, "mark_paid")}>Mark paid</Button>
+                        <Button size="sm" variant="outline" onClick={() => reviewPayout(p.id, "cancel")}>Cancel</Button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {payoutRows.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-muted-foreground">No requests</td></tr>}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+
 
       <Card>
         <CardHeader>
