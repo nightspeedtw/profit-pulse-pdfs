@@ -49,6 +49,8 @@ import BlogPost from "./pages/BlogPost.tsx";
 import { FEATURES } from "@/config/features.ts";
 import ColoringLabV2 from "./pages/admin/ColoringLabV2.tsx";
 import ColoringPreviewV2 from "./pages/ColoringPreviewV2.tsx";
+import DriveShop from "./pages/DriveShop.tsx";
+import DriveImporter from "./pages/admin/DriveImporter.tsx";
 
 
 const queryClient = new QueryClient();
@@ -85,6 +87,8 @@ const App = () => (
             <Route path="/checkout/return" element={<CheckoutReturn />} />
             <Route path="/blog" element={<Blog />} />
             <Route path="/blog/:slug" element={<BlogPost />} />
+            <Route path="/shop" element={<DriveShop />} />
+            <Route path="/shop/:slug" element={<DriveShop />} />
             {FEATURES.ENABLE_COLORING_LANE_V2 && (
               <Route path="/coloring-preview-v2/:bookId" element={<ColoringPreviewV2 />} />
             )}
@@ -108,6 +112,7 @@ const App = () => (
             <Route path="settings" element={<SettingsPage />} />
             <Route path="royalty-settings" element={<RoyaltySettings />} />
             <Route path="marketing-autopilot" element={<MarketingAutopilot />} />
+            <Route path="drive-importer" element={<DriveImporter />} />
             <Route path="ebook/:id" element={<EbookReview />} />
             <Route path="ebook/:id/writing" element={<EbookWriting />} />
             <Route path="ebook/:id/cover" element={<EbookCover />} />
