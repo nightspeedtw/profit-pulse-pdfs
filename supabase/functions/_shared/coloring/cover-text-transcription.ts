@@ -300,6 +300,8 @@ export async function verifyExactCoverText(
       missing_optional: optionalTokens,
       extra: [],
       misspelled: [],
+      age_badge_count: 0,
+      duplicate_age_badge: false,
       attempted_at,
     };
   }
@@ -308,19 +310,21 @@ export async function verifyExactCoverText(
   const { missing, extra, misspelled } = diffTokens(dedupApproved, detectedTokens);
   const missing_required = missing.filter((t) => requiredSet.has(t));
   const missing_optional = missing.filter((t) => !requiredSet.has(t));
-  // Misspellings ONLY count against the gate when the intended token is
-  // required (a misspelled title word is a defect); an optional misspelling
-  // (e.g. subtitle) is a warning, mirroring the missing-token policy.
-  const misspelled_required = misspelled.filter((m) => {
-    const intended = m.split("→")[0];
-    return requiredSet.has(intended);
-  });
-  const pass = missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0;
+  const misspelled_required = misspelled.filter((m) => requiredSet.has(m.split("→")[0]));
+  const age_badge_count = countAgeBadges(raw);
+  const duplicate_age_badge = age_badge_count > 1;
+  // Owner order (external-audit #1): extend title-only law to whole-cover.
+  // ANY extra glyph, ANY duplicate age-badge, ANY misspelled required
+  // token = reject art. This is the non-waivable spelling law extended.
+  const pass = missing_required.length === 0
+    && extra.length === 0
+    && misspelled_required.length === 0
+    && !duplicate_age_badge;
   const reason = pass
     ? (missing_optional.length || misspelled.length > misspelled_required.length
         ? `exact_match_with_optional_gaps:missing_optional=${missing_optional.length}`
         : "exact_match")
-    : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length}`;
+    : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length},dup_age_badge=${duplicate_age_badge}`;
   return {
     pass,
     degraded: false,
@@ -335,6 +339,8 @@ export async function verifyExactCoverText(
     missing_optional,
     extra,
     misspelled,
+    age_badge_count,
+    duplicate_age_badge,
     attempted_at,
   };
 }
