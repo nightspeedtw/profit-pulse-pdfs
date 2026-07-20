@@ -55,26 +55,35 @@ export default function KidsHeroCompact({ onCtaClick }: Props) {
     <section aria-label="Kids hero" className="relative w-full overflow-hidden">
       <style>{`
         @keyframes kidsHeroFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
-        @keyframes kidsHeroDrift { 0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(6px,-10px,0)} 100%{transform:translate3d(0,0,0)} }
-        @keyframes kidsHeroShimmer { 0%{transform:translateX(-120%)} 100%{transform:translateX(120%)} }
-        @keyframes kidsHeroSparkle { 0%,100%{opacity:.15;transform:translateY(0) scale(.9)} 50%{opacity:1;transform:translateY(-14px) scale(1.15)} }
-        @keyframes kidsHeroOrb { 0%,100%{transform:translate3d(0,0,0) scale(1);opacity:.55} 50%{transform:translate3d(12px,-14px,0) scale(1.06);opacity:.8} }
-        .kids-hero-float { animation: kidsHeroFloat 7s ease-in-out infinite; }
-        .kids-hero-orb { animation: kidsHeroOrb 11s ease-in-out infinite; }
-        .kids-hero-orb.delay-1 { animation-duration: 14s; animation-delay: -3s; }
-        .kids-hero-orb.delay-2 { animation-duration: 17s; animation-delay: -6s; }
-        .kids-hero-shimmer::after {
-          content:""; position:absolute; inset:0;
-          background: linear-gradient(115deg, transparent 30%, rgba(255,236,178,.28) 48%, rgba(255,255,255,.55) 50%, rgba(255,236,178,.28) 52%, transparent 70%);
-          mix-blend-mode: screen;
-          transform: translateX(-120%);
-          animation: kidsHeroShimmer 6s ease-in-out infinite;
-          animation-delay: 1.2s;
-        }
-        .kids-hero-sparkle { animation: kidsHeroSparkle 4.5s ease-in-out infinite; }
+        @keyframes kidsHeroOrb { 0%,100%{transform:translate3d(0,0,0) scale(1);opacity:.55} 50%{transform:translate3d(12px,-14px,0) scale(1.04);opacity:.72} }
+        /* Firefly: slow, random-feeling drift + gentle pulse. Multiple named
+           paths so nearby particles don't move in lockstep. */
+        @keyframes kfDriftA { 0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(14px,-22px,0)} 100%{transform:translate3d(-6px,-4px,0)} }
+        @keyframes kfDriftB { 0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(-18px,-14px,0)} 100%{transform:translate3d(8px,-26px,0)} }
+        @keyframes kfDriftC { 0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(10px,-30px,0)} 100%{transform:translate3d(-12px,-10px,0)} }
+        @keyframes kfPulse  { 0%,100%{opacity:.35} 50%{opacity:.9} }
+        /* Faint drifting light trail — a soft diagonal glow line that slowly
+           crosses the frame; low opacity, no wow-burst. */
+        @keyframes kfTrail  { 0%{transform:translate3d(-25%,10%,0) rotate(-8deg);opacity:0}
+                              15%{opacity:.35}
+                              50%{opacity:.5}
+                              85%{opacity:.35}
+                             100%{transform:translate3d(25%,-10%,0) rotate(-8deg);opacity:0} }
+        .kids-hero-float { animation: kidsHeroFloat 8s ease-in-out infinite; }
+        .kids-hero-orb   { animation: kidsHeroOrb 13s ease-in-out infinite; }
+        .kids-hero-orb.delay-1 { animation-duration: 16s; animation-delay: -4s; }
+        .kids-hero-orb.delay-2 { animation-duration: 19s; animation-delay: -7s; }
+        .kf { position:absolute; border-radius:9999px; pointer-events:none; will-change:transform,opacity; }
+        .kf-glow  { box-shadow: 0 0 6px rgba(255,225,150,.85), 0 0 14px rgba(255,200,110,.5); }
+        .kf-cool  { box-shadow: 0 0 6px rgba(200,220,255,.85), 0 0 14px rgba(150,180,255,.45); }
+        .kf-drift-a { animation: kfDriftA 14s ease-in-out infinite alternate, kfPulse 4.5s ease-in-out infinite; }
+        .kf-drift-b { animation: kfDriftB 18s ease-in-out infinite alternate, kfPulse 5.5s ease-in-out infinite; }
+        .kf-drift-c { animation: kfDriftC 22s ease-in-out infinite alternate, kfPulse 6.5s ease-in-out infinite; }
+        .kf-trail   { animation: kfTrail 22s linear infinite; mix-blend-mode: screen; }
         @media (prefers-reduced-motion: reduce) {
-          .kids-hero-float, .kids-hero-orb, .kids-hero-sparkle { animation: none !important; }
-          .kids-hero-shimmer::after { animation: none !important; opacity: 0; }
+          .kids-hero-float, .kids-hero-orb,
+          .kf-drift-a, .kf-drift-b, .kf-drift-c, .kf-trail { animation: none !important; }
+          .kf-trail { opacity: 0 !important; }
         }
       `}</style>
 
@@ -93,85 +102,88 @@ export default function KidsHeroCompact({ onCtaClick }: Props) {
             }}
           />
 
-          {/* Parallax glow + orb layer (desktop mouse-tracked) */}
+          {/* Ambient glow layer (very subtle desktop parallax). No orbs on
+              mobile to keep the effect featherlight. */}
           <div
             ref={parallaxRef}
             aria-hidden
-            className="pointer-events-none absolute inset-0 transition-transform duration-300 ease-out will-change-transform"
+            className="pointer-events-none absolute inset-0 transition-transform duration-500 ease-out will-change-transform"
           >
-            {/* Central magical bloom behind the artwork */}
             <div
-              className="absolute left-1/2 top-1/2 h-[70%] w-[70%] -translate-x-1/2 -translate-y-1/2 rounded-full blur-3xl kids-hero-orb"
+              className="hidden md:block absolute left-1/2 top-1/2 h-[60%] w-[60%] -translate-x-1/2 -translate-y-1/2 rounded-full blur-3xl kids-hero-orb"
               style={{
                 background:
-                  "radial-gradient(circle, rgba(255,208,120,0.35) 0%, rgba(154,110,255,0.28) 35%, rgba(46,28,120,0) 70%)",
+                  "radial-gradient(circle, rgba(255,208,120,0.22) 0%, rgba(154,110,255,0.18) 40%, rgba(46,28,120,0) 72%)",
               }}
             />
-            {/* Warm golden bloom (right/center — over the magical book area) */}
             <div
-              className="absolute left-[58%] top-[45%] h-[45%] w-[45%] -translate-x-1/2 -translate-y-1/2 rounded-full blur-3xl kids-hero-orb delay-1"
+              className="hidden md:block absolute left-[18%] top-[30%] h-[34%] w-[34%] rounded-full blur-3xl kids-hero-orb delay-2"
               style={{
                 background:
-                  "radial-gradient(circle, rgba(255,225,150,0.55) 0%, rgba(255,170,90,0.18) 45%, rgba(0,0,0,0) 75%)",
-              }}
-            />
-            {/* Cool violet orb (left) */}
-            <div
-              className="absolute left-[18%] top-[28%] h-[38%] w-[38%] rounded-full blur-3xl kids-hero-orb delay-2"
-              style={{
-                background:
-                  "radial-gradient(circle, rgba(120,90,255,0.45) 0%, rgba(60,30,160,0.15) 50%, rgba(0,0,0,0) 78%)",
-              }}
-            />
-            {/* Indigo haze bottom */}
-            <div
-              className="absolute inset-x-0 bottom-0 h-1/2 blur-2xl opacity-70"
-              style={{
-                background:
-                  "radial-gradient(60% 100% at 50% 100%, rgba(80,50,200,0.35) 0%, rgba(13,10,47,0) 70%)",
+                  "radial-gradient(circle, rgba(120,90,255,0.28) 0%, rgba(60,30,160,0.10) 55%, rgba(0,0,0,0) 80%)",
               }}
             />
           </div>
 
-          {/* Hero artwork — gentle float + shimmer overlay wrapper */}
+          {/* Hero artwork — gentle float only. No shimmer sweep. */}
           <div className="relative kids-hero-float">
-            <div className="relative kids-hero-shimmer">
-              {/* Mobile portrait */}
-              <img
-                src={heroMobileImage.url}
-                alt="Stories that spark dreams and imagination — magical books for young explorers"
-                className="relative block w-full h-auto md:hidden"
-                fetchPriority="high"
-                decoding="async"
-              />
-              {/* Tablet/desktop wide */}
-              <img
-                src={heroImage.url}
-                alt="Stories that spark dreams and imagination — magical books for young explorers"
-                className="relative hidden md:block w-full h-auto max-h-[560px] object-cover object-center"
-                fetchPriority="high"
-                decoding="async"
-              />
-            </div>
+            {/* Mobile portrait */}
+            <img
+              src={heroMobileImage.url}
+              alt="Stories that spark dreams and imagination — magical books for young explorers"
+              className="relative block w-full h-auto md:hidden"
+              fetchPriority="high"
+              decoding="async"
+            />
+            {/* Tablet/desktop wide */}
+            <img
+              src={heroImage.url}
+              alt="Stories that spark dreams and imagination — magical books for young explorers"
+              className="relative hidden md:block w-full h-auto max-h-[560px] object-cover object-center"
+              fetchPriority="high"
+              decoding="async"
+            />
           </div>
 
-          {/* Floating sparkles / fairy dust — decorative, above art but below CTA */}
+          {/* Soft drifting light trails — desktop only, faint & slow. */}
+          <div aria-hidden className="pointer-events-none absolute inset-0 hidden md:block overflow-hidden">
+            <div
+              className="kf-trail absolute -left-1/4 top-[22%] h-[2px] w-[55%] rounded-full blur-[2px]"
+              style={{
+                background:
+                  "linear-gradient(90deg, rgba(255,235,180,0) 0%, rgba(255,235,180,.55) 50%, rgba(255,235,180,0) 100%)",
+                animationDelay: "-6s",
+              }}
+            />
+            <div
+              className="kf-trail absolute -left-1/4 top-[62%] h-[2px] w-[45%] rounded-full blur-[2px]"
+              style={{
+                background:
+                  "linear-gradient(90deg, rgba(200,220,255,0) 0%, rgba(200,220,255,.5) 50%, rgba(200,220,255,0) 100%)",
+                animationDelay: "-14s",
+                animationDuration: "28s",
+              }}
+            />
+          </div>
+
+          {/* Fireflies — warm gold + a few cool ones. Kept out of title band. */}
           <div aria-hidden className="pointer-events-none absolute inset-0">
-            {SPARKLES.map((s, i) => (
+            {FIREFLIES.map((f, i) => (
               <span
                 key={i}
-                className="absolute rounded-full kids-hero-sparkle"
+                className={`kf ${f.tone === "cool" ? "kf-cool" : "kf-glow"} ${
+                  f.path === "a" ? "kf-drift-a" : f.path === "b" ? "kf-drift-b" : "kf-drift-c"
+                } ${f.mobile ? "" : "hidden md:block"}`}
                 style={{
-                  left: `${s.x}%`,
-                  top: `${s.y}%`,
-                  width: `${s.size}px`,
-                  height: `${s.size}px`,
+                  left: `${f.x}%`,
+                  top: `${f.y}%`,
+                  width: `${f.size}px`,
+                  height: `${f.size}px`,
                   background:
-                    "radial-gradient(circle, rgba(255,244,200,1) 0%, rgba(255,220,140,.9) 40%, rgba(255,180,80,0) 70%)",
-                  boxShadow:
-                    "0 0 8px rgba(255,225,150,0.9), 0 0 18px rgba(255,190,110,0.55)",
-                  animationDelay: `${s.delay}s`,
-                  animationDuration: `${s.duration}s`,
+                    f.tone === "cool"
+                      ? "radial-gradient(circle, rgba(230,240,255,1) 0%, rgba(180,200,255,.85) 45%, rgba(120,150,255,0) 75%)"
+                      : "radial-gradient(circle, rgba(255,246,210,1) 0%, rgba(255,220,140,.9) 45%, rgba(255,180,80,0) 75%)",
+                  animationDelay: `${f.delay}s, ${f.pulseDelay}s`,
                 }}
               />
             ))}
@@ -181,6 +193,7 @@ export default function KidsHeroCompact({ onCtaClick }: Props) {
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#0d0a2f]/80 to-transparent" />
         </div>
       </div>
+
 
       {/* CTA band — sits under the hero image, never covering characters */}
       <div className="mx-auto max-w-[1600px] px-4 -mt-8 md:-mt-10 relative z-10">
