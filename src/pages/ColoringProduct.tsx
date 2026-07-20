@@ -21,6 +21,10 @@ import CompleteTheSetBundle from "@/components/product/CompleteTheSetBundle";
 import FlipbookPreview from "@/components/product/FlipbookPreview";
 import ReviewSummary from "@/components/product/ReviewSummary";
 import { ensureColoringLabel } from "@/lib/coloring-title";
+import { useActiveCampaign } from "@/hooks/useActiveCampaign";
+import { useSuggestedBundle } from "@/hooks/useSuggestedBundle";
+import { CampaignRibbon } from "@/components/kids/CampaignRibbon";
+import { BundleUpsellCard } from "@/components/kids/BundleUpsellCard";
 
 interface Row {
   id: string;
@@ -66,6 +70,8 @@ export default function ColoringProduct() {
   const [downloading, setDownloading] = useState(false);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const saleCfg = useSaleConfig();
+  const activeCampaign = useActiveCampaign(book?.id ?? null);
+  const suggestedBundle = useSuggestedBundle(book?.id ?? null);
 
   useEffect(() => {
     if (!id) return;
@@ -346,6 +352,15 @@ export default function ColoringProduct() {
 
           <SocialProofBadges ebookId={book.id} />
 
+          {activeCampaign && (
+            <CampaignRibbon
+              campaignName={activeCampaign.campaignName}
+              seasonKey={activeCampaign.seasonKey}
+              endsAt={activeCampaign.endsAt}
+              savingsPct={activeCampaign.savingsPct}
+            />
+          )}
+
           <button
             type="button"
             onClick={clickBuy}
@@ -371,6 +386,8 @@ export default function ColoringProduct() {
             ageMax={ageMax}
             categoryName={categoryName}
           />
+
+          {suggestedBundle && <BundleUpsellCard bundle={suggestedBundle} />}
         </div>
       </section>
 

@@ -18,6 +18,7 @@ import Royalty from "./pages/Royalty.tsx";
 import RoyaltyBook from "./pages/RoyaltyBook.tsx";
 import MyRoyalties from "./pages/MyRoyalties.tsx";
 import RoyaltySettings from "./pages/admin/RoyaltySettings.tsx";
+import MarketingAutopilot from "./pages/admin/MarketingAutopilot.tsx";
 import { Navigate } from "react-router-dom";
 import KidsCheckout from "./pages/KidsCheckout.tsx";
 import Create from "./pages/Create.tsx";
@@ -106,6 +107,7 @@ const App = () => (
             <Route path="products" element={<Products />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="royalty-settings" element={<RoyaltySettings />} />
+            <Route path="marketing-autopilot" element={<MarketingAutopilot />} />
             <Route path="ebook/:id" element={<EbookReview />} />
             <Route path="ebook/:id/writing" element={<EbookWriting />} />
             <Route path="ebook/:id/cover" element={<EbookCover />} />
