@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import heroImage from "@/assets/kids-hero-spark-dreams-v2.png.asset.json";
+import heroImage from "@/assets/kids-hero-desktop-v3.png.asset.json";
 import heroMobileImage from "@/assets/kids-hero-mobile-v1.png.asset.json";
 
 interface Props {
