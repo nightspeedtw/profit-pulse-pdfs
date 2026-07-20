@@ -104,3 +104,75 @@ export function costDb(): Db {
   );
   return _costDb;
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// V2 double-write: coloring_v2_provider_calls
+// External-audit gap #2 — per-book daily_cost_ceiling + reproducibility
+// audits are blind without input_hash / output_hash / seed / prompt_version
+// populated for every provider call inside the V2 lane. Fire-and-forget;
+// FK violations for non-v2 book_ids are swallowed.
+// ═══════════════════════════════════════════════════════════════════════
+export interface LogV2ProviderCallRow {
+  book_id: string;
+  provider: string;
+  model: string;
+  purpose: string;
+  prompt_version?: string | null;
+  seed?: number | null;
+  input_hash?: string | null;
+  output_hash?: string | null;
+  latency_ms?: number | null;
+  cost_usd?: number;
+  success?: boolean;
+  error_message?: string | null;
+  meta?: Record<string, unknown>;
+}
+
+export function logColoringV2ProviderCall(db: Db, row: LogV2ProviderCallRow): void {
+  try {
+    if (!row.book_id) return;
+    const insertRow = {
+      book_id: row.book_id,
+      provider: row.provider,
+      model: row.model,
+      purpose: row.purpose,
+      prompt_version: row.prompt_version ?? null,
+      seed: row.seed ?? null,
+      input_hash: row.input_hash ?? null,
+      output_hash: row.output_hash ?? null,
+      latency_ms: row.latency_ms ?? null,
+      cost_usd: Number((row.cost_usd ?? 0).toFixed(6)),
+      success: row.success ?? true,
+      error_message: row.error_message ?? null,
+      meta: row.meta ?? {},
+    };
+    void db.from("coloring_v2_provider_calls").insert(insertRow).then(
+      (r: { error: unknown }) => {
+        if (r?.error) {
+          const msg = (r.error as { message?: string })?.message ?? String(r.error);
+          // FK violation = non-v2 book id; expected — swallow.
+          if (!/foreign key|violates/i.test(msg)) {
+            console.warn("logColoringV2ProviderCall insert failed", msg);
+          }
+        }
+      },
+      (e: unknown) => console.warn("logColoringV2ProviderCall promise rejected", (e as Error)?.message ?? e),
+    );
+  } catch (e) {
+    console.warn("logColoringV2ProviderCall threw", (e as Error).message);
+  }
+}
+
+/** Deterministic sha256 hex — used for input/output hashes. */
+export async function sha256Hex(input: string | Uint8Array): Promise<string> {
+  const src = typeof input === "string" ? new TextEncoder().encode(input) : input;
+  // Copy into a fresh ArrayBuffer to satisfy SubtleCrypto's BufferSource typing
+  // (Uint8Array<ArrayBufferLike> may reference a SharedArrayBuffer under TS DOM lib).
+  const ab = new ArrayBuffer(src.byteLength);
+  new Uint8Array(ab).set(src);
+  const buf = await crypto.subtle.digest("SHA-256", ab);
+  const bytes = new Uint8Array(buf);
+  let hex = "";
+  for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, "0");
+  return hex;
+}

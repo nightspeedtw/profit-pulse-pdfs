@@ -41,6 +41,10 @@ export interface CoverTextVerdict {
   missing_optional: string[];
   extra: string[];
   misspelled: string[];
+  /** Number of distinct age-badge occurrences ("Ages 4-6") in the raw text.
+   *  >1 means the model baked one AND we overlaid one — duplicate defect. */
+  age_badge_count: number;
+  duplicate_age_badge: boolean;
   attempted_at: string;
 }
 
@@ -127,7 +131,30 @@ function levenshtein(a: string, b: string): number {
   return dp[n];
 }
 
+// -------- Whole-cover extras: duplicate age-badge detection --------
+
+/**
+ * Owner order (external-audit finding #1): whole-cover OCR must reject
+ * covers that show a duplicate "Ages X-Y" badge — this happens when
+ * Ideogram bakes one AND our overlay adds a second one, OR when Ideogram
+ * itself paints two badges. Count distinct age-range strings in the raw
+ * OCR output (case-insensitive, tolerant of "Ages 4-6" / "Ages 4 to 6" /
+ * "AGES 4—6"). Also count standalone "Ages" occurrences as a fallback.
+ */
+export function countAgeBadges(raw: string): number {
+  if (!raw) return 0;
+  const s = raw.toLowerCase().normalize("NFKD");
+  // matches "ages 4-6", "ages 4 – 6", "ages 4 to 6", "ages 13-17"
+  const range = /\bages?\s*\d{1,2}\s*(?:-|–|—|to)\s*\d{1,2}\b/g;
+  const rangeHits = (s.match(range) ?? []).length;
+  if (rangeHits > 0) return rangeHits;
+  // fallback: bare "ages" word occurrences (still a duplicate if >1)
+  const bare = /\bages?\b/g;
+  return (s.match(bare) ?? []).length;
+}
+
 // -------- Vision transcription --------
+
 
 function b64FromBytes(bytes: Uint8Array): string {
   let s = "";
@@ -273,6 +300,8 @@ export async function verifyExactCoverText(
       missing_optional: optionalTokens,
       extra: [],
       misspelled: [],
+      age_badge_count: 0,
+      duplicate_age_badge: false,
       attempted_at,
     };
   }
@@ -281,19 +310,21 @@ export async function verifyExactCoverText(
   const { missing, extra, misspelled } = diffTokens(dedupApproved, detectedTokens);
   const missing_required = missing.filter((t) => requiredSet.has(t));
   const missing_optional = missing.filter((t) => !requiredSet.has(t));
-  // Misspellings ONLY count against the gate when the intended token is
-  // required (a misspelled title word is a defect); an optional misspelling
-  // (e.g. subtitle) is a warning, mirroring the missing-token policy.
-  const misspelled_required = misspelled.filter((m) => {
-    const intended = m.split("→")[0];
-    return requiredSet.has(intended);
-  });
-  const pass = missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0;
+  const misspelled_required = misspelled.filter((m) => requiredSet.has(m.split("→")[0]));
+  const age_badge_count = countAgeBadges(raw);
+  const duplicate_age_badge = age_badge_count > 1;
+  // Owner order (external-audit #1): extend title-only law to whole-cover.
+  // ANY extra glyph, ANY duplicate age-badge, ANY misspelled required
+  // token = reject art. This is the non-waivable spelling law extended.
+  const pass = missing_required.length === 0
+    && extra.length === 0
+    && misspelled_required.length === 0
+    && !duplicate_age_badge;
   const reason = pass
     ? (missing_optional.length || misspelled.length > misspelled_required.length
         ? `exact_match_with_optional_gaps:missing_optional=${missing_optional.length}`
         : "exact_match")
-    : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length}`;
+    : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length},dup_age_badge=${duplicate_age_badge}`;
   return {
     pass,
     degraded: false,
@@ -308,6 +339,8 @@ export async function verifyExactCoverText(
     missing_optional,
     extra,
     misspelled,
+    age_badge_count,
+    duplicate_age_badge,
     attempted_at,
   };
 }
@@ -363,7 +396,7 @@ export async function verifyExactCoverTextByUrl(
   const attempted_at = new Date().toISOString();
   const transcribed = await gatewayTranscribeByUrl(url, timeoutMs);
   if (!transcribed) {
-    return { pass: false, degraded: true, reason: "transcriber_unavailable_url_variant", transcribed_raw: "", transcribed_tokens: [], approved_tokens: dedupApproved, required_tokens: requiredTokens, optional_tokens: optionalTokens, missing: dedupApproved, missing_required: requiredTokens, missing_optional: optionalTokens, extra: [], misspelled: [], attempted_at };
+    return { pass: false, degraded: true, reason: "transcriber_unavailable_url_variant", transcribed_raw: "", transcribed_tokens: [], approved_tokens: dedupApproved, required_tokens: requiredTokens, optional_tokens: optionalTokens, missing: dedupApproved, missing_required: requiredTokens, missing_optional: optionalTokens, extra: [], misspelled: [], age_badge_count: 0, duplicate_age_badge: false, attempted_at };
   }
   const raw = String(transcribed.detected_text ?? "");
   const detectedTokens = Array.from(new Set(tokenize(raw)));
@@ -371,11 +404,13 @@ export async function verifyExactCoverTextByUrl(
   const missing_required = missing.filter((t) => requiredSet.has(t));
   const missing_optional = missing.filter((t) => !requiredSet.has(t));
   const misspelled_required = misspelled.filter((m) => requiredSet.has(m.split("→")[0]));
-  const pass = missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0;
+  const age_badge_count = countAgeBadges(raw);
+  const duplicate_age_badge = age_badge_count > 1;
+  const pass = missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0 && !duplicate_age_badge;
   const reason = pass
     ? (missing_optional.length || misspelled.length > misspelled_required.length
         ? `exact_match_with_optional_gaps:missing_optional=${missing_optional.length}`
         : "exact_match")
-    : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length}`;
-  return { pass, degraded: false, reason, transcribed_raw: raw, transcribed_tokens: detectedTokens, approved_tokens: dedupApproved, required_tokens: requiredTokens, optional_tokens: optionalTokens, missing, missing_required, missing_optional, extra, misspelled, attempted_at };
+    : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length},dup_age_badge=${duplicate_age_badge}`;
+  return { pass, degraded: false, reason, transcribed_raw: raw, transcribed_tokens: detectedTokens, approved_tokens: dedupApproved, required_tokens: requiredTokens, optional_tokens: optionalTokens, missing, missing_required, missing_optional, extra, misspelled, age_badge_count, duplicate_age_badge, attempted_at };
 }

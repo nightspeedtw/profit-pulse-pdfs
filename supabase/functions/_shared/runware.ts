@@ -13,7 +13,7 @@
 //           for per-provider latching + parked-book handling.
 
 import { FalBillingLockedError, isFalBillingLocked } from "./fal-billing.ts";
-import { logAiCost, costDb } from "./cost-log.ts";
+import { logAiCost, costDb, logColoringV2ProviderCall, sha256Hex } from "./cost-log.ts";
 import { coerceForProviderPayload } from "./coloring/payload-guard.ts";
 
 // One place for model IDs — anything scattered elsewhere is a bug.
@@ -70,6 +70,12 @@ export interface RunwareOpts {
   negative_prompt?: string;
   seed?: number;
   reference_images?: string[];
+  // ── V2 double-write (external-audit gap #2) ─────────────────────────
+  // When set, we also insert into coloring_v2_provider_calls with
+  // input/output hashes, seed and prompt_version populated.
+  v2_book_id?: string;
+  purpose?: string;         // e.g. "interior_p07", "cover_a1"
+  prompt_version?: string;  // e.g. "master_cover_prompt@v2"
 }
 
 /** Run one imageInference task and return raw bytes. */
@@ -106,6 +112,7 @@ export async function runwareInference(opts: RunwareOpts): Promise<Uint8Array> {
   }
 
   const safeTask = coerceForProviderPayload(task, "runware_interior");
+  const startedAt = Date.now();
   const res = await fetch(RUNWARE_ENDPOINT, {
     method: "POST",
     headers: {
@@ -117,9 +124,32 @@ export async function runwareInference(opts: RunwareOpts): Promise<Uint8Array> {
 
   const bodyText = await res.text();
   if (!res.ok) {
+    const latency_ms = Date.now() - startedAt;
     if (isFalBillingLocked(res.status, bodyText) || res.status === 402
         || /balance|credit|insufficient|billing|payment required/i.test(bodyText)) {
+      if (opts.v2_book_id) {
+        try {
+          logColoringV2ProviderCall(costDb(), {
+            book_id: opts.v2_book_id, provider: "runware_direct", model,
+            purpose: opts.purpose ?? opts.step ?? "unknown",
+            prompt_version: opts.prompt_version, seed: opts.seed ?? null,
+            latency_ms, cost_usd: 0, success: false,
+            error_message: `billing_locked_${res.status}`,
+          });
+        } catch { /* best-effort */ }
+      }
       throw new FalBillingLockedError(res.status, `runware: ${bodyText.slice(0, 240)}`);
+    }
+    if (opts.v2_book_id) {
+      try {
+        logColoringV2ProviderCall(costDb(), {
+          book_id: opts.v2_book_id, provider: "runware_direct", model,
+          purpose: opts.purpose ?? opts.step ?? "unknown",
+          prompt_version: opts.prompt_version, seed: opts.seed ?? null,
+          latency_ms, cost_usd: 0, success: false,
+          error_message: `http_${res.status}:${bodyText.slice(0, 200)}`,
+        });
+      } catch { /* best-effort */ }
     }
     throw new Error(`runware ${res.status}: ${bodyText.slice(0, 400)}`);
   }
@@ -137,7 +167,7 @@ export async function runwareInference(opts: RunwareOpts): Promise<Uint8Array> {
     }
     throw new Error(`runware errors: ${msg.slice(0, 400)}`);
   }
-  const data = (j?.data ?? []) as Array<{ imageBase64Data?: string; imageURL?: string; cost?: number }>;
+  const data = (j?.data ?? []) as Array<{ imageBase64Data?: string; imageURL?: string; cost?: number; seed?: number }>;
   const first = data[0];
   if (!first) throw new Error(`runware: empty data: ${bodyText.slice(0, 200)}`);
 
@@ -153,6 +183,9 @@ export async function runwareInference(opts: RunwareOpts): Promise<Uint8Array> {
   } else {
     throw new Error(`runware: no image in response: ${bodyText.slice(0, 200)}`);
   }
+  const latency_ms = Date.now() - startedAt;
+  const cost_usd = Number(first.cost ?? 0) || 0;
+  const returnedSeed = typeof first.seed === "number" ? first.seed : (opts.seed ?? null);
 
   try {
     logAiCost(costDb(), {
@@ -160,10 +193,41 @@ export async function runwareInference(opts: RunwareOpts): Promise<Uint8Array> {
       step: opts.step ?? "coloring_interior_runware",
       model,
       images: 1,
-      cost_usd: Number(first.cost ?? 0) || 0,
+      cost_usd,
       provider: "runware_direct",
     });
   } catch (_e) { /* best-effort */ }
+
+  // V2 double-write with reproducibility metadata.
+  if (opts.v2_book_id) {
+    try {
+      const inputPayload = JSON.stringify({
+        model, prompt, width: task.width, height: task.height,
+        steps: task.steps ?? null, seed: opts.seed ?? null,
+        neg: opts.negative_prompt ?? null, refs: opts.reference_images ?? [],
+      });
+      const [input_hash, output_hash] = await Promise.all([
+        sha256Hex(inputPayload),
+        sha256Hex(bytes),
+      ]);
+      logColoringV2ProviderCall(costDb(), {
+        book_id: opts.v2_book_id,
+        provider: "runware_direct",
+        model,
+        purpose: opts.purpose ?? opts.step ?? "unknown",
+        prompt_version: opts.prompt_version,
+        seed: returnedSeed,
+        input_hash, output_hash,
+        latency_ms, cost_usd, success: true,
+        meta: {
+          width: task.width, height: task.height,
+          steps: task.steps ?? null,
+          bytes: bytes.byteLength,
+          refs: (opts.reference_images ?? []).length,
+        },
+      });
+    } catch (_e) { /* best-effort */ }
+  }
 
   return bytes;
 }
