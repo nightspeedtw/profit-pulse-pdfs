@@ -51,6 +51,7 @@ import ColoringLabV2 from "./pages/admin/ColoringLabV2.tsx";
 import ColoringPreviewV2 from "./pages/ColoringPreviewV2.tsx";
 import DriveShop from "./pages/DriveShop.tsx";
 import DriveImporter from "./pages/admin/DriveImporter.tsx";
+import StoryBatchV2 from "./pages/admin/StoryBatchV2.tsx";
 
 
 const queryClient = new QueryClient();
@@ -113,6 +114,9 @@ const App = () => (
             <Route path="royalty-settings" element={<RoyaltySettings />} />
             <Route path="marketing-autopilot" element={<MarketingAutopilot />} />
             <Route path="drive-importer" element={<DriveImporter />} />
+            {FEATURES.ENABLE_STORY_BATCH_50_V2 && (
+              <Route path="story-batch-v2" element={<StoryBatchV2 />} />
+            )}
             <Route path="ebook/:id" element={<EbookReview />} />
             <Route path="ebook/:id/writing" element={<EbookWriting />} />
             <Route path="ebook/:id/cover" element={<EbookCover />} />

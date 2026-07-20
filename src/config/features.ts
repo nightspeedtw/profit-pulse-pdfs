@@ -32,6 +32,13 @@ export const FEATURES = {
   MARKETING_AUTOPILOT: false,
   MARKETING_HONEST_PRICING: true,
   MARKETING_HONEST_REVIEWS: true,
+
+  // Story Batch V2 — isolated, additive 50-book English illustrated
+  // storybook batch pipeline. OFF by default. Flip to true to expose
+  // /admin/story-batch-v2 and enable the story-batch-v2-* edge functions.
+  // Uses its own `story_batch_v2_*` tables, `story-batch-v2/` storage
+  // paths, and cost ledger. Cannot start provider work while off.
+  ENABLE_STORY_BATCH_50_V2: true,
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;
