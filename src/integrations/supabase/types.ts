@@ -14,6 +14,174 @@ export type Database = {
   }
   public: {
     Tables: {
+      acct_data_requests: {
+        Row: {
+          download_url: string | null
+          expires_at: string | null
+          fulfilled_at: string | null
+          id: string
+          requested_at: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          download_url?: string | null
+          expires_at?: string | null
+          fulfilled_at?: string | null
+          id?: string
+          requested_at?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          download_url?: string | null
+          expires_at?: string | null
+          fulfilled_at?: string | null
+          id?: string
+          requested_at?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      acct_deletion_requests: {
+        Row: {
+          cancelled_at: string | null
+          completed_at: string | null
+          effective_at: string
+          id: string
+          reason: string | null
+          requested_at: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          cancelled_at?: string | null
+          completed_at?: string | null
+          effective_at?: string
+          id?: string
+          reason?: string | null
+          requested_at?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          cancelled_at?: string | null
+          completed_at?: string | null
+          effective_at?: string
+          id?: string
+          reason?: string | null
+          requested_at?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      acct_download_events: {
+        Row: {
+          created_at: string
+          grant_id: string | null
+          id: string
+          ip: string | null
+          outcome: string
+          product_id: string | null
+          product_kind: string | null
+          storage_path: string
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          grant_id?: string | null
+          id?: string
+          ip?: string | null
+          outcome?: string
+          product_id?: string | null
+          product_kind?: string | null
+          storage_path: string
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          grant_id?: string | null
+          id?: string
+          ip?: string | null
+          outcome?: string
+          product_id?: string | null
+          product_kind?: string | null
+          storage_path?: string
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      acct_notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          id: string
+          kind: string
+          link_url: string | null
+          read_at: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          kind: string
+          link_url?: string | null
+          read_at?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          link_url?: string | null
+          read_at?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      acct_profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          language: string
+          marketing_opt_in: boolean
+          timezone: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          language?: string
+          marketing_opt_in?: boolean
+          timezone?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          language?: string
+          marketing_opt_in?: boolean
+          timezone?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       alert_log: {
         Row: {
           alert_class: string
