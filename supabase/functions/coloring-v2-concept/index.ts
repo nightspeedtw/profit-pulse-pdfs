@@ -21,8 +21,14 @@ Deno.serve(async (req: Request) => {
       throw new Error("concept missing title");
     }
 
+    // OWNER LAW `cover_text_overlay_only_v2` — every coloring book title
+    // MUST contain the words "Coloring Book" so shoppers instantly know the
+    // product category. Non-destructive: appended only if missing.
+    const rawTitle = concept.title.trim();
+    const finalTitle = /coloring/i.test(rawTitle) ? rawTitle : `${rawTitle} Coloring Book`;
+
     await db().from("coloring_v2_books").update({
-      title: concept.title.trim(),
+      title: finalTitle,
       subtitle: (concept.subtitle ?? "").toString().trim() || null,
     }).eq("id", book_id);
 

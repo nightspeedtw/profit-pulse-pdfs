@@ -258,90 +258,61 @@ async function geminiTranscribe(bytes: Uint8Array, timeoutMs: number): Promise<{
 export async function verifyExactCoverText(
   bytes: Uint8Array,
   expectations: CoverTextExpectations,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; textlessMode?: boolean } = {},
 ): Promise<CoverTextVerdict> {
   const timeoutMs = opts.timeoutMs ?? 10_000;
+  const textlessMode = opts.textlessMode === true;
 
-  // REQUIRED tokens = title only. This is the customer-visible logo; a wrong
-  // or dropped title token means the cover misrepresents the book and MUST
-  // fail the gate. OPTIONAL tokens = subtitle + ageBadge. Ideogram 3.0
-  // routinely drops secondary marketing chrome (e.g. "32 Coloring Pages")
-  // even when explicitly prompted. That chrome is not what the customer
-  // reads to identify the book, and it's redundant with the product page
-  // metadata, so its absence should not requeue → the historic behavior of
-  // failing on missing subtitle/badge tokens created infinite-loop stalls
-  // across every book with the same subtitle pattern, not just this one.
-  const requiredTokens = Array.from(new Set(tokenize(expectations.title)));
-  const optionalTokensRaw = [
-    ...tokenize(expectations.subtitle),
-    ...tokenize(expectations.ageBadge),
-  ];
+  // OWNER LAW `cover_text_overlay_only_v2` (2026-07-20):
+  //   The ONLY baked text permitted on a coloring cover is the exact TITLE.
+  //   Every other detected glyph (subtitle, blurb sentence, age badge, "Coloring
+  //   Book" label, publisher, SALE ribbon, page count) is drawn by the
+  //   deterministic overlay and MUST NOT appear baked. Any extra token = reject.
+  //   In textless-fallback mode (used after 3 title-only rejects), ZERO baked
+  //   glyphs are permitted — the overlay draws the title too.
+  const requiredTokens = textlessMode
+    ? []
+    : Array.from(new Set(tokenize(expectations.title)));
+  const optionalTokens: string[] = []; // subtitle/badge are overlay-only, never optional-baked
   const requiredSet = new Set(requiredTokens);
-  const optionalTokens = Array.from(
-    new Set(optionalTokensRaw.filter((t) => !requiredSet.has(t))),
-  );
-  const dedupApproved = [...requiredTokens, ...optionalTokens];
+  const dedupApproved = [...requiredTokens];
 
   const attempted_at = new Date().toISOString();
 
   const transcribed = (await gatewayTranscribe(bytes, timeoutMs)) ?? (await geminiTranscribe(bytes, timeoutMs));
   if (!transcribed) {
     return {
-      pass: false,
-      degraded: true,
-      reason: "transcriber_unavailable",
-      transcribed_raw: "",
-      transcribed_tokens: [],
-      approved_tokens: dedupApproved,
-      required_tokens: requiredTokens,
-      optional_tokens: optionalTokens,
-      missing: dedupApproved,
-      missing_required: requiredTokens,
-      missing_optional: optionalTokens,
-      extra: [],
-      misspelled: [],
-      age_badge_count: 0,
-      duplicate_age_badge: false,
-      attempted_at,
+      pass: false, degraded: true, reason: "transcriber_unavailable",
+      transcribed_raw: "", transcribed_tokens: [], approved_tokens: dedupApproved,
+      required_tokens: requiredTokens, optional_tokens: optionalTokens,
+      missing: dedupApproved, missing_required: requiredTokens, missing_optional: [],
+      extra: [], misspelled: [], age_badge_count: 0, duplicate_age_badge: false, attempted_at,
     };
   }
   const raw = String(transcribed.detected_text ?? "");
   const detectedTokens = Array.from(new Set(tokenize(raw)));
   const { missing, extra, misspelled } = diffTokens(dedupApproved, detectedTokens);
   const missing_required = missing.filter((t) => requiredSet.has(t));
-  const missing_optional = missing.filter((t) => !requiredSet.has(t));
+  const missing_optional: string[] = [];
   const misspelled_required = misspelled.filter((m) => requiredSet.has(m.split("→")[0]));
   const age_badge_count = countAgeBadges(raw);
   const duplicate_age_badge = age_badge_count > 1;
-  // Owner order (external-audit #1): extend title-only law to whole-cover.
-  // ANY extra glyph, ANY duplicate age-badge, ANY misspelled required
-  // token = reject art. This is the non-waivable spelling law extended.
-  const pass = missing_required.length === 0
-    && extra.length === 0
-    && misspelled_required.length === 0
-    && !duplicate_age_badge;
+  // Textless mode: any glyph fails. Title-only mode: any extra token beyond
+  // title (excluding chrome ignore-list) fails. Missing title also fails.
+  const pass = textlessMode
+    ? (detectedTokens.length === 0 || detectedTokens.every((t) => CHROME_TOKENS.has(t)))
+    : (missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0 && age_badge_count === 0);
   const reason = pass
-    ? (missing_optional.length || misspelled.length > misspelled_required.length
-        ? `exact_match_with_optional_gaps:missing_optional=${missing_optional.length}`
-        : "exact_match")
-    : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length},dup_age_badge=${duplicate_age_badge}`;
+    ? "exact_match"
+    : textlessMode
+      ? `textless_violation:detected=${detectedTokens.length}`
+      : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length},age_badge=${age_badge_count}`;
   return {
-    pass,
-    degraded: false,
-    reason,
-    transcribed_raw: raw,
-    transcribed_tokens: detectedTokens,
-    approved_tokens: dedupApproved,
-    required_tokens: requiredTokens,
-    optional_tokens: optionalTokens,
-    missing,
-    missing_required,
-    missing_optional,
-    extra,
-    misspelled,
-    age_badge_count,
-    duplicate_age_badge,
-    attempted_at,
+    pass, degraded: false, reason,
+    transcribed_raw: raw, transcribed_tokens: detectedTokens, approved_tokens: dedupApproved,
+    required_tokens: requiredTokens, optional_tokens: optionalTokens,
+    missing, missing_required, missing_optional, extra, misspelled,
+    age_badge_count, duplicate_age_badge, attempted_at,
   };
 }
 

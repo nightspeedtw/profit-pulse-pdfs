@@ -1,12 +1,16 @@
-// Premium cover overlay — draws ONLY the deterministic chrome (SALE ribbon
-// + AGES pill) on a transparent PNG the same size as the Ideogram art, so
-// the caller can alpha-composite it over the raw art without touching the
-// baked title/subtitle.
+// Premium cover overlay — deterministic typography layer.
 //
-// Owner law (2026-07-20, `coloring_v2_cover_overlay_v1`):
-//   Ideogram is only trusted to bake the TITLE (and optional subtitle).
-//   Age badges and SALE ribbons produced badge/ribbon gibberish
-//   ("COLONG ADVENTURE") and must be drawn deterministically.
+// OWNER LAW `cover_text_overlay_only_v2` (2026-07-20):
+//   Ideogram bakes AT MOST the big title. Every other piece of cover text is
+//   drawn here as vector SVG with correct fonts and guaranteed correct
+//   spelling. The overlay renders (all optional):
+//     • top "Coloring Book" (or custom label) chip
+//     • bottom banner strip with subtitle + short blurb
+//     • bottom-left AGES pill
+//     • top-right SALE ribbon
+//     • fallback TITLE (when the art was rendered textless because 3
+//       Ideogram title-bake attempts all shipped gibberish extras)
+//
 // @ts-nocheck  Deno edge runtime
 
 import { initWasm, Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
@@ -39,12 +43,51 @@ function esc(s: string) {
   return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/** Rough char-count wrapping — good enough for cover-scale display copy. */
+function wrapLines(text: string, maxCharsPerLine: number, maxLines: number): string[] {
+  const words = (text || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (next.length > maxCharsPerLine && cur) {
+      lines.push(cur);
+      cur = w;
+      if (lines.length === maxLines) break;
+    } else {
+      cur = next;
+    }
+  }
+  if (cur && lines.length < maxLines) lines.push(cur);
+  // Truncate with ellipsis if we ran out of room
+  if (lines.length === maxLines) {
+    const consumed = lines.join(" ").split(/\s+/).length;
+    if (consumed < words.length) {
+      const last = lines[maxLines - 1];
+      lines[maxLines - 1] = last.length > maxCharsPerLine - 1
+        ? last.slice(0, maxCharsPerLine - 1) + "…"
+        : last + "…";
+    }
+  }
+  return lines;
+}
+
 export interface PremiumOverlayInput {
   width: number;
   height: number;
-  ageBadge: string;   // e.g. "AGES 4-6"
-  ribbonText?: string; // default "SALE"
+  ageBadge: string;             // e.g. "AGES 4-6"
+  ribbonText?: string;          // default "SALE"
   showRibbon?: boolean;
+  /** OWNER LAW v2: top chip that identifies category. Default "COLORING BOOK". */
+  topLabel?: string;
+  /** OWNER LAW v2: subtitle on the bottom banner. Empty = no banner line. */
+  subtitle?: string;
+  /** OWNER LAW v2: 1-line blurb on the bottom banner. Empty = skipped. */
+  blurb?: string;
+  /** OWNER LAW v2: when the art is textless (Ideogram bake failed 3x), the
+   *  overlay draws the title too. Empty = art already has baked title. */
+  fallbackTitle?: string;
 }
 
 export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): Promise<Uint8Array> {
@@ -54,18 +97,21 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
   const ageText = (input.ageBadge || "").toUpperCase().trim() || "AGES 4-6";
   const ribbonText = (input.ribbonText || "SALE").toUpperCase().trim();
   const showRibbon = input.showRibbon !== false;
+  const topLabel = (input.topLabel ?? "COLORING BOOK").toUpperCase().trim();
+  const subtitle = (input.subtitle ?? "").trim();
+  const blurb = (input.blurb ?? "").trim();
+  const fallbackTitle = (input.fallbackTitle ?? "").trim();
 
   // Age pill: bottom-left circular badge.
-  const pillR = Math.round(Math.min(W, H) * 0.11);
+  const pillR = Math.round(Math.min(W, H) * 0.095);
   const pillCX = Math.round(W * 0.11);
-  const pillCY = Math.round(H * 0.885);
+  const pillCY = Math.round(H * 0.905);
   const pillFontSize = Math.round(pillR * 0.42);
 
   // SALE ribbon: top-right diagonal banner.
   const rW = Math.round(W * 0.34);
   const rH = Math.round(H * 0.075);
   const rFontSize = Math.round(rH * 0.55);
-  // ribbon rotated 45° pinned to top-right corner
   const rCX = W - Math.round(rW * 0.35);
   const rCY = Math.round(rH * 0.9);
 
@@ -84,6 +130,72 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
       </g>`
     : "";
 
+  // Top "COLORING BOOK" chip.
+  let topChipEl = "";
+  if (topLabel) {
+    const chipH = Math.round(H * 0.052);
+    const chipFont = Math.round(chipH * 0.5);
+    const chipW = Math.max(Math.round(W * 0.36), Math.round(topLabel.length * chipFont * 0.7));
+    const chipX = Math.round((W - chipW) / 2);
+    const chipY = Math.round(H * 0.028);
+    topChipEl = `
+      <g>
+        <rect x="${chipX}" y="${chipY}" width="${chipW}" height="${chipH}" rx="${chipH / 2}"
+              fill="#0F172A" opacity="0.85" stroke="#FFD635" stroke-width="3"/>
+        <text x="${chipX + chipW / 2}" y="${chipY + chipH * 0.68}" text-anchor="middle"
+              font-family="Fredoka" font-weight="700" font-size="${chipFont}"
+              fill="#FFD635" letter-spacing="3">${esc(topLabel)}</text>
+      </g>`;
+  }
+
+  // Bottom banner (subtitle + blurb) — only drawn if there's content.
+  let bottomBannerEl = "";
+  if (subtitle || blurb) {
+    const bandH = Math.round(H * (blurb && subtitle ? 0.16 : 0.11));
+    const bandY = H - bandH - Math.round(H * 0.015);
+    const bandX = Math.round(W * 0.055);
+    const bandW = W - bandX * 2;
+    const subFont = Math.round(H * 0.032);
+    const blurbFont = Math.round(H * 0.022);
+    const subLines = subtitle ? wrapLines(subtitle, 42, 1) : [];
+    const blurbLines = blurb ? wrapLines(blurb, 60, 2) : [];
+    let cursorY = bandY + Math.round(bandH * 0.32);
+    const subEls = subLines.map((ln) => {
+      const el = `<text x="${W / 2}" y="${cursorY}" text-anchor="middle" font-family="Fredoka" font-weight="700" font-size="${subFont}" fill="#FFFFFF" stroke="#0F172A" stroke-width="0.8">${esc(ln)}</text>`;
+      cursorY += Math.round(subFont * 1.1);
+      return el;
+    }).join("");
+    cursorY += Math.round(blurbFont * 0.4);
+    const blurbEls = blurbLines.map((ln) => {
+      const el = `<text x="${W / 2}" y="${cursorY}" text-anchor="middle" font-family="Fredoka" font-weight="700" font-size="${blurbFont}" fill="#FFF7E6">${esc(ln)}</text>`;
+      cursorY += Math.round(blurbFont * 1.15);
+      return el;
+    }).join("");
+    bottomBannerEl = `
+      <g>
+        <rect x="${bandX}" y="${bandY}" width="${bandW}" height="${bandH}" rx="${Math.round(bandH * 0.18)}"
+              fill="#0F172A" opacity="0.78" stroke="#FFD635" stroke-width="2"/>
+        ${subEls}
+        ${blurbEls}
+      </g>`;
+  }
+
+  // Fallback title (only when Ideogram was asked for textless art).
+  let fallbackTitleEl = "";
+  if (fallbackTitle) {
+    const lines = wrapLines(fallbackTitle, 14, 3);
+    const boxH = Math.round(H * (lines.length === 1 ? 0.18 : lines.length === 2 ? 0.26 : 0.32));
+    const boxY = Math.round(H * 0.09);
+    const fontSize = Math.round(boxH / (lines.length + 0.5));
+    let cy = boxY + Math.round(fontSize * 0.95);
+    const lineEls = lines.map((ln) => {
+      const el = `<text x="${W / 2}" y="${cy}" text-anchor="middle" font-family="Fredoka" font-weight="700" font-size="${fontSize}" fill="#FFFFFF" stroke="#0F172A" stroke-width="${Math.max(4, Math.round(fontSize * 0.08))}" paint-order="stroke fill">${esc(ln)}</text>`;
+      cy += Math.round(fontSize * 1.05);
+      return el;
+    }).join("");
+    fallbackTitleEl = `<g>${lineEls}</g>`;
+  }
+
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <defs>
@@ -93,6 +205,9 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
       <stop offset="100%" stop-color="#E9A400"/>
     </radialGradient>
   </defs>
+  ${topChipEl}
+  ${fallbackTitleEl}
+  ${bottomBannerEl}
   <g>
     <circle cx="${pillCX}" cy="${pillCY}" r="${pillR + 6}" fill="#0F172A" opacity="0.28"/>
     <circle cx="${pillCX}" cy="${pillCY}" r="${pillR}" fill="url(#pillGrad)"
@@ -113,8 +228,7 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
   return resvg.render().asPng();
 }
 
-/** Alpha-composite an overlay PNG on top of the base JPEG/PNG bytes.
- *  Returns JPEG bytes (quality 92). */
+/** Alpha-composite an overlay PNG on top of the base JPEG/PNG bytes. Returns JPEG bytes (q=92). */
 export async function compositeOverlayOntoArt(
   artBytes: Uint8Array,
   overlayPng: Uint8Array,
