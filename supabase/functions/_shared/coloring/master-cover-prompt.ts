@@ -59,15 +59,21 @@ export function buildMasterColoringCoverPrompt(input: MasterColoringCoverInput):
     ? "The attached interior pages are visual REFERENCE ONLY for theme, character design, line style, and age level. Do NOT copy, paste, trace, or reuse any interior page directly. Do NOT enlarge an interior page into the cover. REDRAW and REINTERPRET the characters and scene as a brand-new, commercially marketable cover illustration."
     : "";
 
+  // OWNER LAW 2026-07-20 `coloring_v2_cover_overlay_v1`:
+  // Ideogram bakes ONLY the title (+ optional subtitle). Age badges and
+  // SALE ribbons are drawn deterministically by the overlay layer — they
+  // MUST NOT appear in the baked art (baked badges/ribbons produce
+  // gibberish like "COLONG ADVENTURE"). The prompt therefore explicitly
+  // FORBIDS any badge/ribbon/age text and the OCR gate rejects them.
   const textElementsList = hasSubtitle
-    ? `"${title}", "${subtitle}", "${ageBadge}"`
-    : `"${title}", "${ageBadge}"`;
+    ? `"${title}", "${subtitle}"`
+    : `"${title}"`;
   const spellingContract = hasSubtitle
-    ? `SPELLING CONTRACT — the title must read EXACTLY "${title}", the subtitle must read EXACTLY "${subtitle}", the age badge must read EXACTLY "${ageBadge}". Count the letters and check twice. Do NOT invent, drop, duplicate, transpose, hyphenate, split, or join any letter.`
-    : `SPELLING CONTRACT — the title must read EXACTLY "${title}" and the age badge must read EXACTLY "${ageBadge}". Count the letters and check twice. Do NOT invent, drop, duplicate, transpose, hyphenate, split, or join any letter. Do NOT add ANY subtitle, tagline, descriptor, or decorative word — the cover carries ONLY the title and the age badge.`;
+    ? `SPELLING CONTRACT — the title must read EXACTLY "${title}" and the subtitle must read EXACTLY "${subtitle}". Count the letters and check twice. Do NOT invent, drop, duplicate, transpose, hyphenate, split, or join any letter.`
+    : `SPELLING CONTRACT — the title must read EXACTLY "${title}". Count the letters and check twice. Do NOT invent, drop, duplicate, transpose, hyphenate, split, or join any letter. Do NOT add ANY subtitle, tagline, descriptor, or decorative word — the cover carries ONLY the title.`;
   const layoutClause = hasSubtitle
-    ? `The title must use large CUSTOM HAND-DRAWN illustrated lettering, not a plain standard system font. The lettering must be bold, rounded, playful, highly readable, correctly spelled letter-for-letter, visually integrated with the theme (subtle themed accents like stars, hearts, sparkles, rainbows, clouds, flowers are welcome), with a thick clean outline and warm fill colors. Place the main title inside the upper 30-40% of the cover. Place the subtitle immediately beneath the title on its own line. Place the age label inside a clear round badge in an upper or lower corner.`
-    : `The title must use large CUSTOM HAND-DRAWN illustrated lettering, not a plain standard system font. The lettering must be bold, rounded, playful, highly readable, correctly spelled letter-for-letter, visually integrated with the theme (subtle themed accents like stars, hearts, sparkles, rainbows, clouds, flowers are welcome), with a thick clean outline and warm fill colors. Place the main title inside the upper 30-40% of the cover. Place the age label inside a clear round badge in an upper or lower corner. There is NO subtitle line — do not invent one.`;
+    ? `The title must use large CUSTOM HAND-DRAWN illustrated lettering, not a plain standard system font. The lettering must be bold, rounded, playful, highly readable, correctly spelled letter-for-letter, visually integrated with the theme (subtle themed accents like stars, hearts, sparkles, rainbows, clouds, flowers are welcome), with a thick clean outline and warm fill colors. Place the main title inside the upper 30-40% of the cover. Place the subtitle immediately beneath the title on its own line. Do NOT draw any age badge, age label, ribbon, banner, sticker, or corner text — those are added later by a separate layer.`
+    : `The title must use large CUSTOM HAND-DRAWN illustrated lettering, not a plain standard system font. The lettering must be bold, rounded, playful, highly readable, correctly spelled letter-for-letter, visually integrated with the theme (subtle themed accents like stars, hearts, sparkles, rainbows, clouds, flowers are welcome), with a thick clean outline and warm fill colors. Place the main title inside the upper 30-40% of the cover. There is NO subtitle line — do not invent one. Do NOT draw any age badge, age label, ribbon, banner, sticker, or corner text — those are added later by a separate layer.`;
 
   const isYA = input.styleMode === "ya_scifi_cinematic";
   const openingClause = isYA
