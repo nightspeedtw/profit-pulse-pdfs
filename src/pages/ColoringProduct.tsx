@@ -352,6 +352,15 @@ export default function ColoringProduct() {
 
           <SocialProofBadges ebookId={book.id} />
 
+          {activeCampaign && (
+            <CampaignRibbon
+              campaignName={activeCampaign.campaignName}
+              seasonKey={activeCampaign.seasonKey}
+              endsAt={activeCampaign.endsAt}
+              savingsPct={activeCampaign.savingsPct}
+            />
+          )}
+
           <button
             type="button"
             onClick={clickBuy}
