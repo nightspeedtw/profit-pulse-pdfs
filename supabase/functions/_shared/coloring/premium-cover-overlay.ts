@@ -102,11 +102,8 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
   const blurb = (input.blurb ?? "").trim();
   const fallbackTitle = (input.fallbackTitle ?? "").trim();
 
-  // Age pill: bottom-left circular badge.
-  const pillR = Math.round(Math.min(W, H) * 0.095);
-  const pillCX = Math.round(W * 0.11);
-  const pillCY = Math.round(H * 0.905);
-  const pillFontSize = Math.round(pillR * 0.42);
+  // OWNER ORDER 2026-07-20 (v3): AGES no longer rendered as a separate
+  // floating pill — it's merged into the top "COLORING BOOK" chip below.
 
   // SALE ribbon: top-right diagonal banner.
   const rW = Math.round(W * 0.34);
@@ -130,21 +127,26 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
       </g>`
     : "";
 
-  // Top "COLORING BOOK" chip.
+  // Top chip: "COLORING BOOK · AGES X-Y" — age is baked into the design,
+  // no floating pill anywhere else on the cover (owner order 2026-07-20).
   let topChipEl = "";
-  if (topLabel) {
-    const chipH = Math.round(H * 0.052);
-    const chipFont = Math.round(chipH * 0.5);
-    const chipW = Math.max(Math.round(W * 0.36), Math.round(topLabel.length * chipFont * 0.7));
+  const chipText = [topLabel, ageText].filter(Boolean).join("  ·  ");
+  if (chipText) {
+    const chipH = Math.round(H * 0.058);
+    const chipFont = Math.round(chipH * 0.48);
+    const chipW = Math.min(
+      W - Math.round(W * 0.08),
+      Math.max(Math.round(W * 0.42), Math.round(chipText.length * chipFont * 0.62)),
+    );
     const chipX = Math.round((W - chipW) / 2);
     const chipY = Math.round(H * 0.028);
     topChipEl = `
       <g>
         <rect x="${chipX}" y="${chipY}" width="${chipW}" height="${chipH}" rx="${chipH / 2}"
-              fill="#0F172A" opacity="0.85" stroke="#FFD635" stroke-width="3"/>
+              fill="#0F172A" opacity="0.88" stroke="#FFD635" stroke-width="3"/>
         <text x="${chipX + chipW / 2}" y="${chipY + chipH * 0.68}" text-anchor="middle"
               font-family="Fredoka" font-weight="700" font-size="${chipFont}"
-              fill="#FFD635" letter-spacing="3">${esc(topLabel)}</text>
+              fill="#FFD635" letter-spacing="2">${esc(chipText)}</text>
       </g>`;
   }
 
@@ -198,18 +200,10 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-  <defs>
-    <radialGradient id="pillGrad" cx="35%" cy="35%" r="75%">
-      <stop offset="0%" stop-color="#FFF7A8"/>
-      <stop offset="70%" stop-color="#FFD635"/>
-      <stop offset="100%" stop-color="#E9A400"/>
-    </radialGradient>
-  </defs>
   ${topChipEl}
   ${fallbackTitleEl}
   ${bottomBannerEl}
-  <!-- OWNER ORDER 2026-07-20: yellow AGES pill removed — was covering artwork. -->
-
+  <!-- OWNER ORDER 2026-07-20 v3: AGES baked into top chip, no floating pill. -->
   ${ribbonEl}
 </svg>`;
 
