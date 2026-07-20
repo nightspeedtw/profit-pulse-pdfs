@@ -892,6 +892,229 @@ export type Database = {
         }
         Relationships: []
       }
+      bundle_events: {
+        Row: {
+          bundle_id: string | null
+          created_at: string
+          detail: Json
+          event_kind: string
+          id: string
+        }
+        Insert: {
+          bundle_id?: string | null
+          created_at?: string
+          detail?: Json
+          event_kind: string
+          id?: string
+        }
+        Update: {
+          bundle_id?: string | null
+          created_at?: string
+          detail?: Json
+          event_kind?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bundle_events_bundle_id_fkey"
+            columns: ["bundle_id"]
+            isOneToOne: false
+            referencedRelation: "bundles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bundles: {
+        Row: {
+          activated_at: string | null
+          age_band: string
+          auto_generated: boolean
+          bundle_price_cents: number
+          composition_hash: string
+          cover_urls: Json
+          created_at: string
+          id: string
+          member_count: number | null
+          member_ids: string[]
+          member_kind: string
+          members_total_cents: number
+          metadata: Json
+          retired_at: string | null
+          savings_cents: number
+          savings_pct: number
+          slug: string
+          status: string
+          subtitle: string | null
+          theme: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          activated_at?: string | null
+          age_band: string
+          auto_generated?: boolean
+          bundle_price_cents: number
+          composition_hash: string
+          cover_urls?: Json
+          created_at?: string
+          id?: string
+          member_count?: number | null
+          member_ids: string[]
+          member_kind?: string
+          members_total_cents: number
+          metadata?: Json
+          retired_at?: string | null
+          savings_cents: number
+          savings_pct: number
+          slug: string
+          status?: string
+          subtitle?: string | null
+          theme?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          activated_at?: string | null
+          age_band?: string
+          auto_generated?: boolean
+          bundle_price_cents?: number
+          composition_hash?: string
+          cover_urls?: Json
+          created_at?: string
+          id?: string
+          member_count?: number | null
+          member_ids?: string[]
+          member_kind?: string
+          members_total_cents?: number
+          metadata?: Json
+          retired_at?: string | null
+          savings_cents?: number
+          savings_pct?: number
+          slug?: string
+          status?: string
+          subtitle?: string | null
+          theme?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      campaign_products: {
+        Row: {
+          campaign_id: string
+          campaign_price_cents: number
+          compare_at_cents: number | null
+          compare_at_valid: boolean
+          created_at: string
+          id: string
+          market: string
+          metadata: Json
+          product_id: string
+          product_kind: string
+          updated_at: string
+        }
+        Insert: {
+          campaign_id: string
+          campaign_price_cents: number
+          compare_at_cents?: number | null
+          compare_at_valid?: boolean
+          created_at?: string
+          id?: string
+          market?: string
+          metadata?: Json
+          product_id: string
+          product_kind: string
+          updated_at?: string
+        }
+        Update: {
+          campaign_id?: string
+          campaign_price_cents?: number
+          compare_at_cents?: number | null
+          compare_at_valid?: boolean
+          created_at?: string
+          id?: string
+          market?: string
+          metadata?: Json
+          product_id?: string
+          product_kind?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_products_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaigns: {
+        Row: {
+          activated_at: string | null
+          audience_age_bands: string[]
+          audience_book_types: string[]
+          auto_generated: boolean
+          created_at: string
+          discount_pct: number
+          ended_at: string | null
+          ends_at: string
+          id: string
+          kind: string
+          metadata: Json
+          min_price_floor_cents: number
+          name: string
+          priority: number
+          season_key: string | null
+          slug: string
+          starts_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          activated_at?: string | null
+          audience_age_bands?: string[]
+          audience_book_types?: string[]
+          auto_generated?: boolean
+          created_at?: string
+          discount_pct: number
+          ended_at?: string | null
+          ends_at: string
+          id?: string
+          kind: string
+          metadata?: Json
+          min_price_floor_cents?: number
+          name: string
+          priority?: number
+          season_key?: string | null
+          slug: string
+          starts_at: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          activated_at?: string | null
+          audience_age_bands?: string[]
+          audience_book_types?: string[]
+          auto_generated?: boolean
+          created_at?: string
+          discount_pct?: number
+          ended_at?: string | null
+          ends_at?: string
+          id?: string
+          kind?: string
+          metadata?: Json
+          min_price_floor_cents?: number
+          name?: string
+          priority?: number
+          season_key?: string | null
+          slug?: string
+          starts_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       canva_oauth_states: {
         Row: {
           code_verifier: string
@@ -5538,6 +5761,63 @@ export type Database = {
           supported_pipeline_stages?: string[]
           trigger_tags?: string[]
           updated_at?: string
+        }
+        Relationships: []
+      }
+      seasonal_calendar_seed: {
+        Row: {
+          anchor_day: number | null
+          anchor_month: number | null
+          audience_age_bands: string[]
+          audience_book_types: string[]
+          created_at: string
+          default_discount_pct: number
+          display_name: string
+          duration_days: number
+          enabled: boolean
+          id: string
+          lead_days: number
+          priority: number
+          rule_kind: string
+          season_key: string
+          updated_at: string
+          us_holiday_tag: string | null
+        }
+        Insert: {
+          anchor_day?: number | null
+          anchor_month?: number | null
+          audience_age_bands?: string[]
+          audience_book_types?: string[]
+          created_at?: string
+          default_discount_pct?: number
+          display_name: string
+          duration_days?: number
+          enabled?: boolean
+          id?: string
+          lead_days?: number
+          priority?: number
+          rule_kind: string
+          season_key: string
+          updated_at?: string
+          us_holiday_tag?: string | null
+        }
+        Update: {
+          anchor_day?: number | null
+          anchor_month?: number | null
+          audience_age_bands?: string[]
+          audience_book_types?: string[]
+          created_at?: string
+          default_discount_pct?: number
+          display_name?: string
+          duration_days?: number
+          enabled?: boolean
+          id?: string
+          lead_days?: number
+          priority?: number
+          rule_kind?: string
+          season_key?: string
+          updated_at?: string
+          us_holiday_tag?: string | null
         }
         Relationships: []
       }
