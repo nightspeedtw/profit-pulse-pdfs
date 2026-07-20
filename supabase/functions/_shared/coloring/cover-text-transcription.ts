@@ -41,6 +41,10 @@ export interface CoverTextVerdict {
   missing_optional: string[];
   extra: string[];
   misspelled: string[];
+  /** Number of distinct age-badge occurrences ("Ages 4-6") in the raw text.
+   *  >1 means the model baked one AND we overlaid one — duplicate defect. */
+  age_badge_count: number;
+  duplicate_age_badge: boolean;
   attempted_at: string;
 }
 
