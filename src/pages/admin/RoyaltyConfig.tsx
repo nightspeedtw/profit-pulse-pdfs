@@ -259,6 +259,115 @@ export default function RoyaltyConfig() {
       </Card>
 
       <Card>
+        <CardHeader><CardTitle>Payout & KYC settings</CardTitle></CardHeader>
+        <CardContent className="grid md:grid-cols-3 gap-4 items-end">
+          <div className="flex items-center justify-between border rounded p-3">
+            <div>
+              <div className="text-sm font-medium">Payouts live</div>
+              <div className="text-xs text-muted-foreground">Required to mark payouts as paid</div>
+            </div>
+            <Switch checked={payoutsLive} onCheckedChange={(v) => { setPayoutsLive(v); setJsonSetting("royalty_payouts_live", v, "Payouts live"); }} />
+          </div>
+          <div className="flex items-center justify-between border rounded p-3">
+            <div>
+              <div className="text-sm font-medium">KYC required</div>
+              <div className="text-xs text-muted-foreground">Block payout requests without approved KYC</div>
+            </div>
+            <Switch checked={kycRequired} onCheckedChange={(v) => { setKycRequired(v); setJsonSetting("royalty_kyc_required", v, "KYC required"); }} />
+          </div>
+          <div className="border rounded p-3">
+            <label className="text-xs text-muted-foreground">Minimum payout (USD)</label>
+            <Input type="number" min="1" defaultValue={minPayoutUsd}
+              onBlur={(e) => { const n = Number(e.target.value); setMinPayoutUsd(n); setJsonSetting("royalty_min_payout_usd", n, "Min payout"); }} />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>KYC queue ({kycRows.length})</CardTitle></CardHeader>
+        <CardContent className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2 pr-3">User</th>
+                <th className="py-2 pr-3">Provider</th>
+                <th className="py-2 pr-3">Status</th>
+                <th className="py-2 pr-3">Submitted</th>
+                <th className="py-2 pr-3">Reason</th>
+                <th className="py-2 pr-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {kycRows.map((k) => (
+                <tr key={k.id} className="border-b last:border-0">
+                  <td className="py-2 pr-3 font-mono text-xs">{k.user_id.slice(0, 8)}…</td>
+                  <td className="py-2 pr-3">{k.provider}</td>
+                  <td className="py-2 pr-3"><Badge variant="outline">{k.status}</Badge></td>
+                  <td className="py-2 pr-3 text-xs">{k.submitted_at ? new Date(k.submitted_at).toLocaleString() : "—"}</td>
+                  <td className="py-2 pr-3 text-xs text-muted-foreground">{k.rejection_reason ?? "—"}</td>
+                  <td className="py-2 pr-3 flex gap-2">
+                    {k.status === "pending" && (
+                      <>
+                        <Button size="sm" variant="default" onClick={() => reviewKyc(k.id, "approved")}>Approve</Button>
+                        <Button size="sm" variant="outline" onClick={() => { const r = prompt("Rejection reason?") ?? ""; if (r) reviewKyc(k.id, "rejected", r); }}>Reject</Button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {kycRows.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-muted-foreground">No submissions</td></tr>}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Payout queue ({payoutRows.length})</CardTitle></CardHeader>
+        <CardContent className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2 pr-3">User</th>
+                <th className="py-2 pr-3 text-right">Amount</th>
+                <th className="py-2 pr-3">Status</th>
+                <th className="py-2 pr-3">Requested</th>
+                <th className="py-2 pr-3">Paid</th>
+                <th className="py-2 pr-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payoutRows.map((p) => (
+                <tr key={p.id} className="border-b last:border-0">
+                  <td className="py-2 pr-3 font-mono text-xs">{p.user_id.slice(0, 8)}…</td>
+                  <td className="py-2 pr-3 text-right font-medium">{usd(p.amount_cents)}</td>
+                  <td className="py-2 pr-3"><Badge variant="outline">{p.status}</Badge></td>
+                  <td className="py-2 pr-3 text-xs">{new Date(p.requested_at).toLocaleString()}</td>
+                  <td className="py-2 pr-3 text-xs">{p.paid_at ? new Date(p.paid_at).toLocaleString() : "—"}</td>
+                  <td className="py-2 pr-3 flex flex-wrap gap-2">
+                    {p.status === "requested" && (
+                      <>
+                        <Button size="sm" onClick={() => reviewPayout(p.id, "approve")}>Approve</Button>
+                        <Button size="sm" variant="outline" onClick={() => reviewPayout(p.id, "reject")}>Reject</Button>
+                      </>
+                    )}
+                    {p.status === "approved" && (
+                      <>
+                        <Button size="sm" disabled={!payoutsLive} title={payoutsLive ? "" : "Enable payouts_live first"} onClick={() => reviewPayout(p.id, "mark_paid")}>Mark paid</Button>
+                        <Button size="sm" variant="outline" onClick={() => reviewPayout(p.id, "cancel")}>Cancel</Button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {payoutRows.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-muted-foreground">No requests</td></tr>}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+
+
+      <Card>
         <CardHeader>
           <CardTitle>Ledger (last 100)</CardTitle>
           <p className="text-xs text-muted-foreground">Total shareholder accrued in view: {usd(totalAccrued)}</p>
