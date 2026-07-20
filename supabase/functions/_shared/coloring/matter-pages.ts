@@ -260,6 +260,8 @@ export function drawColoringTitlePage(
       color: c(P.ink), align: "center",
     });
   }
+
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
 }
 
 /** Copyright page: small legal text at bottom, decorative top fill. */
@@ -332,6 +334,7 @@ export function drawColoringCopyrightPage(
     color: c(P.ink),
     lineHeightFactor: 1.45,
   });
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
 }
 
 
@@ -418,6 +421,7 @@ export function drawColoringHowToPage(
       borderColor: c(P.ink), borderWidth: 0.6,
     });
   }
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
 }
 
 /** Certificate page: same palette-border treatment as title. */
