@@ -23,11 +23,20 @@ function slugify(s: string) {
     .slice(0, 80) || `pdf-${Date.now()}`;
 }
 
-function categorize(folderName: string | null | undefined): 'coloring' | 'storybook' {
+function categorize(folderName: string | null | undefined): 'coloring' | 'storybook' | null {
   const n = (folderName || '').toLowerCase();
   if (n.includes('color')) return 'coloring';
-  if (n.includes('story') || n.includes('book')) return 'storybook';
-  return 'storybook';
+  if (n.includes('story') || n.includes('tale')) return 'storybook';
+  return null;
+}
+
+function prettyTitle(fileName: string): string {
+  return fileName
+    .replace(/\.pdf$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\bPREMIUM\b|\bMatter Design( V\d+)?\b|\b\d+\.?\d*x\d+\.?\d*\b|\bV\d+\b|\bGraphic Novel\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim() || 'Untitled';
 }
 
 type DriveFile = {
