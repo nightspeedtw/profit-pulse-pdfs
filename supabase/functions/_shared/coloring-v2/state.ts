@@ -27,7 +27,17 @@ export async function advance(bookId: string, from: Stage, to: Stage, patch: Rec
 }
 
 export async function recordError(bookId: string, stage: Stage, err: unknown) {
-  const msg = err instanceof Error ? err.message : String(err);
+  // Serialize Error, PostgrestError, plain-object payloads, and strings alike.
+  let msg: string;
+  if (err instanceof Error) msg = err.message;
+  else if (err && typeof err === "object") {
+    const e = err as { message?: unknown; error?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    msg = String(e.message ?? e.error ?? e.details ?? e.hint ?? "");
+    if (!msg || msg === "[object Object]") {
+      try { msg = JSON.stringify(err).slice(0, 780); } catch { msg = "unserializable_error"; }
+    }
+    if (e.code) msg = `[${String(e.code)}] ${msg}`;
+  } else msg = String(err);
   try {
     await db().rpc("coloring_v2_record_error", { p_book: bookId, p_stage: stage, p_error: msg });
   } catch { /* best-effort */ }
