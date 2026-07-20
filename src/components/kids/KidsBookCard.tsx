@@ -85,7 +85,7 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
           title={displayTitle}
           className="truncate text-[15px] leading-snug text-foreground group-hover:underline"
         >
-          {book.title}
+          {displayTitle}
         </h3>
 
         <div
