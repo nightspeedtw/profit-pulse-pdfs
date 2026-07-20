@@ -65,16 +65,18 @@ Deno.serve(async (req: Request) => {
     const flagEnabled = flagRow?.value_json?.enabled !== false;
     if (!flagEnabled) return j({ ok: true, disabled_by_flag: true });
 
-    // Read config (optional row)
-    const { data: cfgRow } = await c.from("platform_settings").select("value_json").eq("key", "coloring_v2_autopilot_config").maybeSingle();
+    // Read config (optional row). Defaults are UNLIMITED (0) so a missing/
+    // unreadable row can never impose a stealth cap.
+    const { data: cfgRow, error: cfgErr } = await c.from("platform_settings").select("value_json").eq("key", "coloring_v2_autopilot_config").maybeSingle();
     const cfg = {
       enabled: true,
-      daily_cap: 10,
-      max_in_flight: 6,
+      daily_cap: 0,
+      max_in_flight: 0,
       page_count: 32,
       legacy_overlay_sweep: true,
       ...(cfgRow?.value_json ?? {}),
     };
+    console.log("[v2-autopilot] cfg", { daily_cap: cfg.daily_cap, max_in_flight: cfg.max_in_flight, cfgRowPresent: !!cfgRow, cfgErr: cfgErr?.message });
 
     // ── LEGACY COVER SWEEP (cover_bake_only_v6) ───────────────────────
     // Any cover asset whose meta.overlay !== the current bake-only contract
