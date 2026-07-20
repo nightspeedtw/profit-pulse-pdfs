@@ -115,16 +115,34 @@ Deno.serve(async (req) => {
       const cur = queue.shift()!;
       const children = await listFolder(cur.id);
       for (const c of children) {
+    // Recursive walk. Each queue entry carries the category inherited from
+    // the nearest ancestor whose name matched a category keyword — so a PDF
+    // inside "coloring book/subfolder/foo.pdf" is still tagged 'coloring'.
+    const rootName = await getFolderName(cfg.root_folder_id);
+    const queue: { id: string; name: string; category: 'coloring' | 'storybook' | null }[] = [
+      { id: cfg.root_folder_id, name: rootName, category: categorize(rootName) },
+    ];
+    const pdfs: { file: DriveFile; parentName: string; category: 'coloring' | 'storybook' }[] = [];
+
+    while (queue.length) {
+      const cur = queue.shift()!;
+      const children = await listFolder(cur.id);
+      for (const c of children) {
         if (c.mimeType === 'application/vnd.google-apps.folder') {
-          queue.push({ id: c.id, name: c.name });
+          const childCat = categorize(c.name) ?? cur.category;
+          queue.push({ id: c.id, name: c.name, category: childCat });
         } else if (c.mimeType === 'application/pdf') {
-          pdfs.push({ file: c, parentName: cur.name });
+          pdfs.push({
+            file: c,
+            parentName: cur.name,
+            category: cur.category ?? categorize(cur.name) ?? 'storybook',
+          });
         }
       }
     }
     summary.scanned = pdfs.length;
 
-    for (const { file, parentName } of pdfs) {
+    for (const { file, parentName, category } of pdfs) {
       try {
         const { data: existing } = await supa
           .from('drive_products')
