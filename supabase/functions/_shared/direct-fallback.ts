@@ -65,6 +65,7 @@ export async function smartChat(opts: SmartChatOpts): Promise<SmartChatResult> {
   }
 
   // Tier 3: Lovable Gateway (last resort — draws from workspace credit pool).
+  assertGatewayAllowed("smartChat");
   if (!LOVABLE_KEY) throw new Error("no direct key succeeded and LOVABLE_API_KEY not set");
   const body: Record<string, unknown> = {
     model: opts.model,
