@@ -1,4 +1,4 @@
-import logoFull from "@/assets/secretpdf-kids-logo.png.asset.json";
+import logoFull from "@/assets/secretpdf-kids-logo-v2.png.asset.json";
 import logoMark from "@/assets/secretpdf-kids-mark.png.asset.json";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +23,7 @@ export function KidsBrand({
       alt={alt}
       loading="eager"
       decoding="async"
-      className={cn(variant === "mark" ? "h-8 w-8" : "h-10 md:h-12 w-auto", className)}
+      className={cn(variant === "mark" ? "h-8 w-8" : "h-12 md:h-14 w-auto", className)}
     />
   );
 }

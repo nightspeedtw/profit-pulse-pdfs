@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { KIDS_BRAND_URLS } from "./KidsBrand";
-import footerLogo from "@/assets/secretpdf-kids-logo-footer.png.asset.json";
+import footerLogo from "@/assets/secretpdf-kids-logo-v2.png.asset.json";
 
 const SHOP: Array<{ label: string; href: string }> = [
   { label: "All Kids' Books", href: "/kids" },
@@ -36,7 +36,7 @@ export function KidsFooter() {
             <img
               src={footerLogo.url || KIDS_BRAND_URLS.full}
               alt="SecretPDF Kids"
-              className="h-12 w-auto mb-4"
+              className="h-16 md:h-20 w-auto mb-4"
             />
             <p className="font-display text-xl text-[#FFFDF8] max-w-sm">
               Magical books made for curious young minds.
