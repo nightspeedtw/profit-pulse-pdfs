@@ -7,7 +7,8 @@ import { KidsBookCard, type KidsBookCardData } from "@/components/kids/KidsBookC
 import { KidsSectionNav } from "@/components/kids/KidsSectionNav";
 import { PreviewLightbox } from "@/components/kids/PreviewLightbox";
 import { resolveAgeChip, bookMatchesAgeChip, bookIsForKids } from "@/lib/kidsCatalogTaxonomy";
-import { bookMatchesType, type KidsTypeSlug } from "@/lib/kidsBookTypes";
+import { bookMatchesType } from "@/lib/kidsBookTypes";
+import type { KidsTypeSlug } from "@/lib/kidsBookTypes";
 import { listThemes, type KidsTheme } from "@/lib/kidsTaxonomy";
 
 interface RawBook {
