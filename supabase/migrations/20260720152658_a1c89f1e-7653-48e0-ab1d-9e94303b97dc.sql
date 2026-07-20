@@ -1,0 +1,1 @@
+insert into public.platform_settings(key, value_json) values ('autopilot_frozen', 'true'::jsonb) on conflict (key) do update set value_json = excluded.value_json;

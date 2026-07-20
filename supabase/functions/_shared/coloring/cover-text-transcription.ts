@@ -232,43 +232,57 @@ async function gatewayTranscribe(bytes: Uint8Array, timeoutMs: number): Promise<
   }
 }
 
+const GEMINI_VISION_MODELS = [
+  "gemini-2.0-flash",
+  "gemini-2.5-flash",
+  "gemini-1.5-flash",
+];
+
 async function geminiTranscribe(bytes: Uint8Array, timeoutMs: number): Promise<{ detected_text: string; clusters: string[] } | null> {
   if (!GEMINI_KEY) return null;
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort("gemini_transcribe_timeout"), timeoutMs);
-  try {
-    const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            role: "user",
-            parts: [
-              { text: TRANSCRIPTION_PROMPT },
-              { inlineData: { mimeType: mimeFromBytes(bytes), data: b64FromBytes(bytes) } },
-            ],
-          }],
-          generationConfig: { responseMimeType: "application/json", temperature: 0 },
-        }),
-        signal: ac.signal,
-      },
-    );
-    clearTimeout(timer);
-    if (!r.ok) return null;
-    const j = await r.json();
-    const text = j.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
-    if (!text) return null;
-    try { return JSON.parse(text); }
-    catch {
-      const stripped = String(text).replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
-      try { return JSON.parse(stripped); } catch { return null; }
+  for (const model of GEMINI_VISION_MODELS) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort("gemini_transcribe_timeout"), timeoutMs);
+    try {
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              role: "user",
+              parts: [
+                { text: TRANSCRIPTION_PROMPT },
+                { inlineData: { mimeType: mimeFromBytes(bytes), data: b64FromBytes(bytes) } },
+              ],
+            }],
+            generationConfig: { responseMimeType: "application/json", temperature: 0 },
+          }),
+          signal: ac.signal,
+        },
+      );
+      clearTimeout(timer);
+      if (!r.ok) {
+        const errBody = await r.text().catch(() => "");
+        console.warn(`[cover-transcribe] gemini ${model} http_${r.status}: ${errBody.slice(0, 200)}`);
+        continue;
+      }
+      const j = await r.json();
+      const text = j.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
+      if (!text) { console.warn(`[cover-transcribe] gemini ${model} empty response`); continue; }
+      try { return JSON.parse(text); }
+      catch {
+        const stripped = String(text).replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+        try { return JSON.parse(stripped); } catch { console.warn(`[cover-transcribe] gemini ${model} non-JSON: ${text.slice(0, 200)}`); continue; }
+      }
+    } catch (e: any) {
+      clearTimeout(timer);
+      console.warn(`[cover-transcribe] gemini ${model} error: ${e?.message ?? e}`);
+      continue;
     }
-  } catch {
-    clearTimeout(timer);
-    return null;
   }
+  return null;
 }
 
 export async function verifyExactCoverText(

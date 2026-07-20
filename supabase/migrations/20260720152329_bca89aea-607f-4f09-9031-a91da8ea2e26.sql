@@ -1,0 +1,1 @@
+insert into public.platform_settings(key, value_json) values ('coloring_v2_autopilot_config', '{"enabled":true,"daily_cap":1,"max_in_flight":1,"page_count":32,"legacy_overlay_sweep":false}'::jsonb) on conflict (key) do update set value_json = excluded.value_json;
