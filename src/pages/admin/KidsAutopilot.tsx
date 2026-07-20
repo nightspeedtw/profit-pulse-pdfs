@@ -8,7 +8,7 @@ import { RefreshCw, Play, Sparkles, Zap } from "lucide-react";
 import { listAgeGroups, listThemes, type KidsAgeGroup, type KidsTheme } from "@/lib/kidsTaxonomy";
 import { BuildKidsBookButton } from "@/components/admin/BuildKidsBookButton";
 import { KidsBatchOrderCard } from "@/components/admin/KidsBatchOrderCard";
-import { ColoringAutopilotCard } from "@/components/admin/ColoringAutopilotCard";
+import { ColoringV2AutopilotCard } from "@/components/admin/ColoringV2AutopilotCard";
 import { HealthIncidentBanner } from "@/components/admin/HealthIncidentBanner";
 import { fetchAdminData } from "@/lib/adminData";
 
