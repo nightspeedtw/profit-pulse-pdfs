@@ -18,6 +18,8 @@ import AddToCollectionButton from "@/components/product/AddToCollectionButton";
 import ItemDetailsSection from "@/components/product/ItemDetailsSection";
 import SocialProofBadges from "@/components/product/SocialProofBadges";
 import CompleteTheSetBundle from "@/components/product/CompleteTheSetBundle";
+import FlipbookPreview from "@/components/product/FlipbookPreview";
+import ReviewSummary from "@/components/product/ReviewSummary";
 
 interface Row {
   id: string;
