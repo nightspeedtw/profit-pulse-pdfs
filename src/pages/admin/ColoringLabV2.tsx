@@ -42,13 +42,29 @@ const THEME_PRESETS = [
   "Robots and machines",
 ];
 
+// V2 age band ordering per master prompt:
+//   [All] | 2-4 | 4-6 | 6-8 | 8-12 | 13-17 | All Ages
+// "all" is a LIST FILTER ONLY — never submitted as a generation age.
+// Random age selection draws only from the five real bands + all-ages.
+const AGE_ORDER = ["2-4", "4-6", "6-8", "8-12", "13-17", "all-ages"] as const;
+const AGE_LABELS: Record<string, string> = {
+  "2-4": "First Coloring",
+  "4-6": "Big & Easy",
+  "6-8": "Growing Detail",
+  "8-12": "Detailed Adventure",
+  "13-17": "Advanced Coloring",
+  "all-ages": "All Ages · Universal Family",
+};
+
 export default function ColoringLabV2() {
   const [bands, setBands] = useState<AgeBand[]>([]);
   const [books, setBooks] = useState<V2Book[]>([]);
   const [starting, setStarting] = useState(false);
 
   // form
+  const [ageMode, setAgeMode] = useState<"select"|"random">("select");
   const [ageBand, setAgeBand] = useState("8-12");
+  const [listFilter, setListFilter] = useState<string>("all"); // "all" is filter-only
   const [themeMode, setThemeMode] = useState<"select"|"custom"|"random"|"surprise">("select");
   const [theme, setTheme] = useState("Space and planets");
   const [customTheme, setCustomTheme] = useState("");
@@ -66,6 +82,27 @@ export default function ColoringLabV2() {
     }
     return theme;
   }, [themeMode, customTheme, theme]);
+
+  const resolvedAgeBand = useMemo(() => {
+    if (ageMode === "random") {
+      return AGE_ORDER[Math.floor(Math.random() * AGE_ORDER.length)];
+    }
+    return ageBand;
+  }, [ageMode, ageBand]);
+
+  // Order age bands from DB per AGE_ORDER (fall back to min_age for unknowns).
+  const orderedBands = useMemo(() => {
+    const byIndex = (slug: string) => {
+      const i = AGE_ORDER.indexOf(slug as typeof AGE_ORDER[number]);
+      return i === -1 ? 999 : i;
+    };
+    return [...bands].sort((a, b) => byIndex(a.slug) - byIndex(b.slug));
+  }, [bands]);
+
+  const filteredBooks = useMemo(() => {
+    if (listFilter === "all") return books;
+    return books.filter(b => b.age_band === listFilter);
+  }, [books, listFilter]);
 
   const refresh = async () => {
     const [b, bk] = await Promise.all([
@@ -85,11 +122,16 @@ export default function ColoringLabV2() {
       toast({ title: "Theme required", variant: "destructive" });
       return;
     }
+    if (resolvedAgeBand === "all") {
+      toast({ title: "'All' is a filter, not a generation age", variant: "destructive" });
+      return;
+    }
     setStarting(true);
     try {
       const { data, error } = await supabase.functions.invoke("coloring-v2-start", {
         body: {
-          age_band: ageBand,
+          age_band: resolvedAgeBand,
+          age_mode: ageMode,
           theme: resolvedTheme,
           theme_mode: themeMode,
           page_count: pageCount,
@@ -101,7 +143,7 @@ export default function ColoringLabV2() {
         },
       });
       if (error) throw error;
-      toast({ title: "V2 book queued", description: `book_id: ${(data as { book_id?: string })?.book_id ?? "?"}` });
+      toast({ title: "V2 book queued", description: `book_id: ${(data as { book_id?: string })?.book_id ?? "?"} · age ${resolvedAgeBand}` });
       await refresh();
     } catch (e) {
       toast({ title: "Failed to start", description: (e as Error).message, variant: "destructive" });
