@@ -199,3 +199,90 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 }
+
+/* ============================================================
+ * KIDS THEME — Magical children's publishing brand
+ * Scoped tokens + utilities. Applied on <body> for /kids routes.
+ * ============================================================ */
+@layer base {
+  :root {
+    --kids-midnight: 232 78% 10%;
+    --kids-indigo: 246 68% 19%;
+    --kids-violet: 251 66% 55%;
+    --kids-blue: 220 100% 62%;
+    --kids-gold: 42 100% 65%;
+    --kids-gold-warm: 41 100% 80%;
+    --kids-lavender: 251 100% 96%;
+    --kids-lavender-pale: 258 100% 98%;
+    --kids-parchment: 42 100% 97%;
+    --kids-cream: 48 100% 99%;
+    --kids-ink: 246 44% 16%;
+    --kids-muted: 253 15% 48%;
+    --kids-border: 253 55% 90%;
+
+    --kids-gradient-night: linear-gradient(135deg, #070B2D 0%, #171052 55%, #25136B 100%);
+    --kids-gradient-page: linear-gradient(180deg, #FFF9EE 0%, #FFFDF8 36%, #F5F1FF 100%);
+    --kids-gradient-gold: linear-gradient(135deg, #FFD86A 0%, #FFC44D 55%, #F2A91F 100%);
+  }
+}
+
+@layer components {
+  .kids-theme { background: var(--kids-gradient-page); }
+
+  .kids-night { background: var(--kids-gradient-night); position: relative; isolation: isolate; }
+  .kids-night::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      radial-gradient(1.5px 1.5px at 12% 22%, hsl(var(--kids-gold-warm) / 0.9), transparent 60%),
+      radial-gradient(1px 1px at 78% 18%, hsl(var(--kids-gold-warm) / 0.7), transparent 60%),
+      radial-gradient(1.5px 1.5px at 34% 74%, hsl(var(--kids-gold-warm) / 0.8), transparent 60%),
+      radial-gradient(1px 1px at 62% 62%, hsl(var(--kids-gold-warm) / 0.6), transparent 60%),
+      radial-gradient(1.2px 1.2px at 88% 82%, hsl(var(--kids-gold-warm) / 0.7), transparent 60%),
+      radial-gradient(1px 1px at 18% 88%, hsl(var(--kids-gold-warm) / 0.5), transparent 60%),
+      radial-gradient(2px 2px at 52% 28%, hsl(var(--kids-gold-warm) / 0.7), transparent 60%),
+      radial-gradient(1px 1px at 46% 92%, hsl(var(--kids-gold-warm) / 0.5), transparent 60%),
+      radial-gradient(1.2px 1.2px at 8% 58%, hsl(var(--kids-gold-warm) / 0.6), transparent 60%),
+      radial-gradient(1px 1px at 92% 46%, hsl(var(--kids-gold-warm) / 0.6), transparent 60%);
+    background-repeat: no-repeat;
+  }
+  .kids-night::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+    background: radial-gradient(ellipse at 22% 55%, hsl(var(--kids-gold) / 0.16), transparent 55%);
+  }
+  .kids-night > * { position: relative; z-index: 1; }
+
+  .kids-cta-gold {
+    background: var(--kids-gradient-gold);
+    color: hsl(var(--kids-ink));
+    box-shadow: 0 10px 30px -10px hsl(var(--kids-gold) / 0.55), inset 0 1px 0 hsl(0 0% 100% / 0.6);
+    transition: transform 200ms ease, filter 200ms ease;
+  }
+  .kids-cta-gold:hover { transform: translateY(-1px); filter: brightness(1.03); }
+  .kids-cta-gold:focus-visible { outline: 2px solid hsl(var(--kids-gold-warm)); outline-offset: 3px; }
+
+  .kids-chip {
+    background: hsl(var(--kids-lavender));
+    color: hsl(var(--kids-ink));
+    border: 1px solid hsl(var(--kids-border));
+    transition: background 180ms ease, color 180ms ease, box-shadow 180ms ease;
+  }
+  .kids-chip:hover { background: hsl(251 90% 93%); }
+  .kids-chip-active {
+    background: hsl(var(--kids-indigo));
+    color: hsl(var(--kids-cream));
+    border-color: hsl(var(--kids-violet));
+    box-shadow: inset 0 0 0 1px hsl(var(--kids-gold) / 0.4);
+  }
+
+  .kids-tile {
+    background: linear-gradient(160deg, #ffffff 0%, hsl(var(--kids-lavender-pale)) 100%);
+    border: 1px solid hsl(var(--kids-border));
+    border-radius: 20px;
+    transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+  }
+  .kids-tile:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 20px 40px -20px hsl(var(--kids-violet) / 0.35);
+    border-color: hsl(var(--kids-violet) / 0.5);
+  }
+}
