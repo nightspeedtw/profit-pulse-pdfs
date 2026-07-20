@@ -72,8 +72,51 @@ Deno.serve(async (req: Request) => {
       daily_cap: 10,
       max_in_flight: 6,
       page_count: 32,
+      legacy_overlay_sweep: true,
       ...(cfgRow?.value_json ?? {}),
     };
+
+    // ── LEGACY COVER SWEEP (no_popups_v5) ─────────────────────────────
+    // Any cover asset whose meta.overlay !== the current contract is legacy
+    // (chip/ribbon/banner/age-pill baked or drawn). Reset its book to stage
+    // 'cover' so this tick regenerates it with the clean overlay.
+    const CURRENT_OVERLAY = "premium_cover_overlay_v5_no_text_ever";
+    const sweptBookIds: string[] = [];
+    if (cfg.legacy_overlay_sweep !== false) {
+      const { data: liveBooks } = await c.from("coloring_v2_books")
+        .select("id, approved_cover_asset_id")
+        .eq("publish_status", "live")
+        .not("approved_cover_asset_id", "is", null)
+        .limit(50);
+      const assetIds = (liveBooks ?? []).map((b: any) => b.approved_cover_asset_id).filter(Boolean);
+      if (assetIds.length) {
+        const { data: assets } = await c.from("coloring_v2_assets")
+          .select("id, meta").in("id", assetIds);
+        const legacyAssetIds = new Set(
+          (assets ?? [])
+            .filter((a: any) => (a.meta?.overlay ?? null) !== CURRENT_OVERLAY)
+            .map((a: any) => a.id)
+        );
+        for (const b of (liveBooks ?? [])) {
+          if (legacyAssetIds.has(b.approved_cover_asset_id)) sweptBookIds.push(b.id);
+        }
+        if (sweptBookIds.length) {
+          await c.from("coloring_v2_books").update({
+            stage: "cover", stage_updated_at: new Date().toISOString(),
+            stage_attempt_count: 0, last_error: null,
+          }).in("id", sweptBookIds);
+          // fire-and-forget cover regen dispatches (does not consume slots)
+          for (const id of sweptBookIds) {
+            fetch(`${SB_URL}/functions/v1/coloring-v2-cover`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+              body: JSON.stringify({ book_id: id }),
+              signal: AbortSignal.timeout(4000),
+            }).catch(() => {});
+          }
+        }
+      }
+    }
     if (!cfg.enabled && !manual) return j({ ok: true, disabled: true });
 
     // Count created today + currently in-flight
