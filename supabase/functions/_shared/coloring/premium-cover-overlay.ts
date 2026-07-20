@@ -208,15 +208,8 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
   ${topChipEl}
   ${fallbackTitleEl}
   ${bottomBannerEl}
-  <g>
-    <circle cx="${pillCX}" cy="${pillCY}" r="${pillR + 6}" fill="#0F172A" opacity="0.28"/>
-    <circle cx="${pillCX}" cy="${pillCY}" r="${pillR}" fill="url(#pillGrad)"
-            stroke="#0F172A" stroke-width="5"/>
-    <text x="${pillCX}" y="${pillCY + pillFontSize * 0.36}" text-anchor="middle"
-          font-family="Fredoka" font-weight="700"
-          font-size="${pillFontSize}" fill="#0F172A"
-          letter-spacing="1.2">${esc(ageText)}</text>
-  </g>
+  <!-- OWNER ORDER 2026-07-20: yellow AGES pill removed — was covering artwork. -->
+
   ${ribbonEl}
 </svg>`;
 
