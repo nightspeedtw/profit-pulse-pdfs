@@ -122,9 +122,43 @@ export default function Kids() {
     setTimeout(scrollToCatalog, 40);
   };
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   return (
     <>
       <KidsSectionNav />
+
+      <div className="sticky top-14 z-30 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="mx-auto max-w-6xl px-4 py-3">
+          <div className="relative">
+            <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-muted-foreground">
+              <Search className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search coloring books, stories, activities…"
+              aria-label="Search kids books"
+              className="w-full rounded-full border border-input bg-muted/40 py-2.5 pl-10 pr-24 text-sm text-foreground shadow-sm outline-none ring-primary transition placeholder:text-muted-foreground focus:border-primary focus:bg-background focus:ring-2"
+            />
+            <div className="pointer-events-none absolute inset-y-0 right-0 hidden items-center pr-4 text-xs text-muted-foreground sm:flex">
+              <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-sans">Ctrl K</kbd>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <KidsHeroCompact onCtaClick={scrollToCatalog} />
       <KidsCategoryStrip books={kidsEligible} activeType={type} onSelect={onCategorySelect} />
 
