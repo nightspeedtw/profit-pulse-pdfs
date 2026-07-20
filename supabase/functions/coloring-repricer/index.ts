@@ -56,6 +56,13 @@ Deno.serve(async (req: Request) => {
       if (supplied !== PASSCODE) return json({ error: "unauthenticated" }, 401);
     }
 
+    // Marketing Autopilot Phase 1: if the new dynamic controller is on,
+    // this legacy popularity-only repricer defers to it and becomes a no-op.
+    const { data: mset } = await db.from("marketing_settings")
+      .select("dynamic_regular_pricing, emergency_stop").limit(1).maybeSingle();
+    if (mset?.emergency_stop) return json({ ...result, deferred: "emergency_stop" });
+    if (mset?.dynamic_regular_pricing) return json({ ...result, deferred: "marketing_autopilot_dynamic_pricing_enabled" });
+
     const { data: gs } = await db.from("generation_settings")
       .select("coloring_autopilot").eq("id", 1).maybeSingle();
     const cfg: PricingConfig = {
@@ -177,6 +184,34 @@ Deno.serve(async (req: Request) => {
         (result.skipped as any[]).push({ id: b.id, reason: "update_failed", error: upErr.message });
         continue;
       }
+      // Marketing Autopilot Phase 1: mirror every price change into the
+      // authoritative product_pricing row + append-only price_history so
+      // the storefront resolver and audit ledger stay in sync.
+      await db.from("product_pricing").upsert({
+        product_kind: "ebook_kids",
+        product_id: b.id,
+        market: "US",
+        regular_price_cents: Math.max(500, breakdown.price_cents),
+        campaign_price_cents: null,
+        effective_price_cents: Math.max(500, breakdown.price_cents),
+        active_campaign_id: null,
+        campaign_valid_from: null,
+        campaign_valid_to: null,
+        last_regular_change_at: startedAt.toISOString(),
+        rule_version: 1,
+      }, { onConflict: "product_kind,product_id,market" });
+      await db.from("price_history").insert({
+        product_kind: "ebook_kids",
+        product_id: b.id,
+        market: "US",
+        price_type: "regular",
+        previous_price_cents: oldPrice > 0 ? oldPrice : null,
+        new_price_cents: Math.max(500, breakdown.price_cents),
+        reason: "coloring_repricer_popularity_tier",
+        metric_snapshot: { tier, page_count: pageCount, category_key: meta.catKey },
+        effective_from: startedAt.toISOString(),
+        rule_version: 1,
+      });
       (result.repriced as any[]).push({
         id: b.id,
         category_key: meta.catKey,
