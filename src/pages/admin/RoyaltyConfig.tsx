@@ -33,6 +33,9 @@ interface Ledger {
   memo: string | null;
   created_at: string;
 }
+interface KycRow { id: string; user_id: string; status: string; provider: string; submitted_at: string | null; rejection_reason: string | null; }
+interface PayoutRow { id: string; user_id: string; amount_cents: number; status: string; requested_at: string; paid_at: string | null; admin_notes: string | null; }
+
 
 function usd(cents: number) { return `$${(Number(cents || 0) / 100).toFixed(2)}`; }
 
