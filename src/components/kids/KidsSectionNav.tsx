@@ -75,7 +75,7 @@ export function KidsSectionNav() {
               >
                 All ages
               </button>
-              {AGE_CHIPS.filter((a) => a.slug !== "all").map((a) => (
+              {AGE_CHIPS.filter((a) => a.slug !== "all" && a.slug !== "all_ages").map((a) => (
                 <button
                   key={a.slug}
                   type="button"
