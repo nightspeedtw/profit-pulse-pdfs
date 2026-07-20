@@ -84,6 +84,10 @@ const App = () => (
             <Route path="/checkout/return" element={<CheckoutReturn />} />
             <Route path="/blog" element={<Blog />} />
             <Route path="/blog/:slug" element={<BlogPost />} />
+            {FEATURES.ENABLE_COLORING_LANE_V2 && (
+              <Route path="/coloring-preview-v2/:bookId" element={<ColoringPreviewV2 />} />
+            )}
+
           </Route>
 
 
