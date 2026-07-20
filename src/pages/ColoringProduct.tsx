@@ -20,6 +20,7 @@ import SocialProofBadges from "@/components/product/SocialProofBadges";
 import CompleteTheSetBundle from "@/components/product/CompleteTheSetBundle";
 import FlipbookPreview from "@/components/product/FlipbookPreview";
 import ReviewSummary from "@/components/product/ReviewSummary";
+import { ensureColoringLabel } from "@/lib/coloring-title";
 
 interface Row {
   id: string;
