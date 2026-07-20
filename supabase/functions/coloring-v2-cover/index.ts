@@ -15,8 +15,15 @@ declare const Deno: any;
 
 const IDEOGRAM_MODEL = "ideogram:4@1";
 const CANVAS = 1024;
-const MAX_ATTEMPTS = 4;
+const MAX_ATTEMPTS = 6;
 const PROMPT_VERSION = "master_cover_prompt@v3_title_only_bake";
+// Ideogram has a strong tendency to hallucinate "COLORING BOOK / AGES 13-17 /
+// PAGE 12" chrome text no matter how the prompt forbids it. We retry hard,
+// but if every attempt still bakes chrome we ship the best-of-N (fewest
+// extras) — the deterministic overlay masks the two most-common gibberish
+// zones (bottom-left age pill area + top-right corner) and the customer
+// never sees the baked pill.
+const NEGATIVE_PROMPT = "any additional text, any subtitle, any tagline, any age label, any age badge, any 'AGES' text, any 'COLORING BOOK' text, any 'PAGE' text, any page number, any banner, any ribbon, any sticker, any sale badge, any watermark, any publisher name, any credits, any letter-shaped ornament, gibberish text, misspelled text, duplicate letters, extra typography, flat vector, line art, black and white, coloring page, uncolored";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
