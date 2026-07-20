@@ -6,6 +6,7 @@
 
 import { hasGeminiDirect, geminiDirectChat } from "./gemini-direct.ts";
 import { hasOpenAIDirect, openaiDirectChat } from "./openai-direct.ts";
+import { assertGatewayAllowed } from "./gateway-guard.ts";
 
 const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY");
 
