@@ -32,13 +32,13 @@ export default function ItemDetailsSection({
   const howItWorks = [
     "Buy — no account required",
     "Instantly download your PDF",
-    "Print at home on 8.5×11 paper (any color printer)",
+    "Print at home on 8.5×8.5 in square paper (any color printer)",
   ];
   const important = [
     "Digital file only — nothing ships to your address",
     "Personal-use license (not for resale)",
     "Works on iPad / GoodNotes for tablet coloring",
-    `Best on standard letter (US) or A4 (Europe) paper`,
+    `Print at 8.5×8.5 in — center on US Letter or A4 with your printer's "fit to page" option`,
   ];
 
   return (
