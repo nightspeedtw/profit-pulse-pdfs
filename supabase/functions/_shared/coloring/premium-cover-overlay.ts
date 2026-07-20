@@ -108,33 +108,16 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
   const ageText = (input.ageBadge || "").toUpperCase().trim() || "AGES 4-6";
   const fallbackTitle = (input.fallbackTitle ?? "").trim();
 
-  // OWNER ORDER 2026-07-20 (v4 — NO POPUPS): every floating overlay element
-  // is gone — no top chip, no bottom banner, no SALE ribbon, no age pill.
-  // The only things the overlay can still draw are:
-  //   1. A tasteful integrated AGES mark (small caps, hairline underline,
-  //      NO background — reads as part of the cover, not a sticker).
-  //   2. The fallback title, ONLY when Ideogram was asked for textless art.
-  // ribbonText / showRibbon / topLabel / subtitle / blurb inputs are still
-  // accepted for API compatibility but intentionally IGNORED.
-
-  // Integrated AGES mark: small caps, bottom-center, hairline rule.
-  let ageEl = "";
-  if (ageText) {
-    const ageFont = Math.round(H * 0.026);
-    const ageY = H - Math.round(H * 0.035);
-    const ruleY = ageY + Math.round(ageFont * 0.35);
-    const ruleW = Math.round(ageText.length * ageFont * 0.7);
-    ageEl = `
-      <g>
-        <text x="${W / 2}" y="${ageY}" text-anchor="middle"
-              font-family="Fredoka" font-weight="700" font-size="${ageFont}"
-              fill="#FFFFFF" letter-spacing="6"
-              stroke="#0F172A" stroke-width="${Math.max(2, Math.round(ageFont * 0.12))}"
-              paint-order="stroke fill">${esc(ageText)}</text>
-        <line x1="${(W - ruleW) / 2}" y1="${ruleY}" x2="${(W + ruleW) / 2}" y2="${ruleY}"
-              stroke="#FFFFFF" stroke-width="1.5" opacity="0.9"/>
-      </g>`;
-  }
+  // OWNER LAW `no_popups_v5` (2026-07-21):
+  //   Title-only mode ⇒ overlay draws ABSOLUTELY NOTHING. No age mark,
+  //   no chip, no banner, no ribbon, no pill. The Ideogram bake owns the
+  //   title; the storefront HTML owns every other visible label.
+  //   Textless-fallback mode ⇒ overlay draws ONLY the title, as a clean
+  //   bold display font (spelling-guaranteed).
+  //
+  // ribbonText / showRibbon / topLabel / subtitle / blurb / ageBadge inputs
+  // are accepted for API back-compat but intentionally IGNORED.
+  void ageText; // referenced only for lint
 
   // Fallback title (only when Ideogram was asked for textless art).
   let fallbackTitleEl = "";
@@ -155,8 +138,7 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   ${fallbackTitleEl}
-  ${ageEl}
-  <!-- OWNER ORDER 2026-07-20 v4: NO POPUPS. No chip, no banner, no ribbon, no pill. -->
+  <!-- ${COVER_OVERLAY_CONTRACT}: NO chip, NO banner, NO ribbon, NO pill, NO age mark. -->
 </svg>`;
 
   const resvg = new Resvg(svg, {
@@ -166,6 +148,19 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
   });
   return resvg.render().asPng();
 }
+
+// Regression guard: if a future edit reintroduces chip/banner/ribbon/pill SVG,
+// this self-check throws at module load time, and the coloring-v2-cover step
+// will fail loudly rather than ship a text-popped cover.
+(function assertNoPopupSvg() {
+  const src = renderPremiumCoverOverlayPng.toString();
+  const banned = [/rect[^>]*fill="#F/i, /rgb\(255,\s*221/i, /ribbon/i, /banner/i, /chip/i];
+  for (const re of banned) {
+    if (re.test(src)) {
+      throw new Error(`premium-cover-overlay regression: ${COVER_OVERLAY_CONTRACT} must never draw popup elements (matched ${re})`);
+    }
+  }
+})();
 
 /** Alpha-composite an overlay PNG on top of the base JPEG/PNG bytes. Returns JPEG bytes (q=92). */
 export async function compositeOverlayOntoArt(
