@@ -138,6 +138,7 @@ export function assertMasterPromptShape(
   }
   for (const [key, value] of Object.entries(expected)) {
     if (key === "subtitle") continue; // subtitle is optional (essentials-only rule)
+    if (key === "ageBadge") continue; // age badge is drawn by the overlay layer, not baked by Ideogram
     if (!value || value.length < 1) {
       throw new Error(`coloring_master_cover_v1: expected.${key} is empty`);
     }
