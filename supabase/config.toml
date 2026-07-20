@@ -1,19 +1,4 @@
 project_id = "atccyjuwimibyoocpiwi"
 
-[functions.create-checkout]
-verify_jwt = false
-
-[functions.payments-webhook]
-verify_jwt = false
-
-[functions.download-ebook]
-verify_jwt = false
-
-[functions.get-order-by-session]
-verify_jwt = false
-
-[functions.list-storefront]
-verify_jwt = false
-
-[functions.blog-autopilot]
+[functions.drive-importer]
 verify_jwt = false
