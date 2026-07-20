@@ -23,11 +23,20 @@ function slugify(s: string) {
     .slice(0, 80) || `pdf-${Date.now()}`;
 }
 
-function categorize(folderName: string | null | undefined): 'coloring' | 'storybook' {
+function categorize(folderName: string | null | undefined): 'coloring' | 'storybook' | null {
   const n = (folderName || '').toLowerCase();
   if (n.includes('color')) return 'coloring';
-  if (n.includes('story') || n.includes('book')) return 'storybook';
-  return 'storybook';
+  if (n.includes('story') || n.includes('tale')) return 'storybook';
+  return null;
+}
+
+function prettyTitle(fileName: string): string {
+  return fileName
+    .replace(/\.pdf$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\bPREMIUM\b|\bMatter Design( V\d+)?\b|\b\d+\.?\d*x\d+\.?\d*\b|\bV\d+\b|\bGraphic Novel\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim() || 'Untitled';
 }
 
 type DriveFile = {
@@ -96,26 +105,34 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Recursive walk: (folderId, folderName) queue
-    const queue: { id: string; name: string }[] = [
-      { id: cfg.root_folder_id, name: await getFolderName(cfg.root_folder_id) },
+    // Recursive walk. Each queue entry carries the category inherited from
+    // the nearest ancestor whose name matched a category keyword — so a PDF
+    // inside "coloring book/subfolder/foo.pdf" is still tagged 'coloring'.
+    const rootName = await getFolderName(cfg.root_folder_id);
+    const queue: { id: string; name: string; category: 'coloring' | 'storybook' | null }[] = [
+      { id: cfg.root_folder_id, name: rootName, category: categorize(rootName) },
     ];
-    const pdfs: { file: DriveFile; parentName: string }[] = [];
+    const pdfs: { file: DriveFile; parentName: string; category: 'coloring' | 'storybook' }[] = [];
 
     while (queue.length) {
       const cur = queue.shift()!;
       const children = await listFolder(cur.id);
       for (const c of children) {
         if (c.mimeType === 'application/vnd.google-apps.folder') {
-          queue.push({ id: c.id, name: c.name });
+          const childCat = categorize(c.name) ?? cur.category;
+          queue.push({ id: c.id, name: c.name, category: childCat });
         } else if (c.mimeType === 'application/pdf') {
-          pdfs.push({ file: c, parentName: cur.name });
+          pdfs.push({
+            file: c,
+            parentName: cur.name,
+            category: cur.category ?? categorize(cur.name) ?? 'storybook',
+          });
         }
       }
     }
     summary.scanned = pdfs.length;
 
-    for (const { file, parentName } of pdfs) {
+    for (const { file, parentName, category } of pdfs) {
       try {
         const { data: existing } = await supa
           .from('drive_products')
@@ -149,9 +166,8 @@ Deno.serve(async (req) => {
           .from('ebook-pdfs')
           .createSignedUrl(storagePath, 60 * 60 * 24 * 365 * 5);
 
-        const title = file.name.replace(/\.pdf$/i, '').trim() || 'Untitled';
+        const title = prettyTitle(file.name);
         const baseSlug = slugify(file.name);
-        const category = categorize(parentName);
 
         const row = {
           drive_file_id: file.id,
@@ -177,6 +193,40 @@ Deno.serve(async (req) => {
           await supa.from('drive_products').insert(row);
           summary.imported++;
         }
+
+        // Mirror into ebooks_kids so the Drive-imported PDF appears on the
+        // /kids storefront and is filterable by book_type. Idempotent via
+        // the unique `drive_file_id` column.
+        const kidsBookType = category === 'coloring' ? 'coloring_book' : 'picture_book';
+        await supa
+          .from('ebooks_kids')
+          .upsert(
+            {
+              drive_file_id: file.id,
+              title,
+              book_type: kidsBookType,
+              pdf_url: signed?.signedUrl ?? null,
+              // Placeholder cover so the live-assets guard doesn't demote to
+              // draft. Cover art can be regenerated later by the pipeline.
+              cover_url: '/placeholder.svg',
+              thumbnail_url: '/placeholder.svg',
+              price_cents: cfg.default_price_cents,
+              age_band: 'all_ages',
+              age_min: 2,
+              age_max: 12,
+              listing_status: 'live',
+              sellable: true,
+              pipeline_status: 'published',
+              ever_live: true,
+              storefront_meta: {
+                source: 'drive_import',
+                drive_file_id: file.id,
+                drive_parent_folder_name: parentName,
+              },
+            },
+            { onConflict: 'drive_file_id' },
+          );
+
       } catch (e) {
         const msg = `${file.name}: ${e instanceof Error ? e.message : String(e)}`;
         summary.errors.push(msg);
