@@ -356,7 +356,7 @@ export default function ColoringProduct() {
 
           <ul className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs md:text-sm text-muted-foreground">
             <li className="inline-flex items-center gap-2"><Download className="h-3.5 w-3.5" /> Instant PDF</li>
-            <li className="inline-flex items-center gap-2"><Printer className="h-3.5 w-3.5" /> 8.5×11 print-ready</li>
+            <li className="inline-flex items-center gap-2"><Printer className="h-3.5 w-3.5" /> 8.5×8.5 in square, print-ready</li>
             <li className="inline-flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5" /> Personal-use license</li>
             <li className="inline-flex items-center gap-2"><Sparkles className="h-3.5 w-3.5" /> Secure checkout</li>
           </ul>
