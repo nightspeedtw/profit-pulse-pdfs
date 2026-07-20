@@ -101,7 +101,7 @@ export function buildMasterColoringCoverPrompt(input: MasterColoringCoverInput):
     refClause,
     `Book title: "${title}".`,
     hasSubtitle ? `Subtitle: "${subtitle}".` : `NO subtitle — the cover has no subtitle line at all.`,
-    `Age label: "${ageBadge}".`,
+    `(Overlay layer will add the "${ageBadge}" pill and SALE ribbon deterministically — do NOT bake either into the art.)`,
     `Theme: ${theme}.`,
     `Main characters: ${mainStr}.`,
     `Background elements: ${bgStr}.`,
