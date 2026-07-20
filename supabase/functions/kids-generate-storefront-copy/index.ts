@@ -58,6 +58,8 @@ async function callGemini(system: string, user: string): Promise<string> {
       console.warn('gemini-direct failed, falling back to gateway:', (e as Error).message);
     }
   }
+  const { assertGatewayAllowed } = await import('../_shared/gateway-guard.ts');
+  assertGatewayAllowed('kids-generate-storefront-copy.callGemini');
   const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },

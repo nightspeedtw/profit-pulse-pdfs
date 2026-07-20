@@ -139,30 +139,15 @@ export async function chat(opts: {
   json?: boolean;
   temperature?: number;
 }): Promise<{ text: string; parsed?: unknown; raw: Record<string, unknown> }> {
-  const body: Record<string, unknown> = {
+  // Route through smartChat so BYPASS_LOVABLE_GATEWAY=1 forces direct providers.
+  const { smartChat } = await import("./direct-fallback.ts");
+  const r = await smartChat({
+    system: opts.system ?? "",
+    user: opts.user,
     model: opts.model,
-    messages: [
-      ...(opts.system ? [{ role: "system", content: opts.system }] : []),
-      { role: "user", content: opts.user },
-    ],
-    temperature: opts.temperature ?? 0.7,
-  };
-  if (opts.json) body.response_format = { type: "json_object" };
-
-  const r = await fetch(`${GATEWAY}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${LOVABLE_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
+    responseJson: !!opts.json,
   });
-  if (!r.ok) {
-    const errText = await r.text();
-    throw new Error(`lovable_ai_chat ${r.status}: ${errText}`);
-  }
-  const raw = await r.json();
-  const text: string = raw.choices?.[0]?.message?.content ?? "";
+  const text = r.text ?? "";
   let parsed: unknown;
   if (opts.json) {
     try {
@@ -173,6 +158,11 @@ export async function chat(opts: {
       parsed = JSON.parse(cleaned);
     }
   }
+  const raw: Record<string, unknown> = {
+    provider: r.provider,
+    model: r.model,
+    usage: { prompt_tokens: r.input_tokens, completion_tokens: r.output_tokens },
+  };
   return { text, parsed, raw };
 }
 

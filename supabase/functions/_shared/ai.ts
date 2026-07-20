@@ -116,6 +116,7 @@ function extractJson<T>(raw: string, opts: { allowTruncated?: boolean } = {}): T
 import { hasGeminiDirect, geminiDirectChat } from "./gemini-direct.ts";
 import { hasOpenAIDirect, openaiDirectChat } from "./openai-direct.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
+import { assertGatewayAllowed } from "./gateway-guard.ts";
 
 function isGoogleModel(model: string): boolean {
   return model.startsWith("google/");
@@ -195,6 +196,7 @@ export async function aiJSON<T>(opts: {
   }
 
   // --- gateway path ---
+  assertGatewayAllowed("aiJSON");
   if (!key) throw new Error("LOVABLE_API_KEY not configured");
 
   async function call(maxTokens: number) {
@@ -308,6 +310,7 @@ export async function aiText(opts: {
     }
   }
 
+  assertGatewayAllowed("aiText");
   if (!key) throw new Error("LOVABLE_API_KEY not configured");
   const controller = opts.timeoutMs ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort("ai_text_timeout"), opts.timeoutMs) : null;

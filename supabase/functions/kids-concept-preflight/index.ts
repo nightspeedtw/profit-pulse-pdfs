@@ -199,6 +199,8 @@ async function callGemini(system: string, user: string, model = CHEAP_JUDGE_MODE
     }
   }
   // Tier 2: Lovable Gateway.
+  const { assertGatewayAllowed } = await import('../_shared/gateway-guard.ts');
+  assertGatewayAllowed('kids-concept-preflight.callGemini');
   const res = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LOVABLE_API_KEY}` },
