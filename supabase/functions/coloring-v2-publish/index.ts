@@ -68,8 +68,13 @@ Deno.serve(async (req: Request) => {
     // Age id/theme slug — best-effort lookups (skip if not found)
     const { data: ageRow } = await c.from("kids_age_groups").select("id").ilike("label", `%${prof.label}%`).maybeSingle();
 
-    // Insert ebooks_kids row (identity guard: setting manuscript_md locks identity — leave null for coloring)
-    const insert = {
+    // Bridge invariant (2026-07-20 "coloring_v2_storefront_bridge_idempotent"):
+    // exactly ONE ebooks_kids row per coloring_v2_books.id. Keyed on the
+    // dedicated `coloring_v2_book_id` column (partial UNIQUE index enforces
+    // it). Republishes (cover regen, matter refresh) atomic-swap the SAME
+    // row — never a sibling insert.
+    const bridge = {
+      coloring_v2_book_id: book_id,
       title: book.title ?? "Coloring Book",
       subtitle: book.subtitle ?? null,
       description: concept.parent_hook ?? null,
@@ -92,7 +97,11 @@ Deno.serve(async (req: Request) => {
       metadata: { coloring_v2_book_id: book_id, source: "coloring_v2" },
     } as any;
 
-    const { data: created, error } = await c.from("ebooks_kids").insert(insert).select("id").single();
+    const { data: created, error } = await c
+      .from("ebooks_kids")
+      .upsert(bridge, { onConflict: "coloring_v2_book_id" })
+      .select("id")
+      .single();
     if (error) throw error;
 
     await advance(book_id, "publish", "publish", {
