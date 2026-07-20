@@ -14,8 +14,8 @@ declare const Deno: any;
 
 const IDEOGRAM_MODEL = "ideogram:4@1";
 const CANVAS = 1024;
-const MAX_ATTEMPTS = 4; // higher because whole-cover OCR is stricter
-const PROMPT_VERSION = "master_cover_prompt@v2";
+const MAX_ATTEMPTS = 4;
+const PROMPT_VERSION = "master_cover_prompt@v2_fullcolor";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
