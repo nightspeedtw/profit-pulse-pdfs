@@ -18,7 +18,9 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 declare const Deno: any;
 
-const MIN_PRICE_CENTS = 500;
+// Owner directive: allow deep discounts landing final price in the $2–$5 range.
+// Absolute floor is $2 (200¢); campaigns may set their own floor above this.
+const MIN_PRICE_CENTS = 200;
 
 interface Campaign {
   id: string;
@@ -126,10 +128,15 @@ async function activateCampaign(db: any, c: Campaign) {
       MIN_PRICE_CENTS,
       Number(pp?.regular_price_cents ?? b.price_cents ?? 999),
     );
-    const campaignPrice = Math.max(
-      Math.max(MIN_PRICE_CENTS, c.min_price_floor_cents),
+    // Owner cap: no campaign price above $5, even after discount.
+    const HARD_CEILING_CENTS = 500;
+    const floor = Math.max(MIN_PRICE_CENTS, c.min_price_floor_cents || MIN_PRICE_CENTS);
+    let campaignPrice = Math.max(
+      floor,
       Math.round(regular * (1 - c.discount_pct / 100)),
     );
+    campaignPrice = Math.min(campaignPrice, HARD_CEILING_CENTS);
+    if (campaignPrice < floor) campaignPrice = floor;
     if (campaignPrice >= regular) continue; // No effective discount — skip.
 
     const validFrom = c.starts_at;
