@@ -18,24 +18,51 @@ import { runwareInference } from "../_shared/runware.ts";
 import { renderImageWithFallback } from "../_shared/coloring-v2/image-fallback.ts";
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
 import { COVER_OVERLAY_CONTRACT } from "../_shared/coloring/premium-cover-overlay.ts";
+import { geminiDirectImageWithMeta } from "../_shared/gemini-direct.ts";
+import { openaiDirectImage } from "../_shared/openai-direct.ts";
 
 declare const Deno: any;
 
 const IDEOGRAM_MODEL = "ideogram:4@1";
+const GEMINI_IMAGE_MODEL = "google/gemini-3-pro-image";
+const OPENAI_IMAGE_MODEL = "gpt-image-1";
 const CANVAS = 1024;
-// OWNER FIX 2026-07-20: reduced from 5 → 3 to stop CF quota bleed on
-// OCR-reject loops (some books were burning 30–97 CF images @ cover stage).
 const BAKE_ATTEMPTS = 3;
 const NEGATIVE_PROMPT_BAKE = "any subtitle, any tagline, any 'COLORING BOOK' chip, any 'PAGE' text, any page number, any banner, any ribbon, any sticker, any sale badge, any popup pill, any watermark, any publisher name, any credits, any author line, any letter-shaped ornament, gibberish text, misspelled text, duplicate letters, extra typography, duplicated title, flat vector, line art, black and white, coloring page, uncolored";
 
-// OWNER LAW `cover_uses_ideogram_only_v7` (2026-07-20):
-//   Cover bake MUST go through Runware/Ideogram-4. Cloudflare Flux Schnell
-//   cannot render legible typography — it produced garbled titles that OCR
-//   rejected on every attempt, torching the free CF pool. Only fall back to
-//   the CF-primary path if Runware is provider_billing_locked, and in that
-//   fallback path we soft-accept the best attempt because typography quality
-//   is expected to be poor.
-async function renderCoverBake(opts: any): Promise<{ bytes: Uint8Array; provider: "runware" | "cloudflare_fallback" }> {
+type CoverProvider = "gemini" | "openai" | "runware" | "cloudflare_fallback";
+
+// OWNER LAW `cover_uses_gemini_openai_primary_v8` (2026-07-21):
+//   Cover bake priority: Gemini image → OpenAI gpt-image → Runware/Ideogram
+//   → Cloudflare (last-resort). LLM-family image models were the original
+//   plan for title typography; Runware/CF stay as safety nets so a book can
+//   still ship when direct providers are down.
+async function renderCoverBake(opts: any): Promise<{ bytes: Uint8Array; provider: CoverProvider }> {
+  // 1. Gemini native image (google_direct)
+  try {
+    const { bytes } = await geminiDirectImageWithMeta({
+      prompt: opts.prompt,
+      referenceUrls: opts.reference_images ?? [],
+      model: GEMINI_IMAGE_MODEL,
+    });
+    if (bytes.length > 0) return { bytes, provider: "gemini" };
+    console.warn("[coloring-v2-cover] gemini returned empty image, trying openai");
+  } catch (e: any) {
+    console.warn(`[coloring-v2-cover] gemini failed: ${String(e?.message ?? e).slice(0, 200)}`);
+  }
+  // 2. OpenAI gpt-image direct
+  try {
+    const { bytes } = await openaiDirectImage({
+      prompt: opts.prompt,
+      model: OPENAI_IMAGE_MODEL,
+      size: "1024x1024",
+      quality: "high",
+    });
+    if (bytes.length > 0) return { bytes, provider: "openai" };
+  } catch (e: any) {
+    console.warn(`[coloring-v2-cover] openai-image failed: ${String(e?.message ?? e).slice(0, 200)}`);
+  }
+  // 3. Runware/Ideogram fallback
   try {
     const bytes = await runwareInference(opts);
     return { bytes, provider: "runware" };
@@ -43,7 +70,7 @@ async function renderCoverBake(opts: any): Promise<{ bytes: Uint8Array; provider
     const msg = String(e?.message ?? e ?? "");
     const billingLocked = /insufficient|balance|credit|billing|payment required|402/i.test(msg);
     if (!billingLocked) throw e;
-    console.warn(`[coloring-v2-cover] runware billing-locked; falling through to CF (typography will be weaker): ${msg.slice(0, 200)}`);
+    console.warn(`[coloring-v2-cover] runware billing-locked; CF last-resort: ${msg.slice(0, 200)}`);
     const bytes = await renderImageWithFallback(opts);
     return { bytes, provider: "cloudflare_fallback" };
   }
@@ -114,7 +141,7 @@ Deno.serve(async (req: Request) => {
     let bestBytes: Uint8Array | null = null;
     let bestExtras = Number.POSITIVE_INFINITY;
     let bestVerdict: any = null;
-    let bestProvider: "runware" | "cloudflare_fallback" | null = null;
+    let bestProvider: CoverProvider | null = null;
     let transcriberFailures = 0;
 
     for (let attempt = 1; attempt <= BAKE_ATTEMPTS; attempt++) {
@@ -175,7 +202,7 @@ Deno.serve(async (req: Request) => {
       overlay: COVER_OVERLAY_CONTRACT,
       text_mode: "bake_only",
       prompt_version: COLORING_MASTER_COVER_PROMPT_VERSION,
-      law: "cover_uses_ideogram_only_v7",
+      law: "cover_uses_gemini_openai_primary_v8",
     });
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
