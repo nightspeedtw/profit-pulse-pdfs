@@ -200,18 +200,10 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-  <defs>
-    <radialGradient id="pillGrad" cx="35%" cy="35%" r="75%">
-      <stop offset="0%" stop-color="#FFF7A8"/>
-      <stop offset="70%" stop-color="#FFD635"/>
-      <stop offset="100%" stop-color="#E9A400"/>
-    </radialGradient>
-  </defs>
   ${topChipEl}
   ${fallbackTitleEl}
   ${bottomBannerEl}
-  <!-- OWNER ORDER 2026-07-20: yellow AGES pill removed — was covering artwork. -->
-
+  <!-- OWNER ORDER 2026-07-20 v3: AGES baked into top chip, no floating pill. -->
   ${ribbonEl}
 </svg>`;
 
