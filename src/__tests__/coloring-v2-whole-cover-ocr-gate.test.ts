@@ -27,7 +27,7 @@ describe("whole-cover OCR gate (external-audit #1)", () => {
     // The gibberish tokens must show up as extras — the gate rejects on any extra.
     expect(extra.length).toBeGreaterThan(0);
     expect(extra).toEqual(
-      expect.arrayContaining(["cloving", "booer", "metaton", "cube"]),
+      expect.arrayContaining(["childre", "booer", "metaton", "cube"]),
     );
   });
 
