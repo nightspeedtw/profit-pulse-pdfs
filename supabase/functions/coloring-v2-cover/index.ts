@@ -141,10 +141,7 @@ Deno.serve(async (req: Request) => {
       const overlayPng = await renderPremiumCoverOverlayPng({
         width: CANVAS, height: CANVAS,
         ageBadge: ageBadgeUpper,
-        ribbonText: "SALE", showRibbon: true,
-        topLabel: "COLORING BOOK",
-        subtitle,
-        blurb,
+        showRibbon: false,
         fallbackTitle: textlessFallback ? title : "",
       });
       composited = await compositeOverlayOntoArt(bytes, overlayPng);
@@ -155,7 +152,7 @@ Deno.serve(async (req: Request) => {
     const asset = await uploadAsset(book_id, "cover_final", composited, "jpg", {
       prompt_len: titlePrompt.length, refs: refs.length,
       ocr_verdict: lastVerdict?.reason ?? null,
-      overlay: "premium_cover_overlay_v3_age_in_chip",
+      overlay: "premium_cover_overlay_v4_no_popups",
       text_mode: textlessFallback ? "textless" : "title_only",
       prompt_version: PROMPT_VERSION,
       law: "cover_text_overlay_only_v2",

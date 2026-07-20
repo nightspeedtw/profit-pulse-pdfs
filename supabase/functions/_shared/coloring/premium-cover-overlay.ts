@@ -95,90 +95,33 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
   const font = await loadFont();
   const W = input.width, H = input.height;
   const ageText = (input.ageBadge || "").toUpperCase().trim() || "AGES 4-6";
-  const ribbonText = (input.ribbonText || "SALE").toUpperCase().trim();
-  const showRibbon = input.showRibbon !== false;
-  const topLabel = (input.topLabel ?? "COLORING BOOK").toUpperCase().trim();
-  const subtitle = (input.subtitle ?? "").trim();
-  const blurb = (input.blurb ?? "").trim();
   const fallbackTitle = (input.fallbackTitle ?? "").trim();
 
-  // OWNER ORDER 2026-07-20 (v3): AGES no longer rendered as a separate
-  // floating pill — it's merged into the top "COLORING BOOK" chip below.
+  // OWNER ORDER 2026-07-20 (v4 — NO POPUPS): every floating overlay element
+  // is gone — no top chip, no bottom banner, no SALE ribbon, no age pill.
+  // The only things the overlay can still draw are:
+  //   1. A tasteful integrated AGES mark (small caps, hairline underline,
+  //      NO background — reads as part of the cover, not a sticker).
+  //   2. The fallback title, ONLY when Ideogram was asked for textless art.
+  // ribbonText / showRibbon / topLabel / subtitle / blurb inputs are still
+  // accepted for API compatibility but intentionally IGNORED.
 
-  // SALE ribbon: top-right diagonal banner.
-  const rW = Math.round(W * 0.34);
-  const rH = Math.round(H * 0.075);
-  const rFontSize = Math.round(rH * 0.55);
-  const rCX = W - Math.round(rW * 0.35);
-  const rCY = Math.round(rH * 0.9);
-
-  const ribbonEl = showRibbon
-    ? `
-      <g transform="translate(${rCX} ${rCY}) rotate(45)">
-        <rect x="${-rW / 2}" y="${-rH / 2}" width="${rW}" height="${rH}"
-              fill="#E11D2E" stroke="#7A0E19" stroke-width="4" />
-        <rect x="${-rW / 2 + 6}" y="${-rH / 2 + 6}" width="${rW - 12}" height="${rH - 12}"
-              fill="none" stroke="#FFFFFF" stroke-width="2" stroke-dasharray="6 5" opacity="0.85" />
-        <text x="0" y="${Math.round(rFontSize * 0.35)}" text-anchor="middle"
-              font-family="Fredoka" font-weight="700"
-              font-size="${rFontSize}" fill="#FFFFFF"
-              letter-spacing="6"
-              stroke="#7A0E19" stroke-width="1.2">${esc(ribbonText)}</text>
-      </g>`
-    : "";
-
-  // Top chip: "COLORING BOOK · AGES X-Y" — age is baked into the design,
-  // no floating pill anywhere else on the cover (owner order 2026-07-20).
-  let topChipEl = "";
-  const chipText = [topLabel, ageText].filter(Boolean).join("  ·  ");
-  if (chipText) {
-    const chipH = Math.round(H * 0.058);
-    const chipFont = Math.round(chipH * 0.48);
-    const chipW = Math.min(
-      W - Math.round(W * 0.08),
-      Math.max(Math.round(W * 0.42), Math.round(chipText.length * chipFont * 0.62)),
-    );
-    const chipX = Math.round((W - chipW) / 2);
-    const chipY = Math.round(H * 0.028);
-    topChipEl = `
+  // Integrated AGES mark: small caps, bottom-center, hairline rule.
+  let ageEl = "";
+  if (ageText) {
+    const ageFont = Math.round(H * 0.026);
+    const ageY = H - Math.round(H * 0.035);
+    const ruleY = ageY + Math.round(ageFont * 0.35);
+    const ruleW = Math.round(ageText.length * ageFont * 0.7);
+    ageEl = `
       <g>
-        <rect x="${chipX}" y="${chipY}" width="${chipW}" height="${chipH}" rx="${chipH / 2}"
-              fill="#0F172A" opacity="0.88" stroke="#FFD635" stroke-width="3"/>
-        <text x="${chipX + chipW / 2}" y="${chipY + chipH * 0.68}" text-anchor="middle"
-              font-family="Fredoka" font-weight="700" font-size="${chipFont}"
-              fill="#FFD635" letter-spacing="2">${esc(chipText)}</text>
-      </g>`;
-  }
-
-  // Bottom banner (subtitle + blurb) — only drawn if there's content.
-  let bottomBannerEl = "";
-  if (subtitle || blurb) {
-    const bandH = Math.round(H * (blurb && subtitle ? 0.16 : 0.11));
-    const bandY = H - bandH - Math.round(H * 0.015);
-    const bandX = Math.round(W * 0.055);
-    const bandW = W - bandX * 2;
-    const subFont = Math.round(H * 0.032);
-    const blurbFont = Math.round(H * 0.022);
-    const subLines = subtitle ? wrapLines(subtitle, 42, 1) : [];
-    const blurbLines = blurb ? wrapLines(blurb, 60, 2) : [];
-    let cursorY = bandY + Math.round(bandH * 0.32);
-    const subEls = subLines.map((ln) => {
-      const el = `<text x="${W / 2}" y="${cursorY}" text-anchor="middle" font-family="Fredoka" font-weight="700" font-size="${subFont}" fill="#FFFFFF" stroke="#0F172A" stroke-width="0.8">${esc(ln)}</text>`;
-      cursorY += Math.round(subFont * 1.1);
-      return el;
-    }).join("");
-    cursorY += Math.round(blurbFont * 0.4);
-    const blurbEls = blurbLines.map((ln) => {
-      const el = `<text x="${W / 2}" y="${cursorY}" text-anchor="middle" font-family="Fredoka" font-weight="700" font-size="${blurbFont}" fill="#FFF7E6">${esc(ln)}</text>`;
-      cursorY += Math.round(blurbFont * 1.15);
-      return el;
-    }).join("");
-    bottomBannerEl = `
-      <g>
-        <rect x="${bandX}" y="${bandY}" width="${bandW}" height="${bandH}" rx="${Math.round(bandH * 0.18)}"
-              fill="#0F172A" opacity="0.78" stroke="#FFD635" stroke-width="2"/>
-        ${subEls}
-        ${blurbEls}
+        <text x="${W / 2}" y="${ageY}" text-anchor="middle"
+              font-family="Fredoka" font-weight="700" font-size="${ageFont}"
+              fill="#FFFFFF" letter-spacing="6"
+              stroke="#0F172A" stroke-width="${Math.max(2, Math.round(ageFont * 0.12))}"
+              paint-order="stroke fill">${esc(ageText)}</text>
+        <line x1="${(W - ruleW) / 2}" y1="${ruleY}" x2="${(W + ruleW) / 2}" y2="${ruleY}"
+              stroke="#FFFFFF" stroke-width="1.5" opacity="0.9"/>
       </g>`;
   }
 
@@ -200,11 +143,9 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-  ${topChipEl}
   ${fallbackTitleEl}
-  ${bottomBannerEl}
-  <!-- OWNER ORDER 2026-07-20 v3: AGES baked into top chip, no floating pill. -->
-  ${ribbonEl}
+  ${ageEl}
+  <!-- OWNER ORDER 2026-07-20 v4: NO POPUPS. No chip, no banner, no ribbon, no pill. -->
 </svg>`;
 
   const resvg = new Resvg(svg, {
