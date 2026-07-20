@@ -52,10 +52,29 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
   const displayTitle = isColoring ? ensureColoringLabel(book.title) : book.title;
 
   // Marketing Autopilot Phase 1: prefer the authoritative product_pricing row.
-  // The synthetic-compare-at path in deriveSalePricing is Phase-0-safe and
-  // will only render a strikethrough when the server sets `compare_at_verified`.
+  // When a campaign is active, we render regular → sale with a % off badge
+  // (จิตวิทยาการตลาด — anchor + discount + urgency). Otherwise, fall back to
+  // the honest-pricing helper (which only shows a strikethrough when verified).
   const effectiveCents = resolvedPrice?.effectiveCents ?? book.price_cents;
-  const pricing = deriveSalePricing(book.id, effectiveCents, book.storefront_meta);
+  const hasLiveCampaign =
+    !!resolvedPrice &&
+    resolvedPrice.regularCents > effectiveCents &&
+    resolvedPrice.campaignCents != null;
+  const campaignPct = hasLiveCampaign
+    ? Math.max(1, Math.round(((resolvedPrice!.regularCents - effectiveCents) / resolvedPrice!.regularCents) * 100))
+    : null;
+  const fallbackPricing = deriveSalePricing(book.id, effectiveCents, book.storefront_meta);
+  const pricing = hasLiveCampaign
+    ? {
+        priceLabel: `$${(effectiveCents / 100).toFixed(2)}`,
+        originalLabel: `$${(resolvedPrice!.regularCents / 100).toFixed(2)}`,
+        discountPct: campaignPct,
+      }
+    : {
+        priceLabel: fallbackPricing.priceLabel,
+        originalLabel: fallbackPricing.originalLabel,
+        discountPct: fallbackPricing.discountPct,
+      };
 
   return (
     <Link
