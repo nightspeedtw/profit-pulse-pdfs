@@ -147,6 +147,31 @@ export default function StoryBatchV2() {
               Plan 50 Concepts
             </Button>
           )}
+          {current && (
+            <Button
+              onClick={async () => {
+                const { data: b } = await supabase
+                  .from("story_batch_v2_books")
+                  .select("id,title")
+                  .eq("batch_id", current.id)
+                  .eq("stage", "concept_generation")
+                  .order("is_pilot", { ascending: false })
+                  .order("slot_index", { ascending: true })
+                  .limit(1)
+                  .maybeSingle();
+                if (!b) {
+                  toast.error("No book at concept_generation stage");
+                  return;
+                }
+                await invoke("story-batch-v2-manuscript", { book_id: b.id }, `Draft manuscript: ${b.title}`);
+              }}
+              disabled={!!busy}
+              variant="secondary"
+            >
+              {busy?.startsWith("Draft manuscript") ? <Loader2 className="size-4 animate-spin" /> : <ListChecks className="size-4" />}
+              Draft Next Manuscript
+            </Button>
+          )}
         </div>
       </div>
 
