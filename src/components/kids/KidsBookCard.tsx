@@ -52,10 +52,29 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
   const displayTitle = isColoring ? ensureColoringLabel(book.title) : book.title;
 
   // Marketing Autopilot Phase 1: prefer the authoritative product_pricing row.
-  // The synthetic-compare-at path in deriveSalePricing is Phase-0-safe and
-  // will only render a strikethrough when the server sets `compare_at_verified`.
+  // When a campaign is active, we render regular → sale with a % off badge
+  // (จิตวิทยาการตลาด — anchor + discount + urgency). Otherwise, fall back to
+  // the honest-pricing helper (which only shows a strikethrough when verified).
   const effectiveCents = resolvedPrice?.effectiveCents ?? book.price_cents;
-  const pricing = deriveSalePricing(book.id, effectiveCents, book.storefront_meta);
+  const hasLiveCampaign =
+    !!resolvedPrice &&
+    resolvedPrice.regularCents > effectiveCents &&
+    resolvedPrice.campaignCents != null;
+  const campaignPct = hasLiveCampaign
+    ? Math.max(1, Math.round(((resolvedPrice!.regularCents - effectiveCents) / resolvedPrice!.regularCents) * 100))
+    : null;
+  const fallbackPricing = deriveSalePricing(book.id, effectiveCents, book.storefront_meta);
+  const pricing = hasLiveCampaign
+    ? {
+        priceLabel: `$${(effectiveCents / 100).toFixed(2)}`,
+        originalLabel: `$${(resolvedPrice!.regularCents / 100).toFixed(2)}`,
+        discountPct: campaignPct,
+      }
+    : {
+        priceLabel: fallbackPricing.priceLabel,
+        originalLabel: fallbackPricing.originalLabel,
+        discountPct: fallbackPricing.discountPct,
+      };
 
   return (
     <Link
@@ -85,8 +104,8 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
           </div>
         )}
         {pricing.discountPct != null && pricing.discountPct >= 20 && (
-          <span className="absolute top-2 left-2 z-10 rounded-sm bg-background/95 backdrop-blur-sm px-1.5 py-0.5 text-[11px] font-semibold text-foreground shadow-sm">
-            Sale
+          <span className="absolute top-2 left-2 z-10 rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-md">
+            Save {pricing.discountPct}%
           </span>
         )}
       </div>
@@ -104,7 +123,7 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
 
 
         <div className="flex items-baseline flex-wrap gap-x-1.5 gap-y-0">
-          <span className="text-[15px] font-bold text-accent tabular-nums">
+          <span className="text-[16px] font-extrabold text-red-600 tabular-nums">
             {pricing.priceLabel}
           </span>
           {pricing.originalLabel && (
@@ -113,13 +132,18 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
                 {pricing.originalLabel}
               </span>
               {pricing.discountPct != null && (
-                <span className="text-xs text-muted-foreground">
-                  ({pricing.discountPct}% off)
+                <span className="text-xs font-semibold text-red-600">
+                  −{pricing.discountPct}%
                 </span>
               )}
             </>
           )}
         </div>
+        {pricing.originalLabel && pricing.discountPct != null && (
+          <p className="text-[11px] font-medium text-green-700">
+            You save ${((Number(pricing.originalLabel.replace("$","")) - Number(pricing.priceLabel.replace("$","")))).toFixed(2)} today
+          </p>
+        )}
 
         <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
           <Download className="h-3 w-3" strokeWidth={2} />
