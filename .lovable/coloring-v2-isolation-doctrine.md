@@ -29,14 +29,21 @@ Every model call is logged in `coloring_v2_provider_calls` with model, seed, pro
 - `sellability_status`: unknown → not_sellable | sellable
 - `publish_status`: draft → ready → published | unpublished (**requires human approval — never auto-publish**)
 
-## Age bands (V2 only)
+## Age bands (V2 only — master prompt v2)
+
+Order in UI: **All | 2-4 | 4-6 | 6-8 | 8-12 | 13-17 | All Ages**.
+`All` is a **list filter only** and must never be submitted as a generation
+age. Random age draws from the six real bands (never `All`). Legacy V2
+slugs `7-9` and `13+` are rejected by `coloring-v2-start`.
 
 | Slug | Label | Regions | Line weight | Focal count |
 | --- | --- | --- | --- | --- |
+| 2-4 | First Coloring | 8–18 | extra-thick | 1 |
 | 4-6 | Big & Easy | 15–30 | thick | 1 |
-| 7-9 | Growing Detail | 30–60 | medium | 3 |
+| 6-8 | Growing Detail | 30–65 | medium | 3 |
 | 8-12 | Detailed Adventure | 50–100 | medium-thin | 4 |
-| 13+ | Advanced Coloring | 80–160 | thin | 5 |
+| 13-17 | Advanced Coloring | 80–160 | thin | 5 |
+| all-ages | Universal Family Coloring (primary style 6-8, flair from 8-12) | 35–75 | medium | 2 |
 
 ## Reference PDF
 
