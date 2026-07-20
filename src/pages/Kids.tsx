@@ -32,9 +32,11 @@ export default function Kids() {
   const [allBooks, setAllBooks] = useState<RawBook[]>([]);
   const [loading, setLoading] = useState(true);
   const [previewBook, setPreviewBook] = useState<KidsBookCardData & { interior_preview_urls?: string[] } | null>(null);
+  const [query, setQuery] = useState("");
 
   const [params, setParams] = useSearchParams();
   const catalogRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const type = (params.get("type") as KidsTypeSlug | null) || null;
   const subcategory = params.get("subcategory") || null;
