@@ -61,7 +61,7 @@ export default function RoyaltyConfig() {
   useEffect(() => { load(); }, []);
 
   async function toggleLive(next: boolean) {
-    const { error } = await supabase.from("platform_settings").update({ royalty_live: next } as any).neq("id", "00000000-0000-0000-0000-000000000000");
+    const { error } = await supabase.from("platform_settings").update({ royalty_live: next } as any).eq("key", "royalty_fee_pct");
     if (error) return toast.error(error.message);
     setLive(next);
     toast.success(next ? "Royalty engine LIVE" : "Royalty engine paused");
