@@ -349,65 +349,54 @@ Deno.serve(async (req: Request) => {
 
     const isMiniTest = totalPages <= 4;
 
+    // ── Matter-pages design v2 (owner order 2026-07-20) ──────────────
+    // Reuse up to 2 interior page bytes as grayscale corner vignettes.
+    // Zero extra AI cost; the assembler has already fetched interior bytes
+    // above for sharpness sweeps, but we defer embedding until now to keep
+    // memory bounded — we only embed up to 2 vignette assets.
+    const matterStyle = resolveMatterStyle(Number(ageMin) || 4, Number(ageMax) || 6);
+    const vignetteAssets: any[] = [];
+    try {
+      const vignetteSources = pages.slice(0, Math.min(2, pages.length));
+      for (const src of vignetteSources) {
+        const bytes = await fetchBytes((src as any).signed_url);
+        const img = await embedAny(doc, bytes).catch(() => null);
+        if (img) vignetteAssets.push(img);
+      }
+    } catch (_e) { /* best-effort — vignettes are optional decoration */ }
+
     if (!isMiniTest) {
-      // ── 2. Title page ─────────────────────────────────────────────────
+      // ── 2. Title page (v2 design) ────────────────────────────────────
       {
         const p = doc.addPage([PAGE_W, PAGE_H]);
-        p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.996, 0.973, 0.910) });
-        centerFit(p, row.title, PAGE_H - 180, 32, helvBold, undefined, 14);
-        centerFit(p, subtitle, PAGE_H - 220, 14, helv, rgb(0.35, 0.25, 0.15), 9);
-        centerFit(p, "A SecretPDF Kids coloring book", 220, 12, helv, rgb(0.4, 0.3, 0.2), 8);
+        drawColoringTitlePage(
+          { page: p, pageW: PAGE_W, pageH: PAGE_H, style: matterStyle, font: helv, fontBold: helvBold, vignettes: vignetteAssets },
+          { title: row.title, subtitle, brand: "A SecretPDF Kids coloring book" },
+        );
         drawColoringFooter(p, logoImg, helv);
       }
 
-      // ── 3. Copyright page ─────────────────────────────────────────────
+      // ── 3. Copyright page (v2 design) ────────────────────────────────
       {
         const p = doc.addPage([PAGE_W, PAGE_H]);
-        const paragraph = [
-          `© ${new Date().getFullYear()} secretpdf.co. All rights reserved.`,
-          "",
-          "This coloring book is licensed for personal, non-commercial use.",
-          "Individual coloring pages may be copied for personal or classroom use.",
-          "Not for resale, redistribution, or commercial reproduction.",
-          "",
-          "Visit secretpdf.co for more coloring books and kids' printables.",
-        ].join("\n");
-        drawFitParagraph(p, {
-          text: paragraph,
-          x: SAFE_MARGIN + 40, y: PAGE_H - 120,
-          maxWidth: PAGE_W - 2 * SAFE_MARGIN - 80,
-          maxHeight: PAGE_H - 220,
-          font: helv, size: 11, minSize: 7,
-          color: rgb(0.2, 0.15, 0.1),
-          lineHeightFactor: 1.5,
-        });
+        drawColoringCopyrightPage(
+          { page: p, pageW: PAGE_W, pageH: PAGE_H, style: matterStyle, font: helv, fontBold: helvBold, vignettes: vignetteAssets },
+          { legalText: defaultCopyrightText() },
+        );
         drawColoringFooter(p, logoImg, helv);
       }
 
-      // ── 4. How to color tips ──────────────────────────────────────────
+      // ── 4. How-to page (v2 design) ───────────────────────────────────
       {
         const p = doc.addPage([PAGE_W, PAGE_H]);
-        centerFit(p, "How to Use This Book", PAGE_H - 140, 22, helvBold, undefined, 12);
-        const tips = [
-          `1. Pick your favorite coloring tools — crayons, markers, or colored pencils.`,
-          `2. Start with the outlines, then fill each shape with color.`,
-          `3. There's no right way — try wild colors!`,
-          `4. Take a break between pages. Rest your hand.`,
-          `5. When you finish a page, show a grown-up your masterpiece.`,
-          `6. Complete all ${totalPages} pages to earn your certificate at the end.`,
-        ].join("\n");
-        drawFitParagraph(p, {
-          text: tips,
-          x: SAFE_MARGIN + 20, y: PAGE_H - 200,
-          maxWidth: PAGE_W - 2 * SAFE_MARGIN - 40,
-          maxHeight: PAGE_H - 300,
-          font: helv, size: 13, minSize: 8,
-          color: rgb(0.2, 0.15, 0.1),
-          lineHeightFactor: 1.6,
-        });
+        drawColoringHowToPage(
+          { page: p, pageW: PAGE_W, pageH: PAGE_H, style: matterStyle, font: helv, fontBold: helvBold, vignettes: vignetteAssets },
+          { totalPages },
+        );
         drawColoringFooter(p, logoImg, helv);
       }
     }
+
 
 
 
