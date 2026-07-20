@@ -69,15 +69,15 @@ export function tokenize(s: string): string[] {
 // via the SecretPDF Kids logo footer if the model bakes it in.
 const CHROME_TOKENS = new Set(["secretpdf", "kids", "the", "a", "an"]);
 
-// OWNER LAW `no_popups_v5` (2026-07-21):
-//   These tokens are the exact words that the retired chip/ribbon/banner
-//   overlays used to draw. If Ideogram bakes any of them into a cover, that
-//   cover is REJECTED even in modes that would otherwise accept the token
-//   (e.g. when the title itself contains a permitted subword). This prevents
-//   the popup words from ever coming back through the AI layer.
+// OWNER LAW `cover_bake_only_v6` (2026-07-21):
+//   These tokens are chip/ribbon/banner words that must NEVER appear baked
+//   into the illustration. Ideogram is allowed to bake ONLY the exact title
+//   plus the small "Ages X-Y" mark — nothing else. Note: "ages"/"age" are
+//   no longer banned because the age mark is now required baked art; a
+//   duplicate age mark is caught separately via `countAgeBadges`.
 const HARD_BANNED_COVER_TOKENS = new Set([
   "sale", "new", "free", "best", "bonus", "hot", "top", "premium", "off",
-  "coloring", "book", "books", "ages", "age", "kid", "kids",
+  "coloring", "book", "books",
   "page", "pages", "chapter", "vol", "volume",
   "look", "inside", "preview", "sample",
   "publisher", "publishing", "presents", "author", "by",
@@ -277,19 +277,18 @@ export async function verifyExactCoverText(
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const textlessMode = opts.textlessMode === true;
 
-  // OWNER LAW `cover_text_overlay_only_v2` (2026-07-20):
-  //   The ONLY baked text permitted on a coloring cover is the exact TITLE.
-  //   Every other detected glyph (subtitle, blurb sentence, age badge, "Coloring
-  //   Book" label, publisher, SALE ribbon, page count) is drawn by the
-  //   deterministic overlay and MUST NOT appear baked. Any extra token = reject.
-  //   In textless-fallback mode (used after 3 title-only rejects), ZERO baked
-  //   glyphs are permitted — the overlay draws the title too.
-  const requiredTokens = textlessMode
-    ? []
-    : Array.from(new Set(tokenize(expectations.title)));
-  const optionalTokens: string[] = []; // subtitle/badge are overlay-only, never optional-baked
+  // OWNER LAW `cover_bake_only_v6` (2026-07-21):
+  //   Ideogram bakes the exact TITLE and a small "Ages X-Y" mark. Every
+  //   other detected glyph (subtitle, blurb, chip, ribbon, publisher, page
+  //   count) is FORBIDDEN — nothing else may be composited on top either.
+  //   Duplicate age marks (>1) still fail.
+  const titleTokens = Array.from(new Set(tokenize(expectations.title)));
+  const ageTokens = Array.from(new Set(tokenize(expectations.ageBadge)));
+  const requiredTokens = textlessMode ? [] : titleTokens;
+  const optionalTokens = textlessMode ? [] : ageTokens.filter((t) => !titleTokens.includes(t));
   const requiredSet = new Set(requiredTokens);
-  const dedupApproved = [...requiredTokens];
+  const optionalSet = new Set(optionalTokens);
+  const dedupApproved = [...requiredTokens, ...optionalTokens];
 
   const attempted_at = new Date().toISOString();
 
@@ -299,7 +298,7 @@ export async function verifyExactCoverText(
       pass: false, degraded: true, reason: "transcriber_unavailable",
       transcribed_raw: "", transcribed_tokens: [], approved_tokens: dedupApproved,
       required_tokens: requiredTokens, optional_tokens: optionalTokens,
-      missing: dedupApproved, missing_required: requiredTokens, missing_optional: [],
+      missing: dedupApproved, missing_required: requiredTokens, missing_optional: optionalTokens,
       extra: [], misspelled: [], age_badge_count: 0, duplicate_age_badge: false, attempted_at,
     };
   }
@@ -307,26 +306,21 @@ export async function verifyExactCoverText(
   const detectedTokens = Array.from(new Set(tokenize(raw)));
   const { missing, extra, misspelled } = diffTokens(dedupApproved, detectedTokens);
   const missing_required = missing.filter((t) => requiredSet.has(t));
-  const missing_optional: string[] = [];
+  const missing_optional = missing.filter((t) => optionalSet.has(t));
   const misspelled_required = misspelled.filter((m) => requiredSet.has(m.split("→")[0]));
   const age_badge_count = countAgeBadges(raw);
   const duplicate_age_badge = age_badge_count > 1;
-  // OWNER LAW `no_popups_v5`: hard-banned chip/ribbon/banner tokens fail the
-  // gate regardless of mode, even if they appear as a substring of an
-  // approved title token.
-  const hard_banned_hits = detectedTokens.filter((t) => HARD_BANNED_COVER_TOKENS.has(t) && !requiredSet.has(t));
-  // Textless mode: any glyph fails. Title-only mode: any extra token beyond
-  // title (excluding chrome ignore-list) fails. Missing title also fails.
+  const hard_banned_hits = detectedTokens.filter((t) => HARD_BANNED_COVER_TOKENS.has(t) && !requiredSet.has(t) && !optionalSet.has(t));
   const pass = hard_banned_hits.length === 0 && (textlessMode
     ? (detectedTokens.length === 0 || detectedTokens.every((t) => CHROME_TOKENS.has(t)))
-    : (missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0 && age_badge_count === 0));
+    : (missing_required.length === 0 && extra.length === 0 && misspelled_required.length === 0 && !duplicate_age_badge));
   const reason = pass
     ? "exact_match"
     : hard_banned_hits.length > 0
       ? `hard_banned_tokens:${hard_banned_hits.join(",")}`
       : textlessMode
         ? `textless_violation:detected=${detectedTokens.length}`
-        : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length},age_badge=${age_badge_count}`;
+        : `mismatch:missing_required=${missing_required.length},extra=${extra.length},misspelled_required=${misspelled_required.length},duplicate_age=${duplicate_age_badge}`;
   return {
     pass, degraded: false, reason,
     transcribed_raw: raw, transcribed_tokens: detectedTokens, approved_tokens: dedupApproved,
