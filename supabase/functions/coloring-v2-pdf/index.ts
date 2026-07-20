@@ -1,5 +1,15 @@
-// coloring-v2-pdf — assembles 8.5x8.5in square PDF: cover + matter + interiors + certificate.
-// Matter pages design v2 (owner order 2026-07-20 — matter_pages_design_v2).
+// coloring-v2-pdf — V2 COLORING BOOK ASSEMBLER (contract-enforced, book_type=coloring_book V2 only).
+//
+// CANONICAL 6-SECTION CONTRACT (owner order 2026-07-20, skill: matter_pages_design_v2_v2_assembler):
+//   1. Full-bleed cover (premium painted cover)
+//   2. TITLE PAGE — display title + "This book belongs to: ______" nameplate + palette frame + reused grayscale vignettes
+//   3. COPYRIGHT / LICENSE PAGE — deterministic legal text + light decorative element
+//   4. HOW-TO-USE PAGE — friendly numbered tips + line-art icons + palette border + "Try your colors here!" test box
+//   5. N interior coloring pages (branding footer applied elsewhere)
+//   6. CERTIFICATE OF COLORING (palette-frame treatment)
+//
+// All matter pages + certificate use matter_pages_design_v2 (deterministic SVG + reused vignettes, ZERO extra AI cost).
+// Matter pages are EXEMPT from interior QC gates. Templated per age band.
 // @ts-nocheck
 import { PDFDocument, StandardFonts } from "npm:pdf-lib@1.17.1";
 import { advance, corsHeaders, db, fetchBook, fireStage, json, recordError, uploadAsset } from "../_shared/coloring-v2/state.ts";
