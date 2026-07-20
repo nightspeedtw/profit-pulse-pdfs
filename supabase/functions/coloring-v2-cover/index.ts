@@ -16,7 +16,7 @@ import { buildMasterColoringCoverPrompt } from "../_shared/coloring/master-cover
 import { getAgeProfile } from "../_shared/coloring-v2/age-matrix.ts";
 import { runwareInference } from "../_shared/runware.ts";
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
-import { compositeOverlayOntoArt, renderPremiumCoverOverlayPng } from "../_shared/coloring/premium-cover-overlay.ts";
+import { compositeOverlayOntoArt, COVER_OVERLAY_CONTRACT, renderPremiumCoverOverlayPng } from "../_shared/coloring/premium-cover-overlay.ts";
 
 declare const Deno: any;
 
