@@ -65,15 +65,36 @@ export async function fireStage(next: string, body: Record<string, unknown>) {
   } catch { /* best-effort */ }
 }
 
-export async function callAiJson(prompt: string, system: string, model = "google/gemini-2.5-pro"): Promise<any> {
+export async function callAiJson(prompt: string, system: string, model = "google/gemini-2.5-flash"): Promise<any> {
+  // Owner directive (2026-07-20): BYPASS_LOVABLE_GATEWAY forces every LLM
+  // call in the coloring-v2 lane through google_direct so the gateway 403
+  // (workspace credit limit) can never stall page_plan / concept / style_bible.
+  const bypass = (Deno.env.get("BYPASS_LOVABLE_GATEWAY") ?? "").match(/^(1|true|yes)$/i);
+  const geminiKey = Deno.env.get("GEMINI_API_KEY");
+
+  const parseOrThrow = (content: string) => {
+    if (!content) throw new Error(`ai_response empty content`);
+    try { return JSON.parse(content); } catch {
+      const m = content.match(/\{[\s\S]*\}/);
+      if (m) return JSON.parse(m[0]);
+      throw new Error(`ai_response non-json: ${content.slice(0, 300)}`);
+    }
+  };
+
+  if (bypass || geminiKey) {
+    if (!geminiKey) throw new Error("GEMINI_API_KEY missing (BYPASS_LOVABLE_GATEWAY=1 requires direct provider)");
+    const { geminiDirectChat } = await import("../gemini-direct.ts");
+    // Normalize gateway-style ids; force flash tier for cost.
+    const directModel = model.replace(/^google\//, "").replace("gemini-2.5-pro", "gemini-2.5-flash");
+    const out = await geminiDirectChat({ system, user: prompt, model: directModel, responseJson: true });
+    return parseOrThrow(out.text);
+  }
+
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) throw new Error("LOVABLE_API_KEY missing");
   const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
-    },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
       model,
       messages: [
@@ -86,16 +107,7 @@ export async function callAiJson(prompt: string, system: string, model = "google
   const txt = await res.text();
   if (!res.ok) throw new Error(`ai_gateway ${res.status}: ${txt.slice(0, 400)}`);
   const j = JSON.parse(txt);
-  const content = j?.choices?.[0]?.message?.content;
-  if (!content) throw new Error(`ai_gateway: empty content ${txt.slice(0, 200)}`);
-  try {
-    return JSON.parse(content);
-  } catch (e) {
-    // Try to extract JSON from a code fence
-    const m = content.match(/\{[\s\S]*\}/);
-    if (m) return JSON.parse(m[0]);
-    throw new Error(`ai_gateway: non-json response: ${content.slice(0, 300)}`);
-  }
+  return parseOrThrow(j?.choices?.[0]?.message?.content ?? "");
 }
 
 export function corsHeaders() {
