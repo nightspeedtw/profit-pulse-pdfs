@@ -25,10 +25,9 @@ Deno.serve(async (req: Request) => {
     if (!FEATURES.ENABLE_COLORING_LANE_V2) return json({ ok: true, disabled: true });
 
     // Frozen kill-switch
-    const { data: frozenRow } = await db().from("platform_settings").select("value").eq("key", "autopilot_frozen").maybeSingle();
-    if (frozenRow?.value === true || frozenRow?.value === "true") {
-      return json({ ok: true, frozen: true });
-    }
+    const { data: frozenRow } = await db().from("platform_settings").select("value_json").eq("key", "autopilot_frozen").maybeSingle();
+    const frozen = frozenRow?.value_json === true || frozenRow?.value_json === "true";
+    if (frozen) return json({ ok: true, frozen: true });
 
     // Pick books not in terminal stages that haven't advanced in >2 minutes
     const cutoff = new Date(Date.now() - 2 * 60_000).toISOString();
