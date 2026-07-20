@@ -1,7 +1,7 @@
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { fetchAdminData } from "@/lib/adminData";
 import { Button } from "@/components/ui/button";
-import { Gauge, Factory, Package, Settings as SettingsIcon, LogOut, Sparkles, Zap, Store, Activity, Radio, Baby, Grid3x3, HardDrive, BookOpen } from "lucide-react";
+import { Gauge, Factory, Package, Settings as SettingsIcon, LogOut, Sparkles, Zap, Store, Activity, Radio, Baby, Grid3x3, HardDrive, BookOpen, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { FocusBadge } from "@/components/admin/FocusBadge";
 
@@ -19,6 +19,8 @@ const nav = [
   { to: "/admin/products", label: "Products", icon: Package },
   { to: "/admin/drive-importer", label: "Drive Importer", icon: HardDrive },
   { to: "/admin/story-batch-v2", label: "Story Batch V2", icon: BookOpen },
+  { to: "/admin/marketing-autopilot", label: "Marketing Autopilot", icon: Sparkles },
+  { to: "/admin/seo-autopilot", label: "SEO Autopilot", icon: Search },
   { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ];
 

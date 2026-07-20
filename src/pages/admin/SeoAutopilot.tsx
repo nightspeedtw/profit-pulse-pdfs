@@ -107,7 +107,7 @@ export default function SeoAutopilot() {
           </label>
           {(["max_draft_pages_per_day","max_blog_posts_per_day","max_public_pages_per_day","max_programmatic_pages_per_day"] as const).map((k) => (
             <label key={k} className="flex items-center gap-3">
-              <span className="text-xs uppercase text-muted-foreground w-64">{k.replaceAll("_"," ")}</span>
+              <span className="text-xs uppercase text-muted-foreground w-64">{k.replace(/_/g, " ")}</span>
               <input type="number" min={0} max={100} className="border rounded p-2 w-24 bg-background" value={(settings as any)[k]} onChange={(e) => saveSetting({ [k]: Number(e.target.value) } as any)} />
             </label>
           ))}

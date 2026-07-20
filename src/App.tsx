@@ -69,6 +69,7 @@ import AccountSecurity from "./pages/account/Security.tsx";
 import AccountPrivacy from "./pages/account/Privacy.tsx";
 import AccountRoyalties from "./pages/account/Royalties.tsx";
 import RoyaltyConfig from "./pages/admin/RoyaltyConfig.tsx";
+import SeoAutopilot from "./pages/admin/SeoAutopilot.tsx";
 
 
 const queryClient = new QueryClient();
@@ -149,6 +150,7 @@ const App = () => (
             <Route path="royalty-settings" element={<RoyaltySettings />} />
             <Route path="royalty-config" element={<RoyaltyConfig />} />
             <Route path="marketing-autopilot" element={<MarketingAutopilot />} />
+            <Route path="seo-autopilot" element={<SeoAutopilot />} />
             <Route path="drive-importer" element={<DriveImporter />} />
             {FEATURES.ENABLE_STORY_BATCH_50_V2 && (
               <Route path="story-batch-v2" element={<StoryBatchV2 />} />
