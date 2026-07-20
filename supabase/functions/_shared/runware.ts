@@ -70,6 +70,12 @@ export interface RunwareOpts {
   negative_prompt?: string;
   seed?: number;
   reference_images?: string[];
+  // ── V2 double-write (external-audit gap #2) ─────────────────────────
+  // When set, we also insert into coloring_v2_provider_calls with
+  // input/output hashes, seed and prompt_version populated.
+  v2_book_id?: string;
+  purpose?: string;         // e.g. "interior_p07", "cover_a1"
+  prompt_version?: string;  // e.g. "master_cover_prompt@v2"
 }
 
 /** Run one imageInference task and return raw bytes. */
