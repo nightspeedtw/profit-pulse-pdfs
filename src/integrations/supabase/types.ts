@@ -4103,6 +4103,138 @@ export type Database = {
           },
         ]
       }
+      marketing_settings: {
+        Row: {
+          bundle_builder: boolean
+          bundle_per_book_floor_cents: number
+          campaign_budget_cap_cents: number | null
+          campaign_cooldown_hours: number
+          created_at: string
+          daily_ad_budget_cap_cents: number | null
+          dynamic_regular_pricing: boolean
+          email_automation: boolean
+          emergency_stop: boolean
+          emergency_stop_reason: string | null
+          experiment_engine: boolean
+          flash_sale_199_cooldown_hours: number
+          flash_sale_199_max_duration_h: number
+          flash_sales: boolean
+          full_price_days_pct_90d: number
+          id: string
+          last_evaluator_run_at: string | null
+          last_planner_run_at: string | null
+          marketing_autopilot_enabled: boolean
+          max_discount_pct: number
+          max_regular_move_pct: number
+          min_confidence_pct: number
+          min_experiment_days: number
+          min_meaningful_lift_pct: number
+          min_purchases_for_price_conc: number
+          min_qualified_sessions: number
+          min_regular_price_cents: number
+          mode: string
+          onsite_merchandising: boolean
+          paid_ads_autopilot: boolean
+          primary_market: string
+          regular_price_cooldown_hours: number
+          rule_version: number
+          seasonal_campaigns: boolean
+          single_sale_floor_cents: number
+          singleton: boolean
+          target_profit_roas_bp: number | null
+          target_revenue_roas_bp: number | null
+          timezone: string
+          trend_discovery: boolean
+          updated_at: string
+        }
+        Insert: {
+          bundle_builder?: boolean
+          bundle_per_book_floor_cents?: number
+          campaign_budget_cap_cents?: number | null
+          campaign_cooldown_hours?: number
+          created_at?: string
+          daily_ad_budget_cap_cents?: number | null
+          dynamic_regular_pricing?: boolean
+          email_automation?: boolean
+          emergency_stop?: boolean
+          emergency_stop_reason?: string | null
+          experiment_engine?: boolean
+          flash_sale_199_cooldown_hours?: number
+          flash_sale_199_max_duration_h?: number
+          flash_sales?: boolean
+          full_price_days_pct_90d?: number
+          id?: string
+          last_evaluator_run_at?: string | null
+          last_planner_run_at?: string | null
+          marketing_autopilot_enabled?: boolean
+          max_discount_pct?: number
+          max_regular_move_pct?: number
+          min_confidence_pct?: number
+          min_experiment_days?: number
+          min_meaningful_lift_pct?: number
+          min_purchases_for_price_conc?: number
+          min_qualified_sessions?: number
+          min_regular_price_cents?: number
+          mode?: string
+          onsite_merchandising?: boolean
+          paid_ads_autopilot?: boolean
+          primary_market?: string
+          regular_price_cooldown_hours?: number
+          rule_version?: number
+          seasonal_campaigns?: boolean
+          single_sale_floor_cents?: number
+          singleton?: boolean
+          target_profit_roas_bp?: number | null
+          target_revenue_roas_bp?: number | null
+          timezone?: string
+          trend_discovery?: boolean
+          updated_at?: string
+        }
+        Update: {
+          bundle_builder?: boolean
+          bundle_per_book_floor_cents?: number
+          campaign_budget_cap_cents?: number | null
+          campaign_cooldown_hours?: number
+          created_at?: string
+          daily_ad_budget_cap_cents?: number | null
+          dynamic_regular_pricing?: boolean
+          email_automation?: boolean
+          emergency_stop?: boolean
+          emergency_stop_reason?: string | null
+          experiment_engine?: boolean
+          flash_sale_199_cooldown_hours?: number
+          flash_sale_199_max_duration_h?: number
+          flash_sales?: boolean
+          full_price_days_pct_90d?: number
+          id?: string
+          last_evaluator_run_at?: string | null
+          last_planner_run_at?: string | null
+          marketing_autopilot_enabled?: boolean
+          max_discount_pct?: number
+          max_regular_move_pct?: number
+          min_confidence_pct?: number
+          min_experiment_days?: number
+          min_meaningful_lift_pct?: number
+          min_purchases_for_price_conc?: number
+          min_qualified_sessions?: number
+          min_regular_price_cents?: number
+          mode?: string
+          onsite_merchandising?: boolean
+          paid_ads_autopilot?: boolean
+          primary_market?: string
+          regular_price_cooldown_hours?: number
+          rule_version?: number
+          seasonal_campaigns?: boolean
+          single_sale_floor_cents?: number
+          singleton?: boolean
+          target_profit_roas_bp?: number | null
+          target_revenue_roas_bp?: number | null
+          timezone?: string
+          trend_discovery?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       order_items: {
         Row: {
           cover_snapshot: string | null
@@ -4394,6 +4526,141 @@ export type Database = {
           scene_bucket?: string
           status?: string
           subject?: string
+        }
+        Relationships: []
+      }
+      price_history: {
+        Row: {
+          ai_decision_id: string | null
+          campaign_id: string | null
+          created_at: string
+          currency: string
+          effective_from: string
+          effective_to: string | null
+          experiment_id: string | null
+          id: string
+          market: string
+          metric_snapshot: Json
+          new_price_cents: number
+          previous_price_cents: number | null
+          price_type: string
+          product_id: string
+          product_kind: string
+          reason: string | null
+          rollback_ref: string | null
+          rule_version: number
+        }
+        Insert: {
+          ai_decision_id?: string | null
+          campaign_id?: string | null
+          created_at?: string
+          currency?: string
+          effective_from?: string
+          effective_to?: string | null
+          experiment_id?: string | null
+          id?: string
+          market?: string
+          metric_snapshot?: Json
+          new_price_cents: number
+          previous_price_cents?: number | null
+          price_type: string
+          product_id: string
+          product_kind: string
+          reason?: string | null
+          rollback_ref?: string | null
+          rule_version?: number
+        }
+        Update: {
+          ai_decision_id?: string | null
+          campaign_id?: string | null
+          created_at?: string
+          currency?: string
+          effective_from?: string
+          effective_to?: string | null
+          experiment_id?: string | null
+          id?: string
+          market?: string
+          metric_snapshot?: Json
+          new_price_cents?: number
+          previous_price_cents?: number | null
+          price_type?: string
+          product_id?: string
+          product_kind?: string
+          reason?: string | null
+          rollback_ref?: string | null
+          rule_version?: number
+        }
+        Relationships: []
+      }
+      product_pricing: {
+        Row: {
+          active_campaign_id: string | null
+          campaign_price_cents: number | null
+          campaign_valid_from: string | null
+          campaign_valid_to: string | null
+          confidence: number | null
+          created_at: string
+          currency: string
+          effective_price_cents: number
+          id: string
+          last_evaluator_run_at: string | null
+          last_regular_change_at: string | null
+          locked_until: string | null
+          market: string
+          product_id: string
+          product_kind: string
+          regular_locked_until: string | null
+          regular_price_cents: number
+          rule_version: number
+          updated_at: string
+          value_score: number | null
+          value_tier: string | null
+        }
+        Insert: {
+          active_campaign_id?: string | null
+          campaign_price_cents?: number | null
+          campaign_valid_from?: string | null
+          campaign_valid_to?: string | null
+          confidence?: number | null
+          created_at?: string
+          currency?: string
+          effective_price_cents: number
+          id?: string
+          last_evaluator_run_at?: string | null
+          last_regular_change_at?: string | null
+          locked_until?: string | null
+          market?: string
+          product_id: string
+          product_kind?: string
+          regular_locked_until?: string | null
+          regular_price_cents: number
+          rule_version?: number
+          updated_at?: string
+          value_score?: number | null
+          value_tier?: string | null
+        }
+        Update: {
+          active_campaign_id?: string | null
+          campaign_price_cents?: number | null
+          campaign_valid_from?: string | null
+          campaign_valid_to?: string | null
+          confidence?: number | null
+          created_at?: string
+          currency?: string
+          effective_price_cents?: number
+          id?: string
+          last_evaluator_run_at?: string | null
+          last_regular_change_at?: string | null
+          locked_until?: string | null
+          market?: string
+          product_id?: string
+          product_kind?: string
+          regular_locked_until?: string | null
+          regular_price_cents?: number
+          rule_version?: number
+          updated_at?: string
+          value_score?: number | null
+          value_tier?: string | null
         }
         Relationships: []
       }
@@ -5674,6 +5941,17 @@ export type Database = {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
+        }
+        Returns: boolean
+      }
+      is_compare_at_price_legitimate: {
+        Args: {
+          p_campaign_start_at: string
+          p_compare_at_cents: number
+          p_market: string
+          p_min_days?: number
+          p_product_id: string
+          p_product_kind: string
         }
         Returns: boolean
       }
