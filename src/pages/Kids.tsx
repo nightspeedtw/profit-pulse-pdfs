@@ -159,13 +159,12 @@ export default function Kids() {
       </div>
 
       <KidsHeroCompact onCtaClick={scrollToCatalog} />
-      <KidsCategoryStrip books={kidsEligible} activeType={type} onSelect={onCategorySelect} />
 
-      <div ref={catalogRef} className="max-w-6xl mx-auto px-4 pt-4 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+      <div ref={catalogRef} className="mx-auto max-w-[1600px] px-4 pt-4 text-xs font-mono uppercase tracking-widest text-muted-foreground">
         {filtered.length} {filtered.length === 1 ? "book" : "books"}
       </div>
 
-      <section aria-label="Kids book catalog" className="mx-auto max-w-6xl px-4 py-6 md:py-10">
+      <section aria-label="Kids book catalog" className="mx-auto max-w-[1600px] px-4 py-6 md:py-10">
         {loading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-8 w-8 animate-spin text-accent" />
