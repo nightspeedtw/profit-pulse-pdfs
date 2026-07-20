@@ -1,0 +1,1 @@
+UPDATE public.coloring_v2_books SET stage='failed', generation_status='failed', last_error='duplicate_dedupe_leader_kept' WHERE id IN ('86572e6b-d9fa-4097-9e65-e11446cb0cc3','cc6ccb93-f0b4-44bc-8d4e-0688e83f910e','78cca23c-5e34-4ccd-ab42-827e25114e38','300186e5-0dbb-4e1d-815a-4d636725e3b2') AND stage NOT IN ('publish','failed');
