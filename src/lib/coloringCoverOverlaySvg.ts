@@ -1,4 +1,4 @@
-// Premium cover overlay — deterministic typography layer.
+// Premium cover overlay SVG builder — pure TypeScript, no Deno runtime deps.
 //
 // OWNER LAW `no_popups_v5` (2026-07-21):
 //   ZERO text is ever composited on top of a coloring-book cover in the
@@ -14,16 +14,14 @@
 // SCOPE: coloring books only (book_type='coloring_book'). Picture-book /
 // adult-PDF lanes MUST NOT import this module.
 //
-// NOTE: The pure SVG builder in this file is mirrored in
-// src/lib/coloringCoverOverlaySvg.ts for frontend tests. Keep them in sync.
-
-// @ts-nocheck  Deno edge runtime
+// NOTE: This file is mirrored in supabase/functions/_shared/coloring/premium-cover-overlay.ts
+// for edge-function deployment. Keep the two files in sync.
 
 /** Frozen contract. Any cover asset whose meta.overlay !== this value is
  *  considered LEGACY and eligible for the autopilot legacy-cover sweep. */
 export const COVER_OVERLAY_CONTRACT = "premium_cover_overlay_v5_no_text_ever" as const;
 
-export function overlayIsCurrent(meta: Record<string, any> | null | undefined): boolean {
+export function overlayIsCurrent(meta: Record<string, unknown> | null | undefined): boolean {
   return !!meta && meta.overlay === COVER_OVERLAY_CONTRACT;
 }
 
@@ -42,32 +40,6 @@ export interface PremiumOverlayInput {
   /** OWNER LAW v2: when the art is textless (Ideogram bake failed 3x), the
    *  overlay draws the title too. Empty = art already has baked title. */
   fallbackTitle?: string;
-}
-
-import { initWasm, Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
-
-let wasmReady: Promise<void> | null = null;
-async function ensureWasm() {
-  if (!wasmReady) {
-    wasmReady = (async () => {
-      const res = await fetch("https://unpkg.com/@resvg/resvg-wasm@2.6.2/index_bg.wasm");
-      const buf = await res.arrayBuffer();
-      await initWasm(buf);
-    })();
-  }
-  await wasmReady;
-}
-
-const FONT_URL = "https://cdn.jsdelivr.net/npm/@fontsource/fredoka@5.0.15/files/fredoka-latin-700-normal.woff2";
-let fontCache: Uint8Array | null = null;
-async function loadFont(): Promise<Uint8Array | null> {
-  if (fontCache) return fontCache;
-  try {
-    const r = await fetch(FONT_URL);
-    if (!r.ok) return null;
-    fontCache = new Uint8Array(await r.arrayBuffer());
-    return fontCache;
-  } catch { return null; }
 }
 
 function esc(s: string) {
@@ -104,7 +76,7 @@ function wrapLines(text: string, maxCharsPerLine: number, maxLines: number): str
   return lines;
 }
 
-/** Build the overlay SVG string. Exported so the regression guard can inspect it synchronously. */
+/** Build the overlay SVG string. */
 export function buildOverlaySvg(input: PremiumOverlayInput): string {
   const W = input.width, H = input.height;
   const fallbackTitle = (input.fallbackTitle ?? "").trim();
@@ -132,27 +104,10 @@ export function buildOverlaySvg(input: PremiumOverlayInput): string {
 </svg>`;
 }
 
-export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): Promise<Uint8Array> {
-  await ensureWasm();
-  const font = await loadFont();
-  const svg = buildOverlaySvg(input);
-  const resvg = new Resvg(svg, {
-    fitTo: { mode: "width", value: input.width },
-    font: font ? { fontBuffers: [font], loadSystemFonts: false, defaultFontFamily: "Fredoka" } : { loadSystemFonts: false, defaultFontFamily: "sans-serif" },
-    background: "rgba(0,0,0,0)",
-  });
-  return resvg.render().asPng();
-}
-
-// Regression guard: if a future edit reintroduces chip/banner/ribbon/pill SVG,
-// this self-check throws at module load time, and the coloring-v2-cover step
-// will fail loudly rather than ship a text-popped cover.
-// We inspect the *generated SVG* rather than the function source so parameter
-// names and comments do not false-positive.
-(function assertNoPopupSvg() {
-  const svg = buildOverlaySvg({ width: 1024, height: 1024, ageBadge: "AGES 4-6" });
-  const svgFallback = buildOverlaySvg({ width: 1024, height: 1024, ageBadge: "AGES 4-6", fallbackTitle: "My Title" });
-
+/** Assert that generated SVG contains no popup elements. Throws on violation.
+ *  Exported so the edge function can fail fast at module load, and so tests can
+ *  exercise it directly. */
+export function assertOverlaySvgNoPopups(svg: string, svgFallback: string): void {
   const markupOnly = (s: string) => s.replace(/<!--[\s\S]*?-->/g, "").replace(/<\?xml[^?]*\?>/g, "");
 
   // Title-only mode: the SVG must contain no drawing elements at all.
@@ -178,19 +133,14 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
       throw new Error(`premium-cover-overlay regression: ${COVER_OVERLAY_CONTRACT} must never contain popup markers (matched ${re})`);
     }
   }
-})();
-
-/** Alpha-composite an overlay PNG on top of the base JPEG/PNG bytes. Returns JPEG bytes (q=92). */
-export async function compositeOverlayOntoArt(
-  artBytes: Uint8Array,
-  overlayPng: Uint8Array,
-): Promise<Uint8Array> {
-  const { Image } = await import("https://deno.land/x/imagescript@1.2.17/mod.ts");
-  const base = await Image.decode(artBytes);
-  const ov = await Image.decode(overlayPng);
-  const scaled = ov.width === base.width && ov.height === base.height
-    ? ov
-    : (ov as any).resize(base.width, base.height);
-  (base as any).composite(scaled, 0, 0);
-  return await (base as any).encodeJPEG(92);
 }
+
+/** Run the regression guard at module load time. */
+export function runOverlayModuleGuard(): void {
+  const svg = buildOverlaySvg({ width: 1024, height: 1024, ageBadge: "AGES 4-6" });
+  const svgFallback = buildOverlaySvg({ width: 1024, height: 1024, ageBadge: "AGES 4-6", fallbackTitle: "My Title" });
+  assertOverlaySvgNoPopups(svg, svgFallback);
+}
+
+// Fail-fast self-check for edge-function load.
+runOverlayModuleGuard();
