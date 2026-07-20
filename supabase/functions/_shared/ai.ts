@@ -116,6 +116,7 @@ function extractJson<T>(raw: string, opts: { allowTruncated?: boolean } = {}): T
 import { hasGeminiDirect, geminiDirectChat } from "./gemini-direct.ts";
 import { hasOpenAIDirect, openaiDirectChat } from "./openai-direct.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
+import { assertGatewayAllowed } from "./gateway-guard.ts";
 
 function isGoogleModel(model: string): boolean {
   return model.startsWith("google/");
