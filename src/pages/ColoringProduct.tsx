@@ -344,6 +344,7 @@ export default function ColoringProduct() {
             {downloading ? "Preparing your PDF…" : "Download instantly — print at home"}
           </button>
 
+          <AddToCollectionButton ebookId={book.id} />
 
           <ul className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs md:text-sm text-muted-foreground">
             <li className="inline-flex items-center gap-2"><Download className="h-3.5 w-3.5" /> Instant PDF</li>
@@ -351,6 +352,13 @@ export default function ColoringProduct() {
             <li className="inline-flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5" /> Personal-use license</li>
             <li className="inline-flex items-center gap-2"><Sparkles className="h-3.5 w-3.5" /> Secure checkout</li>
           </ul>
+
+          <HighlightsBlock
+            pageCount={pageCount}
+            ageMin={ageMin}
+            ageMax={ageMax}
+            categoryName={categoryName}
+          />
         </div>
       </section>
 
