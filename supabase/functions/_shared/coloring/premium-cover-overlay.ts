@@ -1,17 +1,28 @@
 // Premium cover overlay — deterministic typography layer.
 //
-// OWNER LAW `cover_text_overlay_only_v2` (2026-07-20):
-//   Ideogram bakes AT MOST the big title. Every other piece of cover text is
-//   drawn here as vector SVG with correct fonts and guaranteed correct
-//   spelling. The overlay renders (all optional):
-//     • top "Coloring Book" (or custom label) chip
-//     • bottom banner strip with subtitle + short blurb
-//     • bottom-left AGES pill
-//     • top-right SALE ribbon
-//     • fallback TITLE (when the art was rendered textless because 3
-//       Ideogram title-bake attempts all shipped gibberish extras)
+// OWNER LAW `no_popups_v5` (2026-07-21):
+//   ZERO text is ever composited on top of a coloring-book cover in the
+//   normal (title-only) path. The Ideogram bake owns the title; the storefront
+//   HTML owns the age chip, sale badge, and any promotional label. This
+//   module intentionally draws NOTHING when a title-bake succeeded.
+//
+//   The only exception is the TEXTLESS FALLBACK path — used when 3 Ideogram
+//   title-bake attempts all shipped gibberish. In that case the overlay
+//   draws the title (and only the title) as a clean bold display font, which
+//   never misspells. No chip, no banner, no ribbon, no age pill, ever.
+//
+// SCOPE: coloring books only (book_type='coloring_book'). Picture-book /
+// adult-PDF lanes MUST NOT import this module.
 //
 // @ts-nocheck  Deno edge runtime
+
+/** Frozen contract. Any cover asset whose meta.overlay !== this value is
+ *  considered LEGACY and eligible for the autopilot legacy-cover sweep. */
+export const COVER_OVERLAY_CONTRACT = "premium_cover_overlay_v5_no_text_ever" as const;
+
+export function overlayIsCurrent(meta: Record<string, any> | null | undefined): boolean {
+  return !!meta && meta.overlay === COVER_OVERLAY_CONTRACT;
+}
 
 import { initWasm, Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
 
