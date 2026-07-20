@@ -310,6 +310,7 @@ export async function aiText(opts: {
     }
   }
 
+  assertGatewayAllowed("aiText");
   if (!key) throw new Error("LOVABLE_API_KEY not configured");
   const controller = opts.timeoutMs ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort("ai_text_timeout"), opts.timeoutMs) : null;
