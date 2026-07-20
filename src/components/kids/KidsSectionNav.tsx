@@ -7,17 +7,8 @@ import { AGE_CHIPS } from "@/lib/kidsCatalogTaxonomy";
 const FILTERS_STORAGE_KEY = "kids.filters.open";
 
 /**
- * Kids sticky header filter bar (owner spec 2026-07-21).
- *
- * Replaces the old Ages/Themes/Collections/Coloring links AND the separate
- * "Book Type / Age" popover toolbar that used to live above the grid.
- * Now there is ONE filter surface, and it lives here in the header, using
- * the 5 canonical book types + the age chip set. Selection is stored in
- * URL search params (`?type=...&age=...`) so links are shareable and the
- * catalog page reads the same source of truth.
- *
- * On any non-`/kids` route (e.g. old landing pages), clicking a chip
- * navigates to `/kids` with the filter applied.
+ * Kids sticky filter bar — magical lavender glass.
+ * URL-driven (?type= / ?age=) — behavior preserved, only styling upgraded.
  */
 export function KidsSectionNav() {
   const [params, setParams] = useSearchParams();
@@ -28,7 +19,6 @@ export function KidsSectionNav() {
   const activeAge = params.get("age") ?? "all";
 
   const setFilter = (key: "type" | "age", value: string | null) => {
-    // If we're not on /kids, jump there with the filter applied.
     if (location.pathname !== "/kids") {
       const q = new URLSearchParams();
       if (value) q.set(key, value);
@@ -38,17 +28,12 @@ export function KidsSectionNav() {
     const q = new URLSearchParams(params);
     if (!value || value === "all") q.delete(key);
     else q.set(key, value);
-    // Reset subcategory whenever the parent type changes.
     if (key === "type") q.delete("subcategory");
     setParams(q, { replace: false });
   };
 
   const chipCls = (active: boolean) =>
-    `px-4 py-2 rounded-full shrink-0 whitespace-nowrap transition-colors text-sm font-medium ${
-      active
-        ? "bg-foreground text-background"
-        : "bg-muted text-foreground hover:bg-muted/70"
-    }`;
+    `kids-chip ${active ? "kids-chip-active" : ""} px-4 py-2 rounded-full shrink-0 whitespace-nowrap text-sm font-medium min-h-[42px] inline-flex items-center`;
 
   const [open, setOpen] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
@@ -65,7 +50,7 @@ export function KidsSectionNav() {
   return (
     <nav
       aria-label="Kids catalog filters"
-      className="w-full border-b border-border bg-background/95 backdrop-blur sticky top-16 z-30"
+      className="w-full sticky top-16 z-30 border-b border-[#DED7F2]/80 bg-[#F8F6FF]/85 backdrop-blur-md"
     >
       <div className="mx-auto max-w-[1600px] px-4 py-3">
         <div className="flex items-center gap-3">
@@ -74,7 +59,7 @@ export function KidsSectionNav() {
             onClick={() => setOpen((v) => !v)}
             aria-pressed={open}
             aria-expanded={open}
-            className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:opacity-90 shrink-0"
+            className="inline-flex items-center gap-2 rounded-full bg-[#171052] px-4 py-2 text-sm font-medium text-[#FFFDF8] transition-colors hover:bg-[#25136B] shrink-0 min-h-[42px]"
           >
             {open ? <X className="h-4 w-4" aria-hidden="true" /> : <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />}
             {open ? "Hide filters" : "Show filters"}
@@ -102,7 +87,7 @@ export function KidsSectionNav() {
                 </button>
               ))}
 
-              <span className="mx-2 h-5 w-px bg-border shrink-0" />
+              <span className="mx-2 h-5 w-px bg-[#DED7F2] shrink-0" />
 
               <button type="button" onClick={() => setFilter("type", null)} className={chipCls(!activeType)}>
                 All types
