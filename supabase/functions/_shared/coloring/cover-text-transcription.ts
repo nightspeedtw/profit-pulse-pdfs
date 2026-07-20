@@ -386,7 +386,9 @@ export async function verifyExactCoverText(
 
   const attempted_at = new Date().toISOString();
 
-  const transcribed = (await gatewayTranscribe(bytes, timeoutMs)) ?? (await geminiTranscribe(bytes, timeoutMs));
+  const transcribed = (await cloudflareVisionTranscribe(bytes, timeoutMs))
+    ?? (await gatewayTranscribe(bytes, timeoutMs))
+    ?? (await geminiTranscribe(bytes, timeoutMs));
   if (!transcribed) {
     return {
       pass: false, degraded: true, reason: "transcriber_unavailable",
