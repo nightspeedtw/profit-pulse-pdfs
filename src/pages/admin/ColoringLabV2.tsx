@@ -272,13 +272,27 @@ export default function ColoringLabV2() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Recent V2 books</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Recent V2 books</CardTitle>
+          <div className="flex flex-wrap gap-1 pt-2 text-xs">
+            {(["all", ...AGE_ORDER] as const).map(slug => (
+              <button
+                key={slug}
+                type="button"
+                onClick={() => setListFilter(slug)}
+                className={`px-2 py-1 rounded border ${listFilter === slug ? "bg-primary text-primary-foreground" : "bg-transparent"}`}
+              >
+                {slug === "all" ? "All" : slug === "all-ages" ? "All Ages" : slug}
+              </button>
+            ))}
+          </div>
+        </CardHeader>
         <CardContent>
-          {books.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No V2 books yet. Start one above.</p>
+          {filteredBooks.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No V2 books for this filter.</p>
           ) : (
             <div className="space-y-2">
-              {books.map(b => (
+              {filteredBooks.map(b => (
                 <div key={b.id} className="flex items-center justify-between rounded-md border p-3 text-sm">
                   <div className="min-w-0">
                     <div className="font-medium truncate">{b.title ?? "(untitled)"} <span className="text-muted-foreground">· {b.theme}</span></div>
