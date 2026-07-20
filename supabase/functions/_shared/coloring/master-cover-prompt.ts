@@ -23,7 +23,7 @@
 
 // @ts-nocheck  Deno edge runtime
 
-export const COLORING_MASTER_COVER_PROMPT_VERSION = "coloring_master_cover_v2_fullcolor";
+export const COLORING_MASTER_COVER_PROMPT_VERSION = "coloring_master_cover_v3_title_only_bake";
 
 export type ColoringCoverStyleMode = "default" | "ya_scifi_cinematic";
 
