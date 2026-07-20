@@ -165,8 +165,12 @@ export function logColoringV2ProviderCall(db: Db, row: LogV2ProviderCallRow): vo
 
 /** Deterministic sha256 hex — used for input/output hashes. */
 export async function sha256Hex(input: string | Uint8Array): Promise<string> {
-  const data = typeof input === "string" ? new TextEncoder().encode(input) : input;
-  const buf = await crypto.subtle.digest("SHA-256", data);
+  const src = typeof input === "string" ? new TextEncoder().encode(input) : input;
+  // Copy into a fresh ArrayBuffer to satisfy SubtleCrypto's BufferSource typing
+  // (Uint8Array<ArrayBufferLike> may reference a SharedArrayBuffer under TS DOM lib).
+  const ab = new ArrayBuffer(src.byteLength);
+  new Uint8Array(ab).set(src);
+  const buf = await crypto.subtle.digest("SHA-256", ab);
   const bytes = new Uint8Array(buf);
   let hex = "";
   for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, "0");
