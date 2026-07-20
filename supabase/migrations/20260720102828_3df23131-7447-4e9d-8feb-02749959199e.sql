@@ -1,0 +1,2 @@
+ALTER TABLE public.ebooks_kids ADD COLUMN IF NOT EXISTS drive_file_id text;
+CREATE UNIQUE INDEX IF NOT EXISTS ebooks_kids_drive_file_id_unique ON public.ebooks_kids(drive_file_id) WHERE drive_file_id IS NOT NULL;

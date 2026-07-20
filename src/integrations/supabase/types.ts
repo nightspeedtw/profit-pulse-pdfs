@@ -3625,6 +3625,7 @@ export type Database = {
           created_at: string
           customer_product_description_html: string | null
           description: string | null
+          drive_file_id: string | null
           ever_live: boolean
           human_review_reason: string | null
           id: string
@@ -3683,6 +3684,7 @@ export type Database = {
           created_at?: string
           customer_product_description_html?: string | null
           description?: string | null
+          drive_file_id?: string | null
           ever_live?: boolean
           human_review_reason?: string | null
           id?: string
@@ -3741,6 +3743,7 @@ export type Database = {
           created_at?: string
           customer_product_description_html?: string | null
           description?: string | null
+          drive_file_id?: string | null
           ever_live?: boolean
           human_review_reason?: string | null
           id?: string
