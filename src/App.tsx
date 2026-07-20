@@ -52,6 +52,21 @@ import ColoringPreviewV2 from "./pages/ColoringPreviewV2.tsx";
 import DriveShop from "./pages/DriveShop.tsx";
 import DriveImporter from "./pages/admin/DriveImporter.tsx";
 import StoryBatchV2 from "./pages/admin/StoryBatchV2.tsx";
+import AccountLayout from "./pages/account/AccountLayout.tsx";
+import AccountOverview from "./pages/account/Overview.tsx";
+import AccountSignIn from "./pages/account/SignIn.tsx";
+import AccountForgotPassword from "./pages/account/ForgotPassword.tsx";
+import AccountResetPassword from "./pages/account/ResetPassword.tsx";
+import AccountMyLibrary from "./pages/account/MyLibrary.tsx";
+import AccountOrders from "./pages/account/Orders.tsx";
+import AccountOrderDetail from "./pages/account/OrderDetail.tsx";
+import AccountDownloads from "./pages/account/Downloads.tsx";
+import AccountInvoices from "./pages/account/Invoices.tsx";
+import AccountNotifications from "./pages/account/Notifications.tsx";
+import AccountSupport from "./pages/account/Support.tsx";
+import AccountProfile from "./pages/account/Profile.tsx";
+import AccountSecurity from "./pages/account/Security.tsx";
+import AccountPrivacy from "./pages/account/Privacy.tsx";
 
 
 const queryClient = new QueryClient();
