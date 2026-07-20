@@ -111,7 +111,11 @@ const App = () => (
             <Route path="ebook/:id/cover" element={<EbookCover />} />
             <Route path="ebook/:id/pdf" element={<EbookPDF />} />
             <Route path="autopilot/run/:runId" element={<AutopilotRun />} />
+            {FEATURES.ENABLE_COLORING_LANE_V2 && (
+              <Route path="coloring-lab-v2" element={<ColoringLabV2 />} />
+            )}
           </Route>
+
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
