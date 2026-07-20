@@ -13,7 +13,7 @@
 //           for per-provider latching + parked-book handling.
 
 import { FalBillingLockedError, isFalBillingLocked } from "./fal-billing.ts";
-import { logAiCost, costDb } from "./cost-log.ts";
+import { logAiCost, costDb, logColoringV2ProviderCall, sha256Hex } from "./cost-log.ts";
 import { coerceForProviderPayload } from "./coloring/payload-guard.ts";
 
 // One place for model IDs — anything scattered elsewhere is a bug.
