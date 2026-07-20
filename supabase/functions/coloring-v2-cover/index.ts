@@ -9,13 +9,14 @@ import { buildMasterColoringCoverPrompt } from "../_shared/coloring/master-cover
 import { getAgeProfile } from "../_shared/coloring-v2/age-matrix.ts";
 import { runwareInference } from "../_shared/runware.ts";
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
+import { compositeOverlayOntoArt, renderPremiumCoverOverlayPng } from "../_shared/coloring/premium-cover-overlay.ts";
 
 declare const Deno: any;
 
 const IDEOGRAM_MODEL = "ideogram:4@1";
 const CANVAS = 1024;
 const MAX_ATTEMPTS = 4;
-const PROMPT_VERSION = "master_cover_prompt@v2_fullcolor";
+const PROMPT_VERSION = "master_cover_prompt@v3_title_only_bake";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
