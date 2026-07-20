@@ -77,12 +77,15 @@ type CfCreds = { accountId: string; token: string; label: string };
 
 function cfCredsList(): CfCreds[] {
   const list: CfCreds[] = [];
+  // Slot 1 uses the unsuffixed names for back-compat; slots 2..7 use _N suffix.
   const a1 = Deno.env.get("CF_ACCOUNT_ID");
   const t1 = Deno.env.get("CF_API_TOKEN");
   if (a1 && t1) list.push({ accountId: a1, token: t1, label: "cf1" });
-  const a2 = Deno.env.get("CF_ACCOUNT_ID_2");
-  const t2 = Deno.env.get("CF_API_TOKEN_2");
-  if (a2 && t2) list.push({ accountId: a2, token: t2, label: "cf2" });
+  for (let i = 2; i <= 7; i++) {
+    const a = Deno.env.get(`CF_ACCOUNT_ID_${i}`);
+    const t = Deno.env.get(`CF_API_TOKEN_${i}`);
+    if (a && t) list.push({ accountId: a, token: t, label: `cf${i}` });
+  }
   return list;
 }
 
