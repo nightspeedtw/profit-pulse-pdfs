@@ -1,5 +1,3 @@
-import heroAsset from "@/assets/kids-hero-spark-dreams.png.asset.json";
-
 interface Props {
   onCtaClick: () => void;
 }
@@ -14,7 +12,7 @@ export default function KidsHeroCompact({ onCtaClick }: Props) {
     <section aria-label="Kids hero" className="relative w-full overflow-hidden">
       <div className="relative w-full">
         <img
-          src={heroAsset.url}
+          src="/site-assets/kids-hero-spark-dreams.png"
           alt="Stories that spark dreams and imagination — magical books for young explorers"
           className="w-full h-auto object-cover object-center"
           fetchPriority="high"
