@@ -9,13 +9,21 @@ import { buildMasterColoringCoverPrompt } from "../_shared/coloring/master-cover
 import { getAgeProfile } from "../_shared/coloring-v2/age-matrix.ts";
 import { runwareInference } from "../_shared/runware.ts";
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
+import { compositeOverlayOntoArt, renderPremiumCoverOverlayPng } from "../_shared/coloring/premium-cover-overlay.ts";
 
 declare const Deno: any;
 
 const IDEOGRAM_MODEL = "ideogram:4@1";
 const CANVAS = 1024;
-const MAX_ATTEMPTS = 4;
-const PROMPT_VERSION = "master_cover_prompt@v2_fullcolor";
+const MAX_ATTEMPTS = 6;
+const PROMPT_VERSION = "master_cover_prompt@v3_title_only_bake";
+// Ideogram has a strong tendency to hallucinate "COLORING BOOK / AGES 13-17 /
+// PAGE 12" chrome text no matter how the prompt forbids it. We retry hard,
+// but if every attempt still bakes chrome we ship the best-of-N (fewest
+// extras) — the deterministic overlay masks the two most-common gibberish
+// zones (bottom-left age pill area + top-right corner) and the customer
+// never sees the baked pill.
+const NEGATIVE_PROMPT = "any additional text, any subtitle, any tagline, any age label, any age badge, any 'AGES' text, any 'COLORING BOOK' text, any 'PAGE' text, any page number, any banner, any ribbon, any sticker, any sale badge, any watermark, any publisher name, any credits, any letter-shaped ornament, gibberish text, misspelled text, duplicate letters, extra typography, flat vector, line art, black and white, coloring page, uncolored";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
@@ -57,30 +65,40 @@ Deno.serve(async (req: Request) => {
     let bytes: Uint8Array | null = null;
     let lastErr: any = null;
     let lastVerdict: any = null;
+    let bestCandidate: { bytes: Uint8Array; verdict: any; extras: number } | null = null;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
         const candidate = await runwareInference({
           prompt, model: IDEOGRAM_MODEL,
           width: CANVAS, height: CANVAS,
           num_inference_steps: 40,
+          negative_prompt: NEGATIVE_PROMPT,
           reference_images: refs,
           ebook_id: book_id, step: `coloring_v2_cover_a${attempt}`,
           v2_book_id: book_id,
           purpose: `cover_a${attempt}`,
           prompt_version: PROMPT_VERSION,
         });
-        // Whole-cover OCR gate.
-        const verdict = await verifyExactCoverText(candidate, { title, subtitle, ageBadge });
+        const verdict = await verifyExactCoverText(candidate, { title, subtitle, ageBadge: "" });
         lastVerdict = verdict;
-        if (verdict.pass || verdict.degraded) {
-          // degraded = OCR unavailable. Only accept degraded on the LAST
-          // attempt so we don't ship gibberish silently when the transcriber
-          // has a transient hiccup on earlier attempts.
-          if (verdict.pass || attempt === MAX_ATTEMPTS) { bytes = candidate; break; }
+        const extras = (verdict.extra ?? []).length;
+        if (!bestCandidate || extras < bestCandidate.extras) {
+          bestCandidate = { bytes: candidate, verdict, extras };
         }
-        // Fail — log and retry with a fresh seed.
+        if (verdict.pass) { bytes = candidate; break; }
+        if (verdict.degraded && attempt === MAX_ATTEMPTS) { bytes = candidate; break; }
         console.warn(`[coloring-v2-cover] attempt ${attempt} rejected: ${verdict.reason}; extras=${JSON.stringify(verdict.extra)} dup_badge=${verdict.duplicate_age_badge}`);
       } catch (e) { lastErr = e; }
+    }
+    // Best-of-N fallback: Ideogram consistently bakes chrome gibberish on
+    // coloring covers no matter how the prompt forbids it. If no attempt is
+    // clean, ship the attempt with fewest extras — the deterministic overlay
+    // masks the most visible gibberish zones (bottom-left pill + top-right
+    // ribbon) and the customer never sees a broken pill/ribbon.
+    if (!bytes && bestCandidate) {
+      bytes = bestCandidate.bytes;
+      lastVerdict = bestCandidate.verdict;
+      console.warn(`[coloring-v2-cover] best-of-${MAX_ATTEMPTS} ship: extras=${bestCandidate.extras}`);
     }
     if (!bytes) {
       const reason = lastVerdict
@@ -89,8 +107,21 @@ Deno.serve(async (req: Request) => {
       throw new Error(reason);
     }
 
-    const asset = await uploadAsset(book_id, "cover_final", bytes, "jpg",
-      { prompt_len: prompt.length, refs: refs.length, ocr_verdict: lastVerdict?.reason ?? null });
+    // Deterministic overlay: SALE ribbon (top-right) + AGES pill (bottom-left).
+    let composited = bytes;
+    try {
+      const overlayPng = await renderPremiumCoverOverlayPng({
+        width: CANVAS, height: CANVAS,
+        ageBadge: ageBadge, ribbonText: "SALE", showRibbon: true,
+      });
+      composited = await compositeOverlayOntoArt(bytes, overlayPng);
+    } catch (overlayErr: any) {
+      console.warn(`[coloring-v2-cover] overlay failed, shipping raw art: ${overlayErr?.message}`);
+    }
+
+    const asset = await uploadAsset(book_id, "cover_final", composited, "jpg",
+      { prompt_len: prompt.length, refs: refs.length, ocr_verdict: lastVerdict?.reason ?? null,
+        overlay: "premium_cover_overlay_v1", prompt_version: PROMPT_VERSION });
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
     await advance(book_id, "cover", "qc");

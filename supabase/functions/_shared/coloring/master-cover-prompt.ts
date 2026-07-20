@@ -23,7 +23,7 @@
 
 // @ts-nocheck  Deno edge runtime
 
-export const COLORING_MASTER_COVER_PROMPT_VERSION = "coloring_master_cover_v2_fullcolor";
+export const COLORING_MASTER_COVER_PROMPT_VERSION = "coloring_master_cover_v3_title_only_bake";
 
 export type ColoringCoverStyleMode = "default" | "ya_scifi_cinematic";
 
@@ -59,15 +59,21 @@ export function buildMasterColoringCoverPrompt(input: MasterColoringCoverInput):
     ? "The attached interior pages are visual REFERENCE ONLY for theme, character design, line style, and age level. Do NOT copy, paste, trace, or reuse any interior page directly. Do NOT enlarge an interior page into the cover. REDRAW and REINTERPRET the characters and scene as a brand-new, commercially marketable cover illustration."
     : "";
 
+  // OWNER LAW 2026-07-20 `coloring_v2_cover_overlay_v1`:
+  // Ideogram bakes ONLY the title (+ optional subtitle). Age badges and
+  // SALE ribbons are drawn deterministically by the overlay layer — they
+  // MUST NOT appear in the baked art (baked badges/ribbons produce
+  // gibberish like "COLONG ADVENTURE"). The prompt therefore explicitly
+  // FORBIDS any badge/ribbon/age text and the OCR gate rejects them.
   const textElementsList = hasSubtitle
-    ? `"${title}", "${subtitle}", "${ageBadge}"`
-    : `"${title}", "${ageBadge}"`;
+    ? `"${title}", "${subtitle}"`
+    : `"${title}"`;
   const spellingContract = hasSubtitle
-    ? `SPELLING CONTRACT — the title must read EXACTLY "${title}", the subtitle must read EXACTLY "${subtitle}", the age badge must read EXACTLY "${ageBadge}". Count the letters and check twice. Do NOT invent, drop, duplicate, transpose, hyphenate, split, or join any letter.`
-    : `SPELLING CONTRACT — the title must read EXACTLY "${title}" and the age badge must read EXACTLY "${ageBadge}". Count the letters and check twice. Do NOT invent, drop, duplicate, transpose, hyphenate, split, or join any letter. Do NOT add ANY subtitle, tagline, descriptor, or decorative word — the cover carries ONLY the title and the age badge.`;
+    ? `SPELLING CONTRACT — the title must read EXACTLY "${title}" and the subtitle must read EXACTLY "${subtitle}". Count the letters and check twice. Do NOT invent, drop, duplicate, transpose, hyphenate, split, or join any letter.`
+    : `SPELLING CONTRACT — the title must read EXACTLY "${title}". Count the letters and check twice. Do NOT invent, drop, duplicate, transpose, hyphenate, split, or join any letter. Do NOT add ANY subtitle, tagline, descriptor, or decorative word — the cover carries ONLY the title.`;
   const layoutClause = hasSubtitle
-    ? `The title must use large CUSTOM HAND-DRAWN illustrated lettering, not a plain standard system font. The lettering must be bold, rounded, playful, highly readable, correctly spelled letter-for-letter, visually integrated with the theme (subtle themed accents like stars, hearts, sparkles, rainbows, clouds, flowers are welcome), with a thick clean outline and warm fill colors. Place the main title inside the upper 30-40% of the cover. Place the subtitle immediately beneath the title on its own line. Place the age label inside a clear round badge in an upper or lower corner.`
-    : `The title must use large CUSTOM HAND-DRAWN illustrated lettering, not a plain standard system font. The lettering must be bold, rounded, playful, highly readable, correctly spelled letter-for-letter, visually integrated with the theme (subtle themed accents like stars, hearts, sparkles, rainbows, clouds, flowers are welcome), with a thick clean outline and warm fill colors. Place the main title inside the upper 30-40% of the cover. Place the age label inside a clear round badge in an upper or lower corner. There is NO subtitle line — do not invent one.`;
+    ? `The title must use large CUSTOM HAND-DRAWN illustrated lettering, not a plain standard system font. The lettering must be bold, rounded, playful, highly readable, correctly spelled letter-for-letter, visually integrated with the theme (subtle themed accents like stars, hearts, sparkles, rainbows, clouds, flowers are welcome), with a thick clean outline and warm fill colors. Place the main title inside the upper 30-40% of the cover. Place the subtitle immediately beneath the title on its own line. Do NOT draw any age badge, age label, ribbon, banner, sticker, or corner text — those are added later by a separate layer.`
+    : `The title must use large CUSTOM HAND-DRAWN illustrated lettering, not a plain standard system font. The lettering must be bold, rounded, playful, highly readable, correctly spelled letter-for-letter, visually integrated with the theme (subtle themed accents like stars, hearts, sparkles, rainbows, clouds, flowers are welcome), with a thick clean outline and warm fill colors. Place the main title inside the upper 30-40% of the cover. There is NO subtitle line — do not invent one. Do NOT draw any age badge, age label, ribbon, banner, sticker, or corner text — those are added later by a separate layer.`;
 
   const isYA = input.styleMode === "ya_scifi_cinematic";
   const openingClause = isYA
@@ -79,7 +85,7 @@ export function buildMasterColoringCoverPrompt(input: MasterColoringCoverInput):
   const paletteClause = isYA
     ? `FULL-COLOR CINEMATIC PAINTED ILLUSTRATION. Use a bold cinematic YA color grade — deep indigo/navy midtones, electric cyan and violet accents, hot magenta highlights, lightning-white sparks — with dramatic contrast, atmospheric depth, moody volumetric lighting, and confident visual hierarchy. Rich saturated colors, painterly brush texture, subtle grain, cinematic color grade like a movie poster. The cover must POP as a small online marketplace thumbnail and read as a premium teen graphic-novel title. Painterly finish — NOT flat vector, NOT line-art, NOT plain fills.`
     : `FULL-COLOR RICH SATURATED PAINTED ILLUSTRATION in the style of a bestseller children's picture book / KDP-bestseller coloring-book cover. Use vibrant confident colors (deep sky-blue, sunlit yellow, warm coral, emerald, magenta, gold accents), professional color grading, dramatic hero lighting with soft rim-light and warm key-light, atmospheric background depth, painterly brush texture, gentle glow highlights, and a joyful premium finish. Strong contrast between hero and background. The cover must POP as a small online marketplace thumbnail. Painterly, polished, storybook-illustration quality — NOT flat vector, NOT line-art, NOT plain fills, NOT a coloring page.`;
-  const layoutBaseYA = `The title must use large CUSTOM HAND-DRAWN illustrated lettering in a shattered/glitch YA display style — bold, angular, cinematic, highly readable, correctly spelled letter-for-letter, with a thick clean outline and dramatic accents (electric sparks, cracks, glitch fragments are welcome). Integrate the title INTO the scene (rain on the letters, glow, lightning) rather than pasting it flat on top. Place the main title inside the upper 30-40% of the cover. Place the age label inside a clear round badge in an upper or lower corner.`;
+  const layoutBaseYA = `The title must use large CUSTOM HAND-DRAWN illustrated lettering in a shattered/glitch YA display style — bold, angular, cinematic, highly readable, correctly spelled letter-for-letter, with a thick clean outline and dramatic accents (electric sparks, cracks, glitch fragments are welcome). Integrate the title INTO the scene (rain on the letters, glow, lightning) rather than pasting it flat on top. Place the main title inside the upper 30-40% of the cover. Do NOT draw any age badge, age label, ribbon, banner, sticker, or corner text — those are added later by a separate layer.`;
   const layoutYA = hasSubtitle
     ? `${layoutBaseYA} Place the subtitle immediately beneath the title on its own line.`
     : `${layoutBaseYA} There is NO subtitle line — do not invent one.`;
@@ -95,7 +101,7 @@ export function buildMasterColoringCoverPrompt(input: MasterColoringCoverInput):
     refClause,
     `Book title: "${title}".`,
     hasSubtitle ? `Subtitle: "${subtitle}".` : `NO subtitle — the cover has no subtitle line at all.`,
-    `Age label: "${ageBadge}".`,
+    `(Overlay layer will add the "${ageBadge}" pill and SALE ribbon deterministically — do NOT bake either into the art.)`,
     `Theme: ${theme}.`,
     `Main characters: ${mainStr}.`,
     `Background elements: ${bgStr}.`,
@@ -132,6 +138,7 @@ export function assertMasterPromptShape(
   }
   for (const [key, value] of Object.entries(expected)) {
     if (key === "subtitle") continue; // subtitle is optional (essentials-only rule)
+    if (key === "ageBadge") continue; // age badge is drawn by the overlay layer, not baked by Ideogram
     if (!value || value.length < 1) {
       throw new Error(`coloring_master_cover_v1: expected.${key} is empty`);
     }
