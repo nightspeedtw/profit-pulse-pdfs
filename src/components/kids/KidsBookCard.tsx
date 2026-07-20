@@ -88,18 +88,8 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
           {displayTitle}
         </h3>
 
-        <div
-          className="flex items-center gap-1 text-xs text-muted-foreground"
-          title={PLATFORM_REVIEW_TOOLTIP}
-          aria-label={`Platform rating ${rating.average.toFixed(1)} out of 5, ${rating.count} team reviews`}
-        >
-          <span className="flex" aria-hidden="true">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <Star key={i} className="h-3 w-3 fill-foreground text-foreground" strokeWidth={1.5} />
-            ))}
-          </span>
-          <span className="tabular-nums">({rating.count})</span>
-        </div>
+        <EditorialQualityBadge compact />
+
 
         <div className="flex items-baseline flex-wrap gap-x-1.5 gap-y-0">
           <span className="text-[15px] font-bold text-accent tabular-nums">
