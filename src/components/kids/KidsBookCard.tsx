@@ -48,7 +48,7 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
   return (
     <Link
       to={productHref}
-      aria-label={`ดูรายละเอียด ${book.title}`}
+      aria-label={`ดูรายละเอียด ${displayTitle}`}
       className={[
         "group flex flex-col animate-fade-in-up",
         isStrip ? "flex-shrink-0 w-56 md:w-64" : "",
@@ -63,7 +63,7 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
         {image ? (
           <img
             src={image}
-            alt={book.title}
+            alt={displayTitle}
             loading="lazy"
             className={`absolute inset-0 w-full h-full ${isColoring ? "object-contain" : "object-cover object-center"} transition-transform duration-500 group-hover:scale-[1.03]`}
           />
@@ -82,7 +82,7 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
       {/* Meta rows — tight vertical rhythm, no extra padding container. */}
       <div className="mt-2 flex flex-col gap-1">
         <h3
-          title={book.title}
+          title={displayTitle}
           className="truncate text-[15px] leading-snug text-foreground group-hover:underline"
         >
           {book.title}
