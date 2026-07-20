@@ -128,12 +128,13 @@ async function activateCampaign(db: any, c: Campaign) {
       MIN_PRICE_CENTS,
       Number(pp?.regular_price_cents ?? b.price_cents ?? 999),
     );
-    // Owner cap: no campaign price above $5, even after discount.
+    // Owner law: campaign discounts are always in the 50–65% band.
     const HARD_CEILING_CENTS = 500;
+    const clampedPct = Math.min(65, Math.max(50, c.discount_pct));
     const floor = Math.max(MIN_PRICE_CENTS, c.min_price_floor_cents || MIN_PRICE_CENTS);
     let campaignPrice = Math.max(
       floor,
-      Math.round(regular * (1 - c.discount_pct / 100)),
+      Math.round(regular * (1 - clampedPct / 100)),
     );
     campaignPrice = Math.min(campaignPrice, HARD_CEILING_CENTS);
     if (campaignPrice < floor) campaignPrice = floor;
