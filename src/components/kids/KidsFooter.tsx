@@ -36,7 +36,7 @@ export function KidsFooter() {
             <img
               src={footerLogo.url || KIDS_BRAND_URLS.full}
               alt="SecretPDF Kids"
-              className="h-16 md:h-20 w-auto mb-4"
+              className="h-11 md:h-14 w-auto mb-4"
             />
             <p className="font-display text-xl text-[#FFFDF8] max-w-sm">
               Magical books made for curious young minds.

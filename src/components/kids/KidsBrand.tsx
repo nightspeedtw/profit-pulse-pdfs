@@ -23,7 +23,7 @@ export function KidsBrand({
       alt={alt}
       loading="eager"
       decoding="async"
-      className={cn(variant === "mark" ? "h-8 w-8" : "h-12 md:h-14 w-auto", className)}
+      className={cn(variant === "mark" ? "h-6 w-6" : "h-9 md:h-10 w-auto", className)}
     />
   );
 }

@@ -80,7 +80,7 @@ export const Header = () => {
             alt={isKidsRoute ? "SecretPDF Kids" : "SecretPDF"}
             className={
               isKidsRoute
-                ? "h-11 sm:h-12 w-auto transition-transform group-hover:scale-[1.02] drop-shadow-[0_2px_10px_rgba(255,196,77,0.3)]"
+                ? "h-8 sm:h-9 w-auto transition-transform group-hover:scale-[1.02] drop-shadow-[0_2px_10px_rgba(255,196,77,0.3)]"
                 : "h-9 sm:h-10 w-auto transition-transform group-hover:scale-[1.02]"
             }
           />
