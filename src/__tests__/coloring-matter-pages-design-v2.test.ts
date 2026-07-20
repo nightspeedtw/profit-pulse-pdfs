@@ -6,7 +6,7 @@ import {
   resolveMatterStyle,
   defaultCopyrightText,
   MATTER_PAGES_DESIGN_VERSION,
-} from "../../supabase/functions/_shared/coloring/matter-pages.ts";
+} from "../../supabase/functions/_shared/coloring/matter-pages-style.ts";
 
 describe("matter_pages_design_v2", () => {
   it("resolves toddler band for ages 2-4 with the largest title size", () => {
