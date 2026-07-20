@@ -57,14 +57,24 @@ export default function RoyaltyConfig() {
 
   async function load() {
     setLoading(true);
-    const [{ data: ps }, { data: c }, { data: l }] = await Promise.all([
+    const [{ data: ps }, { data: c }, { data: l }, { data: settings }, { data: kyc }, { data: pouts }] = await Promise.all([
       supabase.from("platform_settings").select("royalty_live").limit(1).maybeSingle(),
       supabase.from("roy_book_config").select("*").order("updated_at", { ascending: false }),
       supabase.from("roy_ledger").select("*").order("created_at", { ascending: false }).limit(100),
+      supabase.from("platform_settings").select("key,value_json").in("key", ["royalty_payouts_live", "royalty_kyc_required", "royalty_min_payout_usd"]),
+      supabase.from("roy_kyc_submissions").select("id,user_id,status,provider,submitted_at,rejection_reason").order("created_at", { ascending: false }).limit(50),
+      supabase.from("roy_payout_requests").select("id,user_id,amount_cents,status,requested_at,paid_at,admin_notes").order("created_at", { ascending: false }).limit(50),
     ]);
     setLive(!!(ps as any)?.royalty_live);
     setCfgs((c ?? []) as Cfg[]);
     setLedger((l ?? []) as Ledger[]);
+    setKycRows((kyc ?? []) as KycRow[]);
+    setPayoutRows((pouts ?? []) as PayoutRow[]);
+    for (const row of (settings ?? []) as any[]) {
+      if (row.key === "royalty_payouts_live") setPayoutsLive(row.value_json === true);
+      if (row.key === "royalty_kyc_required") setKycRequired(row.value_json !== false);
+      if (row.key === "royalty_min_payout_usd") setMinPayoutUsd(Number(row.value_json ?? 50));
+    }
     setLoading(false);
   }
   useEffect(() => { load(); }, []);
@@ -75,6 +85,33 @@ export default function RoyaltyConfig() {
     setLive(next);
     toast.success(next ? "Royalty engine LIVE" : "Royalty engine paused");
   }
+
+  async function setJsonSetting(key: string, value: unknown, label: string) {
+    const { error } = await supabase.from("platform_settings").update({ value_json: value } as any).eq("key", key);
+    if (error) return toast.error(error.message);
+    toast.success(`${label} updated`);
+    load();
+  }
+
+  async function reviewKyc(id: string, status: "approved" | "rejected", reason?: string) {
+    const patch: any = { status, reviewed_at: new Date().toISOString() };
+    if (status === "rejected" && reason) patch.rejection_reason = reason;
+    const { error } = await supabase.from("roy_kyc_submissions").update(patch).eq("id", id);
+    if (error) return toast.error(error.message);
+    toast.success(`KYC ${status}`);
+    load();
+  }
+
+  async function reviewPayout(id: string, action: "approve" | "reject" | "mark_paid" | "cancel") {
+    const { data, error } = await supabase.functions.invoke("royalty-payout-review", {
+      body: { request_id: id, action },
+    });
+    if (error) return toast.error(error.message);
+    if ((data as any)?.error) return toast.error((data as any).error);
+    toast.success(`Payout ${action}`);
+    load();
+  }
+
 
   async function addBook() {
     if (!addBookId) return;
