@@ -146,7 +146,7 @@ export default function ColoringProduct() {
   const productJsonLd = {
     "@context": "https://schema.org",
     "@type": "Product",
-    name: book.title,
+    name: displayTitle,
     description: seoDesc,
     image: ogImage ? [ogImage] : undefined,
     category: `${categoryName} coloring book, ages ${ageMin}-${ageMax}`,
