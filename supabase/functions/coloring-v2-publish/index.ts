@@ -73,9 +73,11 @@ Deno.serve(async (req: Request) => {
     // dedicated `coloring_v2_book_id` column (partial UNIQUE index enforces
     // it). Republishes (cover regen, matter refresh) atomic-swap the SAME
     // row — never a sibling insert.
+    const rawStoreTitle = book.title ?? "Coloring Book";
+    const storeTitle = /coloring/i.test(rawStoreTitle) ? rawStoreTitle : `${rawStoreTitle} Coloring Book`;
     const bridge = {
       coloring_v2_book_id: book_id,
-      title: book.title ?? "Coloring Book",
+      title: storeTitle,
       subtitle: book.subtitle ?? null,
       description: concept.parent_hook ?? null,
       status: "live",
