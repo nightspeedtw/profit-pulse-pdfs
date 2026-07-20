@@ -109,6 +109,23 @@ const App = () => (
               <Route path="/coloring-preview-v2/:bookId" element={<ColoringPreviewV2 />} />
             )}
 
+            <Route path="/account/sign-in" element={<AccountSignIn />} />
+            <Route path="/account/forgot-password" element={<AccountForgotPassword />} />
+            <Route path="/account/reset-password" element={<AccountResetPassword />} />
+            <Route path="/account" element={<AccountLayout />}>
+              <Route index element={<AccountOverview />} />
+              <Route path="library" element={<AccountMyLibrary />} />
+              <Route path="orders" element={<AccountOrders />} />
+              <Route path="orders/:id" element={<AccountOrderDetail />} />
+              <Route path="downloads" element={<AccountDownloads />} />
+              <Route path="invoices" element={<AccountInvoices />} />
+              <Route path="notifications" element={<AccountNotifications />} />
+              <Route path="support" element={<AccountSupport />} />
+              <Route path="profile" element={<AccountProfile />} />
+              <Route path="security" element={<AccountSecurity />} />
+              <Route path="privacy" element={<AccountPrivacy />} />
+            </Route>
+
           </Route>
 
 
