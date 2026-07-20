@@ -476,6 +476,9 @@ export default function ColoringProduct() {
         siblings={siblings}
       />
 
+      {/* ── Review summary (auto, real reviews only) ─────────────────── */}
+      <ReviewSummary ebookId={book.id} />
+
 
       {/* ── Cross-sell rail ─────────────────────────────────────────── */}
       {siblings.length > 0 && (
