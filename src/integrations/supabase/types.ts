@@ -1121,6 +1121,828 @@ export type Database = {
           },
         ]
       }
+      coloring_v2_age_bands: {
+        Row: {
+          created_at: string
+          focal_count: number
+          label: string
+          line_weight: string
+          max_age: number
+          min_age: number
+          notes: string | null
+          regions_max: number
+          regions_min: number
+          slug: string
+        }
+        Insert: {
+          created_at?: string
+          focal_count: number
+          label: string
+          line_weight: string
+          max_age: number
+          min_age: number
+          notes?: string | null
+          regions_max: number
+          regions_min: number
+          slug: string
+        }
+        Update: {
+          created_at?: string
+          focal_count?: number
+          label?: string
+          line_weight?: string
+          max_age?: number
+          min_age?: number
+          notes?: string | null
+          regions_max?: number
+          regions_min?: number
+          slug?: string
+        }
+        Relationships: []
+      }
+      coloring_v2_assets: {
+        Row: {
+          book_id: string
+          cost_usd: number
+          created_at: string
+          height: number | null
+          id: string
+          kind: string
+          meta: Json
+          mime: string
+          model: string | null
+          page_number: number | null
+          prompt_version: string | null
+          provider: string | null
+          run_id: string | null
+          seed: number | null
+          sha256: string | null
+          storage_path: string
+          width: number | null
+        }
+        Insert: {
+          book_id: string
+          cost_usd?: number
+          created_at?: string
+          height?: number | null
+          id?: string
+          kind: string
+          meta?: Json
+          mime?: string
+          model?: string | null
+          page_number?: number | null
+          prompt_version?: string | null
+          provider?: string | null
+          run_id?: string | null
+          seed?: number | null
+          sha256?: string | null
+          storage_path: string
+          width?: number | null
+        }
+        Update: {
+          book_id?: string
+          cost_usd?: number
+          created_at?: string
+          height?: number | null
+          id?: string
+          kind?: string
+          meta?: Json
+          mime?: string
+          model?: string | null
+          page_number?: number | null
+          prompt_version?: string | null
+          provider?: string | null
+          run_id?: string | null
+          seed?: number | null
+          sha256?: string | null
+          storage_path?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_v2_assets_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coloring_v2_assets_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coloring_v2_books: {
+        Row: {
+          age_band: string
+          approved_cover_asset_id: string | null
+          autopilot_mode: string
+          complexity_mode: string
+          cost_actual_usd: number
+          cover_mood: string | null
+          created_at: string
+          created_by: string | null
+          daily_cost_ceiling_usd: number
+          educational_facts: boolean
+          final_pdf_asset_id: string | null
+          final_pdf_sha256: string | null
+          generation_status: string
+          id: string
+          language: string
+          main_character_mode: string
+          max_retry_per_page: number
+          overall_qc_score: number | null
+          page_count: number
+          provider_mode: string
+          publish_status: string
+          qc_status: string
+          seed_lock: number | null
+          sellability_status: string
+          subtitle: string | null
+          theme: string
+          theme_mode: string
+          time_completed_at: string | null
+          time_started_at: string | null
+          title: string | null
+          trim_inches: number
+          typography_qc_score: number | null
+          updated_at: string
+        }
+        Insert: {
+          age_band: string
+          approved_cover_asset_id?: string | null
+          autopilot_mode?: string
+          complexity_mode?: string
+          cost_actual_usd?: number
+          cover_mood?: string | null
+          created_at?: string
+          created_by?: string | null
+          daily_cost_ceiling_usd?: number
+          educational_facts?: boolean
+          final_pdf_asset_id?: string | null
+          final_pdf_sha256?: string | null
+          generation_status?: string
+          id?: string
+          language?: string
+          main_character_mode?: string
+          max_retry_per_page?: number
+          overall_qc_score?: number | null
+          page_count: number
+          provider_mode?: string
+          publish_status?: string
+          qc_status?: string
+          seed_lock?: number | null
+          sellability_status?: string
+          subtitle?: string | null
+          theme: string
+          theme_mode?: string
+          time_completed_at?: string | null
+          time_started_at?: string | null
+          title?: string | null
+          trim_inches?: number
+          typography_qc_score?: number | null
+          updated_at?: string
+        }
+        Update: {
+          age_band?: string
+          approved_cover_asset_id?: string | null
+          autopilot_mode?: string
+          complexity_mode?: string
+          cost_actual_usd?: number
+          cover_mood?: string | null
+          created_at?: string
+          created_by?: string | null
+          daily_cost_ceiling_usd?: number
+          educational_facts?: boolean
+          final_pdf_asset_id?: string | null
+          final_pdf_sha256?: string | null
+          generation_status?: string
+          id?: string
+          language?: string
+          main_character_mode?: string
+          max_retry_per_page?: number
+          overall_qc_score?: number | null
+          page_count?: number
+          provider_mode?: string
+          publish_status?: string
+          qc_status?: string
+          seed_lock?: number | null
+          sellability_status?: string
+          subtitle?: string | null
+          theme?: string
+          theme_mode?: string
+          time_completed_at?: string | null
+          time_started_at?: string | null
+          title?: string | null
+          trim_inches?: number
+          typography_qc_score?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_v2_books_age_band_fkey"
+            columns: ["age_band"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_age_bands"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
+      coloring_v2_character_bibles: {
+        Row: {
+          bible: Json
+          book_id: string
+          created_at: string
+          id: string
+          name: string | null
+        }
+        Insert: {
+          bible: Json
+          book_id: string
+          created_at?: string
+          id?: string
+          name?: string | null
+        }
+        Update: {
+          bible?: Json
+          book_id?: string
+          created_at?: string
+          id?: string
+          name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_v2_character_bibles_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coloring_v2_page_plans: {
+        Row: {
+          action: string | null
+          book_id: string
+          continuity: string | null
+          created_at: string
+          detail_target: string | null
+          fact: string | null
+          fingerprint: string
+          focal_subject: string
+          forbidden: string | null
+          framing: string | null
+          id: string
+          page_number: number
+          prompt: string
+          purpose: string
+          scene: string
+          supporting: string | null
+        }
+        Insert: {
+          action?: string | null
+          book_id: string
+          continuity?: string | null
+          created_at?: string
+          detail_target?: string | null
+          fact?: string | null
+          fingerprint: string
+          focal_subject: string
+          forbidden?: string | null
+          framing?: string | null
+          id?: string
+          page_number: number
+          prompt: string
+          purpose: string
+          scene: string
+          supporting?: string | null
+        }
+        Update: {
+          action?: string | null
+          book_id?: string
+          continuity?: string | null
+          created_at?: string
+          detail_target?: string | null
+          fact?: string | null
+          fingerprint?: string
+          focal_subject?: string
+          forbidden?: string | null
+          framing?: string | null
+          id?: string
+          page_number?: number
+          prompt?: string
+          purpose?: string
+          scene?: string
+          supporting?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_v2_page_plans_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coloring_v2_pdf_artifacts: {
+        Row: {
+          book_id: string
+          created_at: string
+          id: string
+          is_final: boolean
+          page_count: number | null
+          sha256: string | null
+          size_bytes: number | null
+          storage_path: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          id?: string
+          is_final?: boolean
+          page_count?: number | null
+          sha256?: string | null
+          size_bytes?: number | null
+          storage_path: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          id?: string
+          is_final?: boolean
+          page_count?: number | null
+          sha256?: string | null
+          size_bytes?: number | null
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_v2_pdf_artifacts_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coloring_v2_provider_calls: {
+        Row: {
+          book_id: string
+          cost_usd: number
+          created_at: string
+          error_message: string | null
+          id: string
+          input_hash: string | null
+          latency_ms: number | null
+          meta: Json
+          model: string
+          output_hash: string | null
+          prompt_version: string | null
+          provider: string
+          purpose: string
+          seed: number | null
+          step_id: string | null
+          success: boolean
+        }
+        Insert: {
+          book_id: string
+          cost_usd?: number
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          input_hash?: string | null
+          latency_ms?: number | null
+          meta?: Json
+          model: string
+          output_hash?: string | null
+          prompt_version?: string | null
+          provider: string
+          purpose: string
+          seed?: number | null
+          step_id?: string | null
+          success?: boolean
+        }
+        Update: {
+          book_id?: string
+          cost_usd?: number
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          input_hash?: string | null
+          latency_ms?: number | null
+          meta?: Json
+          model?: string
+          output_hash?: string | null
+          prompt_version?: string | null
+          provider?: string
+          purpose?: string
+          seed?: number | null
+          step_id?: string | null
+          success?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_v2_provider_calls_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coloring_v2_provider_calls_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_steps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coloring_v2_qc_findings: {
+        Row: {
+          book_id: string
+          created_at: string
+          evidence_path: string | null
+          id: string
+          measured: Json
+          page_number: number | null
+          qc_run_id: string
+          repair_action: string | null
+          retry_count: number
+          rule_id: string
+          severity: string
+          threshold: Json
+          verified: boolean | null
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          evidence_path?: string | null
+          id?: string
+          measured?: Json
+          page_number?: number | null
+          qc_run_id: string
+          repair_action?: string | null
+          retry_count?: number
+          rule_id: string
+          severity: string
+          threshold?: Json
+          verified?: boolean | null
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          evidence_path?: string | null
+          id?: string
+          measured?: Json
+          page_number?: number | null
+          qc_run_id?: string
+          repair_action?: string | null
+          retry_count?: number
+          rule_id?: string
+          severity?: string
+          threshold?: Json
+          verified?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_v2_qc_findings_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coloring_v2_qc_findings_qc_run_id_fkey"
+            columns: ["qc_run_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_qc_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coloring_v2_qc_runs: {
+        Row: {
+          book_id: string
+          completed_at: string | null
+          id: string
+          meta: Json
+          overall_score: number | null
+          page_number: number | null
+          scope: string
+          started_at: string
+          status: string
+          typography_score: number | null
+        }
+        Insert: {
+          book_id: string
+          completed_at?: string | null
+          id?: string
+          meta?: Json
+          overall_score?: number | null
+          page_number?: number | null
+          scope: string
+          started_at?: string
+          status?: string
+          typography_score?: number | null
+        }
+        Update: {
+          book_id?: string
+          completed_at?: string | null
+          id?: string
+          meta?: Json
+          overall_score?: number | null
+          page_number?: number | null
+          scope?: string
+          started_at?: string
+          status?: string
+          typography_score?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_v2_qc_runs_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coloring_v2_repairs: {
+        Row: {
+          after_asset_id: string | null
+          before_asset_id: string | null
+          book_id: string
+          cost_usd: number
+          created_at: string
+          finding_id: string | null
+          id: string
+          page_number: number | null
+          strategy: string
+          success: boolean | null
+        }
+        Insert: {
+          after_asset_id?: string | null
+          before_asset_id?: string | null
+          book_id: string
+          cost_usd?: number
+          created_at?: string
+          finding_id?: string | null
+          id?: string
+          page_number?: number | null
+          strategy: string
+          success?: boolean | null
+        }
+        Update: {
+          after_asset_id?: string | null
+          before_asset_id?: string | null
+          book_id?: string
+          cost_usd?: number
+          created_at?: string
+          finding_id?: string | null
+          id?: string
+          page_number?: number | null
+          strategy?: string
+          success?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_v2_repairs_after_asset_id_fkey"
+            columns: ["after_asset_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coloring_v2_repairs_before_asset_id_fkey"
+            columns: ["before_asset_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coloring_v2_repairs_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coloring_v2_repairs_finding_id_fkey"
+            columns: ["finding_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_qc_findings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coloring_v2_runs: {
+        Row: {
+          book_id: string
+          completed_at: string | null
+          cost_usd: number
+          id: string
+          notes: string | null
+          started_at: string
+          status: string
+        }
+        Insert: {
+          book_id: string
+          completed_at?: string | null
+          cost_usd?: number
+          id?: string
+          notes?: string | null
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          book_id?: string
+          completed_at?: string | null
+          cost_usd?: number
+          id?: string
+          notes?: string | null
+          started_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_v2_runs_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coloring_v2_steps: {
+        Row: {
+          attempt: number
+          book_id: string
+          completed_at: string | null
+          cost_usd: number
+          created_at: string
+          error_message: string | null
+          id: string
+          input_hash: string | null
+          meta: Json
+          output_hash: string | null
+          run_id: string
+          started_at: string | null
+          status: string
+          step_name: string
+        }
+        Insert: {
+          attempt?: number
+          book_id: string
+          completed_at?: string | null
+          cost_usd?: number
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          input_hash?: string | null
+          meta?: Json
+          output_hash?: string | null
+          run_id: string
+          started_at?: string | null
+          status?: string
+          step_name: string
+        }
+        Update: {
+          attempt?: number
+          book_id?: string
+          completed_at?: string | null
+          cost_usd?: number
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          input_hash?: string | null
+          meta?: Json
+          output_hash?: string | null
+          run_id?: string
+          started_at?: string | null
+          status?: string
+          step_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_v2_steps_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coloring_v2_steps_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "coloring_v2_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coloring_v2_storefront_packages: {
+        Row: {
+          age_tags: string[] | null
+          book_id: string
+          cover_thumb_path: string | null
+          created_at: string
+          hook: string | null
+          id: string
+          keywords: string[] | null
+          long_description: string | null
+          page_count_verified: number | null
+          parent_benefits: string | null
+          preview_paths: string[] | null
+          product_subtitle: string | null
+          product_title: string | null
+          series_suggestions: string[] | null
+          short_description: string | null
+          suggested_price_usd: number | null
+          theme_tags: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          age_tags?: string[] | null
+          book_id: string
+          cover_thumb_path?: string | null
+          created_at?: string
+          hook?: string | null
+          id?: string
+          keywords?: string[] | null
+          long_description?: string | null
+          page_count_verified?: number | null
+          parent_benefits?: string | null
+          preview_paths?: string[] | null
+          product_subtitle?: string | null
+          product_title?: string | null
+          series_suggestions?: string[] | null
+          short_description?: string | null
+          suggested_price_usd?: number | null
+          theme_tags?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          age_tags?: string[] | null
+          book_id?: string
+          cover_thumb_path?: string | null
+          created_at?: string
+          hook?: string | null
+          id?: string
+          keywords?: string[] | null
+          long_description?: string | null
+          page_count_verified?: number | null
+          parent_benefits?: string | null
+          preview_paths?: string[] | null
+          product_subtitle?: string | null
+          product_title?: string | null
+          series_suggestions?: string[] | null
+          short_description?: string | null
+          suggested_price_usd?: number | null
+          theme_tags?: string[] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_v2_storefront_packages_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: true
+            referencedRelation: "coloring_v2_books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coloring_v2_style_bibles: {
+        Row: {
+          bible: Json
+          book_id: string
+          created_at: string
+          id: string
+        }
+        Insert: {
+          bible: Json
+          book_id: string
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          bible?: Json
+          book_id?: string
+          created_at?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coloring_v2_style_bibles_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: true
+            referencedRelation: "coloring_v2_books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cost_log: {
         Row: {
           cost_usd: number
