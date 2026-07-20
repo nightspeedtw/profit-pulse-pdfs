@@ -128,9 +128,13 @@ async function activateCampaign(db: any, c: Campaign) {
       MIN_PRICE_CENTS,
       Number(pp?.regular_price_cents ?? b.price_cents ?? 999),
     );
-    // Owner law: campaign discounts are always in the 50–65% band.
+    // Owner law: campaign discounts are randomized per product in the 50–60% band.
     const HARD_CEILING_CENTS = 500;
-    const clampedPct = Math.min(65, Math.max(50, c.discount_pct));
+    // Deterministic per-product jitter (50..60 inclusive) so prices stay stable across ticks.
+    const seed = `${c.id}:${b.id}`;
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+    const clampedPct = 50 + (h % 11); // 50..60
     const floor = Math.max(MIN_PRICE_CENTS, c.min_price_floor_cents || MIN_PRICE_CENTS);
     let campaignPrice = Math.max(
       floor,
