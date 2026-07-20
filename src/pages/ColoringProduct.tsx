@@ -462,6 +462,16 @@ export default function ColoringProduct() {
         </section>
       )}
 
+      {/* ── Complete-the-set bundle (auto, discounted) ──────────────── */}
+      <CompleteTheSetBundle
+        ebookId={book.id}
+        ebookTitle={book.title || "This book"}
+        ebookPriceCents={priceCents}
+        ebookCoverUrl={book.cover_url}
+        siblings={siblings}
+      />
+
+
       {/* ── Cross-sell rail ─────────────────────────────────────────── */}
       {siblings.length > 0 && (
         <section className="container max-w-5xl py-8 border-t-2 border-border">
