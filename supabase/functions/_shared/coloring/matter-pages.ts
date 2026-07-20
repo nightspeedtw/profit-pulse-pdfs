@@ -505,6 +505,8 @@ export function drawColoringCertificatePage(
       color: c(P.ink), align: "center",
     });
   }
+
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
 }
 
 // defaultCopyrightText + MATTER_PAGES_DESIGN_VERSION are re-exported from
