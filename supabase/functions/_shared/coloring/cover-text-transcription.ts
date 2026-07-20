@@ -69,15 +69,15 @@ export function tokenize(s: string): string[] {
 // via the SecretPDF Kids logo footer if the model bakes it in.
 const CHROME_TOKENS = new Set(["secretpdf", "kids", "the", "a", "an"]);
 
-// OWNER LAW `no_popups_v5` (2026-07-21):
-//   These tokens are the exact words that the retired chip/ribbon/banner
-//   overlays used to draw. If Ideogram bakes any of them into a cover, that
-//   cover is REJECTED even in modes that would otherwise accept the token
-//   (e.g. when the title itself contains a permitted subword). This prevents
-//   the popup words from ever coming back through the AI layer.
+// OWNER LAW `cover_bake_only_v6` (2026-07-21):
+//   These tokens are chip/ribbon/banner words that must NEVER appear baked
+//   into the illustration. Ideogram is allowed to bake ONLY the exact title
+//   plus the small "Ages X-Y" mark — nothing else. Note: "ages"/"age" are
+//   no longer banned because the age mark is now required baked art; a
+//   duplicate age mark is caught separately via `countAgeBadges`.
 const HARD_BANNED_COVER_TOKENS = new Set([
   "sale", "new", "free", "best", "bonus", "hot", "top", "premium", "off",
-  "coloring", "book", "books", "ages", "age", "kid", "kids",
+  "coloring", "book", "books",
   "page", "pages", "chapter", "vol", "volume",
   "look", "inside", "preview", "sample",
   "publisher", "publishing", "presents", "author", "by",
