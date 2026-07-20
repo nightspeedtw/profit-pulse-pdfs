@@ -21,6 +21,10 @@ import CompleteTheSetBundle from "@/components/product/CompleteTheSetBundle";
 import FlipbookPreview from "@/components/product/FlipbookPreview";
 import ReviewSummary from "@/components/product/ReviewSummary";
 import { ensureColoringLabel } from "@/lib/coloring-title";
+import { useActiveCampaign } from "@/hooks/useActiveCampaign";
+import { useSuggestedBundle } from "@/hooks/useSuggestedBundle";
+import { CampaignRibbon } from "@/components/kids/CampaignRibbon";
+import { BundleUpsellCard } from "@/components/kids/BundleUpsellCard";
 
 interface Row {
   id: string;
