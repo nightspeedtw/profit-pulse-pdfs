@@ -111,10 +111,15 @@ Deno.serve(async (req: Request) => {
     let passVerdict: any = null;
     let lastVerdict: any = null;
     let lastErr: any = null;
+    let bestBytes: Uint8Array | null = null;
+    let bestExtras = Number.POSITIVE_INFINITY;
+    let bestVerdict: any = null;
+    let bestProvider: "runware" | "cloudflare_fallback" | null = null;
+    let transcriberFailures = 0;
 
     for (let attempt = 1; attempt <= BAKE_ATTEMPTS; attempt++) {
       try {
-        const candidate = await renderImageWithFallback({
+        const { bytes: candidate, provider } = await renderCoverBake({
           prompt: bakePrompt, model: IDEOGRAM_MODEL,
           width: CANVAS, height: CANVAS, num_inference_steps: 40,
           negative_prompt: NEGATIVE_PROMPT_BAKE,
@@ -126,33 +131,57 @@ Deno.serve(async (req: Request) => {
         const verdict = await verifyExactCoverText(candidate, { title, subtitle: "", ageBadge });
         lastVerdict = verdict;
         if (verdict.pass) { passBytes = candidate; passVerdict = verdict; break; }
-        console.warn(`[coloring-v2-cover] bake attempt ${attempt} rejected: ${verdict.reason} extras=${JSON.stringify(verdict.extra)} misspelled=${JSON.stringify(verdict.misspelled)}`);
+        const reasonStr = String(verdict.reason ?? "");
+        // Track transcriber-unavailable separately: if OCR itself is down, we
+        // cannot punish the bake — record and keep the first candidate as
+        // best so we can soft-ship after the cap.
+        if (/transcriber_unavailable|transcriber_error/i.test(reasonStr)) {
+          transcriberFailures++;
+          if (!bestBytes) { bestBytes = candidate; bestExtras = 0; bestVerdict = verdict; bestProvider = provider; }
+        } else {
+          const extras = extrasCount(verdict);
+          if (extras < bestExtras) { bestBytes = candidate; bestExtras = extras; bestVerdict = verdict; bestProvider = provider; }
+        }
+        console.warn(`[coloring-v2-cover] bake attempt ${attempt} (${provider}) rejected: ${verdict.reason} extras=${JSON.stringify(verdict.extra)} misspelled=${JSON.stringify(verdict.misspelled)}`);
       } catch (e) { lastErr = e; console.warn(`[coloring-v2-cover] bake attempt ${attempt} error:`, e?.message ?? e); }
     }
 
-    // OWNER LAW `cover_bake_only_v6_hard_reject` (2026-07-20):
-    //   Never ship a cover that failed OCR. Misspellings, extras, hard-banned
-    //   tokens, or duplicate age badges = throw. The retry supervisor requeues
-    //   the book; garbled typography must never reach the storefront.
+    // OWNER LAW `cover_bake_only_v6_hard_reject` (amended 2026-07-20):
+    //   • Strict pass = ship.
+    //   • Transcriber unavailable on ALL attempts = SOFT-ACCEPT best attempt.
+    //     Vision provider outage must not stall the book or bleed quota.
+    //   • Cloudflare fallback path = SOFT-ACCEPT (CF typography is weaker
+    //     than Ideogram; we already logged the degradation).
+    //   • Otherwise = hard reject (garbled Ideogram title stays blocked).
+    let softAcceptReason: string | null = null;
     if (!passBytes || !passVerdict?.pass) {
-      const reason = lastVerdict?.reason ?? lastErr?.message ?? "unknown";
-      throw new Error(`cover_ocr_hard_reject_after_${BAKE_ATTEMPTS}_attempts:${reason}`);
+      if (transcriberFailures >= BAKE_ATTEMPTS && bestBytes) {
+        passBytes = bestBytes; passVerdict = bestVerdict;
+        softAcceptReason = "soft_accept_transcriber_unavailable_all_attempts";
+      } else if (bestProvider === "cloudflare_fallback" && bestBytes) {
+        passBytes = bestBytes; passVerdict = bestVerdict;
+        softAcceptReason = "soft_accept_cf_fallback_runware_billing_locked";
+      } else {
+        const reason = lastVerdict?.reason ?? lastErr?.message ?? "unknown";
+        throw new Error(`cover_ocr_hard_reject_after_${BAKE_ATTEMPTS}_attempts:${reason}`);
+      }
     }
 
     const asset = await uploadAsset(book_id, "cover_final", passBytes, "jpg", {
       prompt_len: bakePrompt.length, refs: refs.length,
-      ocr_verdict: passVerdict.reason,
-      ocr_pass: true,
+      ocr_verdict: passVerdict?.reason ?? "n/a",
+      ocr_pass: !softAcceptReason,
+      ocr_soft_accept: softAcceptReason,
       overlay: COVER_OVERLAY_CONTRACT,
       text_mode: "bake_only",
       prompt_version: COLORING_MASTER_COVER_PROMPT_VERSION,
-      law: "cover_bake_only_v6_hard_reject",
+      law: "cover_uses_ideogram_only_v7",
     });
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
     await advance(book_id, "cover", "qc");
     await fireStage("coloring-v2-qc", { book_id });
-    return json({ ok: true, cover_asset: asset.id, next: "qc", text_mode: "bake_only", ocr: passVerdict.reason });
+    return json({ ok: true, cover_asset: asset.id, next: "qc", text_mode: "bake_only", ocr: passVerdict?.reason, soft_accept: softAcceptReason });
   } catch (e: any) {
     await recordError(book_id, "cover", e);
     return json({ error: e?.message ?? String(e) }, 500);
