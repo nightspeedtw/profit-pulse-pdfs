@@ -104,8 +104,8 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
           </div>
         )}
         {pricing.discountPct != null && pricing.discountPct >= 20 && (
-          <span className="absolute top-2 left-2 z-10 rounded-sm bg-background/95 backdrop-blur-sm px-1.5 py-0.5 text-[11px] font-semibold text-foreground shadow-sm">
-            Sale
+          <span className="absolute top-2 left-2 z-10 rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white shadow-md">
+            Save {pricing.discountPct}%
           </span>
         )}
       </div>
