@@ -116,6 +116,11 @@ export default function Kids() {
       .filter((b) => (q ? b.title.toLowerCase().includes(q) : true));
   }, [kidsEligible, type, subcategory, age, query]);
 
+  // Marketing Autopilot Phase 1: batch-fetch authoritative prices for
+  // whatever is currently visible so cards render `product_pricing` values.
+  const visibleIds = useMemo(() => filtered.map((b) => b.id), [filtered]);
+  const resolvedPrices = useResolvedKidsPrices(visibleIds);
+
   const scrollToCatalog = () => {
     catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -201,6 +206,7 @@ export default function Kids() {
                   }}
                   themes={themes}
                   index={i}
+                  resolvedPrice={resolvedPrices[b.id]}
                   onPreview={() => {
                     const previews = (b.storefront_meta as { preview_urls?: string[] } | null)?.preview_urls ?? [];
                     setPreviewBook({
