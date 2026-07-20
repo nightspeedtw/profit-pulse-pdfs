@@ -3,12 +3,12 @@ import { useSearchParams } from "react-router-dom";
 import { Loader2, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import KidsHeroCompact from "@/components/kids/KidsHeroCompact";
-import KidsCategoryStrip from "@/components/kids/KidsCategoryStrip";
 import { KidsBookCard, type KidsBookCardData } from "@/components/kids/KidsBookCard";
 import { KidsSectionNav } from "@/components/kids/KidsSectionNav";
 import { PreviewLightbox } from "@/components/kids/PreviewLightbox";
 import { resolveAgeChip, bookMatchesAgeChip, bookIsForKids } from "@/lib/kidsCatalogTaxonomy";
-import { bookMatchesType, type KidsTypeSlug } from "@/lib/kidsBookTypes";
+import { bookMatchesType } from "@/lib/kidsBookTypes";
+import type { KidsTypeSlug } from "@/lib/kidsBookTypes";
 import { listThemes, type KidsTheme } from "@/lib/kidsTaxonomy";
 
 interface RawBook {
@@ -117,10 +117,6 @@ export default function Kids() {
     catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const onCategorySelect = (slug: KidsTypeSlug) => {
-    updateFilters({ type: slug, subcategory: null, age });
-    setTimeout(scrollToCatalog, 40);
-  };
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -138,7 +134,7 @@ export default function Kids() {
       <KidsSectionNav />
 
       <div className="sticky top-[8rem] z-30 border-b border-border/60 bg-background/95 backdrop-blur">
-        <div className="mx-auto max-w-6xl px-4 py-3">
+        <div className="mx-auto max-w-[1600px] px-4 py-3">
           <div className="relative">
             <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-muted-foreground">
               <Search className="h-4 w-4" aria-hidden="true" />
@@ -160,13 +156,12 @@ export default function Kids() {
       </div>
 
       <KidsHeroCompact onCtaClick={scrollToCatalog} />
-      <KidsCategoryStrip books={kidsEligible} activeType={type} onSelect={onCategorySelect} />
 
-      <div ref={catalogRef} className="max-w-6xl mx-auto px-4 pt-4 text-xs font-mono uppercase tracking-widest text-muted-foreground">
+      <div ref={catalogRef} className="mx-auto max-w-[1600px] px-4 pt-4 text-xs font-mono uppercase tracking-widest text-muted-foreground">
         {filtered.length} {filtered.length === 1 ? "book" : "books"}
       </div>
 
-      <section aria-label="Kids book catalog" className="mx-auto max-w-6xl px-4 py-6 md:py-10">
+      <section aria-label="Kids book catalog" className="mx-auto max-w-[1600px] px-4 py-6 md:py-10">
         {loading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-8 w-8 animate-spin text-accent" />
@@ -174,7 +169,7 @@ export default function Kids() {
         ) : filtered.length === 0 ? (
           <EmptyState onClear={() => updateFilters({ type: null, subcategory: null, age: null })} />
         ) : (
-          <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+          <ul className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6">
             {filtered.map((b, i) => (
               <li key={b.id}>
                 <KidsBookCard

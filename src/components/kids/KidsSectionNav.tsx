@@ -1,6 +1,10 @@
+import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
+import { SlidersHorizontal, X } from "lucide-react";
 import { KIDS_MAIN_TYPES, type KidsTypeSlug } from "@/lib/kidsBookTypes";
 import { AGE_CHIPS } from "@/lib/kidsCatalogTaxonomy";
+
+const FILTERS_STORAGE_KEY = "kids.filters.open";
 
 /**
  * Kids sticky header filter bar (owner spec 2026-07-21).
@@ -46,49 +50,78 @@ export function KidsSectionNav() {
         : "bg-muted text-foreground hover:bg-muted/70"
     }`;
 
+  const [open, setOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const v = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+    return v === null ? true : v === "1";
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(FILTERS_STORAGE_KEY, open ? "1" : "0");
+    }
+  }, [open]);
+
   return (
     <nav
       aria-label="Kids catalog filters"
       className="w-full border-b border-border bg-background/95 backdrop-blur sticky top-16 z-30"
     >
-      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-2 overflow-x-auto scrollbar-none">
-        <button
-          type="button"
-          onClick={() => setFilter("age", null)}
-          className={chipCls((activeAge || "all") === "all")}
-          aria-pressed={(activeAge || "all") === "all"}
-        >
-          All ages
-        </button>
-        {AGE_CHIPS.filter((a) => a.slug !== "all").map((a) => (
+      <div className="mx-auto max-w-[1600px] px-4 py-3">
+        <div className="flex items-center gap-3">
           <button
-            key={a.slug}
             type="button"
-            onClick={() => setFilter("age", a.slug)}
-            className={chipCls((activeAge || "all") === a.slug)}
-            aria-pressed={(activeAge || "all") === a.slug}
+            onClick={() => setOpen((v) => !v)}
+            aria-pressed={open}
+            aria-expanded={open}
+            className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:opacity-90 shrink-0"
           >
-            {a.short}
+            {open ? <X className="h-4 w-4" aria-hidden="true" /> : <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />}
+            {open ? "Hide filters" : "Show filters"}
           </button>
-        ))}
 
-        <span className="mx-2 h-5 w-px bg-border shrink-0" />
+          {open && (
+            <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
+              <button
+                type="button"
+                onClick={() => setFilter("age", null)}
+                className={chipCls((activeAge || "all") === "all")}
+                aria-pressed={(activeAge || "all") === "all"}
+              >
+                All ages
+              </button>
+              {AGE_CHIPS.filter((a) => a.slug !== "all").map((a) => (
+                <button
+                  key={a.slug}
+                  type="button"
+                  onClick={() => setFilter("age", a.slug)}
+                  className={chipCls((activeAge || "all") === a.slug)}
+                  aria-pressed={(activeAge || "all") === a.slug}
+                >
+                  {a.short}
+                </button>
+              ))}
 
-        <button type="button" onClick={() => setFilter("type", null)} className={chipCls(!activeType)}>
-          All types
-        </button>
-        {KIDS_MAIN_TYPES.map((t) => (
-          <button
-            key={t.slug}
-            type="button"
-            onClick={() => setFilter("type", t.slug)}
-            className={chipCls(activeType === t.slug)}
-            aria-pressed={activeType === t.slug}
-            title={t.th}
-          >
-            {t.label}
-          </button>
-        ))}
+              <span className="mx-2 h-5 w-px bg-border shrink-0" />
+
+              <button type="button" onClick={() => setFilter("type", null)} className={chipCls(!activeType)}>
+                All types
+              </button>
+              {KIDS_MAIN_TYPES.map((t) => (
+                <button
+                  key={t.slug}
+                  type="button"
+                  onClick={() => setFilter("type", t.slug)}
+                  className={chipCls(activeType === t.slug)}
+                  aria-pressed={activeType === t.slug}
+                  title={t.th}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </nav>
   );
