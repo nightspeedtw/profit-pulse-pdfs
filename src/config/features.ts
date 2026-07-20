@@ -23,7 +23,7 @@ export const FEATURES = {
   // /coloring-preview-v2/:bookId. Does not affect the existing coloring
   // lane in any way when off OR on (V2 uses its own tables, functions,
   // storage bucket, status columns, and cron/lock names).
-  ENABLE_COLORING_LANE_V2: false,
+  ENABLE_COLORING_LANE_V2: true,
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;
