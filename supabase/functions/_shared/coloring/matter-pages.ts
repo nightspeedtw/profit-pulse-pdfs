@@ -225,15 +225,15 @@ export function drawColoringCopyrightPage(
   ctx: MatterContext,
   opts: { legalText: string },
 ) {
-  const { page, pageW, pageH, style, font, vignettes } = ctx;
+  const { page, pageW, pageH, style, font, fontBold, vignettes, logo } = ctx;
   const P = style.palette;
 
   drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: 28 });
 
-  // Top decoration: large greyed vignette fills the upper 55% at low opacity.
+  // Top decoration: large greyed vignette fills the upper 45% at low opacity.
   if (vignettes && vignettes.length > 0) {
     const img = vignettes[0];
-    const zone = { x: 60, y: pageH * 0.42, w: pageW - 120, h: pageH * 0.48 };
+    const zone = { x: 60, y: pageH * 0.48, w: pageW - 120, h: pageH * 0.40 };
     const iw = img.width, ih = img.height;
     const scale = Math.min(zone.w / iw, zone.h / ih);
     const w = iw * scale, h = ih * scale;
@@ -260,23 +260,38 @@ export function drawColoringCopyrightPage(
     }
   }
 
-  // Legal text at bottom quarter, small.
-  const boxX = 70, boxY = 70, boxW = pageW - 140, boxH = pageH * 0.28;
+  // Legal box at bottom half
+  const boxX = 70, boxY = 70, boxW = pageW - 140, boxH = pageH * 0.36;
   page.drawRectangle({
     x: boxX, y: boxY, width: boxW, height: boxH,
-    color: rgb(1, 1, 1), opacity: 0.9,
+    color: rgb(1, 1, 1), opacity: 0.92,
     borderColor: c(P.primary), borderWidth: 0.8,
   });
+
+  // SecretPDF brand logo centered at the top of the legal panel
+  let textTopPad = 22;
+  if (logo) {
+    const maxLogoW = boxW * 0.52;
+    const maxLogoH = 54;
+    const scale = Math.min(maxLogoW / logo.width, maxLogoH / logo.height);
+    const lw = logo.width * scale, lh = logo.height * scale;
+    const lx = boxX + (boxW - lw) / 2;
+    const ly = boxY + boxH - lh - 12;
+    page.drawImage(logo, { x: lx, y: ly, width: lw, height: lh });
+    textTopPad = lh + 22;
+  }
+
   drawFitParagraph(page, {
     text: opts.legalText,
-    x: boxX + 18, y: boxY + boxH - 22,
+    x: boxX + 18, y: boxY + boxH - textTopPad,
     maxWidth: boxW - 36,
-    maxHeight: boxH - 30,
+    maxHeight: boxH - textTopPad - 12,
     font, size: style.tinyPt, minSize: 7,
     color: c(P.ink),
     lineHeightFactor: 1.45,
   });
 }
+
 
 /** "How to Use" page: numbered list with tiny icons + "test corner" swatch box. */
 export function drawColoringHowToPage(
