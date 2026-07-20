@@ -21,14 +21,17 @@ Deno.serve(async (req: Request) => {
       .select("storage_path").eq("id", book.approved_cover_asset_id).single();
     if (coverErr) throw coverErr;
 
-    // Interior assets in page order
-    const { data: interiors, error: intErr } = await db().from("coloring_v2_assets")
-      .select("storage_path, page_number").eq("book_id", book_id).eq("kind", "interior")
-      .order("page_number", { ascending: true });
+    // Interior assets — pick latest per page_number, cap to page_count
+    const { data: allInteriors, error: intErr } = await db().from("coloring_v2_assets")
+      .select("storage_path, page_number, created_at").eq("book_id", book_id).eq("kind", "interior")
+      .order("created_at", { ascending: false });
     if (intErr) throw intErr;
-    if (!interiors || interiors.length !== book.page_count) {
-      throw new Error(`pdf: expected ${book.page_count} interiors, got ${interiors?.length ?? 0}`);
-    }
+    const byPage = new Map<number, { storage_path: string; page_number: number }>();
+    for (const r of (allInteriors ?? [])) if (!byPage.has(r.page_number)) byPage.set(r.page_number, r);
+    const interiors = Array.from(byPage.values()).sort((a, b) => a.page_number - b.page_number);
+    const missing: number[] = [];
+    for (let p = 1; p <= book.page_count; p++) if (!byPage.has(p)) missing.push(p);
+    if (missing.length) throw new Error(`pdf: missing pages ${missing.join(",")}`);
 
     const pdf = await PDFDocument.create();
     pdf.setTitle(book.title ?? "Coloring Book");
