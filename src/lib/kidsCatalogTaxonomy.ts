@@ -59,6 +59,17 @@ export const AGE_BANDS: AgeBand[] = [
 // hidden from /kids entirely (adults/seniors get their own storefront).
 export const KIDS_AGE_CEILING = 17;
 
+/** Parse a stored age_band string like "6-8" / "6_8" / "13-17" into numeric bounds. */
+function parseAgeBandRange(band: string | null | undefined): { min: number; max: number } | null {
+  if (!band) return null;
+  const m = band.match(/(\d+)\s*[-_–]\s*(\d+)/);
+  if (!m) return null;
+  const min = Number(m[1]);
+  const max = Number(m[2]);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+  return { min, max };
+}
+
 /** True if the book (age_min..age_max) matches the given chip via overlap. */
 export function bookMatchesAgeChip(
   book: { age_min?: number | null; age_max?: number | null; age_band?: string | null },
@@ -68,12 +79,18 @@ export function bookMatchesAgeChip(
   const isAllAgesBand = (book.age_band ?? "").toLowerCase() === "all_ages"
     || (book.age_min === 2 && book.age_max === 99);
   if (chip.kind === "all_ages") return isAllAgesBand;
-  // Explicit range chip: all_ages products stay in the All Ages bucket only.
   if (isAllAgesBand) return false;
-  if (book.age_min == null || book.age_max == null) return false;
+  // Fall back to parsing age_band when numeric range is missing — most
+  // published books carry only the band string.
+  let bookMin = book.age_min;
+  let bookMax = book.age_max;
+  if (bookMin == null || bookMax == null) {
+    const parsed = parseAgeBandRange(book.age_band);
+    if (parsed) { bookMin = parsed.min; bookMax = parsed.max; }
+  }
+  if (bookMin == null || bookMax == null) return false;
   if (chip.min == null || chip.max == null) return false;
-  // Range overlap (inclusive): a<=D && C<=b
-  return book.age_min <= chip.max && chip.min <= book.age_max;
+  return bookMin <= chip.max && chip.min <= bookMax;
 }
 
 /** True if the book belongs on the /kids storefront (age_max <= ceiling or all_ages). */
