@@ -386,6 +386,8 @@ export default function ColoringProduct() {
             ageMax={ageMax}
             categoryName={categoryName}
           />
+
+          {suggestedBundle && <BundleUpsellCard bundle={suggestedBundle} />}
         </div>
       </section>
 
