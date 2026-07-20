@@ -44,10 +44,21 @@ export default function RoyaltyConfig() {
   const [loading, setLoading] = useState(true);
   const [cfgs, setCfgs] = useState<Cfg[]>([]);
   const [ledger, setLedger] = useState<Ledger[]>([]);
+export default function RoyaltyConfig() {
+  const [live, setLive] = useState(false);
+  const [payoutsLive, setPayoutsLive] = useState(false);
+  const [kycRequired, setKycRequired] = useState(true);
+  const [minPayoutUsd, setMinPayoutUsd] = useState(50);
+  const [loading, setLoading] = useState(true);
+  const [cfgs, setCfgs] = useState<Cfg[]>([]);
+  const [ledger, setLedger] = useState<Ledger[]>([]);
+  const [kycRows, setKycRows] = useState<KycRow[]>([]);
+  const [payoutRows, setPayoutRows] = useState<PayoutRow[]>([]);
   const [addBookId, setAddBookId] = useState("");
   const [addKind, setAddKind] = useState<"kids" | "adult" | "coloring_v2">("kids");
   const [accrueOrderId, setAccrueOrderId] = useState("");
   const [running, setRunning] = useState(false);
+
 
   async function load() {
     setLoading(true);
