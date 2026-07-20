@@ -128,10 +128,15 @@ async function activateCampaign(db: any, c: Campaign) {
       MIN_PRICE_CENTS,
       Number(pp?.regular_price_cents ?? b.price_cents ?? 999),
     );
-    const campaignPrice = Math.max(
-      Math.max(MIN_PRICE_CENTS, c.min_price_floor_cents),
+    // Owner cap: no campaign price above $5, even after discount.
+    const HARD_CEILING_CENTS = 500;
+    const floor = Math.max(MIN_PRICE_CENTS, c.min_price_floor_cents || MIN_PRICE_CENTS);
+    let campaignPrice = Math.max(
+      floor,
       Math.round(regular * (1 - c.discount_pct / 100)),
     );
+    campaignPrice = Math.min(campaignPrice, HARD_CEILING_CENTS);
+    if (campaignPrice < floor) campaignPrice = floor;
     if (campaignPrice >= regular) continue; // No effective discount — skip.
 
     const validFrom = c.starts_at;
