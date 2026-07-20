@@ -70,16 +70,15 @@ Deno.serve(async (req: Request) => {
           purpose: `cover_a${attempt}`,
           prompt_version: PROMPT_VERSION,
         });
-        // Whole-cover OCR gate.
-        const verdict = await verifyExactCoverText(candidate, { title, subtitle, ageBadge });
+        // Whole-cover OCR gate. Owner law (2026-07-20): Ideogram bakes ONLY
+        // title (+ optional subtitle). Any age tokens, ribbon text, or other
+        // extras are treated as baked gibberish and rejected — the age pill
+        // and SALE ribbon are drawn deterministically by the overlay below.
+        const verdict = await verifyExactCoverText(candidate, { title, subtitle, ageBadge: "" });
         lastVerdict = verdict;
         if (verdict.pass || verdict.degraded) {
-          // degraded = OCR unavailable. Only accept degraded on the LAST
-          // attempt so we don't ship gibberish silently when the transcriber
-          // has a transient hiccup on earlier attempts.
           if (verdict.pass || attempt === MAX_ATTEMPTS) { bytes = candidate; break; }
         }
-        // Fail — log and retry with a fresh seed.
         console.warn(`[coloring-v2-cover] attempt ${attempt} rejected: ${verdict.reason}; extras=${JSON.stringify(verdict.extra)} dup_badge=${verdict.duplicate_age_badge}`);
       } catch (e) { lastErr = e; }
     }
@@ -90,8 +89,22 @@ Deno.serve(async (req: Request) => {
       throw new Error(reason);
     }
 
-    const asset = await uploadAsset(book_id, "cover_final", bytes, "jpg",
-      { prompt_len: prompt.length, refs: refs.length, ocr_verdict: lastVerdict?.reason ?? null });
+    // Deterministic overlay: SALE ribbon (top-right) + AGES pill (bottom-left).
+    // The baked art carries ONLY the title, so this cannot produce gibberish.
+    let composited = bytes;
+    try {
+      const overlayPng = await renderPremiumCoverOverlayPng({
+        width: CANVAS, height: CANVAS,
+        ageBadge: ageBadge, ribbonText: "SALE", showRibbon: true,
+      });
+      composited = await compositeOverlayOntoArt(bytes, overlayPng);
+    } catch (overlayErr: any) {
+      console.warn(`[coloring-v2-cover] overlay failed, shipping raw art: ${overlayErr?.message}`);
+    }
+
+    const asset = await uploadAsset(book_id, "cover_final", composited, "jpg",
+      { prompt_len: prompt.length, refs: refs.length, ocr_verdict: lastVerdict?.reason ?? null,
+        overlay: "premium_cover_overlay_v1", prompt_version: PROMPT_VERSION });
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
     await advance(book_id, "cover", "qc");
