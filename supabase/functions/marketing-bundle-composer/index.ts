@@ -31,7 +31,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: books, error } = await db
     .from("ebooks_kids")
-    .select("id, title, book_type, age_min, age_max, price_cents, cover_url, category_slug, created_at")
+    .select("id, title, book_type, age_min, age_max, price_cents, cover_url, created_at")
     .eq("listing_status", "live")
     .eq("sellable", true)
     .not("cover_url", "is", null)
