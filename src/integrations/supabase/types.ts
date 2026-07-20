@@ -5841,6 +5841,54 @@ export type Database = {
         }
         Relationships: []
       }
+      roy_kyc_submissions: {
+        Row: {
+          created_at: string
+          id: string
+          metadata: Json
+          provider: string
+          provider_ref: string | null
+          rejection_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          submitted_at: string | null
+          tier: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          metadata?: Json
+          provider?: string
+          provider_ref?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_at?: string | null
+          tier?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          metadata?: Json
+          provider?: string
+          provider_ref?: string | null
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_at?: string | null
+          tier?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       roy_ledger: {
         Row: {
           account_type: Database["public"]["Enums"]["roy_account_type"]
@@ -5886,6 +5934,57 @@ export type Database = {
           source_ref?: string
           txn_id?: string
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      roy_payout_requests: {
+        Row: {
+          admin_notes: string | null
+          amount_cents: number
+          created_at: string
+          destination: Json
+          id: string
+          is_sandbox: boolean
+          method: string
+          paid_at: string | null
+          requested_at: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          amount_cents: number
+          created_at?: string
+          destination?: Json
+          id?: string
+          is_sandbox?: boolean
+          method?: string
+          paid_at?: string | null
+          requested_at?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          amount_cents?: number
+          created_at?: string
+          destination?: Json
+          id?: string
+          is_sandbox?: boolean
+          method?: string
+          paid_at?: string | null
+          requested_at?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -7047,6 +7146,7 @@ export type Database = {
         Args: { p_holder: string; p_name: string }
         Returns: boolean
       }
+      roy_available_cents: { Args: { p_user: string }; Returns: number }
       try_acquire_lock: {
         Args: {
           p_holder: string
