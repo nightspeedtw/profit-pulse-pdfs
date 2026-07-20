@@ -3,7 +3,7 @@
 // @ts-nocheck
 import { advance, corsHeaders, db, fetchBook, fireStage, json, recordError, uploadAsset } from "../_shared/coloring-v2/state.ts";
 import { INTERIOR_NEGATIVE_PROMPT } from "../_shared/coloring-v2/prompts.ts";
-import { runwareInference } from "../_shared/runware.ts";
+import { renderImageWithFallback } from "../_shared/coloring-v2/image-fallback.ts";
 
 declare const Deno: any;
 
@@ -32,7 +32,7 @@ Deno.serve(async (req: Request) => {
       let lastErr: any = null;
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         try {
-          const bytes = await runwareInference({
+          const bytes = await renderImageWithFallback({
             prompt: plan.prompt,
             negative_prompt: INTERIOR_NEGATIVE_PROMPT,
             model: IDEOGRAM_MODEL,
