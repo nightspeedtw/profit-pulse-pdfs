@@ -762,11 +762,15 @@ export type Database = {
           hero_image_url: string | null
           id: string
           meta_description: string | null
+          meta_title: string | null
           primary_keyword: string | null
           product_ids: string[] | null
           published_at: string | null
+          schema_json: Json
           secondary_keywords: string[] | null
+          seo_queue_id: string | null
           slug: string
+          source: string | null
           status: string
           title: string
           updated_at: string
@@ -781,11 +785,15 @@ export type Database = {
           hero_image_url?: string | null
           id?: string
           meta_description?: string | null
+          meta_title?: string | null
           primary_keyword?: string | null
           product_ids?: string[] | null
           published_at?: string | null
+          schema_json?: Json
           secondary_keywords?: string[] | null
+          seo_queue_id?: string | null
           slug: string
+          source?: string | null
           status?: string
           title: string
           updated_at?: string
@@ -800,17 +808,29 @@ export type Database = {
           hero_image_url?: string | null
           id?: string
           meta_description?: string | null
+          meta_title?: string | null
           primary_keyword?: string | null
           product_ids?: string[] | null
           published_at?: string | null
+          schema_json?: Json
           secondary_keywords?: string[] | null
+          seo_queue_id?: string | null
           slug?: string
+          source?: string | null
           status?: string
           title?: string
           updated_at?: string
           word_count?: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "blog_posts_seo_queue_id_fkey"
+            columns: ["seo_queue_id"]
+            isOneToOne: false
+            referencedRelation: "seo_content_queue"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       book_first_pass_yield: {
         Row: {
