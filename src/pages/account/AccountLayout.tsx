@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import {
   LayoutDashboard, Library, ShoppingBag, Download, FileText,
-  Bell, LifeBuoy, User as UserIcon, Shield, Lock, Menu,
+  Bell, LifeBuoy, User as UserIcon, Shield, Lock, Menu, TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -16,6 +16,7 @@ const NAV = [
   { to: "/account/orders", icon: ShoppingBag, label: "Orders" },
   { to: "/account/downloads", icon: Download, label: "Downloads" },
   { to: "/account/invoices", icon: FileText, label: "Invoices" },
+  { to: "/account/royalties", icon: TrendingUp, label: "Royalties" },
   { to: "/account/notifications", icon: Bell, label: "Notifications" },
   { to: "/account/support", icon: LifeBuoy, label: "Support" },
   { to: "/account/profile", icon: UserIcon, label: "Profile" },

@@ -4968,16 +4968,19 @@ export type Database = {
       platform_settings: {
         Row: {
           key: string
+          royalty_live: boolean
           updated_at: string
           value_json: Json
         }
         Insert: {
           key: string
+          royalty_live?: boolean
           updated_at?: string
           value_json: Json
         }
         Update: {
           key?: string
+          royalty_live?: boolean
           updated_at?: string
           value_json?: Json
         }
@@ -5732,6 +5735,159 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      roy_accrual_summary: {
+        Row: {
+          accrued_cents: number
+          book_id: string
+          book_kind: Database["public"]["Enums"]["roy_book_kind"]
+          id: string
+          paid_cents: number
+          shares: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          accrued_cents?: number
+          book_id: string
+          book_kind: Database["public"]["Enums"]["roy_book_kind"]
+          id?: string
+          paid_cents?: number
+          shares?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          accrued_cents?: number
+          book_id?: string
+          book_kind?: Database["public"]["Enums"]["roy_book_kind"]
+          id?: string
+          paid_cents?: number
+          shares?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      roy_book_config: {
+        Row: {
+          book_id: string
+          book_kind: Database["public"]["Enums"]["roy_book_kind"]
+          created_at: string
+          enabled: boolean
+          id: string
+          price_per_share_cents: number
+          reserve_shares: number
+          royalty_pct_of_net: number
+          total_shares: number
+          updated_at: string
+        }
+        Insert: {
+          book_id: string
+          book_kind: Database["public"]["Enums"]["roy_book_kind"]
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          price_per_share_cents?: number
+          reserve_shares?: number
+          royalty_pct_of_net?: number
+          total_shares?: number
+          updated_at?: string
+        }
+        Update: {
+          book_id?: string
+          book_kind?: Database["public"]["Enums"]["roy_book_kind"]
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          price_per_share_cents?: number
+          reserve_shares?: number
+          royalty_pct_of_net?: number
+          total_shares?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      roy_holdings: {
+        Row: {
+          avg_cost_cents: number
+          book_id: string
+          book_kind: Database["public"]["Enums"]["roy_book_kind"]
+          created_at: string
+          id: string
+          shares: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avg_cost_cents?: number
+          book_id: string
+          book_kind: Database["public"]["Enums"]["roy_book_kind"]
+          created_at?: string
+          id?: string
+          shares?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avg_cost_cents?: number
+          book_id?: string
+          book_kind?: Database["public"]["Enums"]["roy_book_kind"]
+          created_at?: string
+          id?: string
+          shares?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      roy_ledger: {
+        Row: {
+          account_type: Database["public"]["Enums"]["roy_account_type"]
+          amount_cents: number
+          book_id: string | null
+          book_kind: Database["public"]["Enums"]["roy_book_kind"] | null
+          created_at: string
+          currency: string
+          direction: Database["public"]["Enums"]["roy_direction"]
+          entry_id: string
+          memo: string | null
+          source: Database["public"]["Enums"]["roy_source"]
+          source_ref: string
+          txn_id: string
+          user_id: string | null
+        }
+        Insert: {
+          account_type: Database["public"]["Enums"]["roy_account_type"]
+          amount_cents: number
+          book_id?: string | null
+          book_kind?: Database["public"]["Enums"]["roy_book_kind"] | null
+          created_at?: string
+          currency?: string
+          direction: Database["public"]["Enums"]["roy_direction"]
+          entry_id?: string
+          memo?: string | null
+          source: Database["public"]["Enums"]["roy_source"]
+          source_ref: string
+          txn_id: string
+          user_id?: string | null
+        }
+        Update: {
+          account_type?: Database["public"]["Enums"]["roy_account_type"]
+          amount_cents?: number
+          book_id?: string | null
+          book_kind?: Database["public"]["Enums"]["roy_book_kind"] | null
+          created_at?: string
+          currency?: string
+          direction?: Database["public"]["Enums"]["roy_direction"]
+          entry_id?: string
+          memo?: string | null
+          source?: Database["public"]["Enums"]["roy_source"]
+          source_ref?: string
+          txn_id?: string
+          user_id?: string | null
+        }
+        Relationships: []
       }
       royalty_distributions: {
         Row: {
@@ -6923,6 +7079,14 @@ export type Database = {
         | "final_qc"
         | "published"
         | "rejected"
+      roy_account_type:
+        | "shareholder_accrued"
+        | "platform_reserve"
+        | "pool_income"
+        | "payout_pending"
+      roy_book_kind: "adult" | "kids" | "coloring_v2"
+      roy_direction: "debit" | "credit"
+      roy_source: "order" | "adjustment" | "payout"
       royalty_earning_status: "recorded" | "paid" | "reversed"
       royalty_market_status: "active" | "paused" | "closed"
       royalty_quote_status:
@@ -7079,6 +7243,15 @@ export const Constants = {
         "published",
         "rejected",
       ],
+      roy_account_type: [
+        "shareholder_accrued",
+        "platform_reserve",
+        "pool_income",
+        "payout_pending",
+      ],
+      roy_book_kind: ["adult", "kids", "coloring_v2"],
+      roy_direction: ["debit", "credit"],
+      roy_source: ["order", "adjustment", "payout"],
       royalty_earning_status: ["recorded", "paid", "reversed"],
       royalty_market_status: ["active", "paused", "closed"],
       royalty_quote_status: [
