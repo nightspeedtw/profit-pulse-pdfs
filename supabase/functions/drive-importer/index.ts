@@ -166,9 +166,8 @@ Deno.serve(async (req) => {
           .from('ebook-pdfs')
           .createSignedUrl(storagePath, 60 * 60 * 24 * 365 * 5);
 
-        const title = file.name.replace(/\.pdf$/i, '').trim() || 'Untitled';
+        const title = prettyTitle(file.name);
         const baseSlug = slugify(file.name);
-        const category = categorize(parentName);
 
         const row = {
           drive_file_id: file.id,
@@ -194,6 +193,38 @@ Deno.serve(async (req) => {
           await supa.from('drive_products').insert(row);
           summary.imported++;
         }
+
+        // Mirror into ebooks_kids so the Drive-imported PDF appears on the
+        // /kids storefront and is filterable by book_type. Idempotent via
+        // the unique `drive_file_id` column.
+        const kidsBookType = category === 'coloring' ? 'coloring_book' : 'picture_book';
+        await supa
+          .from('ebooks_kids')
+          .upsert(
+            {
+              drive_file_id: file.id,
+              title,
+              book_type: kidsBookType,
+              pdf_url: signed?.signedUrl ?? null,
+              cover_url: null,
+              thumbnail_url: null,
+              price_cents: cfg.default_price_cents,
+              age_band: 'all_ages',
+              age_min: 2,
+              age_max: 12,
+              listing_status: 'live',
+              sellable: true,
+              pipeline_status: 'published',
+              ever_live: true,
+              storefront_meta: {
+                source: 'drive_import',
+                drive_file_id: file.id,
+                drive_parent_folder_name: parentName,
+              },
+            },
+            { onConflict: 'drive_file_id' },
+          );
+
       } catch (e) {
         const msg = `${file.name}: ${e instanceof Error ? e.message : String(e)}`;
         summary.errors.push(msg);
