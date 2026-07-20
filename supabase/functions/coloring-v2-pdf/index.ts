@@ -128,11 +128,11 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // 4) How-to page
+    // 4) How-to page (logo footer applied)
     {
       const p = pdf.addPage([TRIM_PT, TRIM_PT]);
       drawColoringHowToPage(
-        { page: p, pageW: TRIM_PT, pageH: TRIM_PT, style, font: helv, fontBold: helvBold, vignettes },
+        { page: p, pageW: TRIM_PT, pageH: TRIM_PT, style, font: helv, fontBold: helvBold, vignettes, logo: brandLogo },
         { totalPages: interiors.length },
       );
     }
@@ -140,11 +140,11 @@ Deno.serve(async (req: Request) => {
     // 5) Interior coloring pages (full-bleed)
     for (const it of interiors) await addFullBleedImagePage(it.storage_path);
 
-    // 6) Certificate back page
+    // 6) Certificate back page (logo footer applied)
     {
       const p = pdf.addPage([TRIM_PT, TRIM_PT]);
       drawColoringCertificatePage(
-        { page: p, pageW: TRIM_PT, pageH: TRIM_PT, style, font: helv, fontBold: helvBold, vignettes },
+        { page: p, pageW: TRIM_PT, pageH: TRIM_PT, style, font: helv, fontBold: helvBold, vignettes, logo: brandLogo },
         { title: book.title ?? "Coloring Book", totalPages: interiors.length, ageBadge },
       );
     }

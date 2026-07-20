@@ -121,6 +121,48 @@ export function drawCornerVignettes(
   }
 }
 
+/**
+ * OWNER LAW `matter_pages_brand_footer_v1` (2026-07-21):
+ * Every matter page in the V2 assembler (Title / Copyright / How-to /
+ * Certificate) must carry the SecretPDF branding footer: © line on the
+ * bottom-left and the logo on the bottom-right. Applied uniformly to
+ * avoid the recurring "logo missing on Terms page" defect.
+ */
+export function drawBrandFooter(
+  ctx: { page: any; pageW: number; pageH: number; style: MatterStyle; font: any; logo?: any },
+  opts: { copyrightLine?: string } = {},
+) {
+  const { page, pageW, style, font, logo } = ctx;
+  const P = style.palette;
+  const marginX = 30;
+  const marginY = 22;
+  const copyLine = opts.copyrightLine ?? `© ${new Date().getUTCFullYear()} SecretPDF Kids`;
+
+  // © line, bottom-left
+  drawFitText(page, {
+    text: copyLine,
+    x: marginX, y: marginY,
+    maxWidth: pageW * 0.55,
+    font, size: Math.max(7, style.tinyPt - 1), minSize: 6,
+    color: c(P.ink), align: "left",
+  });
+
+  // Logo, bottom-right
+  if (logo) {
+    const maxLogoH = 22;
+    const maxLogoW = pageW * 0.28;
+    const scale = Math.min(maxLogoW / logo.width, maxLogoH / logo.height);
+    const lw = logo.width * scale;
+    const lh = logo.height * scale;
+    page.drawImage(logo, {
+      x: pageW - marginX - lw,
+      y: marginY - 4,
+      width: lw, height: lh,
+      opacity: 0.9,
+    });
+  }
+}
+
 // ── page renderers ──────────────────────────────────────────────────────
 
 export interface MatterContext {
@@ -218,6 +260,8 @@ export function drawColoringTitlePage(
       color: c(P.ink), align: "center",
     });
   }
+
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
 }
 
 /** Copyright page: small legal text at bottom, decorative top fill. */
@@ -290,6 +334,7 @@ export function drawColoringCopyrightPage(
     color: c(P.ink),
     lineHeightFactor: 1.45,
   });
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
 }
 
 
@@ -376,6 +421,7 @@ export function drawColoringHowToPage(
       borderColor: c(P.ink), borderWidth: 0.6,
     });
   }
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
 }
 
 /** Certificate page: same palette-border treatment as title. */
@@ -459,6 +505,8 @@ export function drawColoringCertificatePage(
       color: c(P.ink), align: "center",
     });
   }
+
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
 }
 
 // defaultCopyrightText + MATTER_PAGES_DESIGN_VERSION are re-exported from

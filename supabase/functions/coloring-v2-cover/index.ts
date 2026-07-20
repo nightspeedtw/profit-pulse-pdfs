@@ -53,8 +53,14 @@ Deno.serve(async (req: Request) => {
     if (title !== rawTitle) {
       await db().from("coloring_v2_books").update({ title }).eq("id", book_id);
     }
-    const ageBand = (book.age_band || "").replace(/\s+/g, "");
-    const ageBadge = ageBand ? `Ages ${ageBand}` : (prof?.label ?? "");
+    // OWNER LAW `cover_no_age_badge_v7` (2026-07-21):
+    //   Age is shown on the storefront card/product page as a chip. Baking
+    //   an "Ages X-Y" mark into the cover art produced awkward floating
+    //   circles that broke the composition ("ทำภาพเสีย"). Remove entirely
+    //   from V2 covers — the master prompt treats empty ageBadge as omitted
+    //   and the OCR verifier will now reject any baked age glyph as extra.
+    void prof;
+    const ageBadge = "";
 
     // 3 interior refs (interior-first, cover-last law)
     const { data: interiorAssets } = await db().from("coloring_v2_assets")
