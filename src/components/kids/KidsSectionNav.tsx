@@ -40,10 +40,10 @@ export function KidsSectionNav() {
   };
 
   const chipCls = (active: boolean) =>
-    `px-3 py-1.5 rounded-full border shrink-0 whitespace-nowrap transition-colors ${
+    `px-4 py-2 rounded-full shrink-0 whitespace-nowrap transition-colors text-sm font-medium ${
       active
-        ? "bg-foreground text-background border-foreground"
-        : "bg-background text-foreground border-border hover:border-foreground"
+        ? "bg-foreground text-background"
+        : "bg-muted text-foreground hover:bg-muted/70"
     }`;
 
   return (
@@ -51,11 +51,31 @@ export function KidsSectionNav() {
       aria-label="Kids catalog filters"
       className="w-full border-b border-border bg-background/95 backdrop-blur sticky top-16 z-30"
     >
-      <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center gap-2 overflow-x-auto scrollbar-none text-xs font-mono uppercase tracking-widest">
-        <span className="text-muted-foreground pr-1 shrink-0">Type</span>
+      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-2 overflow-x-auto scrollbar-none">
+        <button
+          type="button"
+          onClick={() => setFilter("age", null)}
+          className={chipCls((activeAge || "all") === "all")}
+          aria-pressed={(activeAge || "all") === "all"}
+        >
+          All ages
+        </button>
+        {AGE_CHIPS.filter((a) => a.slug !== "all").map((a) => (
+          <button
+            key={a.slug}
+            type="button"
+            onClick={() => setFilter("age", a.slug)}
+            className={chipCls((activeAge || "all") === a.slug)}
+            aria-pressed={(activeAge || "all") === a.slug}
+          >
+            {a.short}
+          </button>
+        ))}
+
+        <span className="mx-2 h-5 w-px bg-border shrink-0" />
 
         <button type="button" onClick={() => setFilter("type", null)} className={chipCls(!activeType)}>
-          All
+          All types
         </button>
         {KIDS_MAIN_TYPES.map((t) => (
           <button
@@ -66,23 +86,7 @@ export function KidsSectionNav() {
             aria-pressed={activeType === t.slug}
             title={t.th}
           >
-            <span aria-hidden className="mr-1">{t.emoji}</span>
             {t.label}
-          </button>
-        ))}
-
-        <span className="mx-2 h-4 w-px bg-border shrink-0" />
-
-        <span className="text-muted-foreground pr-1 shrink-0">Age</span>
-        {AGE_CHIPS.map((a) => (
-          <button
-            key={a.slug}
-            type="button"
-            onClick={() => setFilter("age", a.slug === "all" ? null : a.slug)}
-            className={chipCls((activeAge || "all") === a.slug)}
-            aria-pressed={(activeAge || "all") === a.slug}
-          >
-            {a.short}
           </button>
         ))}
       </div>
