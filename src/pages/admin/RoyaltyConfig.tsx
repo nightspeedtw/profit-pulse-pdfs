@@ -41,11 +41,6 @@ function usd(cents: number) { return `$${(Number(cents || 0) / 100).toFixed(2)}`
 
 export default function RoyaltyConfig() {
   const [live, setLive] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [cfgs, setCfgs] = useState<Cfg[]>([]);
-  const [ledger, setLedger] = useState<Ledger[]>([]);
-export default function RoyaltyConfig() {
-  const [live, setLive] = useState(false);
   const [payoutsLive, setPayoutsLive] = useState(false);
   const [kycRequired, setKycRequired] = useState(true);
   const [minPayoutUsd, setMinPayoutUsd] = useState(50);
