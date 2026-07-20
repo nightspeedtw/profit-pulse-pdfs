@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
-import { Download, FileText, Star } from "lucide-react";
+import { FileText } from "lucide-react";
 import type { KidsTheme } from "@/lib/kidsTaxonomy";
-import { deriveSalePricing, derivePlatformReview, PLATFORM_REVIEW_TOOLTIP } from "@/lib/storefrontPricing";
+import { deriveSalePricing } from "@/lib/storefrontPricing";
+import { EditorialQualityBadge } from "@/components/product/EditorialQualityBadge";
 import { ensureColoringLabel } from "@/lib/coloring-title";
 
 export interface KidsBookCardData {
