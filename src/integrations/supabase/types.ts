@@ -3130,6 +3130,7 @@ export type Database = {
           character_bible_id: string | null
           character_reference_id: string | null
           character_sheet_url: string | null
+          coloring_v2_book_id: string | null
           cover_url: string | null
           created_at: string
           customer_product_description_html: string | null
@@ -3187,6 +3188,7 @@ export type Database = {
           character_bible_id?: string | null
           character_reference_id?: string | null
           character_sheet_url?: string | null
+          coloring_v2_book_id?: string | null
           cover_url?: string | null
           created_at?: string
           customer_product_description_html?: string | null
@@ -3244,6 +3246,7 @@ export type Database = {
           character_bible_id?: string | null
           character_reference_id?: string | null
           character_sheet_url?: string | null
+          coloring_v2_book_id?: string | null
           cover_url?: string | null
           created_at?: string
           customer_product_description_html?: string | null
