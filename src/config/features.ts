@@ -24,6 +24,14 @@ export const FEATURES = {
   // lane in any way when off OR on (V2 uses its own tables, functions,
   // storage bucket, status columns, and cron/lock names).
   ENABLE_COLORING_LANE_V2: true,
+
+  // AI Marketing Autopilot subsystem (isolated from book-production).
+  // Phase 0 ships flags + honest-pricing/honest-reviews only. Later phases
+  // (data model, pricing engine, jobs, admin, storefront surfaces) light
+  // up when their respective flags flip.
+  MARKETING_AUTOPILOT: false,
+  MARKETING_HONEST_PRICING: true,
+  MARKETING_HONEST_REVIEWS: true,
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;

@@ -12,6 +12,11 @@ export const FEATURES = {
 
   // Premium Coloring Book Lane V2 — mirror of client flag.
   ENABLE_COLORING_LANE_V2: true,
+
+  // AI Marketing Autopilot subsystem — mirror of client flags.
+  MARKETING_AUTOPILOT: false,
+  MARKETING_HONEST_PRICING: true,
+  MARKETING_HONEST_REVIEWS: true,
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;

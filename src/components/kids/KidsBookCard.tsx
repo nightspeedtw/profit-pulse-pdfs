@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
-import { Download, FileText, Star } from "lucide-react";
+import { Download, FileText } from "lucide-react";
 import type { KidsTheme } from "@/lib/kidsTaxonomy";
-import { deriveSalePricing, derivePlatformReview, PLATFORM_REVIEW_TOOLTIP } from "@/lib/storefrontPricing";
+import { deriveSalePricing } from "@/lib/storefrontPricing";
+import { EditorialQualityBadge } from "@/components/product/EditorialQualityBadge";
 import { ensureColoringLabel } from "@/lib/coloring-title";
 
 export interface KidsBookCardData {
@@ -43,7 +44,6 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
   const displayTitle = isColoring ? ensureColoringLabel(book.title) : book.title;
 
   const pricing = deriveSalePricing(book.id, book.price_cents, book.storefront_meta);
-  const rating = derivePlatformReview(book.id);
 
   return (
     <Link
@@ -88,18 +88,8 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
           {displayTitle}
         </h3>
 
-        <div
-          className="flex items-center gap-1 text-xs text-muted-foreground"
-          title={PLATFORM_REVIEW_TOOLTIP}
-          aria-label={`Platform rating ${rating.average.toFixed(1)} out of 5, ${rating.count} team reviews`}
-        >
-          <span className="flex" aria-hidden="true">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <Star key={i} className="h-3 w-3 fill-foreground text-foreground" strokeWidth={1.5} />
-            ))}
-          </span>
-          <span className="tabular-nums">({rating.count})</span>
-        </div>
+        <EditorialQualityBadge compact />
+
 
         <div className="flex items-baseline flex-wrap gap-x-1.5 gap-y-0">
           <span className="text-[15px] font-bold text-accent tabular-nums">
