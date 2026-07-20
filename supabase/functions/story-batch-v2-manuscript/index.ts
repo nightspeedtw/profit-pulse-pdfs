@@ -256,9 +256,10 @@ Deno.serve(async (req) => {
 
       await supa.from("story_batch_v2_qc_findings").insert({
         book_id,
-        stage: "story_gate",
+        gate: "story_gate",
         severity: "hard_fail",
-        finding: result.reason ?? "story_gate_failed",
+        code: "story_gate_failed",
+        message: result.reason ?? "story_gate_failed",
         detail: result.judge ?? null,
       });
 
