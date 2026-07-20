@@ -444,20 +444,6 @@ export function drawColoringCertificatePage(
   }
 }
 
-// ── copy defaults ───────────────────────────────────────────────────────
+// defaultCopyrightText + MATTER_PAGES_DESIGN_VERSION are re-exported from
+// ./matter-pages-style at the top of this file.
 
-export function defaultCopyrightText(): string {
-  const year = new Date().getFullYear();
-  return [
-    `© ${year} secretpdf.co. All rights reserved.`,
-    "",
-    "This coloring book is licensed for personal, non-commercial use.",
-    "Individual coloring pages may be copied for personal or classroom use.",
-    "Not for resale, redistribution, or commercial reproduction.",
-    "",
-    "Visit secretpdf.co for more coloring books and kids' printables.",
-  ].join("\n");
-}
-
-// Version marker recorded in pipeline_skills as `matter_pages_design_v2`.
-export const MATTER_PAGES_DESIGN_VERSION = "matter_pages_design_v2";
