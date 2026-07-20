@@ -133,10 +133,10 @@ Deno.serve(async (req: Request) => {
       .from("generation_settings").select("coloring_autopilot").eq("id", 1).maybeSingle();
     const existing = existingRow?.coloring_autopilot ?? {};
     const merged = { ...DEFAULTS, ...existing, ...(body.config ?? {}) };
-    merged.batch_size = Math.max(1, Math.min(20, Number(merged.batch_size) || 1));
-    merged.daily_cap = Math.max(0, Math.min(100, Number(merged.daily_cap) || 0));
-    merged.max_parallel = Math.max(1, Math.min(4, Number(merged.max_parallel) || 1));
-    merged.daily_cost_cap_usd_coloring = Math.max(0, Math.min(500, Number(merged.daily_cost_cap_usd_coloring) || 0));
+    merged.batch_size = Math.max(1, Math.min(1000, Number(merged.batch_size) || 1));
+    merged.daily_cap = Math.max(0, Math.min(100000, Number(merged.daily_cap) || 0));
+    merged.max_parallel = Math.max(1, Math.min(64, Number(merged.max_parallel) || 1));
+    merged.daily_cost_cap_usd_coloring = Math.max(0, Math.min(100000, Number(merged.daily_cost_cap_usd_coloring) || 0));
     merged.paused = !!merged.paused;
     merged.page_count = [4, 16, 24, 32, 48].includes(Number(merged.page_count)) ? Number(merged.page_count) : 32;
     if (!["2-4", "3-5", "4-6", "6-8", "8-12", "13-17", "all_ages"].includes(merged.age_band)) merged.age_band = "4-6";
