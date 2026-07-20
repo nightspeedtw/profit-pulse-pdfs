@@ -43,14 +43,16 @@ Deno.serve(async (req: Request) => {
     // Persist a QC run row
     const overall = hardFail ? 0 : 92;
     const { data: qcRun } = await db().from("coloring_v2_qc_runs").insert({
-      book_id, overall_score: overall, verdict: hardFail ? "reject" : "pass",
-      finding_count: findings.length, meta: { findings },
+      book_id, scope: "book", overall_score: overall,
+      status: hardFail ? "reject" : "pass",
+      completed_at: new Date().toISOString(),
+      meta: { findings },
     }).select("id").single();
 
     if (findings.length && qcRun?.id) {
       await db().from("coloring_v2_qc_findings").insert(
         findings.map((f) => ({
-          qc_run_id: qcRun.id, book_id, kind: f.kind, severity: f.severity, detail: f.detail ?? {},
+          qc_run_id: qcRun.id, book_id, rule_id: f.kind, severity: f.severity, measured: f.detail ?? {},
         })),
       );
     }
