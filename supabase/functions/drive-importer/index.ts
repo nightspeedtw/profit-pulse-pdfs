@@ -261,9 +261,14 @@ Deno.serve(async (req) => {
         // /kids storefront and is filterable by book_type. Idempotent via
         // the unique `drive_file_id` column.
         const kidsBookType = category === 'coloring' ? 'coloring_book' : 'picture_book';
-        const kidsPayload = {
+        const { data: existingKid } = await supa
+          .from('ebooks_kids')
+          .select('id')
+          .eq('drive_file_id', file.id)
+          .maybeSingle();
+        // On UPDATE, omit identity-locked fields (title) to avoid identity_guard.
+        const kidsBase = {
           drive_file_id: file.id,
-          title,
           book_type: kidsBookType,
           pdf_url: signed?.signedUrl ?? null,
           cover_url: coverForKids,
@@ -282,14 +287,9 @@ Deno.serve(async (req) => {
             drive_parent_folder_name: parentName,
           },
         };
-        const { data: existingKid } = await supa
-          .from('ebooks_kids')
-          .select('id')
-          .eq('drive_file_id', file.id)
-          .maybeSingle();
         const { error: kidsErr } = existingKid
-          ? await supa.from('ebooks_kids').update(kidsPayload).eq('id', existingKid.id)
-          : await supa.from('ebooks_kids').insert(kidsPayload);
+          ? await supa.from('ebooks_kids').update(kidsBase).eq('id', existingKid.id)
+          : await supa.from('ebooks_kids').insert({ ...kidsBase, title });
         if (kidsErr) {
           console.error('[drive-importer] kids upsert', file.id, kidsErr);
           await supa
@@ -297,6 +297,7 @@ Deno.serve(async (req) => {
             .update({ import_error: `kids-upsert: ${kidsErr.message}`.slice(0, 400) })
             .eq('drive_file_id', file.id);
         }
+
 
 
 
