@@ -62,7 +62,7 @@ Deno.serve(async (req: Request) => {
         const candidate = await runwareInference({
           prompt, model: IDEOGRAM_MODEL,
           width: CANVAS, height: CANVAS,
-          num_inference_steps: 12,
+          num_inference_steps: 40,
           reference_images: refs,
           ebook_id: book_id, step: `coloring_v2_cover_a${attempt}`,
           v2_book_id: book_id,
