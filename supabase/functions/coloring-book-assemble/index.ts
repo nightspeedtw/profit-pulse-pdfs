@@ -437,34 +437,16 @@ Deno.serve(async (req: Request) => {
       interiorReports.push({ page: pageRec.page, ok: true });
     }
 
-    // ── Back page ─────────────────────────────────────────────────────
-    // Standard: certificate only. Mini_test: certificate + compact copyright
-    // line + secretpdf.co footer on the same page.
+    // ── Back page: Certificate (matter_pages_design_v2) ───────────────
     {
       const p = doc.addPage([PAGE_W, PAGE_H]);
-      p.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: rgb(0.996, 0.973, 0.910) });
-      p.drawRectangle({
-        x: 40, y: 40, width: PAGE_W - 80, height: PAGE_H - 80,
-        borderColor: rgb(0.6, 0.45, 0.15), borderWidth: 4,
-      });
-      centerFit(p, "Certificate of Coloring", PAGE_H - 200, 28, helvBold, rgb(0.35, 0.22, 0.05), 14);
-      centerFit(p, "Awarded to", PAGE_H - 260, 14, helv, undefined, 9);
-      centerFit(p, "_______________________________", PAGE_H - 310, 20, helvBold, undefined, 10);
-      centerFit(p, `for completing "${row.title}"`, PAGE_H - 370, 14, helv, undefined, 9);
-      centerFit(p, `${totalPages} coloring pages · ${ageBadge}`, PAGE_H - 400, 12, helv, undefined, 8);
-      centerFit(p, "Great job, artist!", PAGE_H - 470, 18, helvBold, rgb(0.35, 0.22, 0.05), 12);
-      if (isMiniTest) {
-        // Compact copyright line above the branded footer.
-        centerFit(
-          p,
-          `© ${new Date().getFullYear()} secretpdf.co · Personal use only · Visit secretpdf.co`,
-          SAFE_MARGIN + 34,
-          9,
-          helv,
-          rgb(0.35, 0.28, 0.22),
-          7,
-        );
-      }
+      const miniTestFooter = isMiniTest
+        ? `© ${new Date().getFullYear()} secretpdf.co · Personal use only · Visit secretpdf.co`
+        : undefined;
+      drawColoringCertificatePage(
+        { page: p, pageW: PAGE_W, pageH: PAGE_H, style: matterStyle, font: helv, fontBold: helvBold, vignettes: vignetteAssets },
+        { title: row.title, totalPages, ageBadge, miniTestFooter },
+      );
       drawColoringFooter(p, logoImg, helv);
     }
 
