@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Star } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { derivePlatformReview, PLATFORM_REVIEW_TOOLTIP } from "@/lib/storefrontPricing";
+import { EditorialQualityBadge } from "@/components/product/EditorialQualityBadge";
 
 interface Props {
   ebookId: string;
@@ -11,12 +11,12 @@ interface Props {
 
 type Mode =
   | { kind: "customer"; average: number; count: number }
-  | { kind: "platform"; average: number; count: number };
+  | { kind: "none" };
 
 /**
- * Shows a star rating. Prefers real customer reviews (product_review_stats).
- * When none exist, falls back to the honest platform rating (5.0 for live
- * books that passed QC + deterministic 12–60 count). Tooltip explains scope.
+ * Shows a star rating ONLY when real customer reviews exist. Otherwise
+ * renders the honest Editorial Quality badge — never a fabricated rating
+ * or fake review count (Marketing Autopilot Phase 0 honest-reviews law).
  */
 export default function ProductRating({ ebookId, targetId = "reviews" }: Props) {
   const [mode, setMode] = useState<Mode | null>(null);
@@ -35,27 +35,21 @@ export default function ProductRating({ ebookId, targetId = "reviews" }: Props) 
       if (row && count > 0) {
         setMode({ kind: "customer", average: Number(row.average_rating ?? 0), count });
       } else {
-        const p = derivePlatformReview(ebookId);
-        setMode({ kind: "platform", average: p.average, count: p.count });
+        setMode({ kind: "none" });
       }
     })();
     return () => { cancelled = true; };
   }, [ebookId]);
 
   if (!mode) return null;
+  if (mode.kind === "none") return <EditorialQualityBadge />;
 
-  const rounded = Math.round(mode.average * 2) / 2; // nearest 0.5
-  const isPlatform = mode.kind === "platform";
-
+  const rounded = Math.round(mode.average * 2) / 2;
+  const label = `Rated ${mode.average} out of 5, ${mode.count} reviews`;
   const handleClick = () => {
-    if (isPlatform) return;
     const el = document.getElementById(targetId);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-
-  const label = isPlatform
-    ? `Platform rating ${mode.average.toFixed(1)} out of 5, ${mode.count} team reviews`
-    : `Rated ${mode.average} out of 5, ${mode.count} reviews`;
 
   return (
     <button
@@ -63,7 +57,6 @@ export default function ProductRating({ ebookId, targetId = "reviews" }: Props) 
       onClick={handleClick}
       className="inline-flex items-center gap-2 text-sm hover:opacity-80 transition-opacity text-left"
       aria-label={label}
-      title={isPlatform ? PLATFORM_REVIEW_TOOLTIP : undefined}
     >
       <span className="flex" aria-hidden="true">
         {[1, 2, 3, 4, 5].map((i) => {
@@ -84,14 +77,9 @@ export default function ProductRating({ ebookId, targetId = "reviews" }: Props) 
         })}
       </span>
       <span className="font-mono font-bold">{mode.average.toFixed(1)}/5</span>
-      <span className={`font-mono ${isPlatform ? "text-muted-foreground" : "text-muted-foreground underline underline-offset-2"}`}>
+      <span className="font-mono text-muted-foreground underline underline-offset-2">
         ({mode.count})
       </span>
-      {isPlatform && (
-        <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground/80">
-          Platform reviews
-        </span>
-      )}
     </button>
   );
 }
