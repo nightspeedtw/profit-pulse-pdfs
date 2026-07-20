@@ -25,7 +25,23 @@ import { TRIM_PROFILES, type TrimProfileKey } from "../_shared/coloring/trim-loc
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // 2026-07-20: OWNER CUTOVER — V1 lane is deprecated. Every new coloring
+  // book goes through the V2 lane (coloring-v2-start). This endpoint no
+  // longer accepts creates; it returns 410 Gone with a redirect hint.
+  return json({
+    error: "coloring_lane_v1_deprecated",
+    redirect_to: "coloring-v2-start",
+    message: "V1 coloring lane is shelved. Use coloring-v2-start.",
+  }, 410);
+  // eslint-disable-next-line no-unreachable
   try {
+    const body = await req.json();
+    const category_key: string = body.category_key;
+    const title: string = body.title;
+    const angle: string | null = body.angle ?? null;
+    const variant_number: number = Number(body.variant_number ?? 1) || 1;
+    const age_band: string = body.age_band ?? "4-6";
+    const page_count: number = Number(body.page_count ?? 32);
     const body = await req.json();
     const category_key: string = body.category_key;
     const title: string = body.title;
