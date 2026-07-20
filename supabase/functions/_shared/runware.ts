@@ -61,10 +61,15 @@ function uuid(): string {
 export interface RunwareOpts {
   prompt: string;
   image_size?: "square_hd" | "portrait_4_3" | "portrait_16_9" | "landscape_4_3" | "landscape_16_9";
+  width?: number;
+  height?: number;
   num_inference_steps?: number;
   model?: string;                  // AIR id; defaults to RUNWARE_MODELS.line_art
   ebook_id?: string;
   step?: string;
+  negative_prompt?: string;
+  seed?: number;
+  reference_images?: string[];
 }
 
 /** Run one imageInference task and return raw bytes. */
@@ -73,24 +78,32 @@ export async function runwareInference(opts: RunwareOpts): Promise<Uint8Array> {
   if (!k) throw new Error("runware: RUNWARE_API_KEY not set");
 
   const model = opts.model || RUNWARE_MODELS.line_art;
-  const { width, height } = sizeToWH(opts.image_size);
+  const wh = (opts.width && opts.height)
+    ? { width: opts.width, height: opts.height }
+    : sizeToWH(opts.image_size);
   const prompt = opts.prompt.length > RUNWARE_MAX_PROMPT_CHARS
     ? opts.prompt.slice(0, RUNWARE_MAX_PROMPT_CHARS)
     : opts.prompt;
 
-  const task = {
+  const supportsSteps = !/^ideogram:/i.test(model);
+  const task: Record<string, unknown> = {
     taskType: "imageInference",
     taskUUID: uuid(),
     positivePrompt: prompt,
     model,
-    width: clampDim(width),
-    height: clampDim(height),
-    steps: Math.max(1, Math.min(50, opts.num_inference_steps ?? 4)),
+    width: clampDim(wh.width),
+    height: clampDim(wh.height),
     numberResults: 1,
     outputType: ["base64Data"],
     outputFormat: "JPEG",
     includeCost: true,
   };
+  if (supportsSteps) task.steps = Math.max(1, Math.min(50, opts.num_inference_steps ?? 4));
+  if (opts.negative_prompt) task.negativePrompt = opts.negative_prompt.slice(0, 1000);
+  if (typeof opts.seed === "number") task.seed = opts.seed;
+  if (opts.reference_images && opts.reference_images.length > 0) {
+    task.referenceImages = opts.reference_images.slice(0, 3);
+  }
 
   const safeTask = coerceForProviderPayload(task, "runware_interior");
   const res = await fetch(RUNWARE_ENDPOINT, {

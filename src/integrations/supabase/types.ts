@@ -1252,6 +1252,7 @@ export type Database = {
           generation_status: string
           id: string
           language: string
+          last_error: string | null
           main_character_mode: string
           max_retry_per_page: number
           overall_qc_score: number | null
@@ -1261,6 +1262,9 @@ export type Database = {
           qc_status: string
           seed_lock: number | null
           sellability_status: string
+          stage: string
+          stage_attempt_count: number
+          stage_updated_at: string
           subtitle: string | null
           theme: string
           theme_mode: string
@@ -1287,6 +1291,7 @@ export type Database = {
           generation_status?: string
           id?: string
           language?: string
+          last_error?: string | null
           main_character_mode?: string
           max_retry_per_page?: number
           overall_qc_score?: number | null
@@ -1296,6 +1301,9 @@ export type Database = {
           qc_status?: string
           seed_lock?: number | null
           sellability_status?: string
+          stage?: string
+          stage_attempt_count?: number
+          stage_updated_at?: string
           subtitle?: string | null
           theme: string
           theme_mode?: string
@@ -1322,6 +1330,7 @@ export type Database = {
           generation_status?: string
           id?: string
           language?: string
+          last_error?: string | null
           main_character_mode?: string
           max_retry_per_page?: number
           overall_qc_score?: number | null
@@ -1331,6 +1340,9 @@ export type Database = {
           qc_status?: string
           seed_lock?: number | null
           sellability_status?: string
+          stage?: string
+          stage_attempt_count?: number
+          stage_updated_at?: string
           subtitle?: string | null
           theme?: string
           theme_mode?: string
@@ -5627,6 +5639,14 @@ export type Database = {
       atomic_patch_ebooks_kids_meta: {
         Args: { p_id: string; p_patch: Json }
         Returns: Json
+      }
+      coloring_v2_advance_stage: {
+        Args: { p_book: string; p_from: string; p_patch?: Json; p_to: string }
+        Returns: boolean
+      }
+      coloring_v2_record_error: {
+        Args: { p_book: string; p_error: string; p_stage: string }
+        Returns: undefined
       }
       exchange_buy_amount: {
         Args: {
