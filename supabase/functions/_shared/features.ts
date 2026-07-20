@@ -9,6 +9,9 @@ export const FEATURES = {
   ADVANCED_BATCH_MODE: false,
 
   LEGACY_PIPELINE: false,
+
+  // Premium Coloring Book Lane V2 — mirror of client flag.
+  ENABLE_COLORING_LANE_V2: false,
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;

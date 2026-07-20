@@ -45,6 +45,10 @@ import KidsQcReport from "./pages/admin/KidsQcReport.tsx";
 import KidsLibrary from "./pages/admin/KidsLibrary.tsx";
 import Blog from "./pages/Blog.tsx";
 import BlogPost from "./pages/BlogPost.tsx";
+import { FEATURES } from "@/config/features.ts";
+import ColoringLabV2 from "./pages/admin/ColoringLabV2.tsx";
+import ColoringPreviewV2 from "./pages/ColoringPreviewV2.tsx";
+
 
 const queryClient = new QueryClient();
 
@@ -80,6 +84,10 @@ const App = () => (
             <Route path="/checkout/return" element={<CheckoutReturn />} />
             <Route path="/blog" element={<Blog />} />
             <Route path="/blog/:slug" element={<BlogPost />} />
+            {FEATURES.ENABLE_COLORING_LANE_V2 && (
+              <Route path="/coloring-preview-v2/:bookId" element={<ColoringPreviewV2 />} />
+            )}
+
           </Route>
 
 
@@ -103,7 +111,11 @@ const App = () => (
             <Route path="ebook/:id/cover" element={<EbookCover />} />
             <Route path="ebook/:id/pdf" element={<EbookPDF />} />
             <Route path="autopilot/run/:runId" element={<AutopilotRun />} />
+            {FEATURES.ENABLE_COLORING_LANE_V2 && (
+              <Route path="coloring-lab-v2" element={<ColoringLabV2 />} />
+            )}
           </Route>
+
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

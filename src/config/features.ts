@@ -17,6 +17,13 @@ export const FEATURES = {
   // Off = Phase 1 uses render-pdf + premium-title-expert. Flip to true
   // to reactivate the legacy path without redeploying.
   LEGACY_PIPELINE: false,
+
+  // Premium Coloring Book Lane V2 — isolated experimental pipeline.
+  // OFF by default. Flip to true to expose /admin/coloring-lab-v2 and
+  // /coloring-preview-v2/:bookId. Does not affect the existing coloring
+  // lane in any way when off OR on (V2 uses its own tables, functions,
+  // storage bucket, status columns, and cron/lock names).
+  ENABLE_COLORING_LANE_V2: false,
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;
