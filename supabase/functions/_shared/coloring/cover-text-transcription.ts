@@ -285,6 +285,84 @@ async function geminiTranscribe(bytes: Uint8Array, timeoutMs: number): Promise<{
   return null;
 }
 
+// -------- Cloudflare Workers AI Vision (Llama 3.2 11B Vision) --------
+// Owner order 2026-07-20: bypass Lovable Gateway + Gemini credits depleted.
+// Use CF Workers AI vision as the primary OCR provider, iterating the same
+// CF account pool as the image renderers (cf1 → cf7).
+
+const CF_VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+
+function cfOcrCreds(): { accountId: string; token: string; label: string }[] {
+  const list: { accountId: string; token: string; label: string }[] = [];
+  const a1 = DENO_ENV?.get?.("CF_ACCOUNT_ID");
+  const t1 = DENO_ENV?.get?.("CF_API_TOKEN");
+  if (a1 && t1) list.push({ accountId: a1, token: t1, label: "cf1" });
+  for (let i = 2; i <= 7; i++) {
+    const a = DENO_ENV?.get?.(`CF_ACCOUNT_ID_${i}`);
+    const t = DENO_ENV?.get?.(`CF_API_TOKEN_${i}`);
+    if (a && t) list.push({ accountId: a, token: t, label: `cf${i}` });
+  }
+  return list;
+}
+
+function extractJsonBlob(text: string): { detected_text: string; clusters: string[] } | null {
+  if (!text) return null;
+  const stripped = String(text).replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  try { return JSON.parse(stripped); } catch {}
+  // Grab first {...} block
+  const m = stripped.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch {} }
+  // Fallback: treat entire text as detected_text
+  return { detected_text: stripped, clusters: [stripped] };
+}
+
+async function cloudflareVisionTranscribe(bytes: Uint8Array, timeoutMs: number): Promise<{ detected_text: string; clusters: string[] } | null> {
+  const accounts = cfOcrCreds();
+  if (accounts.length === 0) return null;
+  const imageArr = Array.from(bytes);
+  for (const acct of accounts) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort("cf_vision_timeout"), timeoutMs);
+    try {
+      const r = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${acct.accountId}/ai/run/${CF_VISION_MODEL}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${acct.token}` },
+          body: JSON.stringify({
+            prompt: TRANSCRIPTION_PROMPT + "\nRespond with STRICT JSON only.",
+            image: imageArr,
+            max_tokens: 512,
+            temperature: 0,
+          }),
+          signal: ac.signal,
+        },
+      );
+      clearTimeout(timer);
+      if (!r.ok) {
+        const body = await r.text().catch(() => "");
+        // Rotate to next account on quota / rate limit
+        if (r.status === 429 || /neurons|quota|rate limit|exceeded/i.test(body)) {
+          console.warn(`[cover-transcribe] cf-vision ${acct.label} quota (${r.status}), rotating`);
+          continue;
+        }
+        console.warn(`[cover-transcribe] cf-vision ${acct.label} http_${r.status}: ${body.slice(0, 200)}`);
+        continue;
+      }
+      const j: any = await r.json().catch(() => null);
+      const text = j?.result?.response ?? j?.result?.description ?? "";
+      if (!text) { console.warn(`[cover-transcribe] cf-vision ${acct.label} empty response`); continue; }
+      const parsed = extractJsonBlob(String(text));
+      if (parsed) return parsed;
+    } catch (e: any) {
+      clearTimeout(timer);
+      console.warn(`[cover-transcribe] cf-vision ${acct.label} error: ${e?.message ?? e}`);
+      continue;
+    }
+  }
+  return null;
+}
+
 export async function verifyExactCoverText(
   bytes: Uint8Array,
   expectations: CoverTextExpectations,
