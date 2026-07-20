@@ -1,15 +1,21 @@
-// Storefront pricing + platform-review helpers.
+// Storefront pricing + editorial-quality helpers.
 //
-// Owner directive (2026-07-18):
-//  • Sale pricing: prefer real `compare_at_price_cents` / `discount_pct` from
-//    `storefront_meta` when the repricer writes it; otherwise derive a
-//    deterministic-per-book "original" price so the discount stays stable
-//    across reloads (no fake churn). Discount range 55–70%, mirroring the
-//    Etsy-competitor framing the owner referenced.
-//  • Platform reviews: NO fake customer reviews. Live books that passed QC
-//    gates get 5.0 stars + a plausible small count of internal reviews
-//    (12–60), deterministic per book id. Real customer reviews (from
-//    `product_review_stats`) automatically take over once they exist.
+// Marketing Autopilot — Phase 0 (honest pricing / honest reviews):
+//  • NEVER synthesize a compare-at / "was" / "% off" price. A strikethrough
+//    price may only ship when downstream (Phase 2) has both:
+//      (a) an explicit legitimate `compare_at_price_cents` on the product,
+//      (b) a validated `price_history` record proving the regular price
+//          was publicly active for ≥30 consecutive days.
+//    Until then, storefront cards display the current price only — no
+//    fake discount, no fake urgency.
+//  • NEVER generate fake customer-review counts or star ratings. Real
+//    customer reviews (from `product_review_stats`) are the only source
+//    of ratings. In their absence, surfaces render an **Editorial Quality
+//    Badge** (QC-passed / verified PDF / age-checked) — NOT stars.
+//
+// The `derivePlatformReview` + `PLATFORM_REVIEW_TOOLTIP` exports are kept
+// as thin compatibility shims that return an "unavailable" mode so any
+// unmigrated caller renders nothing rather than a fabricated rating.
 
 export type StorefrontMetaLike = Record<string, unknown> | null | undefined;
 
@@ -22,16 +28,6 @@ export interface SalePricing {
   originalLabel: string | null; // "$17.99" or null
 }
 
-// FNV-1a 32-bit — deterministic + fast, no crypto import.
-function hash32(input: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
 function formatUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
@@ -39,13 +35,19 @@ function formatUsd(cents: number): string {
 /**
  * Compute the sale-price display for a storefront card / product page.
  *
- * Reads (in order of trust):
- *   1. storefront_meta.compare_at_price_cents  (repricer-written)
- *   2. storefront_meta.pricing.compare_at_cents (legacy nested)
- *   3. Deterministic synthesis from ebook id (55–70% off band)
+ * Honest-pricing law (Phase 0):
+ *   • If `storefront_meta.compare_at_price_cents` (or the legacy nested
+ *     `pricing.compare_at_cents`) is set AND greater than the current
+ *     price AND the row also carries the explicit legitimacy sentinel
+ *     `compare_at_verified === true`, render a strikethrough discount.
+ *   • Otherwise, return the current price only. No synthesis. No fake
+ *     "was" price. No fake percentage-off.
+ *
+ * The legitimacy sentinel is written server-side by the Phase 2
+ * compare-at validator; frontend never sets it.
  */
 export function deriveSalePricing(
-  ebookId: string,
+  _ebookId: string,
   priceCents: number | null | undefined,
   storefrontMeta: StorefrontMetaLike,
 ): SalePricing {
@@ -61,30 +63,26 @@ export function deriveSalePricing(
     };
   }
 
-  const meta = (storefrontMeta ?? {}) as Record<string, any>;
+  const meta = (storefrontMeta ?? {}) as Record<string, unknown>;
+  const verified = meta.compare_at_verified === true;
   const explicit =
-    Number(meta.compare_at_price_cents) ||
-    Number(meta.original_price_cents) ||
-    Number(meta.pricing?.compare_at_cents) ||
+    Number((meta as { compare_at_price_cents?: unknown }).compare_at_price_cents) ||
+    Number((meta as { original_price_cents?: unknown }).original_price_cents) ||
+    Number((meta.pricing as { compare_at_cents?: unknown } | undefined)?.compare_at_cents) ||
     0;
 
-  let originalCents = explicit > price ? Math.round(explicit) : 0;
-
-  if (!originalCents) {
-    // Deterministic band: 55%–70% off → multiplier 2.22x–3.33x of sale price.
-    // Uses ebook id only so the number never shifts on reload.
-    const seed = hash32(ebookId);
-    const discount = 55 + (seed % 16); // 55..70 inclusive
-    const multiplier = 100 / (100 - discount);
-    let synthesized = Math.round(price * multiplier);
-    // Round to a psychology-friendly .99 tail when the raw value lands close.
-    const tail = synthesized % 100;
-    if (tail < 50) synthesized = synthesized - tail + 99 - 100;
-    else synthesized = synthesized - tail + 99;
-    if (synthesized <= price) synthesized = price + 100;
-    originalCents = synthesized;
+  if (!verified || explicit <= price) {
+    return {
+      priceCents: price,
+      originalCents: null,
+      discountPct: null,
+      hasDiscount: false,
+      priceLabel: formatUsd(price),
+      originalLabel: null,
+    };
   }
 
+  const originalCents = Math.round(explicit);
   const discountPct = Math.round(((originalCents - price) / originalCents) * 100);
   return {
     priceCents: price,
@@ -96,21 +94,42 @@ export function deriveSalePricing(
   };
 }
 
+/**
+ * Editorial-quality badge signal (Phase 0 honest-reviews).
+ * Consumers should render this as a compact "SecretPDF Editorial Quality"
+ * badge — checkmarks, not stars — via <EditorialQualityBadge />.
+ */
+export interface EditorialQualityInfo {
+  passedQC: boolean;
+  verifiedPdf: boolean;
+  ageChecked: boolean;
+  label: string;
+}
+
+export function deriveEditorialQuality(_ebookId: string): EditorialQualityInfo {
+  return {
+    passedQC: true,
+    verifiedPdf: true,
+    ageChecked: true,
+    label: "SecretPDF Editorial Quality",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Compatibility shims — DO NOT reintroduce fake ratings.
+// These stay exported so any lingering import compiles, but they now return
+// a "not-available" mode; callers should migrate to EditorialQualityBadge.
+// ---------------------------------------------------------------------------
 export interface PlatformReviewInfo {
-  average: number; // 5.0 for live books that passed QC
-  count: number;   // 12..60 deterministic
+  available: false;
+  average: null;
+  count: null;
   isPlatform: true;
 }
 
-/**
- * Deterministic platform-review seed. Used ONLY as a fallback when a book has
- * no real customer reviews yet. Owner rule: honest scale (never mimic "(901)").
- */
-export function derivePlatformReview(ebookId: string): PlatformReviewInfo {
-  const seed = hash32(`reviews:${ebookId}`);
-  const count = 12 + (seed % 49); // 12..60
-  return { average: 5.0, count, isPlatform: true };
+export function derivePlatformReview(_ebookId: string): PlatformReviewInfo {
+  return { available: false, average: null, count: null, isPlatform: true };
 }
 
 export const PLATFORM_REVIEW_TOOLTIP =
-  "Platform rating — verified by our editorial QC team. Live books have passed art, spelling, and print gates. Real customer reviews will replace this display as they arrive.";
+  "Ratings shown only when real customer reviews exist. Every SecretPDF book passes editorial QC, PDF verification, and age-appropriateness checks before going live.";
