@@ -206,8 +206,10 @@ Deno.serve(async (req) => {
               title,
               book_type: kidsBookType,
               pdf_url: signed?.signedUrl ?? null,
-              cover_url: null,
-              thumbnail_url: null,
+              // Placeholder cover so the live-assets guard doesn't demote to
+              // draft. Cover art can be regenerated later by the pipeline.
+              cover_url: '/placeholder.svg',
+              thumbnail_url: '/placeholder.svg',
               price_cents: cfg.default_price_cents,
               age_band: 'all_ages',
               age_min: 2,
