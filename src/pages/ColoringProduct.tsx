@@ -17,6 +17,7 @@ import HighlightsBlock from "@/components/product/HighlightsBlock";
 import AddToCollectionButton from "@/components/product/AddToCollectionButton";
 import ItemDetailsSection from "@/components/product/ItemDetailsSection";
 import SocialProofBadges from "@/components/product/SocialProofBadges";
+import CompleteTheSetBundle from "@/components/product/CompleteTheSetBundle";
 
 interface Row {
   id: string;
