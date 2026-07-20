@@ -131,7 +131,30 @@ function levenshtein(a: string, b: string): number {
   return dp[n];
 }
 
+// -------- Whole-cover extras: duplicate age-badge detection --------
+
+/**
+ * Owner order (external-audit finding #1): whole-cover OCR must reject
+ * covers that show a duplicate "Ages X-Y" badge — this happens when
+ * Ideogram bakes one AND our overlay adds a second one, OR when Ideogram
+ * itself paints two badges. Count distinct age-range strings in the raw
+ * OCR output (case-insensitive, tolerant of "Ages 4-6" / "Ages 4 to 6" /
+ * "AGES 4—6"). Also count standalone "Ages" occurrences as a fallback.
+ */
+export function countAgeBadges(raw: string): number {
+  if (!raw) return 0;
+  const s = raw.toLowerCase().normalize("NFKD");
+  // matches "ages 4-6", "ages 4 – 6", "ages 4 to 6", "ages 13-17"
+  const range = /\bages?\s*\d{1,2}\s*(?:-|–|—|to)\s*\d{1,2}\b/g;
+  const rangeHits = (s.match(range) ?? []).length;
+  if (rangeHits > 0) return rangeHits;
+  // fallback: bare "ages" word occurrences (still a duplicate if >1)
+  const bare = /\bages?\b/g;
+  return (s.match(bare) ?? []).length;
+}
+
 // -------- Vision transcription --------
+
 
 function b64FromBytes(bytes: Uint8Array): string {
   let s = "";
