@@ -12,6 +12,11 @@ import { emitColoringEvent } from "@/lib/coloringFunnelEvents";
 import { ColoringPreviewLightbox } from "@/components/kids/ColoringPreviewLightbox";
 import ProductRating from "@/components/product/ProductRating";
 import { deriveSalePricing } from "@/lib/storefrontPricing";
+import { useSaleConfig, formatSaleEnds } from "@/lib/saleConfig";
+import HighlightsBlock from "@/components/product/HighlightsBlock";
+import AddToCollectionButton from "@/components/product/AddToCollectionButton";
+import ItemDetailsSection from "@/components/product/ItemDetailsSection";
+import SocialProofBadges from "@/components/product/SocialProofBadges";
 
 interface Row {
   id: string;
