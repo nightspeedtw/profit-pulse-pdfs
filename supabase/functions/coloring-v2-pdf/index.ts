@@ -97,6 +97,17 @@ Deno.serve(async (req: Request) => {
       } catch { /* best-effort */ }
     }
 
+    // SecretPDF brand logo (embedded on the copyright / Terms page).
+    // Stored once in the private brand-assets bucket; downloaded via service role.
+    let brandLogo: any = null;
+    try {
+      const { data, error } = await db().storage.from("brand-assets").download("secretpdf-logo.png");
+      if (!error && data) {
+        const logoBytes = new Uint8Array(await data.arrayBuffer());
+        brandLogo = await pdf.embedPng(logoBytes);
+      }
+    } catch { /* logo is optional; PDF still renders */ }
+
     // 1) Full-bleed cover
     await addFullBleedImagePage(coverAsset.storage_path);
 
@@ -104,18 +115,19 @@ Deno.serve(async (req: Request) => {
     {
       const p = pdf.addPage([TRIM_PT, TRIM_PT]);
       drawColoringTitlePage(
-        { page: p, pageW: TRIM_PT, pageH: TRIM_PT, style, font: helv, fontBold: helvBold, vignettes },
+        { page: p, pageW: TRIM_PT, pageH: TRIM_PT, style, font: helv, fontBold: helvBold, vignettes, logo: brandLogo },
         { title: book.title ?? "Coloring Book", subtitle, brand },
       );
     }
-    // 3) Copyright page
+    // 3) Copyright / Terms page — now includes the SecretPDF logo
     {
       const p = pdf.addPage([TRIM_PT, TRIM_PT]);
       drawColoringCopyrightPage(
-        { page: p, pageW: TRIM_PT, pageH: TRIM_PT, style, font: helv, fontBold: helvBold, vignettes },
+        { page: p, pageW: TRIM_PT, pageH: TRIM_PT, style, font: helv, fontBold: helvBold, vignettes, logo: brandLogo },
         { legalText: defaultCopyrightText() },
       );
     }
+
     // 4) How-to page
     {
       const p = pdf.addPage([TRIM_PT, TRIM_PT]);
