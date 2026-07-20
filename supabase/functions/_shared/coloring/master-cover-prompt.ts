@@ -69,8 +69,29 @@ export function buildMasterColoringCoverPrompt(input: MasterColoringCoverInput):
     ? `The title must use large CUSTOM HAND-DRAWN illustrated lettering, not a plain standard system font. The lettering must be bold, rounded, playful, highly readable, correctly spelled letter-for-letter, visually integrated with the theme (subtle themed accents like stars, hearts, sparkles, rainbows, clouds, flowers are welcome), with a thick clean outline and warm fill colors. Place the main title inside the upper 30-40% of the cover. Place the subtitle immediately beneath the title on its own line. Place the age label inside a clear round badge in an upper or lower corner.`
     : `The title must use large CUSTOM HAND-DRAWN illustrated lettering, not a plain standard system font. The lettering must be bold, rounded, playful, highly readable, correctly spelled letter-for-letter, visually integrated with the theme (subtle themed accents like stars, hearts, sparkles, rainbows, clouds, flowers are welcome), with a thick clean outline and warm fill colors. Place the main title inside the upper 30-40% of the cover. Place the age label inside a clear round badge in an upper or lower corner. There is NO subtitle line — do not invent one.`;
 
+  const isYA = input.styleMode === "ya_scifi_cinematic";
+  const openingClause = isYA
+    ? `Create a premium YA sci-fi front cover for a teen/young-adult coloring book (older teens, ages 13-17).`
+    : `Create a premium front cover for a children's coloring book.`;
+  const heroClause = isYA
+    ? `Use 1 dynamic YA hero (teen protagonist) in a cinematic 3/4 hero pose — wind-swept hair, action stance, confident expression, contemporary sci-fi wardrobe (jacket, scarf, smart-watch/HUD gear). Optional secondary silhouette allowed. Place the hero in the center or lower half of the cover. Build a cinematic YA sci-fi background — neon cyberpunk skyline, lightning bolts, floating holographic UI panels, glitching data glyphs, geometric portals — with clear foreground, midground, and background layers. Composition must feel like a professional YA graphic-novel cover.`
+    : `Use 1-3 newly illustrated main characters in a cute, friendly, expressive style with rounded shapes, cheerful faces, big kind eyes, and lively poses. Place the characters in the center or lower half of the cover. Build a bright, colorful, joyful background that supports the theme without becoming cluttered — clear foreground, midground, and background layers.`;
+  const paletteClause = isYA
+    ? `Use a bold cinematic YA palette — deep indigo/navy midtones, electric cyan and violet accents, hot magenta highlights, lightning-white sparks — with dramatic contrast, confident line hierarchy (bold hero outlines, finer background detail), balanced spacing, and a cinematic visual hierarchy. Even though the palette is described in color words, the illustration itself must still be a CLEAN LINE-ART COLORING PAGE (black ink outlines on white) with the color words expressing MOOD ONLY — never fill regions with gray, shading, or solid color. The cover must look striking as a small online marketplace thumbnail and appeal to older teens (13-17) plus their parents scanning for a premium teen coloring title.`
+    : `Use bright cheerful pastel colors (pink, sky blue, mint, lavender, soft yellow, peach, cream) with strong contrast, clean outlines, balanced spacing, and a professional visual hierarchy. The cover must look attractive to children and trustworthy to parents, and must remain readable as a small online marketplace thumbnail.`;
+  const layoutBaseYA = `The title must use large CUSTOM HAND-DRAWN illustrated lettering in a shattered/glitch YA display style — bold, angular, cinematic, highly readable, correctly spelled letter-for-letter, with a thick clean outline and dramatic accents (electric sparks, cracks, glitch fragments are welcome). Place the main title inside the upper 30-40% of the cover. Place the age label inside a clear round badge in an upper or lower corner.`;
+  const layoutYA = hasSubtitle
+    ? `${layoutBaseYA} Place the subtitle immediately beneath the title on its own line.`
+    : `${layoutBaseYA} There is NO subtitle line — do not invent one.`;
+  const layoutClauseFinal = isYA ? layoutYA : layoutClause;
+  const styleTag = isYA
+    ? `Style: premium YA sci-fi coloring book cover, cinematic, dynamic, professional graphic-novel-quality composition, custom hand-drawn shattered/glitch title lettering, strong visual hierarchy, teen-friendly, parent-approved, suitable for online marketplace thumbnail, high-resolution, print-ready composition, LINE-ART COLORING PAGE (black ink on white) with color-word cues describing MOOD only.`
+    : `Style: premium children's coloring book cover, whimsical, cheerful, clean composition, polished illustration, custom hand-drawn title lettering, strong visual hierarchy, professional book cover design, parent-friendly, kid-friendly, suitable for online marketplace thumbnail, high-resolution, print-ready composition.`;
+  const negativeYA = `NEGATIVE — no watermark, no logo, no page numbers, no website URL, no extra text, no subtitle, no tagline, no descriptor word, no misspelled words, no duplicated title, no copied interior page, no photorealism, no 3D rendering, no photograph, no cluttered composition, no gore, no tiny hard-to-see linework, no muddy fills, no grayscale shading, no solid color fills that block coloring regions, no missing limbs, no extra limbs, no deformed anatomy.`;
+  const negativeDefault = `NEGATIVE — no watermark, no logo, no page numbers, no website URL, no extra text, no subtitle, no tagline, no descriptor word, no misspelled words, no duplicated title, no copied interior page, no photorealism, no 3D rendering, no photograph, no cluttered composition, no scary imagery, no tiny hard-to-see linework, no dark muddy palette.`;
+
   const prompt = [
-    `Create a premium front cover for a children's coloring book.`,
+    openingClause,
     refClause,
     `Book title: "${title}".`,
     hasSubtitle ? `Subtitle: "${subtitle}".` : `NO subtitle — the cover has no subtitle line at all.`,
@@ -79,18 +100,19 @@ export function buildMasterColoringCoverPrompt(input: MasterColoringCoverInput):
     `Main characters: ${mainStr}.`,
     `Background elements: ${bgStr}.`,
     `Canvas size: ${aspect} front cover.`,
-    `Use 1-3 newly illustrated main characters in a cute, friendly, expressive style with rounded shapes, cheerful faces, big kind eyes, and lively poses. Place the characters in the center or lower half of the cover. Build a bright, colorful, joyful background that supports the theme without becoming cluttered — clear foreground, midground, and background layers.`,
-    layoutClause,
+    heroClause,
+    layoutClauseFinal,
     `SAFE-AREA — every letter, glyph, character, and important element must stay at least 0.25 inches away from the trim edge (interior 92% of the canvas). Nothing may be cropped by the edge. Nothing important may touch the border. Give the title generous breathing room; if the title is long, break it onto 2-3 balanced lines rather than letting a word run edge-to-edge.`,
-    `Use bright cheerful pastel colors (pink, sky blue, mint, lavender, soft yellow, peach, cream) with strong contrast, clean outlines, balanced spacing, and a professional visual hierarchy. The cover must look attractive to children and trustworthy to parents, and must remain readable as a small online marketplace thumbnail.`,
-    `Include ONLY these text elements anywhere in the image: ${textElementsList}. No other words, taglines, credits, publisher name, price, page count, banner text, sound-effect words, character-name captions, or letter-shaped ornaments. Every ornament must be a pure graphic shape (star, dot, heart, leaf, sparkle) — never a letter or word.`,
+    paletteClause,
+    `Include ONLY these text elements anywhere in the image: ${textElementsList}. No other words, taglines, credits, publisher name, price, page count, banner text, sound-effect words, character-name captions, or letter-shaped ornaments. Every ornament must be a pure graphic shape (star, dot, heart, spark, geometric fragment) — never a letter or word.`,
     spellingContract,
-    `Style: premium children's coloring book cover, whimsical, cheerful, clean composition, polished illustration, custom hand-drawn title lettering, strong visual hierarchy, professional book cover design, parent-friendly, kid-friendly, suitable for online marketplace thumbnail, high-resolution, print-ready composition.`,
-    `NEGATIVE — no watermark, no logo, no page numbers, no website URL, no extra text, no subtitle, no tagline, no descriptor word, no misspelled words, no duplicated title, no copied interior page, no photorealism, no 3D rendering, no photograph, no cluttered composition, no scary imagery, no tiny hard-to-see linework, no dark muddy palette.`,
+    styleTag,
+    isYA ? negativeYA : negativeDefault,
   ].filter(Boolean).join(" ");
 
   return capAndAssert(prompt, { title, subtitle, ageBadge });
 }
+
 
 function capAndAssert(prompt: string, expected: { title: string; subtitle: string; ageBadge: string }): string {
   const capped = prompt.length > 3000 ? prompt.slice(0, 2990) + " ..." : prompt;
