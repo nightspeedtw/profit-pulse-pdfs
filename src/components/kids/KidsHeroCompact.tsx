@@ -234,19 +234,30 @@ export default function KidsHeroCompact({ onCtaClick }: Props) {
   );
 }
 
-// Deterministic sparkle field — hand-tuned so nothing sits over the baked
-// headline area (roughly the center of the wide art) or over faces.
-const SPARKLES: Array<{ x: number; y: number; size: number; delay: number; duration: number }> = [
-  { x: 8,  y: 18, size: 4, delay: 0.0, duration: 4.2 },
-  { x: 14, y: 62, size: 3, delay: 1.4, duration: 5.0 },
-  { x: 22, y: 12, size: 2, delay: 0.8, duration: 4.6 },
-  { x: 30, y: 78, size: 3, delay: 2.2, duration: 5.4 },
-  { x: 44, y: 8,  size: 2, delay: 0.4, duration: 4.8 },
-  { x: 55, y: 70, size: 4, delay: 1.8, duration: 5.2 },
-  { x: 68, y: 20, size: 3, delay: 0.6, duration: 4.4 },
-  { x: 76, y: 58, size: 2, delay: 2.6, duration: 5.6 },
-  { x: 84, y: 30, size: 4, delay: 1.0, duration: 4.9 },
-  { x: 91, y: 74, size: 3, delay: 2.0, duration: 5.1 },
-  { x: 38, y: 40, size: 2, delay: 3.0, duration: 6.0 },
-  { x: 62, y: 44, size: 2, delay: 0.2, duration: 5.5 },
+// Fireflies — sparse, hand-tuned so nothing sits over the baked headline
+// band (roughly the horizontal center strip) or over character faces.
+// `mobile: true` = also shown on mobile; the rest are desktop-only for
+// performance and calm density on small screens.
+const FIREFLIES: Array<{
+  x: number; y: number; size: number;
+  delay: number; pulseDelay: number;
+  path: "a" | "b" | "c";
+  tone: "warm" | "cool";
+  mobile?: boolean;
+}> = [
+  // warm-gold fireflies (majority)
+  { x:  6, y: 22, size: 3, delay: 0.0, pulseDelay: 0.2, path: "a", tone: "warm", mobile: true },
+  { x: 12, y: 68, size: 4, delay: 1.4, pulseDelay: 1.1, path: "b", tone: "warm" },
+  { x: 20, y: 14, size: 2, delay: 0.8, pulseDelay: 2.0, path: "c", tone: "warm" },
+  { x: 27, y: 80, size: 3, delay: 2.2, pulseDelay: 0.6, path: "a", tone: "warm", mobile: true },
+  { x: 40, y:  9, size: 2, delay: 0.4, pulseDelay: 3.0, path: "b", tone: "warm" },
+  { x: 58, y: 74, size: 3, delay: 1.8, pulseDelay: 1.5, path: "c", tone: "warm", mobile: true },
+  { x: 70, y: 18, size: 2, delay: 0.6, pulseDelay: 2.4, path: "a", tone: "warm" },
+  { x: 78, y: 60, size: 4, delay: 2.6, pulseDelay: 0.9, path: "b", tone: "warm" },
+  { x: 86, y: 30, size: 3, delay: 1.0, pulseDelay: 1.7, path: "c", tone: "warm", mobile: true },
+  { x: 92, y: 76, size: 2, delay: 2.0, pulseDelay: 0.4, path: "a", tone: "warm" },
+  // cool pale-blue accents (few, for cool/dreamy balance)
+  { x: 34, y: 40, size: 2, delay: 3.0, pulseDelay: 2.2, path: "b", tone: "cool" },
+  { x: 66, y: 46, size: 2, delay: 0.2, pulseDelay: 3.4, path: "c", tone: "cool" },
 ];
+
