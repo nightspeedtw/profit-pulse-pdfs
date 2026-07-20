@@ -116,10 +116,6 @@ export default function Kids() {
     catalogRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const onCategorySelect = (slug: KidsTypeSlug) => {
-    updateFilters({ type: slug, subcategory: null, age });
-    setTimeout(scrollToCatalog, 40);
-  };
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
