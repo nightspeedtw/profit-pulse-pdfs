@@ -251,13 +251,13 @@ export default function ColoringProduct() {
               <button
                 type="button"
                 onClick={openPreview}
-                aria-label={`Preview inside ${book.title}`}
+                aria-label={`Preview inside ${displayTitle}`}
                 className="relative aspect-square bg-white border-2 border-foreground overflow-hidden group rounded-md"
               >
                 {main ? (
                   <img
                     src={main}
-                    alt={isCoverSlot ? book.title : `${book.title} — sample ${safeIdx}`}
+                    alt={isCoverSlot ? displayTitle : `${displayTitle} — sample ${safeIdx}`}
                     className="w-full h-full object-contain"
                   />
                 ) : (
@@ -283,7 +283,7 @@ export default function ColoringProduct() {
                     </button>
                   ))}
                   {gallery.length >= 2 && (
-                    <FlipbookPreview images={gallery} title={book.title || "Coloring book"} />
+                    <FlipbookPreview images={gallery} title={displayTitle} />
                   )}
                 </div>
               )}
@@ -417,7 +417,7 @@ export default function ColoringProduct() {
                 onClick={openPreview}
                 className="relative aspect-square border-2 border-border overflow-hidden group bg-white"
               >
-                <img src={u} alt={`${book.title} sample page ${i + 1}`} loading="lazy" className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500" />
+                <img src={u} alt={`${displayTitle} sample page ${i + 1}`} loading="lazy" className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500" />
                 <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-background/90 border border-foreground text-[10px] font-mono uppercase tracking-widest">
                   Preview
                 </span>
@@ -472,7 +472,7 @@ export default function ColoringProduct() {
       {/* ── Complete-the-set bundle (auto, discounted) ──────────────── */}
       <CompleteTheSetBundle
         ebookId={book.id}
-        ebookTitle={book.title || "This book"}
+        ebookTitle={displayTitle}
         ebookPriceCents={priceCents}
         ebookCoverUrl={book.cover_url}
         siblings={siblings}
@@ -522,7 +522,7 @@ export default function ColoringProduct() {
 
       <ColoringPreviewLightbox
         ebookId={book.id}
-        title={book.title}
+        title={displayTitle}
         coverUrl={book.cover_url}
         previewUrls={previewUrls}
         open={preview}
