@@ -61,6 +61,7 @@ export default function ColoringProduct() {
   const [preview, setPreview] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const saleCfg = useSaleConfig();
 
   useEffect(() => {
     if (!id) return;
