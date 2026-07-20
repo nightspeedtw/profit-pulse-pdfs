@@ -40,6 +40,9 @@ Deno.serve(async (req: Request) => {
             num_inference_steps: 8,
             ebook_id: book_id,
             step: `coloring_v2_interior_p${page_number}`,
+            v2_book_id: book_id,
+            purpose: `interior_p${String(page_number).padStart(2, "0")}_a${attempt}`,
+            prompt_version: "v2_page_plan@1",
           });
           const asset = await uploadAsset(book_id, "interior", bytes, "jpg",
             { attempt, prompt_len: plan.prompt.length }, page_number);
