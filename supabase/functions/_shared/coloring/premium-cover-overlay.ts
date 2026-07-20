@@ -102,11 +102,8 @@ export async function renderPremiumCoverOverlayPng(input: PremiumOverlayInput): 
   const blurb = (input.blurb ?? "").trim();
   const fallbackTitle = (input.fallbackTitle ?? "").trim();
 
-  // Age pill: bottom-left circular badge.
-  const pillR = Math.round(Math.min(W, H) * 0.095);
-  const pillCX = Math.round(W * 0.11);
-  const pillCY = Math.round(H * 0.905);
-  const pillFontSize = Math.round(pillR * 0.42);
+  // OWNER ORDER 2026-07-20 (v3): AGES no longer rendered as a separate
+  // floating pill — it's merged into the top "COLORING BOOK" chip below.
 
   // SALE ribbon: top-right diagonal banner.
   const rW = Math.round(W * 0.34);
