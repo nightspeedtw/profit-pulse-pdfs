@@ -12,6 +12,7 @@ import { resolveAgeChip, bookMatchesAgeChip, bookIsForKids } from "@/lib/kidsCat
 import { bookMatchesType } from "@/lib/kidsBookTypes";
 import type { KidsTypeSlug } from "@/lib/kidsBookTypes";
 import { listThemes, type KidsTheme } from "@/lib/kidsTaxonomy";
+import { useResolvedKidsPrices } from "@/lib/useResolvedPricing";
 
 interface RawBook {
   id: string;

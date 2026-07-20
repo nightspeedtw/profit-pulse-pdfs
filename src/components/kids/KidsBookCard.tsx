@@ -16,12 +16,20 @@ export interface KidsBookCardData {
   book_type?: string | null;
 }
 
+export interface KidsBookCardResolvedPrice {
+  effectiveCents: number;
+  regularCents: number;
+  campaignCents: number | null;
+}
+
 interface Props {
   book: KidsBookCardData;
   themes: KidsTheme[];
   variant?: "grid" | "strip";
   index?: number;
   onPreview?: () => void;
+  /** Authoritative price from `product_pricing` (marketing autopilot Phase 1). */
+  resolvedPrice?: KidsBookCardResolvedPrice;
 }
 
 /**
@@ -31,7 +39,7 @@ interface Props {
  * anatomy exactly. No borders/shadows, no on-card BUY button, the entire
  * image is the click-through link. Meta rows sit tight under the image.
  */
-export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPreview: _onPreview }: Props) => {
+export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPreview: _onPreview, resolvedPrice }: Props) => {
   void _onPreview;
   void themes;
 
@@ -43,7 +51,11 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
   // so titles like "Cyber City Countdown" don't confuse buyers.
   const displayTitle = isColoring ? ensureColoringLabel(book.title) : book.title;
 
-  const pricing = deriveSalePricing(book.id, book.price_cents, book.storefront_meta);
+  // Marketing Autopilot Phase 1: prefer the authoritative product_pricing row.
+  // The synthetic-compare-at path in deriveSalePricing is Phase-0-safe and
+  // will only render a strikethrough when the server sets `compare_at_verified`.
+  const effectiveCents = resolvedPrice?.effectiveCents ?? book.price_cents;
+  const pricing = deriveSalePricing(book.id, effectiveCents, book.storefront_meta);
 
   return (
     <Link
