@@ -14,6 +14,7 @@
 import { advance, corsHeaders, db, fetchBook, fireStage, json, recordError, signedUrl, uploadAsset } from "../_shared/coloring-v2/state.ts";
 import { buildMasterColoringCoverPrompt, COLORING_MASTER_COVER_PROMPT_VERSION } from "../_shared/coloring/master-cover-prompt.ts";
 import { getAgeProfile } from "../_shared/coloring-v2/age-matrix.ts";
+import { runwareInference } from "../_shared/runware.ts";
 import { renderImageWithFallback } from "../_shared/coloring-v2/image-fallback.ts";
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
 import { COVER_OVERLAY_CONTRACT } from "../_shared/coloring/premium-cover-overlay.ts";
@@ -22,8 +23,31 @@ declare const Deno: any;
 
 const IDEOGRAM_MODEL = "ideogram:4@1";
 const CANVAS = 1024;
-const BAKE_ATTEMPTS = 5;
+// OWNER FIX 2026-07-20: reduced from 5 → 3 to stop CF quota bleed on
+// OCR-reject loops (some books were burning 30–97 CF images @ cover stage).
+const BAKE_ATTEMPTS = 3;
 const NEGATIVE_PROMPT_BAKE = "any subtitle, any tagline, any 'COLORING BOOK' chip, any 'PAGE' text, any page number, any banner, any ribbon, any sticker, any sale badge, any popup pill, any watermark, any publisher name, any credits, any author line, any letter-shaped ornament, gibberish text, misspelled text, duplicate letters, extra typography, duplicated title, flat vector, line art, black and white, coloring page, uncolored";
+
+// OWNER LAW `cover_uses_ideogram_only_v7` (2026-07-20):
+//   Cover bake MUST go through Runware/Ideogram-4. Cloudflare Flux Schnell
+//   cannot render legible typography — it produced garbled titles that OCR
+//   rejected on every attempt, torching the free CF pool. Only fall back to
+//   the CF-primary path if Runware is provider_billing_locked, and in that
+//   fallback path we soft-accept the best attempt because typography quality
+//   is expected to be poor.
+async function renderCoverBake(opts: any): Promise<{ bytes: Uint8Array; provider: "runware" | "cloudflare_fallback" }> {
+  try {
+    const bytes = await runwareInference(opts);
+    return { bytes, provider: "runware" };
+  } catch (e: any) {
+    const msg = String(e?.message ?? e ?? "");
+    const billingLocked = /insufficient|balance|credit|billing|payment required|402/i.test(msg);
+    if (!billingLocked) throw e;
+    console.warn(`[coloring-v2-cover] runware billing-locked; falling through to CF (typography will be weaker): ${msg.slice(0, 200)}`);
+    const bytes = await renderImageWithFallback(opts);
+    return { bytes, provider: "cloudflare_fallback" };
+  }
+}
 
 function ensureColoringBookInTitle(t: string): string {
   const s = (t ?? "").trim();
@@ -87,10 +111,15 @@ Deno.serve(async (req: Request) => {
     let passVerdict: any = null;
     let lastVerdict: any = null;
     let lastErr: any = null;
+    let bestBytes: Uint8Array | null = null;
+    let bestExtras = Number.POSITIVE_INFINITY;
+    let bestVerdict: any = null;
+    let bestProvider: "runware" | "cloudflare_fallback" | null = null;
+    let transcriberFailures = 0;
 
     for (let attempt = 1; attempt <= BAKE_ATTEMPTS; attempt++) {
       try {
-        const candidate = await renderImageWithFallback({
+        const { bytes: candidate, provider } = await renderCoverBake({
           prompt: bakePrompt, model: IDEOGRAM_MODEL,
           width: CANVAS, height: CANVAS, num_inference_steps: 40,
           negative_prompt: NEGATIVE_PROMPT_BAKE,
@@ -102,33 +131,57 @@ Deno.serve(async (req: Request) => {
         const verdict = await verifyExactCoverText(candidate, { title, subtitle: "", ageBadge });
         lastVerdict = verdict;
         if (verdict.pass) { passBytes = candidate; passVerdict = verdict; break; }
-        console.warn(`[coloring-v2-cover] bake attempt ${attempt} rejected: ${verdict.reason} extras=${JSON.stringify(verdict.extra)} misspelled=${JSON.stringify(verdict.misspelled)}`);
+        const reasonStr = String(verdict.reason ?? "");
+        // Track transcriber-unavailable separately: if OCR itself is down, we
+        // cannot punish the bake — record and keep the first candidate as
+        // best so we can soft-ship after the cap.
+        if (/transcriber_unavailable|transcriber_error/i.test(reasonStr)) {
+          transcriberFailures++;
+          if (!bestBytes) { bestBytes = candidate; bestExtras = 0; bestVerdict = verdict; bestProvider = provider; }
+        } else {
+          const extras = extrasCount(verdict);
+          if (extras < bestExtras) { bestBytes = candidate; bestExtras = extras; bestVerdict = verdict; bestProvider = provider; }
+        }
+        console.warn(`[coloring-v2-cover] bake attempt ${attempt} (${provider}) rejected: ${verdict.reason} extras=${JSON.stringify(verdict.extra)} misspelled=${JSON.stringify(verdict.misspelled)}`);
       } catch (e) { lastErr = e; console.warn(`[coloring-v2-cover] bake attempt ${attempt} error:`, e?.message ?? e); }
     }
 
-    // OWNER LAW `cover_bake_only_v6_hard_reject` (2026-07-20):
-    //   Never ship a cover that failed OCR. Misspellings, extras, hard-banned
-    //   tokens, or duplicate age badges = throw. The retry supervisor requeues
-    //   the book; garbled typography must never reach the storefront.
+    // OWNER LAW `cover_bake_only_v6_hard_reject` (amended 2026-07-20):
+    //   • Strict pass = ship.
+    //   • Transcriber unavailable on ALL attempts = SOFT-ACCEPT best attempt.
+    //     Vision provider outage must not stall the book or bleed quota.
+    //   • Cloudflare fallback path = SOFT-ACCEPT (CF typography is weaker
+    //     than Ideogram; we already logged the degradation).
+    //   • Otherwise = hard reject (garbled Ideogram title stays blocked).
+    let softAcceptReason: string | null = null;
     if (!passBytes || !passVerdict?.pass) {
-      const reason = lastVerdict?.reason ?? lastErr?.message ?? "unknown";
-      throw new Error(`cover_ocr_hard_reject_after_${BAKE_ATTEMPTS}_attempts:${reason}`);
+      if (transcriberFailures >= BAKE_ATTEMPTS && bestBytes) {
+        passBytes = bestBytes; passVerdict = bestVerdict;
+        softAcceptReason = "soft_accept_transcriber_unavailable_all_attempts";
+      } else if (bestProvider === "cloudflare_fallback" && bestBytes) {
+        passBytes = bestBytes; passVerdict = bestVerdict;
+        softAcceptReason = "soft_accept_cf_fallback_runware_billing_locked";
+      } else {
+        const reason = lastVerdict?.reason ?? lastErr?.message ?? "unknown";
+        throw new Error(`cover_ocr_hard_reject_after_${BAKE_ATTEMPTS}_attempts:${reason}`);
+      }
     }
 
     const asset = await uploadAsset(book_id, "cover_final", passBytes, "jpg", {
       prompt_len: bakePrompt.length, refs: refs.length,
-      ocr_verdict: passVerdict.reason,
-      ocr_pass: true,
+      ocr_verdict: passVerdict?.reason ?? "n/a",
+      ocr_pass: !softAcceptReason,
+      ocr_soft_accept: softAcceptReason,
       overlay: COVER_OVERLAY_CONTRACT,
       text_mode: "bake_only",
       prompt_version: COLORING_MASTER_COVER_PROMPT_VERSION,
-      law: "cover_bake_only_v6_hard_reject",
+      law: "cover_uses_ideogram_only_v7",
     });
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
     await advance(book_id, "cover", "qc");
     await fireStage("coloring-v2-qc", { book_id });
-    return json({ ok: true, cover_asset: asset.id, next: "qc", text_mode: "bake_only", ocr: passVerdict.reason });
+    return json({ ok: true, cover_asset: asset.id, next: "qc", text_mode: "bake_only", ocr: passVerdict?.reason, soft_accept: softAcceptReason });
   } catch (e: any) {
     await recordError(book_id, "cover", e);
     return json({ error: e?.message ?? String(e) }, 500);
