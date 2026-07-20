@@ -14,12 +14,12 @@ interface Props {
 export default function KidsHeroCompact({ onCtaClick }: Props) {
   return (
     <section aria-label="Kids hero" className="relative w-full overflow-hidden">
-      <div className="relative w-full mx-auto max-w-[1600px]">
-        <div className="relative w-full aspect-[16/10] sm:aspect-[16/8] md:aspect-[16/7] lg:aspect-[21/8] max-h-[560px] overflow-hidden rounded-none md:rounded-3xl">
+      <div className="relative w-full mx-auto max-w-[1600px] px-0 md:px-4">
+        <div className="relative w-full overflow-hidden md:rounded-3xl bg-[#0d0a2f]">
           <img
             src={heroImage.url}
             alt="Stories that spark dreams and imagination — magical books for young explorers"
-            className="absolute inset-0 h-full w-full object-cover object-center"
+            className="block w-full h-auto max-h-[560px] object-cover object-center"
             fetchPriority="high"
             decoding="async"
           />
