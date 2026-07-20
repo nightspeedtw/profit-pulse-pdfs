@@ -1,6 +1,10 @@
+import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
+import { SlidersHorizontal, X } from "lucide-react";
 import { KIDS_MAIN_TYPES, type KidsTypeSlug } from "@/lib/kidsBookTypes";
 import { AGE_CHIPS } from "@/lib/kidsCatalogTaxonomy";
+
+const FILTERS_STORAGE_KEY = "kids.filters.open";
 
 /**
  * Kids sticky header filter bar (owner spec 2026-07-21).
