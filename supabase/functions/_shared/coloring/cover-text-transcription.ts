@@ -475,7 +475,23 @@ export async function verifyExactCoverTextByUrl(
   const optionalTokens = Array.from(new Set(optionalTokensRaw.filter((t) => !requiredSet.has(t))));
   const dedupApproved = [...requiredTokens, ...optionalTokens];
   const attempted_at = new Date().toISOString();
-  const transcribed = await gatewayTranscribeByUrl(url, timeoutMs);
+  let transcribed = await gatewayTranscribeByUrl(url, timeoutMs);
+  if (!transcribed) {
+    // Fall back to CF Vision: fetch bytes ourselves then run OCR.
+    try {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort("fetch_url_timeout"), timeoutMs);
+      const r = await fetch(url, { signal: ac.signal });
+      clearTimeout(timer);
+      if (r.ok) {
+        const bytes = new Uint8Array(await r.arrayBuffer());
+        transcribed = (await cloudflareVisionTranscribe(bytes, timeoutMs))
+          ?? (await geminiTranscribe(bytes, timeoutMs));
+      }
+    } catch (e: any) {
+      console.warn(`[cover-transcribe] url-variant cf-fallback fetch failed: ${e?.message ?? e}`);
+    }
+  }
   if (!transcribed) {
     return { pass: false, degraded: true, reason: "transcriber_unavailable_url_variant", transcribed_raw: "", transcribed_tokens: [], approved_tokens: dedupApproved, required_tokens: requiredTokens, optional_tokens: optionalTokens, missing: dedupApproved, missing_required: requiredTokens, missing_optional: optionalTokens, extra: [], misspelled: [], age_badge_count: 0, duplicate_age_badge: false, attempted_at };
   }
