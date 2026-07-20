@@ -263,9 +263,13 @@ export default function ColoringProduct() {
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-muted-foreground">No cover</div>
                 )}
-                <span className="absolute bottom-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-background/95 border-2 border-foreground text-xs font-mono uppercase tracking-widest">
-                  <Eye className="h-3.5 w-3.5" /> Look inside
-                </span>
+              </button>
+              <button
+                type="button"
+                onClick={openPreview}
+                className="self-center inline-flex items-center gap-2 px-4 py-2 rounded-full bg-background border-2 border-foreground text-xs font-mono uppercase tracking-widest hover:bg-accent hover:text-accent-foreground transition-colors"
+              >
+                <Eye className="h-3.5 w-3.5" /> Look inside
               </button>
               {gallery.length > 1 && (
                 <div className={`grid gap-2 ${gallery.length >= 5 ? "grid-cols-6" : "grid-cols-5"}`}>
