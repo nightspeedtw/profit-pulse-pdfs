@@ -1,0 +1,1 @@
+UPDATE drive_products SET drive_modified_time = NULL, sha256 = NULL;
