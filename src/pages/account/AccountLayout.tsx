@@ -16,7 +16,7 @@ const NAV = [
   { to: "/account/orders", icon: ShoppingBag, label: "Orders" },
   { to: "/account/downloads", icon: Download, label: "Downloads" },
   { to: "/account/invoices", icon: FileText, label: "Invoices" },
-  { to: "/account/royalties", icon: TrendingUp, label: "Royalties" },
+  
   { to: "/account/notifications", icon: Bell, label: "Notifications" },
   { to: "/account/support", icon: LifeBuoy, label: "Support" },
   { to: "/account/profile", icon: UserIcon, label: "Profile" },
