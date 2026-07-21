@@ -182,12 +182,12 @@ async function handleTransactionCompleted(data: any, env: PaddleEnv) {
     } as any);
   }
 
-  // Grant download (permanent — no expiry for purchases)
+  // Grant 30-day download access
   await admin().from('download_grants').insert({
     buyer_user_id: userId,
     ebook_id: bookId,
     source: 'purchase',
-    expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+    expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     max_downloads: 999,
   } as any);
 
