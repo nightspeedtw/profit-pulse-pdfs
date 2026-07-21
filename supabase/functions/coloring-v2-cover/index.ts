@@ -24,7 +24,12 @@ import { openaiDirectImage } from "../_shared/openai-direct.ts";
 declare const Deno: any;
 
 const IDEOGRAM_MODEL = "ideogram:4@1";
-const GEMINI_IMAGE_MODEL = "google/gemini-3-pro-image";
+// Google native API (generativelanguage.googleapis.com) image model IDs.
+// `gemini-3-pro-image` is a Lovable-Gateway alias; the direct API accepts
+// `gemini-2.5-flash-image` (a.k.a. Nano Banana). Using the wrong ID on
+// direct returns 404 instantly, which is why prior attempts silently
+// skipped Gemini and jumped straight to Runware.
+const GEMINI_IMAGE_MODEL = "google/gemini-2.5-flash-image";
 const OPENAI_IMAGE_MODEL = "gpt-image-1";
 const CANVAS = 1024;
 const BAKE_ATTEMPTS = 3;
@@ -32,37 +37,64 @@ const NEGATIVE_PROMPT_BAKE = "any subtitle, any tagline, any 'COLORING BOOK' chi
 
 type CoverProvider = "gemini" | "openai" | "runware" | "cloudflare_fallback";
 
-// OWNER LAW `cover_uses_gemini_openai_primary_v8` (2026-07-21):
-//   Cover bake priority: Gemini image → OpenAI gpt-image → Runware/Ideogram
-//   → Cloudflare (last-resort). LLM-family image models were the original
-//   plan for title typography; Runware/CF stay as safety nets so a book can
-//   still ship when direct providers are down.
-async function renderCoverBake(opts: any): Promise<{ bytes: Uint8Array; provider: CoverProvider }> {
-  // 1. Gemini native image (google_direct)
+async function logProvider(book_id: string, provider: string, model: string, purpose: string, success: boolean, err: string | null, latency_ms: number) {
   try {
-    const { bytes } = await geminiDirectImageWithMeta({
-      prompt: opts.prompt,
-      referenceUrls: opts.reference_images ?? [],
-      model: GEMINI_IMAGE_MODEL,
+    await db().from("coloring_v2_provider_calls").insert({
+      book_id, provider, model, purpose,
+      prompt_version: COLORING_MASTER_COVER_PROMPT_VERSION,
+      success, error_message: err?.slice(0, 500) ?? null, latency_ms,
     });
-    if (bytes.length > 0) return { bytes, provider: "gemini" };
-    console.warn("[coloring-v2-cover] gemini returned empty image, trying openai");
-  } catch (e: any) {
-    console.warn(`[coloring-v2-cover] gemini failed: ${String(e?.message ?? e).slice(0, 200)}`);
+  } catch (_) { /* observability best-effort */ }
+}
+
+// OWNER LAW `cover_uses_gemini_openai_primary_v8` (2026-07-21, fixed 2026-07-21):
+//   Cover bake priority: Gemini image (direct) → OpenAI gpt-image (direct)
+//   → Runware/Ideogram → Cloudflare (last-resort). Each attempt is logged
+//   to coloring_v2_provider_calls so we can see WHY a provider was skipped.
+async function renderCoverBake(opts: any, attempt: number, book_id: string): Promise<{ bytes: Uint8Array; provider: CoverProvider }> {
+  // 1. Gemini native image (google_direct)
+  {
+    const t0 = Date.now();
+    try {
+      const { bytes, meta } = await geminiDirectImageWithMeta({
+        prompt: opts.prompt,
+        referenceUrls: opts.reference_images ?? [],
+        model: GEMINI_IMAGE_MODEL,
+      });
+      if (bytes.length > 0) {
+        await logProvider(book_id, meta.provider, meta.model, `cover_bake_a${attempt}_gemini`, true, null, Date.now() - t0);
+        return { bytes, provider: "gemini" };
+      }
+      await logProvider(book_id, meta.provider, meta.model, `cover_bake_a${attempt}_gemini`, false, `empty_bytes:${meta.finishReason ?? meta.blockReason ?? "no_image"}`, Date.now() - t0);
+      console.warn("[coloring-v2-cover] gemini returned empty image, trying openai");
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      await logProvider(book_id, "google_direct", GEMINI_IMAGE_MODEL, `cover_bake_a${attempt}_gemini`, false, msg, Date.now() - t0);
+      console.warn(`[coloring-v2-cover] gemini failed: ${msg.slice(0, 300)}`);
+    }
   }
   // 2. OpenAI gpt-image direct
-  try {
-    const { bytes } = await openaiDirectImage({
-      prompt: opts.prompt,
-      model: OPENAI_IMAGE_MODEL,
-      size: "1024x1024",
-      quality: "high",
-    });
-    if (bytes.length > 0) return { bytes, provider: "openai" };
-  } catch (e: any) {
-    console.warn(`[coloring-v2-cover] openai-image failed: ${String(e?.message ?? e).slice(0, 200)}`);
+  {
+    const t0 = Date.now();
+    try {
+      const { bytes } = await openaiDirectImage({
+        prompt: opts.prompt,
+        model: OPENAI_IMAGE_MODEL,
+        size: "1024x1024",
+        quality: "high",
+      });
+      if (bytes.length > 0) {
+        await logProvider(book_id, "openai_direct", OPENAI_IMAGE_MODEL, `cover_bake_a${attempt}_openai`, true, null, Date.now() - t0);
+        return { bytes, provider: "openai" };
+      }
+      await logProvider(book_id, "openai_direct", OPENAI_IMAGE_MODEL, `cover_bake_a${attempt}_openai`, false, "empty_bytes", Date.now() - t0);
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      await logProvider(book_id, "openai_direct", OPENAI_IMAGE_MODEL, `cover_bake_a${attempt}_openai`, false, msg, Date.now() - t0);
+      console.warn(`[coloring-v2-cover] openai-image failed: ${msg.slice(0, 300)}`);
+    }
   }
-  // 3. Runware/Ideogram fallback
+  // 3. Runware/Ideogram fallback (already logs internally)
   try {
     const bytes = await runwareInference(opts);
     return { bytes, provider: "runware" };
@@ -154,7 +186,7 @@ Deno.serve(async (req: Request) => {
           ebook_id: book_id, step: `coloring_v2_cover_bake_a${attempt}`,
           v2_book_id: book_id, purpose: `cover_bake_a${attempt}`,
           prompt_version: COLORING_MASTER_COVER_PROMPT_VERSION,
-        });
+        }, attempt, book_id);
         const verdict = await verifyExactCoverText(candidate, { title, subtitle: "", ageBadge });
         lastVerdict = verdict;
         if (verdict.pass) { passBytes = candidate; passVerdict = verdict; break; }
