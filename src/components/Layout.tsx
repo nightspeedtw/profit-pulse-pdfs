@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { Header } from "./Header";
 import { Footer } from "./Footer";
 import { KidsFooter } from "./kids/KidsFooter";
+import { PaymentTestModeBanner } from "./PaymentTestModeBanner";
 import { useCartSync } from "@/hooks/useCartSync";
 
 export const Layout = () => {
