@@ -14,7 +14,7 @@ import About from "./pages/About.tsx";
 import Download from "./pages/Download.tsx";
 import Kids from "./pages/Kids.tsx";
 import KidsCategory from "./pages/KidsCategory.tsx";
-import RoyaltySettings from "./pages/admin/RoyaltySettings.tsx";
+
 import MarketingAutopilot from "./pages/admin/MarketingAutopilot.tsx";
 import { Navigate } from "react-router-dom";
 import KidsCheckout from "./pages/KidsCheckout.tsx";
@@ -66,7 +66,7 @@ import AccountProfile from "./pages/account/Profile.tsx";
 import AccountSecurity from "./pages/account/Security.tsx";
 import AccountPrivacy from "./pages/account/Privacy.tsx";
 
-import RoyaltyConfig from "./pages/admin/RoyaltyConfig.tsx";
+
 import SeoAutopilot from "./pages/admin/SeoAutopilot.tsx";
 
 
@@ -146,8 +146,6 @@ const App = () => (
             <Route path="store/:id" element={<EbookReview />} />
             <Route path="products" element={<Products />} />
             <Route path="settings" element={<SettingsPage />} />
-            <Route path="royalty-settings" element={<RoyaltySettings />} />
-            <Route path="royalty-config" element={<RoyaltyConfig />} />
             <Route path="marketing-autopilot" element={<MarketingAutopilot />} />
             <Route path="seo-autopilot" element={<SeoAutopilot />} />
             <Route path="drive-importer" element={<DriveImporter />} />
