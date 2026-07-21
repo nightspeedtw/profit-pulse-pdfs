@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { lovable } from "@/integrations/lovable";
 import { toast } from "sonner";
 
 export default function AccountSignIn() {
@@ -16,11 +17,19 @@ export default function AccountSignIn() {
 
   const onGoogle = async () => {
     setBusy(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/account` },
+    const result = await lovable.auth.signInWithOAuth("google", {
+      redirect_uri: `${window.location.origin}/auth/callback`,
     });
-    if (error) { toast.error("Google sign-in failed"); setBusy(false); }
+    if (result.error) {
+      toast.error("Google sign-in failed");
+      setBusy(false);
+      return;
+    }
+    if (result.redirected) return; // browser is redirecting
+    // Popup/iframe path: session already set, go to intended destination.
+    const next = sessionStorage.getItem("auth:next");
+    sessionStorage.removeItem("auth:next");
+    nav(next && next.startsWith("/") && !next.startsWith("//") ? next : "/account", { replace: true });
   };
 
   const onEmail = async (e: React.FormEvent) => {
