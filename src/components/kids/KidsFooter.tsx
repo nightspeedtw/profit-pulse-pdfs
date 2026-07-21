@@ -21,9 +21,10 @@ const AGES: Array<{ label: string; href: string }> = [
 
 const HELP: Array<{ label: string; href: string }> = [
   { label: "Downloads", href: "/download" },
-  { label: "FAQ", href: "/faq" },
-  { label: "Refund Policy", href: "/refund" },
-  { label: "Contact", href: "/contact" },
+  { label: "Refund Policy", href: "/refund-policy" },
+  { label: "Privacy", href: "/privacy" },
+  { label: "Terms", href: "/terms" },
+  { label: "Contact", href: "mailto:support@secretpdf.co" },
 ];
 
 export function KidsFooter() {
