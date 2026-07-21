@@ -82,12 +82,34 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // ------------------------------- reprice ----------------------------------
+  // Owner tool: `?reprice=all` re-runs the price anchor snapping for every
+  // currently-live campaign so recent pricing-law changes propagate without
+  // waiting for a new campaign activation.
+  const repriced: string[] = [];
+  const reqUrl = new URL(req.url);
+  if (reqUrl.searchParams.get("reprice") === "all") {
+    const { data: live } = await db
+      .from("campaigns")
+      .select("*")
+      .eq("status", "live");
+    for (const c of ((live ?? []) as Campaign[])) {
+      try {
+        await activateCampaign(db, c);
+        repriced.push(c.slug);
+      } catch (e) {
+        errors.push(`reprice:${c.slug}:${(e as Error).message}`);
+      }
+    }
+  }
+
   return new Response(
     JSON.stringify({
       ok: true,
       tick_at: now.toISOString(),
       activated,
       ended,
+      repriced,
       errors,
     }),
     { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
