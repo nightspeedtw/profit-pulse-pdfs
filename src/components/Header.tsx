@@ -10,7 +10,7 @@ const NAV = [
   { label: "Library", to: "/library" },
   { label: "Kids", to: "/kids" },
   { label: "Blog", to: "/blog" },
-  { label: "Royalty Ownership", to: "/royalty" },
+  
   { label: "Create & Earn", to: "/create" },
   { label: "Categories", to: "/categories" },
   { label: "Bundles", to: "/bundles" },
