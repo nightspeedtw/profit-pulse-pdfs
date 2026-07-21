@@ -100,6 +100,7 @@ const App = () => (
             <Route path="/bundles" element={<Bundles />} />
             <Route path="/about" element={<About />} />
             <Route path="/download" element={<Download />} />
+            <Route path="/pricing" element={<Pricing />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/checkout/return" element={<CheckoutReturn />} />
             <Route path="/blog" element={<Blog />} />
