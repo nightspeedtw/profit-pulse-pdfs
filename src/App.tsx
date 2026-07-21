@@ -14,10 +14,7 @@ import About from "./pages/About.tsx";
 import Download from "./pages/Download.tsx";
 import Kids from "./pages/Kids.tsx";
 import KidsCategory from "./pages/KidsCategory.tsx";
-import Royalty from "./pages/Royalty.tsx";
-import RoyaltyBook from "./pages/RoyaltyBook.tsx";
-import MyRoyalties from "./pages/MyRoyalties.tsx";
-import RoyaltySettings from "./pages/admin/RoyaltySettings.tsx";
+
 import MarketingAutopilot from "./pages/admin/MarketingAutopilot.tsx";
 import { Navigate } from "react-router-dom";
 import KidsCheckout from "./pages/KidsCheckout.tsx";
@@ -68,8 +65,8 @@ import AccountSupport from "./pages/account/Support.tsx";
 import AccountProfile from "./pages/account/Profile.tsx";
 import AccountSecurity from "./pages/account/Security.tsx";
 import AccountPrivacy from "./pages/account/Privacy.tsx";
-import AccountRoyalties from "./pages/account/Royalties.tsx";
-import RoyaltyConfig from "./pages/admin/RoyaltyConfig.tsx";
+
+
 import SeoAutopilot from "./pages/admin/SeoAutopilot.tsx";
 
 
@@ -91,13 +88,13 @@ const App = () => (
             <Route path="/kids" element={<Kids />} />
             <Route path="/kids/coloring/:id" element={<ColoringProduct />} />
             <Route path="/kids/:categorySlug" element={<KidsCategory />} />
-            <Route path="/royalty" element={<Royalty />} />
-            <Route path="/royalty/book/:bookId" element={<RoyaltyBook />} />
-            <Route path="/my-royalties" element={<MyRoyalties />} />
-            <Route path="/exchange" element={<Navigate to="/royalty" replace />} />
-            <Route path="/exchange/book/:bookId" element={<Navigate to="/royalty" replace />} />
-            <Route path="/exchange/portfolio" element={<Navigate to="/my-royalties" replace />} />
-            <Route path="/exchange/wallet" element={<Navigate to="/my-royalties" replace />} />
+            <Route path="/royalty" element={<Navigate to="/" replace />} />
+            <Route path="/royalty/book/:bookId" element={<Navigate to="/" replace />} />
+            <Route path="/my-royalties" element={<Navigate to="/" replace />} />
+            <Route path="/exchange" element={<Navigate to="/" replace />} />
+            <Route path="/exchange/book/:bookId" element={<Navigate to="/" replace />} />
+            <Route path="/exchange/portfolio" element={<Navigate to="/" replace />} />
+            <Route path="/exchange/wallet" element={<Navigate to="/" replace />} />
             <Route path="/kids/checkout/:id" element={<KidsCheckout />} />
             <Route path="/create" element={<Create />} />
             <Route path="/bundles" element={<Bundles />} />
@@ -129,7 +126,7 @@ const App = () => (
               <Route path="profile" element={<AccountProfile />} />
               <Route path="security" element={<AccountSecurity />} />
               <Route path="privacy" element={<AccountPrivacy />} />
-              <Route path="royalties" element={<AccountRoyalties />} />
+              <Route path="royalties" element={<Navigate to="/account" replace />} />
             </Route>
 
           </Route>
@@ -149,8 +146,6 @@ const App = () => (
             <Route path="store/:id" element={<EbookReview />} />
             <Route path="products" element={<Products />} />
             <Route path="settings" element={<SettingsPage />} />
-            <Route path="royalty-settings" element={<RoyaltySettings />} />
-            <Route path="royalty-config" element={<RoyaltyConfig />} />
             <Route path="marketing-autopilot" element={<MarketingAutopilot />} />
             <Route path="seo-autopilot" element={<SeoAutopilot />} />
             <Route path="drive-importer" element={<DriveImporter />} />
