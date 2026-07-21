@@ -66,6 +66,9 @@ import AccountProfile from "./pages/account/Profile.tsx";
 import AccountSecurity from "./pages/account/Security.tsx";
 import AccountPrivacy from "./pages/account/Privacy.tsx";
 import Pricing from "./pages/Pricing.tsx";
+import PrivacyPolicy from "./pages/legal/Privacy.tsx";
+import Terms from "./pages/legal/Terms.tsx";
+import RefundPolicy from "./pages/legal/Refund.tsx";
 
 
 import SeoAutopilot from "./pages/admin/SeoAutopilot.tsx";
@@ -102,6 +105,9 @@ const App = () => (
             <Route path="/about" element={<About />} />
             <Route path="/download" element={<Download />} />
             <Route path="/pricing" element={<Pricing />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/refund-policy" element={<RefundPolicy />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/checkout/return" element={<CheckoutReturn />} />
             <Route path="/blog" element={<Blog />} />
