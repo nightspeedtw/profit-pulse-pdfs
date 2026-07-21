@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import {
   LayoutDashboard, Library, ShoppingBag, Download, FileText,
-  Bell, LifeBuoy, User as UserIcon, Shield, Lock, Menu, TrendingUp,
+  Bell, LifeBuoy, User as UserIcon, Shield, Lock, Menu,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
