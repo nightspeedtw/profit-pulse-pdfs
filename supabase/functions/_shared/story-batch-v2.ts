@@ -3,6 +3,7 @@
 // Nothing here touches existing production tables or paths.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import "./gateway-guard.ts";
 
 const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 const GATEWAY = "https://ai.gateway.lovable.dev/v1";
