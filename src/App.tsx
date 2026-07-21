@@ -56,6 +56,7 @@ import AccountLayout from "./pages/account/AccountLayout.tsx";
 import AccountOverview from "./pages/account/Overview.tsx";
 import AccountSignIn from "./pages/account/SignIn.tsx";
 import AccountForgotPassword from "./pages/account/ForgotPassword.tsx";
+import AuthCallback from "./pages/AuthCallback.tsx";
 import AccountResetPassword from "./pages/account/ResetPassword.tsx";
 import AccountMyLibrary from "./pages/account/MyLibrary.tsx";
 import AccountOrders from "./pages/account/Orders.tsx";
@@ -113,6 +114,7 @@ const App = () => (
             )}
 
             <Route path="/account/sign-in" element={<AccountSignIn />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/account/forgot-password" element={<AccountForgotPassword />} />
             <Route path="/account/reset-password" element={<AccountResetPassword />} />
             <Route path="/account" element={<AccountLayout />}>

@@ -1,5 +1,6 @@
 import { Link, NavLink as RouterNavLink, useLocation } from "react-router-dom";
 import { CartDrawer } from "./CartDrawer";
+import { AccountMenu } from "./AccountMenu";
 import { Search, Menu, X, ShieldCheck, Sparkles } from "lucide-react";
 import { useState } from "react";
 import logoHorizontal from "@/assets/secretpdf-horizontal.png";
@@ -110,6 +111,7 @@ export const Header = () => {
             <Search className="h-4 w-4" strokeWidth={2} />
           </button>
           <CartDrawer />
+          <AccountMenu variant={isKidsRoute ? "dark" : "light"} />
           <button
             aria-label="Menu"
             onClick={() => setOpen(!open)}
