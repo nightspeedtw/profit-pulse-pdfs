@@ -48,7 +48,7 @@ Deno.serve(async (req: Request) => {
       .neq("stage", "failed")
       .neq("publish_status", "live")
       .lte("stage_updated_at", cutoff)
-      .lt("stage_attempt_count", 8)
+      .lt("stage_attempt_count", 3)
       .order("stage_updated_at", { ascending: true })
       .limit(MAX_SLOTS);
     if (error) throw error;
