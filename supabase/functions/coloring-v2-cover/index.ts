@@ -186,7 +186,7 @@ Deno.serve(async (req: Request) => {
           ebook_id: book_id, step: `coloring_v2_cover_bake_a${attempt}`,
           v2_book_id: book_id, purpose: `cover_bake_a${attempt}`,
           prompt_version: COLORING_MASTER_COVER_PROMPT_VERSION,
-        });
+        }, attempt, book_id);
         const verdict = await verifyExactCoverText(candidate, { title, subtitle: "", ageBadge });
         lastVerdict = verdict;
         if (verdict.pass) { passBytes = candidate; passVerdict = verdict; break; }
