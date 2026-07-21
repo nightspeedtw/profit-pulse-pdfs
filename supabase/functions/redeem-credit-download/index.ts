@@ -58,7 +58,9 @@ Deno.serve(async (req) => {
 
     // Grant download
     await admin.from('download_grants').insert({
-      user_id: user.id, book_id: bookId, source: 'subscription',
+      buyer_user_id: user.id, ebook_id: bookId, source: 'subscription',
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      max_downloads: 5,
     } as any);
 
     return new Response(JSON.stringify({ ok: true, remaining: remaining - 1 }), {
