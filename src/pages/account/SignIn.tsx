@@ -39,14 +39,16 @@ export default function AccountSignIn() {
       if (mode === "signup") {
         const { error } = await supabase.auth.signUp({
           email, password,
-          options: { emailRedirectTo: `${window.location.origin}/account` },
+          options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
         });
         if (error) throw error;
         toast.success("Check your email to confirm your account.");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        nav("/account", { replace: true });
+        const next = sessionStorage.getItem("auth:next");
+        sessionStorage.removeItem("auth:next");
+        nav(next && next.startsWith("/") && !next.startsWith("//") ? next : "/account", { replace: true });
       }
     } catch (err) {
       // Generic error to prevent enumeration
