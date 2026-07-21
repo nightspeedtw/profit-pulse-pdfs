@@ -58,8 +58,10 @@ export const Footer = () => (
             <li><Link to="/about" className="hover:text-accent transition-colors">About</Link></li>
             <li><Link to="/blog" className="hover:text-accent transition-colors">Blog</Link></li>
             <li><a href="#" className="hover:text-accent transition-colors">FAQ</a></li>
-            <li><a href="#" className="hover:text-accent transition-colors">Refund Policy</a></li>
-            <li><a href="#" className="hover:text-accent transition-colors">Contact</a></li>
+            <li><Link to="/refund-policy" className="hover:text-accent transition-colors">Refund Policy</Link></li>
+            <li><Link to="/privacy" className="hover:text-accent transition-colors">Privacy</Link></li>
+            <li><Link to="/terms" className="hover:text-accent transition-colors">Terms</Link></li>
+            <li><a href="mailto:support@secretpdf.co" className="hover:text-accent transition-colors">Contact</a></li>
           </ul>
         </div>
       </div>
