@@ -14,9 +14,6 @@ import About from "./pages/About.tsx";
 import Download from "./pages/Download.tsx";
 import Kids from "./pages/Kids.tsx";
 import KidsCategory from "./pages/KidsCategory.tsx";
-import Royalty from "./pages/Royalty.tsx";
-import RoyaltyBook from "./pages/RoyaltyBook.tsx";
-import MyRoyalties from "./pages/MyRoyalties.tsx";
 import RoyaltySettings from "./pages/admin/RoyaltySettings.tsx";
 import MarketingAutopilot from "./pages/admin/MarketingAutopilot.tsx";
 import { Navigate } from "react-router-dom";
@@ -68,7 +65,7 @@ import AccountSupport from "./pages/account/Support.tsx";
 import AccountProfile from "./pages/account/Profile.tsx";
 import AccountSecurity from "./pages/account/Security.tsx";
 import AccountPrivacy from "./pages/account/Privacy.tsx";
-import AccountRoyalties from "./pages/account/Royalties.tsx";
+
 import RoyaltyConfig from "./pages/admin/RoyaltyConfig.tsx";
 import SeoAutopilot from "./pages/admin/SeoAutopilot.tsx";
 
