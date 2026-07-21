@@ -165,4 +165,15 @@ describe("immune-system invariants", () => {
     expect(preflight).toContain("possessive_quirk_reduplicated_template");
     expect(preflight).toContain("Name's Rumble-Roar X");
   });
+
+  it("Lovable AI Gateway calls are guarded by BYPASS_LOVABLE_GATEWAY", () => {
+    const offenders: string[] = [];
+    for (const p of EDGE_FILES) {
+      const src = read(p);
+      if (!src.includes("ai.gateway.lovable.dev")) continue;
+      if (/gateway-guard|assertGatewayAllowed/.test(src)) continue;
+      offenders.push(relative(REPO_ROOT, p));
+    }
+    expect(offenders, `lovable_gateway_bypass_leak: gateway URL without assertGatewayAllowed in:\n${offenders.join("\n")}`).toEqual([]);
+  });
 });

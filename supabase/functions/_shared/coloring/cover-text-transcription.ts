@@ -19,6 +19,11 @@ const GEMINI_KEY = DENO_ENV?.get?.("GEMINI_API_KEY");
 const LOVABLE_API_KEY = DENO_ENV?.get?.("LOVABLE_API_KEY");
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
+async function assertGatewayAllowedForCoverTranscription(context: string): Promise<void> {
+  const { assertGatewayAllowed } = await import("../gateway-guard.ts");
+  assertGatewayAllowed(context);
+}
+
 export interface CoverTextExpectations {
   title: string;
   subtitle: string;
@@ -196,6 +201,7 @@ const TRANSCRIPTION_PROMPT = [
 
 async function gatewayTranscribe(bytes: Uint8Array, timeoutMs: number): Promise<{ detected_text: string; clusters: string[] } | null> {
   if (!LOVABLE_API_KEY) return null;
+  await assertGatewayAllowedForCoverTranscription("cover-text-transcription.gatewayTranscribe");
   const dataUrl = `data:${mimeFromBytes(bytes)};base64,${b64FromBytes(bytes)}`;
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort("gateway_transcribe_timeout"), timeoutMs);
@@ -424,8 +430,8 @@ export async function verifyExactCoverText(
   const attempted_at = new Date().toISOString();
 
   const transcribed = (await cloudflareVisionTranscribe(bytes, timeoutMs))
-    ?? (await gatewayTranscribe(bytes, timeoutMs))
-    ?? (await geminiTranscribe(bytes, timeoutMs));
+    ?? (await geminiTranscribe(bytes, timeoutMs))
+    ?? (await gatewayTranscribe(bytes, timeoutMs));
   if (!transcribed) {
     return {
       pass: false, degraded: true, reason: "transcriber_unavailable",
@@ -471,6 +477,7 @@ export async function verifyExactCoverText(
 async function gatewayTranscribeByUrl(url: string, timeoutMs: number): Promise<{ detected_text: string; clusters: string[] } | null> {
   if (!LOVABLE_API_KEY) return null;
   if (!url || !/^https?:\/\//.test(url)) return null;
+  await assertGatewayAllowedForCoverTranscription("cover-text-transcription.gatewayTranscribeByUrl");
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort("gateway_transcribe_url_timeout"), timeoutMs);
   try {
@@ -512,9 +519,9 @@ export async function verifyExactCoverTextByUrl(
   const optionalTokens = Array.from(new Set(optionalTokensRaw.filter((t) => !requiredSet.has(t))));
   const dedupApproved = [...requiredTokens, ...optionalTokens];
   const attempted_at = new Date().toISOString();
-  let transcribed = await gatewayTranscribeByUrl(url, timeoutMs);
+  let transcribed: { detected_text: string; clusters: string[] } | null = null;
   if (!transcribed) {
-    // Fall back to CF Vision: fetch bytes ourselves then run OCR.
+    // Prefer direct/non-Lovable OCR: fetch bytes ourselves then run CF/Gemini.
     try {
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort("fetch_url_timeout"), timeoutMs);
@@ -529,6 +536,7 @@ export async function verifyExactCoverTextByUrl(
       console.warn(`[cover-transcribe] url-variant cf-fallback fetch failed: ${e?.message ?? e}`);
     }
   }
+  transcribed = transcribed ?? await gatewayTranscribeByUrl(url, timeoutMs);
   if (!transcribed) {
     return { pass: false, degraded: true, reason: "transcriber_unavailable_url_variant", transcribed_raw: "", transcribed_tokens: [], approved_tokens: dedupApproved, required_tokens: requiredTokens, optional_tokens: optionalTokens, missing: dedupApproved, missing_required: requiredTokens, missing_optional: optionalTokens, extra: [], misspelled: [], age_badge_count: 0, duplicate_age_badge: false, attempted_at };
   }
