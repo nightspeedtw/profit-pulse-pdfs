@@ -11,6 +11,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { falRecraftV3 } from '../_shared/fal.ts';
 import { composeCoverTitle } from '../_shared/cover-title-overlay.ts';
 import { uploadAndSignImage, versionedKidsAssetPath } from '../_shared/versioned-assets.ts';
+import '../_shared/gateway-guard.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;

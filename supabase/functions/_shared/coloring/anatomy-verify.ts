@@ -25,6 +25,7 @@ import {
   markVerifierHealthy,
   noteVerifierFailure,
 } from "./anatomy-verifier-guard.ts";
+import { assertGatewayAllowed } from "../gateway-guard.ts";
 
 export interface AnatomyPageVerdict {
   page: number;
@@ -229,6 +230,11 @@ async function callOneModel(
   checklists: unknown,
 ): Promise<OneModelResult> {
   if (!LOVABLE_API_KEY) return { ok: false, reason: "no_lovable_api_key", model };
+  try {
+    assertGatewayAllowed("anatomy-verify.callOneModel");
+  } catch (e) {
+    return { ok: false, reason: `gateway_bypass:${String((e as Error)?.message ?? e).slice(0, 160)}`, model };
+  }
   const content: Array<Record<string, unknown>> = [
     { type: "text", text: `Checklists (index-aligned with images that follow):\n${JSON.stringify(checklists)}` },
   ];

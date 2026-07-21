@@ -13,6 +13,7 @@
 
 import { verifyTitleFuzzy, TITLE_SIMILARITY_THRESHOLD } from "../covers/title-mastery.ts";
 import { parseModelJson } from "../model-json.ts";
+import "../gateway-guard.ts";
 
 
 export interface CoverLetteringQcResult {

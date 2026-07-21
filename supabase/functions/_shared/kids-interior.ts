@@ -1,5 +1,6 @@
 import { uploadAndSignImage, versionedKidsInteriorPath } from './versioned-assets.ts';
 import { parseModelJson } from './model-json.ts';
+import './gateway-guard.ts';
 
 
 // Kids interior illustration generator.

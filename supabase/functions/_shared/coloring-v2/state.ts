@@ -1,6 +1,7 @@
 // Coloring V2 pipeline state helpers.
 // @ts-nocheck
 import { createClient } from "npm:@supabase/supabase-js@2";
+import "../gateway-guard.ts";
 
 declare const Deno: any;
 

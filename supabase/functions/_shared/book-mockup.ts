@@ -20,6 +20,7 @@
 
 import { initWasm, Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
 import { parseModelJson } from "./model-json.ts";
+import "./gateway-guard.ts";
 
 export interface BookMockupInput {
   coverUrl?: string | null;   // accepted for compatibility; not used

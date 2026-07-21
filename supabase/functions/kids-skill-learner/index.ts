@@ -14,6 +14,7 @@
 
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import '../_shared/gateway-guard.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -183,6 +184,7 @@ Rewrite the playbook so a manuscript following it would score ≥85 on ${dimensi
       prior_version: currentVersion,
       new_version: nextVersion,
       new_length: newContent.length,
+    });
   } catch (e) {
     console.error('kids-skill-learner error', e);
     return json({ ok: false, error: String((e as Error)?.message ?? e) }, 500);

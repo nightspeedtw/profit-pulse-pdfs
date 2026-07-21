@@ -3,9 +3,11 @@
 // used through the gateway (returns PNG bytes for image gen, OpenAI-shaped
 // message JSON for chat).
 //
-// Callers ALWAYS check `hasGeminiDirect()` first and fall back to the gateway
-// path on missing key or on error, so behavior is identical when the key is
-// not configured.
+// When BYPASS_LOVABLE_GATEWAY=1, this module MUST NOT fall back to the
+// Lovable AI Gateway. Direct-provider quota/billing failures are returned as
+// technical provider failures so the pipeline can rotate/park truthfully.
+
+import { assertGatewayAllowed } from "./gateway-guard.ts";
 
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY");
 const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -52,6 +54,7 @@ export async function geminiDirectImageWithMeta(opts: {
   seed?: number;
 }): Promise<{ bytes: Uint8Array; meta: GeminiImageMeta }> {
   if (!GEMINI_KEY) {
+    assertGatewayAllowed("geminiDirectImageWithMeta.missingGeminiKey");
     if (LOVABLE_KEY) return gatewayImageWithMeta(opts, "GEMINI_API_KEY not set");
     throw new Error("GEMINI_API_KEY not set");
   }
@@ -70,6 +73,7 @@ export async function geminiDirectImageWithMeta(opts: {
   );
   if (!r.ok) {
     const directErr = `gemini-direct ${model} ${r.status}: ${(await r.text()).slice(0, 400)}`;
+    assertGatewayAllowed("geminiDirectImageWithMeta.directFailure");
     if (!LOVABLE_KEY) throw new Error(directErr);
     console.warn(`${directErr} — falling back to Lovable Gateway image model`);
     return gatewayImageWithMeta(opts, directErr);
@@ -106,6 +110,7 @@ async function gatewayImageWithMeta(opts: {
   model?: string;
   seed?: number;
 }, directErr: string): Promise<{ bytes: Uint8Array; meta: GeminiImageMeta }> {
+  assertGatewayAllowed("geminiDirectImageWithMeta.gatewayImageWithMeta");
   if (!LOVABLE_KEY) throw new Error(directErr);
   const content: unknown[] = [{ type: "text", text: opts.prompt }];
   for (const u of opts.referenceUrls) content.push({ type: "image_url", image_url: { url: u } });

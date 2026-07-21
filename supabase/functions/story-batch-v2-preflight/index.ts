@@ -20,9 +20,23 @@ interface Check {
   detail?: string;
 }
 
+async function checkDirectTextProvider(): Promise<Check> {
+  const gemini = Deno.env.get("GEMINI_API_KEY");
+  const openai = Deno.env.get("OPENAI_API_KEY");
+  if (gemini && gemini.length > 10) return { key: "direct_text_provider", ok: true, detail: "GEMINI_API_KEY present" };
+  if (openai && openai.length > 10) return { key: "direct_text_provider", ok: true, detail: "OPENAI_API_KEY present" };
+  return { key: "direct_text_provider", ok: false, detail: "missing GEMINI_API_KEY or OPENAI_API_KEY" };
+}
+
 async function checkLovableKey(): Promise<Check> {
+  const { assertGatewayAllowed } = await import("../_shared/gateway-guard.ts");
+  try {
+    assertGatewayAllowed("story-batch-v2-preflight.checkLovableKey");
+  } catch {
+    return { key: "lovable_gateway", ok: true, detail: "bypassed by BYPASS_LOVABLE_GATEWAY" };
+  }
   const key = Deno.env.get("LOVABLE_API_KEY");
-  if (!key) return { key: "lovable_api_key", ok: false, detail: "missing" };
+  if (!key) return { key: "lovable_gateway", ok: false, detail: "missing" };
   try {
     const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -33,12 +47,12 @@ async function checkLovableKey(): Promise<Check> {
         max_tokens: 4,
       }),
     });
-    if (r.status === 402) return { key: "lovable_api_key", ok: false, detail: "credits_exhausted (402)" };
-    if (r.status === 429) return { key: "lovable_api_key", ok: false, detail: "rate_limited (429)" };
-    if (!r.ok) return { key: "lovable_api_key", ok: false, detail: `status ${r.status}` };
-    return { key: "lovable_api_key", ok: true };
+    if (r.status === 402) return { key: "lovable_gateway", ok: false, detail: "credits_exhausted (402)" };
+    if (r.status === 429) return { key: "lovable_gateway", ok: false, detail: "rate_limited (429)" };
+    if (!r.ok) return { key: "lovable_gateway", ok: false, detail: `status ${r.status}` };
+    return { key: "lovable_gateway", ok: true };
   } catch (e) {
-    return { key: "lovable_api_key", ok: false, detail: String(e) };
+    return { key: "lovable_gateway", ok: false, detail: String(e) };
   }
 }
 
@@ -116,6 +130,7 @@ Deno.serve(async (req) => {
     const checks: Check[] = [];
     checks.push(await checkTables());
     checks.push(await checkStorage());
+    checks.push(await checkDirectTextProvider());
     checks.push(await checkLovableKey());
     checks.push(await checkOpenAI());
     checks.push(await checkMatterPagesSkill());

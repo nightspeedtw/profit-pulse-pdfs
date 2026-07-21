@@ -11,6 +11,7 @@
 
 import type { KidsSegment } from "./kids-segments.ts";
 import { parseModelJson } from "./model-json.ts";
+import "./gateway-guard.ts";
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 

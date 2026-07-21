@@ -2,6 +2,7 @@
 // GET  -> return the active reference (palette/lighting/layout) + all rows
 // POST -> upload a new image, extract style tokens via Gemini vision, activate
 import { corsHeaders, admin, requireAdmin } from "../_shared/ai.ts";
+import "../_shared/gateway-guard.ts";
 
 const BUCKET = "cover-style-refs";
 
