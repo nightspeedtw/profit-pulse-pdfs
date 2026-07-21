@@ -9,7 +9,7 @@ declare const Deno: any;
 
 const IDEOGRAM_MODEL = "ideogram:4@1";
 const CANVAS = 1024;
-const MAX_ATTEMPTS = 2;
+const MAX_ATTEMPTS = 3;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
