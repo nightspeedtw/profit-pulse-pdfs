@@ -128,21 +128,34 @@ async function activateCampaign(db: any, c: Campaign) {
       MIN_PRICE_CENTS,
       Number(pp?.regular_price_cents ?? b.price_cents ?? 999),
     );
-    // Owner law: campaign discounts are randomized per product in the 50–60% band.
-    const HARD_CEILING_CENTS = 500;
-    // Deterministic per-product jitter (50..60 inclusive) so prices stay stable across ticks.
+    // Owner law: storefront prices must look natural and varied — not all the
+    // same $2 or $5. Snap each product's discounted price to a psychological
+    // charm-price anchor between $1.99 and $9.99. The choice is deterministic
+    // per (campaign, product) so prices stay stable across ticks but differ
+    // between neighbouring SKUs.
+    const PRICE_ANCHORS_CENTS = [
+      199, 249, 279, 299, 349, 379, 399, 449, 479, 499,
+      549, 579, 599, 649, 679, 699, 749, 799, 849, 899, 949, 999,
+    ];
     const seed = `${c.id}:${b.id}`;
     let h = 0;
     for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-    const clampedPct = 50 + (h % 11); // 50..60
     const floor = Math.max(MIN_PRICE_CENTS, c.min_price_floor_cents || MIN_PRICE_CENTS);
-    let campaignPrice = Math.max(
-      floor,
-      Math.round(regular * (1 - clampedPct / 100)),
+    // Target discount 40–75% off, then snap to nearest usable anchor.
+    const targetPct = 40 + (h % 36);
+    const rawTarget = Math.round(regular * (1 - targetPct / 100));
+    const usable = PRICE_ANCHORS_CENTS.filter((a) => a >= floor && a < regular);
+    if (usable.length === 0) continue;
+    let campaignPrice = usable.reduce(
+      (best, a) => (Math.abs(a - rawTarget) < Math.abs(best - rawTarget) ? a : best),
+      usable[0],
     );
-    campaignPrice = Math.min(campaignPrice, HARD_CEILING_CENTS);
-    if (campaignPrice < floor) campaignPrice = floor;
-    if (campaignPrice >= regular) continue; // No effective discount — skip.
+    // 30% of products take a wobble anchor so neighbours don't collide on the
+    // same price point.
+    if ((h >>> 11) % 10 < 3) {
+      campaignPrice = usable[(h >>> 5) % usable.length];
+    }
+    if (campaignPrice >= regular) continue;
 
     const validFrom = c.starts_at;
     const validTo = c.ends_at;
