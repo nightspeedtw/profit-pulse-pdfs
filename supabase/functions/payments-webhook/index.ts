@@ -140,24 +140,31 @@ async function handleTransactionCompleted(data: any, env: PaddleEnv) {
   const { data: existingOrder } = await admin()
     .from('orders')
     .select('id')
-    .eq('provider_ref', data.id)
+    .eq('stripe_session_id', data.id)
     .maybeSingle();
   if (existingOrder) return;
 
-  // Compute total from Paddle payload
+  // Compute total from Paddle payload (Paddle amounts are in lowest denomination as strings)
   const totalCents = Math.round(Number(data.details?.totals?.total ?? data.details?.totals?.grandTotal ?? 0));
 
-  // Record order
+  // Look up book snapshot
+  const { data: book } = await admin()
+    .from('ebooks_kids')
+    .select('title, cover_url')
+    .eq('id', bookId)
+    .maybeSingle();
+
+  // Record order (reuse existing orders schema; stripe_session_id column stores the paddle txn id)
   const { data: order, error: orderErr } = await admin()
     .from('orders')
     .insert({
-      user_id: userId,
-      total_cents: totalCents,
+      buyer_user_id: userId,
+      amount_total: totalCents,
       currency: 'USD',
       status: 'paid',
-      provider: 'paddle',
-      provider_ref: data.id,
+      stripe_session_id: data.id,
       environment: env,
+      paid_at: new Date().toISOString(),
     } as any)
     .select('id')
     .single();
@@ -167,21 +174,24 @@ async function handleTransactionCompleted(data: any, env: PaddleEnv) {
   if (order?.id) {
     await admin().from('order_items').insert({
       order_id: order.id,
-      product_kind: 'ebook_kids',
-      product_id: bookId,
-      unit_cents: totalCents,
-      quantity: 1,
+      ebook_id: bookId,
+      unit_price: totalCents,
+      currency: 'USD',
+      title_snapshot: book?.title ?? null,
+      cover_snapshot: book?.cover_url ?? null,
     } as any);
   }
 
-  // Grant download
+  // Grant download (permanent — no expiry for purchases)
   await admin().from('download_grants').insert({
-    user_id: userId,
-    book_id: bookId,
+    buyer_user_id: userId,
+    ebook_id: bookId,
     source: 'purchase',
+    expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+    max_downloads: 999,
   } as any);
 
-  // Fire-and-forget: royalty accrual + email
+  // Fire-and-forget: royalty accrual
   try {
     await admin().functions.invoke('royalty-accrue-order', { body: { orderId: order?.id, bookId, totalCents, userId } });
   } catch (e) { console.warn('royalty accrue failed:', (e as Error).message); }
