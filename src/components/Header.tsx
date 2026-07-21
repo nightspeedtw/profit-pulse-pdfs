@@ -15,6 +15,7 @@ const NAV = [
   { label: "Categories", to: "/categories" },
   { label: "Bundles", to: "/bundles" },
   { label: "About", to: "/about" },
+  { label: "Pricing", to: "/pricing" },
   { label: "Downloads", to: "/download" },
 ];
 
