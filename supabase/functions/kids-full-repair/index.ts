@@ -21,6 +21,7 @@ import { buildScenePlan, renderInteriorIllustrations } from "../_shared/kids-int
 import { buildPicturePdf } from "../_shared/kids-picture-pdf.ts";
 import { runKidsStoryJudge } from "../_shared/kids-story-judge.ts";
 import { isReferenceModelAvailable } from "../_shared/kids-image-gen.ts";
+import "../_shared/gateway-guard.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

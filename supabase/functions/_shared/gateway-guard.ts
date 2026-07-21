@@ -17,3 +17,28 @@ export function assertGatewayAllowed(context: string): void {
     );
   }
 }
+
+const GATEWAY_FETCH_GUARD = Symbol.for("secretpdf.gateway_fetch_guard.installed");
+
+export function installGatewayBypassFetchGuard(): void {
+  const g = globalThis as typeof globalThis & { [GATEWAY_FETCH_GUARD]?: boolean };
+  if (g[GATEWAY_FETCH_GUARD]) return;
+  g[GATEWAY_FETCH_GUARD] = true;
+  const originalFetch = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (bypassLovableGateway() && /https:\/\/ai\.gateway\.lovable\.dev\//.test(url)) {
+      return Promise.reject(new Error(
+        `[gateway-bypass] Blocked fetch to Lovable AI Gateway: ${url}. ` +
+        `BYPASS_LOVABLE_GATEWAY=1 — use direct providers only.`
+      ));
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+}
+
+installGatewayBypassFetchGuard();

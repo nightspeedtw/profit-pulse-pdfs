@@ -1,6 +1,7 @@
 // Photoreal book mockup: takes a flat cover face PNG (bytes) and asks
 // Gemini 3 Pro Image (via Lovable AI Gateway) to place it as-is onto a
 // realistic hardcover book on a white/off-white studio background.
+import "./gateway-guard.ts";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 

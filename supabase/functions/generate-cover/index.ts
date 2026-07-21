@@ -2,6 +2,7 @@
 // Pipeline: strategy -> textless background -> code-rendered typography ->
 // 12-dim QC gate -> targeted auto-fix (max 3 attempts) -> thumbnail crop -> thumbnail QC.
 import { corsHeaders, admin, aiJSON, logCost, requireAdmin } from "../_shared/ai.ts";
+import "../_shared/gateway-guard.ts";
 import { buildCoverSVG, rasterizeSVG, type CoverSpec } from "../_shared/cover.ts";
 import { computeQcGates } from "../_shared/qc-gates.ts";
 import { resolveStyleProfile, stylePromptClause } from "../_shared/thumbnail-style-system.ts";

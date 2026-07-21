@@ -1,4 +1,5 @@
 // Structured segmented-manuscript writer + deterministic pre-image gate.
+import "./gateway-guard.ts";
 //
 // KILLER 2 fix: writers previously emitted a free-form manuscript_md that a
 // downstream splitter re-parsed into ~28 pages. When the split disagreed with

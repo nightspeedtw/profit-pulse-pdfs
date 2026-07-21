@@ -8,6 +8,7 @@
 
 import { hasGeminiDirect, geminiDirectImage } from "./gemini-direct.ts";
 import { logAiCost, costDb } from "./cost-log.ts";
+import "./gateway-guard.ts";
 
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
