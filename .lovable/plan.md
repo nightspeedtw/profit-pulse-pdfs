@@ -1,58 +1,48 @@
-## Login + User Dashboard — Continue Work
+# เชื่อม Paddle Payment Gateway
 
-Priorities (in order): (1) Managed Google OAuth + Header sign-in, (2) Notifications + Privacy end-to-end, (3) Orders/Invoices/Downloads real, (4) Profile + Security full.
+Lovable รองรับ Paddle แบบ seamless (ไม่ต้องกรอก API key เอง, ไม่ต้องตั้ง webhook เอง — Lovable จัดการให้ทั้งหมด)
+
+## ขั้นตอน
+
+1. **เปิดใช้ Paddle** ผ่านเครื่องมือ `enable_paddle_payments`
+   - ตรวจว่า workspace ยังไม่ผูก Stripe/Shopify (Lovable อนุญาต provider เดียวต่อโปรเจกต์)
+   - ถ้ามี provider อื่นอยู่ ต้อง disconnect ก่อนใน Payments dashboard
+
+2. **สร้าง product + price ใน Paddle** สำหรับสินค้าที่จะขายผ่าน checkout ใหม่
+   - เริ่มด้วยสินค้าเทสต์ 1 ชิ้น (เช่น coloring book 1 เล่ม) เพื่อยืนยันว่า flow ครบ
+   - ที่เหลือค่อย batch สร้างทีหลัง
+
+3. **แทน checkout เดิม** — ปัจจุบันโปรเจกต์มี:
+   - `/checkout`, `/checkout/return` (adult PDFs)
+   - `/kids/checkout/:id` (kids)
+   - `KidsBookCard` มีปุ่ม "Buy" placeholder
+   
+   จะเพิ่มปุ่ม "Buy with Paddle" ที่เปิด Paddle Overlay Checkout (client SDK) โดยยังคงหน้า checkout เดิมไว้ก่อน ไม่ลบ ไม่ยุ่งกับ royalty/exchange
+
+4. **หน้า success** — หลังจ่ายเสร็จ Paddle จะเด้งกลับมาที่ `/checkout/return` พร้อม transaction_id
+   - Grant download ผ่าน `download_grants` table (มีอยู่แล้ว) เชื่อมกับ user account ที่ login อยู่
+   - Guest checkout: ส่ง signed download link ทางอีเมล (ใช้ Resend connector ที่มีอยู่แล้ว)
+
+5. **Go-live check** — เรียก `payments--get_go_live_status` เพื่อดูว่า Paddle account ต้องทำ KYC/verification อะไรบ้าง แล้วแจ้งขั้นตอนให้เจ้าของกด
+
+## ขอบเขตของงานนี้ (Phase 1)
+- เปิด Paddle + wire 1 ปุ่มซื้อในหน้า Kids coloring product เป็นตัวเทสต์
+- หน้า return page อ่าน transaction แล้ว grant download
+- แสดง go-live checklist
+
+## ยังไม่ทำในรอบนี้ (แจ้งเผื่อยืนยัน)
+- Batch สร้าง product ทั้งหมดใน Paddle catalog (ทำหลังยืนยัน flow แรกใช้ได้)
+- เปลี่ยน checkout ของ adult PDFs (`/checkout`) — จะทำหลังจาก kids flow ผ่าน
+- Subscription / recurring — ตอนนี้เป็น one-time purchase อย่างเดียว
+- ย้ายลูกค้าเก่าจาก provider อื่น (ถ้ามี) — ต้อง manual
+
+## Technical Notes
+- `enable_paddle_payments` จะ inject Paddle client SDK + server webhook อัตโนมัติ
+- ไม่แตะ royalty engine, autopilot, หรือ coloring pipeline
+- ไม่แตะ Lovable AI gateway bypass ที่ตั้งไว้แล้ว
 
 ---
 
-### 1. Managed Google OAuth + Header sign-in menu
-
-- Enable managed Google via `configure_social_auth(["google"])` so it works in Lovable preview iframe + custom domain (`secretpdf.co`, `www.secretpdf.co`).
-- Replace direct `supabase.auth.signInWithOAuth("google", …)` in `src/pages/account/SignIn.tsx` with `lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin + "/auth/callback" })`.
-- Add public callback route `/auth/callback` that reads intended `next` path from `sessionStorage` and navigates after Supabase session hydrates.
-- Preserve intended destination: before sign-in, save `next` (same-origin path only) in `sessionStorage`.
-- Add `AccountMenu` component to the main site header (desktop + mobile): shows "Sign in" button when logged-out; avatar + dropdown (Overview, My Library, Orders, Sign out) when logged-in. Wire into `Header.tsx` / storefront navbars.
-
-### 2. Notifications + Privacy end-to-end
-
-- `/account/notifications`:
-  - Read/write `acct_profiles.notification_prefs` (marketing, order updates, royalty updates, product news). Toggles persist via RLS-guarded update.
-  - List history from `acct_notifications` with mark-as-read.
-- `/account/privacy`:
-  - **Data export**: button inserts row into `acct_data_requests` (status=pending). Edge function `account-data-export` compiles user's orders/downloads/holdings into JSON, uploads to storage, emails signed link via Resend, updates row to `ready`.
-  - **Account deletion**: confirmation dialog → inserts into `acct_deletion_requests` (status=pending, purge_after=now()+7d). Admin cron `account-deletion-worker` runs daily: anonymizes profile, revokes download grants, deletes auth user via service-role. Show "cancel deletion" while pending.
-  - Add `/admin/account-requests` page for admin visibility.
-
-### 3. Orders / Invoices / Downloads — real
-
-- Orders list already queries `orders`; add empty-state + status badges + link to detail.
-- `OrderDetail`: show `order_items`, totals, payment method, download links per item (call `account-signed-download` for each grant).
-- Invoices: generate PDF on-demand via new edge function `account-invoice-pdf` (uses pdf-lib, EU VAT compliant, saves to `ebook-pdfs`-style private bucket `account-invoices`, returns signed URL). List cached invoices per order.
-- Downloads page: show `acct_download_events` history (last 90d) — file, timestamp, IP city — and re-download button that hits `account-signed-download`.
-
-### 4. Profile + Security full
-
-- Profile:
-  - Avatar upload (new public bucket `account-avatars`, 2MB max, image/*), display name, country, language.
-  - Persist to `acct_profiles`; show verified-email badge.
-- Security:
-  - Email verification banner + "resend confirmation" (`supabase.auth.resend`).
-  - Change password form (`supabase.auth.updateUser({ password })`, requires recent login → re-auth prompt on error).
-  - Active sessions: list via `supabase.auth.admin` is service-role only, so show current session + "Sign out everywhere" (`supabase.auth.signOut({ scope: 'global' })`).
-  - Optional TOTP 2FA (`supabase.auth.mfa.enroll/verify/challenge`) with recovery-code display.
-
----
-
-### Technical notes
-
-- New tables: none required (reuse `acct_profiles`, `acct_notifications`, `acct_data_requests`, `acct_deletion_requests`, `acct_download_events`).
-- New storage buckets: `account-avatars` (public), `account-invoices` (private, RLS: buyer_user_id = auth.uid()).
-- New edge functions: `account-data-export`, `account-deletion-worker` (cron), `account-invoice-pdf`.
-- Header component location: find existing `Header`/nav in `src/components/` and inject `AccountMenu` — keep visual style unchanged.
-- Google OAuth `redirect_uri` must be `window.location.origin + "/auth/callback"` (public route), not `/account` — memory + cloud-google-auth rule.
-- All new RLS policies use `auth.uid()`; grants: `authenticated` only.
-
-### Out of scope
-
-- Payment gateway changes.
-- Kids/coloring production pipeline.
-- SEO/marketing autopilots.
+**ยืนยันเพื่อเริ่ม:**
+- ต้องการเริ่มเทสต์ที่หน้า **Kids coloring product** ใช่ไหม หรืออยากเริ่มที่ adult PDF หน้าไหน?
+- Provider อื่น (Stripe/Shopify/Paddle) เคยเปิดในโปรเจกต์นี้หรือยัง? ถ้ามี ต้อง disconnect ก่อน
