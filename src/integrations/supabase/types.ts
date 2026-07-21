@@ -1393,6 +1393,48 @@ export type Database = {
         }
         Relationships: []
       }
+      checkout_tokens: {
+        Row: {
+          created_at: string | null
+          currency: string
+          environment: string
+          expires_at: string
+          id: string
+          items: Json
+          redeemed_at: string | null
+          redeemed_transaction_id: string | null
+          token_id: string
+          total_cents: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          currency?: string
+          environment?: string
+          expires_at: string
+          id?: string
+          items: Json
+          redeemed_at?: string | null
+          redeemed_transaction_id?: string | null
+          token_id: string
+          total_cents: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          currency?: string
+          environment?: string
+          expires_at?: string
+          id?: string
+          items?: Json
+          redeemed_at?: string | null
+          redeemed_transaction_id?: string | null
+          token_id?: string
+          total_cents?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       coloring_age_bands: {
         Row: {
           age_max: number
@@ -2503,6 +2545,7 @@ export type Database = {
           last_downloaded_at: string | null
           max_downloads: number
           order_id: string
+          source: string
           token: string
         }
         Insert: {
@@ -2516,6 +2559,7 @@ export type Database = {
           last_downloaded_at?: string | null
           max_downloads?: number
           order_id: string
+          source?: string
           token?: string
         }
         Update: {
@@ -2529,6 +2573,7 @@ export type Database = {
           last_downloaded_at?: string | null
           max_downloads?: number
           order_id?: string
+          source?: string
           token?: string
         }
         Relationships: [
@@ -7096,6 +7141,60 @@ export type Database = {
           },
         ]
       }
+      subscriptions: {
+        Row: {
+          cancel_at_period_end: boolean | null
+          created_at: string | null
+          credits_per_period: number
+          credits_reset_at: string | null
+          current_period_end: string | null
+          current_period_start: string | null
+          environment: string
+          id: string
+          paddle_customer_id: string
+          paddle_subscription_id: string
+          price_id: string
+          product_id: string
+          status: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          cancel_at_period_end?: boolean | null
+          created_at?: string | null
+          credits_per_period?: number
+          credits_reset_at?: string | null
+          current_period_end?: string | null
+          current_period_start?: string | null
+          environment?: string
+          id?: string
+          paddle_customer_id: string
+          paddle_subscription_id: string
+          price_id: string
+          product_id: string
+          status?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          cancel_at_period_end?: boolean | null
+          created_at?: string | null
+          credits_per_period?: number
+          credits_reset_at?: string | null
+          current_period_end?: string | null
+          current_period_start?: string | null
+          environment?: string
+          id?: string
+          paddle_customer_id?: string
+          paddle_subscription_id?: string
+          price_id?: string
+          product_id?: string
+          status?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       system_fix_instructions: {
         Row: {
           acceptance_test: string | null
@@ -7357,6 +7456,10 @@ export type Database = {
           p_qty: number
         }
         Returns: Json
+      }
+      has_active_subscription: {
+        Args: { check_env?: string; user_uuid: string }
+        Returns: boolean
       }
       has_role: {
         Args: {

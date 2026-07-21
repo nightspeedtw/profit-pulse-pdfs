@@ -65,6 +65,7 @@ import AccountSupport from "./pages/account/Support.tsx";
 import AccountProfile from "./pages/account/Profile.tsx";
 import AccountSecurity from "./pages/account/Security.tsx";
 import AccountPrivacy from "./pages/account/Privacy.tsx";
+import Pricing from "./pages/Pricing.tsx";
 
 
 import SeoAutopilot from "./pages/admin/SeoAutopilot.tsx";
@@ -100,6 +101,7 @@ const App = () => (
             <Route path="/bundles" element={<Bundles />} />
             <Route path="/about" element={<About />} />
             <Route path="/download" element={<Download />} />
+            <Route path="/pricing" element={<Pricing />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/checkout/return" element={<CheckoutReturn />} />
             <Route path="/blog" element={<Blog />} />

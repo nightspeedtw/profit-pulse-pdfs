@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { Header } from "./Header";
 import { Footer } from "./Footer";
 import { KidsFooter } from "./kids/KidsFooter";
+import { PaymentTestModeBanner } from "./PaymentTestModeBanner";
 import { useCartSync } from "@/hooks/useCartSync";
 
 export const Layout = () => {
@@ -17,6 +18,7 @@ export const Layout = () => {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <PaymentTestModeBanner />
       <Header />
       <main className="flex-1">
         <Outlet />
