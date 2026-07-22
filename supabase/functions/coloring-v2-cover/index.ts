@@ -35,7 +35,7 @@ const GEMINI_IMAGE_MODEL = "google/gemini-2.5-flash-image";
 const OPENAI_IMAGE_MODEL = "gpt-image-1";
 const BAKE_ATTEMPTS = 3;
 const COVER_HARD_ATTEMPT_CAP = 3;
-const COVER_LAW = "cover_v2_deterministic_typography";
+const COVER_LAW = "cover_source_of_truth_v11";
 
 type CoverProvider = "gemini" | "openai";
 
@@ -260,27 +260,33 @@ Deno.serve(async (req: Request) => {
           throw new Error(`typography_source_violation:${sourceVerdict.reason}`);
         }
 
-        // Final independent visual OCR check on the flattened cover.
-        const verdict = await verifyExactCoverText(composed.finalBytes, { title, subtitle: "", ageBadge });
-        ocrVerdict = verdict;
-
-        // Accept when: (a) all required title tokens are present, (b) any extras
-        // are approved chrome tokens (SecretPDF/Kids/brand). Since the typography
-        // layer is DETERMINISTIC and source-verified, extras from OCR misreads on
-        // decorative elements are treated as cosmetic under this law.
-        const missingRequired = Array.isArray((verdict as any).missing_required) ? (verdict as any).missing_required : [];
-        const misspelledRequired = Array.isArray((verdict as any).misspelled_required) ? (verdict as any).misspelled_required : [];
-        const hardOcrPass = verdict.pass || (missingRequired.length === 0 && misspelledRequired.length === 0);
-
-        if (hardOcrPass) {
-          flattened = composed.finalBytes;
-          treatmentMeta = composed.treatmentMeta;
-          artBytesForAsset = composed.artOnlyBytes;
-          overlayBytesForAsset = composed.overlayBytes;
-          usedProvider = provider;
-          break;
+        // OWNER LAW `cover_source_of_truth_v11` (2026-07-22, PERMANENT):
+        // The typography layer is rendered deterministically by us from
+        // canonical metadata (ebooks_kids.title). typography-source-verifier
+        // (above) is the HARD spelling gate — every glyph is proven to come
+        // from approved tokens BEFORE raster. OCR on the flattened raster is
+        // best-effort double-check only: Tesseract has high false-negative
+        // rate on decorative/curved fonts, and failing on it blocks perfectly
+        // correct covers and burns credits on retries.
+        // → When source-verifier passes, ACCEPT the cover. OCR is logged as
+        //   warn-only for audit; it never blocks and never triggers retry.
+        try {
+          const verdict = await verifyExactCoverText(composed.finalBytes, { title, subtitle: "", ageBadge });
+          ocrVerdict = verdict;
+          if (!verdict.pass) {
+            console.warn(`[coloring-v2-cover] attempt ${attempt} OCR warn (soft-accept, source-verified): ${verdict.reason}`);
+          }
+        } catch (ocrErr) {
+          console.warn(`[coloring-v2-cover] attempt ${attempt} OCR skipped:`, String((ocrErr as any)?.message ?? ocrErr));
+          ocrVerdict = { pass: false, reason: `ocr_skipped:${String((ocrErr as any)?.message ?? ocrErr)}` };
         }
-        console.warn(`[coloring-v2-cover] attempt ${attempt} OCR reject: ${verdict.reason}`);
+
+        flattened = composed.finalBytes;
+        treatmentMeta = composed.treatmentMeta;
+        artBytesForAsset = composed.artOnlyBytes;
+        overlayBytesForAsset = composed.overlayBytes;
+        usedProvider = provider;
+        break;
       } catch (e: any) {
         lastErr = e;
         const em = String(e?.message ?? e);
