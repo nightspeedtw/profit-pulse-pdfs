@@ -53,12 +53,13 @@ export async function geminiDirectImageWithMeta(opts: {
   model?: string;
   seed?: number;
 }): Promise<{ bytes: Uint8Array; meta: GeminiImageMeta }> {
+  const bypass = (Deno.env.get("BYPASS_LOVABLE_GATEWAY") ?? "").match(/^(1|true|yes)$/i);
   if (!GEMINI_KEY) {
-    assertGatewayAllowed("geminiDirectImageWithMeta.missingGeminiKey");
+    if (bypass) throw new Error("GEMINI_API_KEY not set (BYPASS_LOVABLE_GATEWAY=1, gateway fallback disabled)");
     if (LOVABLE_KEY) return gatewayImageWithMeta(opts, "GEMINI_API_KEY not set");
     throw new Error("GEMINI_API_KEY not set");
   }
-  const model = normalize(opts.model ?? "google/gemini-3.1-flash-image");
+  const model = normalize(opts.model ?? "google/gemini-2.5-flash-image");
   const parts: Array<Record<string, unknown>> = [{ text: opts.prompt }];
   for (const u of opts.referenceUrls) {
     const { data, mime } = await fetchImageAsB64(u);
@@ -73,7 +74,9 @@ export async function geminiDirectImageWithMeta(opts: {
   );
   if (!r.ok) {
     const directErr = `gemini-direct ${model} ${r.status}: ${(await r.text()).slice(0, 400)}`;
-    assertGatewayAllowed("geminiDirectImageWithMeta.directFailure");
+    // When bypass is on, surface the true Google API error — do NOT throw the
+    // misleading "Refusing Lovable AI Gateway call" bypass message.
+    if (bypass) throw new Error(directErr);
     if (!LOVABLE_KEY) throw new Error(directErr);
     console.warn(`${directErr} — falling back to Lovable Gateway image model`);
     return gatewayImageWithMeta(opts, directErr);
