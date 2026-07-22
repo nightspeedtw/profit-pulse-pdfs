@@ -73,17 +73,57 @@ export function verifyTypographySource(svg: string, src: CanonicalSource): Sourc
   const nodes = extractSvgTextNodes(svg);
   const unapproved: string[] = [];
   const foundTokens = new Set<string>();
+
+  // Per-glyph SVG renderers emit one <text> node per letter. Reconstruct
+  // words by treating single-character nodes as a contiguous glyph stream
+  // and multi-character nodes as whole tokens.
+  let glyphStream = "";
   for (const node of nodes) {
-    const toks = normTokens(node);
-    // Every token in a node must be approved.
+    const raw = node.trim();
+    if (raw.length === 0) continue;
+    if (raw.length === 1) {
+      glyphStream += raw;
+      continue;
+    }
+    // Multi-char node: tokenize normally.
+    const toks = normTokens(raw);
     for (const t of toks) {
-      if (!approved.has(t)) {
-        unapproved.push(`${node}::${t}`);
+      if (approved.has(t)) foundTokens.add(t);
+      else unapproved.push(`${raw}::${t}`);
+    }
+  }
+
+  // Longest-match parse of the glyph stream against approved tokens.
+  if (glyphStream.length > 0) {
+    const stream = glyphStream.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const approvedList = Array.from(approved).sort((a, b) => b.length - a.length);
+    let i = 0;
+    while (i < stream.length) {
+      let matched = "";
+      for (const tok of approvedList) {
+        if (tok.length === 0) continue;
+        if (stream.startsWith(tok, i)) { matched = tok; break; }
+      }
+      if (matched) {
+        foundTokens.add(matched);
+        i += matched.length;
       } else {
-        foundTokens.add(t);
+        // Unknown letter run — collect up to next approved token boundary.
+        let j = i + 1;
+        while (j < stream.length) {
+          let hit = false;
+          for (const tok of approvedList) {
+            if (tok && stream.startsWith(tok, j)) { hit = true; break; }
+          }
+          if (hit) break;
+          j++;
+        }
+        unapproved.push(`glyph_run::${stream.slice(i, j)}`);
+        i = j;
       }
     }
   }
+
   const canonicalRequired = normTokens(src.title);
   const missing = canonicalRequired.filter((t) => !foundTokens.has(t));
 
