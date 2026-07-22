@@ -1,121 +1,120 @@
-## สถานะปัจจุบัน (verified)
+# Cover Builder V2 — Permanent Premium Typography Baked into Cover Master
 
-โครงมีอยู่แล้ว — ไม่ต้องสร้างใหม่จากศูนย์:
-- **DB**: `blog_posts`, `blog_keywords`, `seo_content_queue`, `seo_keyword_clusters`, `seo_autopilot_settings`
-- **Edge Functions**: `blog-autopilot`, `seo-autopilot-tick`, `seo-content-qa`, `seo-publish-approved`, `seo-keyword-seed`
-- **UI**: `Blog.tsx`, `BlogPost.tsx`, `admin/SeoAutopilot.tsx`
+Goal: every coloring cover passes on first attempt with a commercially premium, deterministically-rendered title permanently flattened into the cover image. No frontend text overlays. No AI-baked glyphs. Same flattened master used everywhere (PDF, thumbnail, storefront, download).
 
-Spec ที่คุณให้มา = 18 หมวด ครอบคลุมมาก ทำจบทีเดียวไม่ได้จริง (จะรวมกว่า 30 ไฟล์ + 6 migration + Core Web Vitals + SSR) จะแยกเป็น 4 phase ที่ ship แล้วใช้ได้ทันทีในแต่ละ phase
+## Non-negotiables (enforced by code, not policy)
 
-## ข้อจำกัดสำคัญที่ต้องแจ้งก่อน (Section 11)
+- Illustration model (Gemini/GPT) generates a **textless illustration with an intentional title environment** (ribbon, sky panel, magic smoke, shield, etc.) — never final glyphs.
+- Title glyphs are rendered server-side from canonical `ebooks_kids.title` via SVG → Sharp/Skia rasterization using licensed display fonts.
+- Typography is composited and flattened into a single `final_composite.png`. That exact PNG is the cover, the PDF page 1, the thumbnail source, and the storefront image.
+- Product page, cards, PDF, and downloads render `<img src=cover_url>` only — no HTML/CSS/React text layer over covers anywhere.
 
-โปรเจกต์นี้เป็น **Vite + React SPA client-side** — ไม่มี SSR/SSG จริง Google อ่านได้ (execute JS) แต่ social crawlers / AI crawlers บางตัวอ่าน static HTML เท่านั้น
+## Architecture — three-layer contract
 
-**ทางเลือก:**
-- (a) **Prerender บทความ blog เป็น static HTML** ตอน build (script อ่าน `blog_posts` แล้ว emit `.html` ต่อ slug ใน `dist/blog/`) — ทำได้ใน stack ปัจจุบัน
-- (b) ย้ายทั้งโปรเจกต์ไป TanStack Start (SSR จริง) — งานใหญ่มาก กระทบทุกหน้า
+Persist all three assets per book in `ebook-covers/kids/<book>/v<n>/`:
 
-Plan นี้จะไปทาง (a) — พอสำหรับ Google + AI SEO + Rich Snippets
+1. `illustration_layer.png` — textless art with designed title environment.
+2. `typography_layer.png` — transparent PNG of deterministic artistic glyphs.
+3. `final_composite.png` — flattened master. This is the only URL exposed as `cover_url` / `thumbnail_url`.
 
----
+`metadata.coloring_cover` records the layer paths, the Typography Art Direction JSON, font hashes, canonical token list, and every gate result.
 
-## Phase 1 — Editorial Foundation (DB + Author + Structured Data)
+## Pipeline stages (new `coloring-v2-cover` flow)
 
-**Migration** — extend `blog_posts` + สร้างตารางใหม่:
-- ต่อคอลัมน์: `search_intent`, `funnel_stage`, `target_audience`, `country`, `language`, `content_cluster_id`, `parent_pillar_id`, `semantic_keywords[]`, `long_tail_questions[]`, `entities[]`, `related_product_ids[]`, `competing_urls[]`, `cannibalization_risk`, `author_id`, `reviewer_id`, `last_updated_at`, `reading_time_min`, `content_score`, `word_count_target_min`, `word_count_target_max`, `direct_answer`, `takeaways[]`, `sources[]`, `internal_links jsonb`, `og_image`, `canonical_url`, `robots`, `noindex`, `redirects_to`, `article_section`, `tags[]`, `published_status` enum, `decay_status` enum
-- ตารางใหม่: `blog_authors` (E-E-A-T), `blog_reviewers`, `blog_content_clusters` (pillar↔supporting), `blog_redirects` (301 manager), `blog_revisions` (version history + rollback), `blog_internal_link_suggestions`, `blog_qa_findings`, `blog_decay_metrics`
-- Enum: `blog_status` = draft, ai_generated, needs_fact_check, needs_human_review, approved, scheduled, published, needs_update, archived
-- GRANTs + RLS ตามมาตรฐาน (public read published, admin full)
+```text
+1. Metadata lock       → canonical { cover_title, cover_subtitle, age_badge, author_name|null }
+2. Art Direction       → Gemini 2.5 Pro proposes { style_family, layout_family, line_breaks,
+                          hero_words, palette, decoration, title_env } — JSON only, no glyphs
+3. Illustration        → Ideogram/Gemini/GPT renders TEXTLESS art with the designed title
+                          environment at 1600×1600 (square 8.5). Prompt bans all glyphs.
+                          If any text detected by OCR → inpaint-mask + regenerate title zone
+                          (do not throw away good art).
+4. Typography render   → deterministic SVG built from canonical tokens + Art Direction recipe,
+                          rasterized via Sharp. Pre-raster assertion: every <text> node value
+                          ∈ approved tokens; font loaded; fits safe area.
+5. Composite + flatten → typography_layer over illustration_layer with foreground occlusion
+                          mask (chosen decorative elements sit in front of selected letters),
+                          scene-matched shadow/lighting, then flatten to final_composite.png.
+6. Gates (all independent, all must pass) →
+     illustration_quality_pass, typography_visual_quality_pass,
+     canonical_text_source_pass, ocr_visual_pass,
+     thumbnail_readability_pass (240px render), safe_margin_pass,
+     random_text_count == 0
+7. Publish             → write cover_url = final_composite signed URL to ebooks_kids;
+                          PDF builder re-uses the same bytes for page 1.
+```
 
-**Frontend**:
-- `BlogPost.tsx`: เพิ่ม Breadcrumb, Author box, Reviewer badge, Published/Updated dates, Reading time, TOC (สำหรับบทความ >1200 คำ), Direct Answer summary block, Key Takeaways, FAQ (accordion), Sources list, Related Articles
-- `Blog.tsx`: filter ตาม cluster/intent, hero + featured
-- JSON-LD ครบ: `BlogPosting`, `Article`, `BreadcrumbList`, `Person`, `Organization`, `WebPage`, `FAQPage` (เฉพาะเมื่อมี FAQ ≥3 ข้อ)
-- `react-helmet-async`: per-route title/meta/canonical/og:*/twitter (canonical + og:url self-reference)
+Failure at any gate → targeted repair (only the failing layer), max 3 attempts, then park with `blocker_reason` and surface in Admin Dashboard incident banner. No silent bypass.
 
-**เกณฑ์เสร็จ Phase 1**: 1 บทความสาธิตแสดง breadcrumb + author + JSON-LD ที่ validate ผ่าน Rich Results Test
+## Typography system
 
----
+New module `supabase/functions/_shared/coloring/typography-art-director.ts`:
 
-## Phase 2 — AI Writer + Quality Gate + Scoring
+- 12 style families: magical_storybook, bold_cartoon_adventure, space_sci, fantasy_dragon, futuristic_neon, cute_preschool, nature_woodland, retro_comic, elegant_illustrated_serif, hand_drawn_playful, epic_cinematic, japanese_graphic. Each defines font stack, weight, gradient recipe, outline stack (2–3 strokes), shadow, texture clip, decoration set, allowed layouts, age range, max title length.
+- 10 layout families (top-hero, center-integrated, character-overlap, hero-word+subtitle, stacked-frame, curved-above, badge, split-around-hero, cinematic-bottom, full-height).
+- Selector picks family + layout from title length, category, age, hero position, background complexity, and a **recency-avoidance window** (last 15 covers) to guarantee catalog diversity.
 
-**Edge Functions** (upgrade เดิม + สร้างใหม่):
-- `blog-brief-builder` (ใหม่): รับ primary keyword → เรียก Semrush (`keyword_research`, `serp_analysis`) + Gemini → สร้าง brief (secondary/semantic/entities/questions/intent/word count target/outline) และ **cannibalization check** (query `blog_posts` ด้วย primary_keyword + intent เดียวกัน; ถ้าเจอ → เสนอ update/merge/redirect แทน)
-- `blog-writer` (ใหม่): brief → draft ด้วย Gemini 2.5 Pro (bypass gateway), ใส่ direct answer, TOC, H2/H3, examples, tables, FAQ, key takeaways
-- `blog-quality-gate` (ใหม่): 17-check scanner (17 หัวข้อใน spec §6) + คำนวณคะแนน 100 คะแนน (10 categories ใน spec §16) → คืน `qa_findings` + `content_score` + verdict
-- `blog-internal-link-suggester` (ใหม่): เทียบ topic/entity/cluster → เสนอ 3-8 links
-- อัปเกรด `seo-content-qa`: เพิ่ม keyword-density guardrail 0.5-1.2% (เตือน >1.5%), heading order check, alt-text stuffing check, placeholder scanner
+New renderer `supabase/functions/_shared/coloring/typography-renderer.ts`:
 
-**Quality Rules** (บังคับใน gate ก่อน publish):
-- score ≥80, no critical error, no placeholder, no unsupported claim, no duplicate title/meta/slug, canonical valid, structured data valid, featured image present, ≥1 internal link, primary keyword ปรากฏใน H1/URL/intro/H2/meta/conclusion อย่างเป็นธรรมชาติ
-- Word count ตามช่วง intent (spec §2) — ไม่บังคับความยาวถ้าตอบครบ
+- Builds SVG with `<defs>` for gradients, filters (shadow/glow), clip-paths for texture-inside-glyph, per-letter `<tspan rotate>`, curved baselines via `<textPath>`, multi-stroke via layered `<text>` copies, warp via SVG filter or path-warp.
+- Fonts loaded from `brand-assets/fonts/*` (bundle licensed display faces; ship SIL/OFL-safe defaults immediately, upgrade set later).
+- Rasterizes via Sharp; transparent PNG matched to illustration canvas.
+- Pre-raster assertion module `typography-source-verifier.ts` blocks the raster if any text node string is not in the canonical token set or order.
 
-**Default**: AI สร้าง `draft` → gate → `needs_human_review` (ห้าม auto-publish default)
+## Foreground occlusion + scene integration
 
----
+`composite-with-occlusion.ts`:
 
-## Phase 3 — Admin Dashboard + Cluster Map + Internal Linking
+- Art Direction includes an optional `foreground_occlusion_mask` recipe (e.g. "unicorn wings overlap top 20% of letters 3–5", "sparkle cluster in front of 'S'").
+- During composition: apply typography, then re-composite chosen foreground crops from illustration on top of specific glyph regions to break the "pasted-on" look.
+- Shadow direction sampled from illustration lighting (average luminance gradient) so shadow follows scene.
+- Title fill palette derived from illustration palette (k-means on illustration, then map to Art Direction gradient stops).
 
-**หน้าใหม่/อัปเกรด**:
-- `admin/BlogAutopilot.tsx` (upgrade `SeoAutopilot.tsx`): toggle autopilot, draft/publish quotas, require-human-approval, min score, blacklist/whitelist, brand voice, language/country, default author
-- `admin/BlogEditor.tsx`: edit outline/metadata/body, live score, cannibalization warning, internal link suggestions panel, image manager, source verification checklist, revision history + rollback, merge/redirect actions
-- `admin/BlogClusterMap.tsx`: visual pillar↔supporting graph, orphan detector, cannibalization detector, weak-link detector, outdated detector
-- `admin/BlogUpdateQueue.tsx`: decay status pipeline (Stable/Growing/Declining/Needs Refresh/Rewrite/Merge/Redirect/Remove)
-- `admin/BlogAuthors.tsx`: manage author profiles + reviewers (E-E-A-T)
+## Cleanup of existing broken covers
 
-**สิ่งที่บังคับใน UI**:
-- แสดงคะแนน realtime ตอน edit
-- แถบ warning เมื่อ cannibalization / duplicate / low score / missing internal link
-- ปุ่ม "propose update/merge/redirect" แทน "create new" เมื่อ brief-builder เตือน
+Batch job `kids-cover-cleanup-v2`:
 
----
+- For books with strong illustration but bad baked text: detect text regions (OCR bbox), build masks, inpaint via Gemini/GPT image-edit, then run steps 4–7 above. Preserve art.
+- Starlight Unicorns + Cobblestone Creatures are the two mandatory fixtures. Both must pass before V2 flips on globally.
 
-## Phase 4 — Technical SEO + Prerender + Performance
+## Verification & rollout
 
-**Prerender script** (`scripts/prerender-blog.ts`): predev/prebuild hook อ่าน published `blog_posts` → เขียน `dist/blog/<slug>/index.html` พร้อม head tags + JSON-LD + body HTML (ให้ crawler ที่ไม่ execute JS อ่านได้)
+- Vitest fixtures: canonical-token-only SVG, occlusion mask honoured, family/layout recency avoidance, thumbnail 240px readability check, gate composition truth table.
+- Blind visual QC harness: render 10 fresh books through V2, compare against 10 catalog benchmarks; V2 must meet or beat median across 8 criteria (commercial appeal, art+title integration, typography personality, category fit, hierarchy, thumbnail readability, premium feel, diversity).
+- Flip global switch only after: 2 fixture books pass + 3 consecutive fresh books pass + release-manifest validator passes.
+- Admin Dashboard adds a "Cover Builder V2" panel showing per-book layer previews, gate scorecard, and repair history.
 
-**Sitemap upgrade** (`scripts/generate-sitemap.ts`):
-- ดึง blog posts จาก DB
-- แยก image sitemap
-- lastmod จริง
+## Frontend contract (unchanged behaviour, hardened)
 
-**ไฟล์เพิ่ม/แก้**:
-- `public/robots.txt`: allow all, sitemap reference
-- `public/rss.xml`: generated จาก blog_posts
-- Edge function `indexnow-ping`: เมื่อ publish/update/merge/redirect/delete → ping IndexNow (Bing) + Google Indexing API (ถ้าคีย์พร้อม)
-- Edge function `blog-redirect-handler`: 301 manager (client-side redirect + `<link rel="canonical">` fallback ตราบใดที่ยังไม่มี edge redirect layer)
-- Edge function `blog-broken-link-checker` (cron): scan `body_md` links → HEAD check → mark broken
+- `ProductCard`, `KidsBookCard`, `ColoringProduct`, `FlipbookPreview`, PDF page 1, social preview, admin preview, marketing exports: all read `cover_url` as a single flattened image. No text overlays.
+- Add a lint/test guard `covers-no-overlay.test.tsx` that fails CI if any component renders text absolutely-positioned over a `cover_url` image.
 
-**Image pipeline** (`_shared/image-pipeline.ts`):
-- Featured image ≥1200px
-- Emit WebP + AVIF crops 1:1 / 4:3 / 16:9
-- Width/height attrs, lazy-load (except LCP), meaningful filename + alt
-- Alt-text stuffing detector
+## Files to add / modify
 
-**CWV** (Blog/BlogPost only — ไม่แตะหน้าอื่น):
-- Font preload, image dimensions, prevent CLS on hero, code-split blog routes, remove unused JS on blog pages
+New:
+- `supabase/functions/_shared/coloring/typography-art-director.ts`
+- `supabase/functions/_shared/coloring/typography-renderer.ts`
+- `supabase/functions/_shared/coloring/typography-source-verifier.ts`
+- `supabase/functions/_shared/coloring/composite-with-occlusion.ts`
+- `supabase/functions/_shared/coloring/style-families.ts`
+- `supabase/functions/_shared/coloring/layout-families.ts`
+- `supabase/functions/_shared/coloring/palette-extractor.ts`
+- `supabase/functions/kids-cover-cleanup-v2/index.ts`
+- Font assets under `brand-assets/fonts/`
+- Tests: `coloring-cover-v2-source-of-truth.test.ts`, `coloring-cover-v2-thumbnail.test.ts`, `coloring-cover-v2-recency.test.ts`, `covers-no-overlay.test.tsx`, `cover-cleanup-inpaint.test.ts`
 
-**Search Console / Bing integration**: guide + secret slots (`GOOGLE_SEARCH_CONSOLE_KEY`, `BING_WEBMASTER_KEY`, `INDEXNOW_KEY`) — request via `add_secret` เมื่อ user พร้อม
+Modify:
+- `supabase/functions/coloring-v2-cover/index.ts` — swap to 3-layer flow; remove any code path that lets the illustration model produce final glyphs; keep Gemini/GPT for art + Art Direction only; enforce 3-strike stop + dashboard alert.
+- `supabase/functions/_shared/coloring/coloring-cover-compositor.ts` — flatten via new composite module.
+- `supabase/functions/_shared/coloring/publish-contract.ts` — require all 7 independent gates + `random_text_count == 0`.
+- `supabase/functions/kids-build-picture-pdf/*` — page 1 reads `final_composite.png` bytes directly.
+- `src/components/kids/KidsBookCard.tsx`, `src/components/product/*` — assert no text overlay over cover image.
+- Admin: `src/components/admin/ColoringV2AutopilotCard.tsx` + new `CoverBuilderV2Panel.tsx`.
 
-**Decay monitor** (`blog-decay-scanner` cron): daily → คำนวณ decay status จาก impressions/CTR/position/last_updated → enqueue update recommendations
+## Acceptance
 
----
-
-## Technical notes
-
-- ทุก AI call ผ่าน `BYPASS_LOVABLE_GATEWAY=1` (Gemini direct primary, GPT fallback)
-- ทุกตารางใหม่ = migration พร้อม GRANT + RLS (public SELECT เฉพาะ published, admin ALL, service_role ALL)
-- ไม่แตะ `secretpdf-production-suite` (แยก lane จาก kids/coloring pipeline)
-- Type gen อัตโนมัติหลัง migration
-- `react-helmet-async` ต้อง install + wrap `<HelmetProvider>` ที่ `main.tsx` (แค่ครั้งเดียว)
-- Semrush tools ใช้จาก Lovable built-in (ไม่ต้อง connect เพิ่ม สำหรับ per-brief lookup)
-
----
-
-## เริ่มจากไหน — โปรดยืนยัน
-
-Plan นี้ **จะเริ่ม Phase 1** (Editorial Foundation) ก่อนเป็นค่า default — ได้โครงที่ถูกต้อง แล้วค่อยชั้น AI writer + admin + technical ทีหลัง
-
-ถ้าอยาก **rearrange** (เช่น เริ่ม Phase 4 prerender ก่อนเพราะ Google index สำคัญกว่า, หรือทำ Phase 2 AI writer ก่อนเพราะอยากได้บทความเร็ว) บอกได้เลย จะจัดใหม่ตาม priority
-
-**ต่อ Phase 1 เลย หรือปรับลำดับก่อน?**
+1. Disable CSS/JS, open `final_composite.png` directly → title fully present, correctly spelled, artistically integrated.
+2. Starlight Unicorns + Cobblestone Creatures fixtures pass with premium typography and preserved art.
+3. Three consecutive fresh books pass all 7 gates on first attempt.
+4. Blind visual review: V2 ≥ catalog median across all 8 criteria.
+5. Release-manifest validator passes.
