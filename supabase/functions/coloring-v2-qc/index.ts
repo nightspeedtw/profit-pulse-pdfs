@@ -89,17 +89,19 @@ Deno.serve(async (req: Request) => {
           scene: plan?.scene ?? "",
         });
         // Persist verdict back onto the asset.
-        await db().from("coloring_v2_assets").update({
-          meta: {
-            ...meta,
-            anatomy_score: verdict.anatomy_score,
-            anatomy_pass: verdict.pass,
-            anatomy_unmeasured: verdict.degraded,
-            anatomy_defects: verdict.defects.slice(0, 6),
-            anatomy_gate_version: "coloring_v2_anatomy_gate_v1",
-            anatomy_rechecked_at: new Date().toISOString(),
-          },
-        }).eq("id", asset.id).catch(() => {});
+        try {
+          await db().from("coloring_v2_assets").update({
+            meta: {
+              ...meta,
+              anatomy_score: verdict.anatomy_score,
+              anatomy_pass: verdict.pass,
+              anatomy_unmeasured: verdict.degraded,
+              anatomy_defects: verdict.defects.slice(0, 6),
+              anatomy_gate_version: "coloring_v2_anatomy_gate_v1",
+              anatomy_rechecked_at: new Date().toISOString(),
+            },
+          }).eq("id", asset.id);
+        } catch (_) { /* best-effort */ }
 
         if (verdict.degraded) {
           anatomyUnmeasured.push(pageNum);
@@ -157,9 +159,10 @@ Deno.serve(async (req: Request) => {
       if (rewindPages.length && book.approved_cover_asset_id) {
         // Delete failing interior assets so render-page re-generates instead of skipping.
         for (const pageNum of anatomyFailPages.map((p) => p.page)) {
-          await db().from("coloring_v2_assets")
-            .delete().eq("book_id", book_id).eq("kind", "interior").eq("page_number", pageNum)
-            .catch(() => {});
+          try {
+            await db().from("coloring_v2_assets")
+              .delete().eq("book_id", book_id).eq("kind", "interior").eq("page_number", pageNum);
+          } catch (_) { /* best-effort */ }
         }
         await db().from("coloring_v2_books").update({
           stage: "interior_render",

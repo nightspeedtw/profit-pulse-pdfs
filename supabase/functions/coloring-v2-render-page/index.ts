@@ -79,20 +79,22 @@ Deno.serve(async (req: Request) => {
             // Do NOT upload — try next attempt with stronger negative.
             if (attempt < MAX_ATTEMPTS) continue;
             // Final attempt failed → park the book.
-            await db().from("coloring_v2_qc_findings").insert({
-              book_id,
-              rule_id: "anatomy_deformity_persistent",
-              severity: "hard",
-              measured: {
-                page_number,
-                attempts: MAX_ATTEMPTS,
-                last_defects: verdict.defects,
-                last_score: verdict.anatomy_score,
-                named_subject: verdict.named_subject,
-                planned_subject: plan.focal_subject,
-                gate_version: "coloring_v2_anatomy_gate_v1",
-              },
-            }).catch(() => {});
+            try {
+              await db().from("coloring_v2_qc_findings").insert({
+                book_id,
+                rule_id: "anatomy_deformity_persistent",
+                severity: "hard",
+                measured: {
+                  page_number,
+                  attempts: MAX_ATTEMPTS,
+                  last_defects: verdict.defects,
+                  last_score: verdict.anatomy_score,
+                  named_subject: verdict.named_subject,
+                  planned_subject: plan.focal_subject,
+                  gate_version: "coloring_v2_anatomy_gate_v1",
+                },
+              });
+            } catch (_) { /* best-effort */ }
             await db().from("coloring_v2_books").update({
               stage: "failed",
               generation_status: "failed",
