@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { ProductStrip } from "@/components/blog/ProductStrip";
+import { resolveBlogImage, fallbackBlogImage } from "@/lib/blogImage";
 
 type Post = {
   id: string; slug: string; title: string; dek: string | null;
