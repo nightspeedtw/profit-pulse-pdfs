@@ -96,18 +96,24 @@ export default function BlogPost() {
 
       const jobs: Promise<unknown>[] = [];
       if (p.product_ids?.length) {
-        jobs.push(supabase.from("ebooks_kids")
-          .select("id,title,thumbnail_url,cover_url,price_cents,category")
-          .in("id", p.product_ids)
-          .then(({ data: prods }) => setProducts(((prods ?? []) as unknown) as Product[])));
+        jobs.push((async () => {
+          const { data: prods } = await supabase.from("ebooks_kids")
+            .select("id,title,thumbnail_url,cover_url,price_cents,category")
+            .in("id", p.product_ids as string[]);
+          setProducts(((prods ?? []) as unknown) as Product[]);
+        })());
       }
       if (p.author_id) {
-        jobs.push(supabase.from("blog_authors").select("*").eq("id", p.author_id).maybeSingle()
-          .then(({ data: a }) => a && setAuthor(a as unknown as Author)));
+        jobs.push((async () => {
+          const { data: a } = await supabase.from("blog_authors").select("*").eq("id", p.author_id as string).maybeSingle();
+          if (a) setAuthor(a as unknown as Author);
+        })());
       }
       if (p.reviewer_id) {
-        jobs.push(supabase.from("blog_reviewers").select("*").eq("id", p.reviewer_id).maybeSingle()
-          .then(({ data: r }) => r && setReviewer(r as unknown as Reviewer)));
+        jobs.push((async () => {
+          const { data: r } = await supabase.from("blog_reviewers").select("*").eq("id", p.reviewer_id as string).maybeSingle();
+          if (r) setReviewer(r as unknown as Reviewer);
+        })());
       }
       await Promise.all(jobs);
       setLoading(false);
