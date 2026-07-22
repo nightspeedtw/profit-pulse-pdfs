@@ -14,8 +14,6 @@
 import { advance, corsHeaders, db, fetchBook, fireStage, json, recordError, signedUrl, uploadAsset } from "../_shared/coloring-v2/state.ts";
 import { buildMasterColoringCoverPrompt, COLORING_MASTER_COVER_PROMPT_VERSION } from "../_shared/coloring/master-cover-prompt.ts";
 import { getAgeProfile } from "../_shared/coloring-v2/age-matrix.ts";
-import { runwareInference } from "../_shared/runware.ts";
-import { renderImageWithFallback } from "../_shared/coloring-v2/image-fallback.ts";
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
 import { COVER_OVERLAY_CONTRACT } from "../_shared/coloring/premium-cover-overlay.ts";
 import { geminiDirectImageWithMeta } from "../_shared/gemini-direct.ts";
