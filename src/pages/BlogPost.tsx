@@ -95,6 +95,8 @@ export default function BlogPost() {
       // Client-side redirect honoring
       if (p.redirects_to) { window.location.replace(p.redirects_to); return; }
       setPost(p);
+      resolveBlogImage(p.hero_image_url, p.slug, p.category ?? "SecretPDF").then(setHeroSrc);
+
 
       const jobs: Promise<unknown>[] = [];
       if (p.product_ids?.length) {
