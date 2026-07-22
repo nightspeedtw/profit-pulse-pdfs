@@ -64,10 +64,13 @@ export interface RenderedCoverProof {
   };
 }
 
+// SQUARE-FIRST LAW (2026-07-14, permanent): coloring books are 8.5x8.5.
+// Cover canvas must be square 1:1 to match provider output (Gemini/OpenAI
+// return 1024x1024) with zero letterboxing.
 export const COLORING_COVER_WIDTH = 1600;
-export const COLORING_COVER_HEIGHT = 2071; // 8.5x11 portrait at 1600px wide
-export const COLORING_COVER_COMPOSITOR_VERSION = "coloring_cover_compositor_v2_art_plus_transparent_overlay_portrait";
-const LETTER_ASPECT = 8.5 / 11;
+export const COLORING_COVER_HEIGHT = 1600; // 8.5x8.5 square
+export const COLORING_COVER_COMPOSITOR_VERSION = "coloring_cover_compositor_v3_square_8_5";
+const LETTER_ASPECT = 1.0;
 
 function norm(s: string): string {
   return String(s ?? "")
