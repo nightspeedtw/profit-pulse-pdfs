@@ -147,8 +147,15 @@ export async function composeColoringCover(params: {
     height: COLORING_COVER_HEIGHT,
     transparentBackground: true,
   });
-  const finalBytes = await alphaComposite(artOnlyBytes, treatment.png);
-  const raster = await rgbaFromPng(finalBytes);
+  const finalPngBytes = await alphaComposite(artOnlyBytes, treatment.png);
+  const raster = await rgbaFromPng(finalPngBytes);
+  // PERMANENT FIX (2026-07-22 cover_final_jpeg_encode_v1): asset is stored as
+  // .jpg with content-type image/jpeg and downstream PDF builders parse it
+  // strictly as JPEG (JPEG SOI 0xFFD8). Previously we uploaded PNG bytes
+  // under a .jpg extension, and coloring-v2-pdf failed with
+  // "SOI not found in JPEG". Encode as JPEG here so bytes match the mime.
+  const finalDecoded = await Image.decode(finalPngBytes);
+  const finalBytes = await (finalDecoded as any).encodeJPEG(92);
   const approvedStrings = [params.title, params.subtitle, params.ageBadge, "SecretPDF Kids"];
   const detectedText = approvedStrings.join(" | ");
   const renderedProof = renderedColoringCoverProof({
