@@ -194,7 +194,9 @@ export function pickStyleFamily(input: {
     if (f.themePattern.test(hay)) score += 10;
     if (ageMid != null && ageMid >= f.ageRange[0] && ageMid <= f.ageRange[1]) score += 3;
     if (input.title.length <= f.maxTitleChars) score += 1;
-    if (recent.has(id)) score -= 6; // recency avoidance
+    // Strong recency penalty so a family in the recent window is only picked
+    // when literally no other family scores above 0.
+    if (recent.has(id)) score -= 25;
     // Deterministic tie-break by stable seed of title.
     score += deterministicNoise(input.title + id) * 0.5;
     return { id, score };
