@@ -6992,6 +6992,7 @@ export type Database = {
           enabled: boolean
           id: boolean
           max_blog_posts_per_day: number
+          max_blog_posts_per_month: number
           max_draft_pages_per_day: number
           max_programmatic_pages_per_day: number
           max_public_pages_per_day: number
@@ -7006,6 +7007,7 @@ export type Database = {
           enabled?: boolean
           id?: boolean
           max_blog_posts_per_day?: number
+          max_blog_posts_per_month?: number
           max_draft_pages_per_day?: number
           max_programmatic_pages_per_day?: number
           max_public_pages_per_day?: number
@@ -7020,6 +7022,7 @@ export type Database = {
           enabled?: boolean
           id?: boolean
           max_blog_posts_per_day?: number
+          max_blog_posts_per_month?: number
           max_draft_pages_per_day?: number
           max_programmatic_pages_per_day?: number
           max_public_pages_per_day?: number
