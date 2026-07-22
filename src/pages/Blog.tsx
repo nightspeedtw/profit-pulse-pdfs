@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { ProductStrip } from "@/components/blog/ProductStrip";
+import { resolveBlogImage, fallbackBlogImage } from "@/lib/blogImage";
 
 type Post = {
   id: string; slug: string; title: string; dek: string | null;
@@ -58,15 +59,20 @@ export default function Blog() {
 }
 
 function ArticleCard({ post }: { post: Post }) {
+  const [src, setSrc] = useState<string>(() => fallbackBlogImage(post.slug, post.category ?? "SecretPDF"));
+  useEffect(() => {
+    let alive = true;
+    resolveBlogImage(post.hero_image_url, post.slug, post.category ?? "SecretPDF")
+      .then((u) => { if (alive) setSrc(u); });
+    return () => { alive = false; };
+  }, [post.hero_image_url, post.slug, post.category]);
+
   return (
     <Link to={`/blog/${post.slug}`} className="group block">
       <div className="aspect-[4/3] rounded-2xl overflow-hidden bg-secondary mb-4">
-        {post.hero_image_url ? (
-          <img src={post.hero_image_url} alt={post.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-foreground/30">SecretPDF Kids</div>
-        )}
+        <img src={src} alt={post.title} loading="lazy"
+          onError={() => setSrc(fallbackBlogImage(post.slug, post.category ?? "SecretPDF"))}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
       </div>
       {post.category && (
         <p className="text-[11px] uppercase tracking-[0.2em] text-accent font-semibold mb-2">{post.category}</p>

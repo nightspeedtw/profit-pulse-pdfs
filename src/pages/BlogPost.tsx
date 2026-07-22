@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { supabase } from "@/integrations/supabase/client";
 import { ProductStrip } from "@/components/blog/ProductStrip";
+import { resolveBlogImage, fallbackBlogImage } from "@/lib/blogImage";
 
 type Author = {
   id: string; slug: string; full_name: string; photo_url: string | null;
@@ -80,6 +81,7 @@ export default function BlogPost() {
   const [products, setProducts] = useState<Product[]>([]);
   const [author, setAuthor] = useState<Author | null>(null);
   const [reviewer, setReviewer] = useState<Reviewer | null>(null);
+  const [heroSrc, setHeroSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -93,6 +95,8 @@ export default function BlogPost() {
       // Client-side redirect honoring
       if (p.redirects_to) { window.location.replace(p.redirects_to); return; }
       setPost(p);
+      resolveBlogImage(p.hero_image_url, p.slug, p.category ?? "SecretPDF").then(setHeroSrc);
+
 
       const jobs: Promise<unknown>[] = [];
       if (p.product_ids?.length) {
@@ -257,11 +261,16 @@ export default function BlogPost() {
         </div>
       </header>
 
-      {post.hero_image_url && (
-        <div className="aspect-[16/9] rounded-2xl overflow-hidden mb-10 bg-secondary">
-          <img src={post.hero_image_url} alt={post.title} loading="eager" fetchPriority="high" className="w-full h-full object-cover" />
-        </div>
-      )}
+      <div className="aspect-[16/9] rounded-2xl overflow-hidden mb-10 bg-secondary">
+        <img
+          src={heroSrc ?? fallbackBlogImage(post.slug, post.category ?? "SecretPDF")}
+          alt={post.title}
+          loading="eager"
+          fetchPriority="high"
+          onError={(e) => { (e.currentTarget as HTMLImageElement).src = fallbackBlogImage(post.slug, post.category ?? "SecretPDF"); }}
+          className="w-full h-full object-cover"
+        />
+      </div>
 
       {/* Direct-answer box (AEO/GEO) */}
       {post.direct_answer && (

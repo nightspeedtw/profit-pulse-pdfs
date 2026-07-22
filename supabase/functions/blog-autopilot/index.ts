@@ -131,9 +131,10 @@ Deno.serve(async (req) => {
         contentType: "image/jpeg", upsert: true,
       });
       if (!upErr) {
-        const { data: signed } = await db.storage.from("ebook-covers")
-          .createSignedUrl(path, 60 * 60 * 24 * 365 * 5);
-        heroUrl = signed?.signedUrl ?? null;
+        // PERMANENT: store stable bucket:path token. Frontend mints fresh
+        // signed URLs on demand via resolveBlogImage (src/lib/blogImage.ts).
+        // Never store signed URLs — their tokens expire on key rotation.
+        heroUrl = `sb:ebook-covers/${path}`;
       }
     } catch (e) {
       console.warn("[blog-autopilot] hero image failed:", (e as Error).message);
