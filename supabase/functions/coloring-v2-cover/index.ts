@@ -104,6 +104,52 @@ function extrasCount(v: any): number {
   return ((v?.extra?.length ?? 0) as number) + ((v?.misspelled_required?.length ?? 0) as number) + ((v?.missing_required?.length ?? 0) as number);
 }
 
+// OWNER LAW `cover_3_strike_stop_v10` (2026-07-22, PERMANENT):
+//   If the cover cannot ship after 3 dispatch attempts (either OCR hard
+//   reject or both smart-AI providers billing/quota-locked), stop burning
+//   credit: park the book at stage='failed' and raise a critical
+//   alert_log row so HealthIncidentBanner surfaces it on the admin
+//   dashboard. No further auto-retries until admin resolves.
+const COVER_HARD_ATTEMPT_CAP = 3;
+
+function isProviderBillingError(msg: string): boolean {
+  const s = (msg ?? "").toLowerCase();
+  return /billing|quota|credit|exhaust|insufficient|payment required|402|429|prepayment/.test(s);
+}
+
+async function raiseCoverAlert(book_id: string, title: string, reason: string, dispatchCount: number) {
+  const billing = isProviderBillingError(reason);
+  const alert_class = billing ? "provider_blocked" : "unbounded_retry";
+  const dedupe_key = `cover_${alert_class}_${book_id}`;
+  const alertTitle = billing
+    ? `Provider billing block active: gemini+openai (cover ${book_id.slice(0, 8)})`
+    : `1 (book, step) pair exceeded ${COVER_HARD_ATTEMPT_CAP} cover attempts — retry storm`;
+  const body = billing
+    ? `Cover for "${title}" cannot generate — both smart-AI providers refused (billing/quota).\n• Book ${book_id.slice(0, 8)} parked at stage=failed after ${dispatchCount} dispatches.\n• Reason: ${reason.slice(0, 300)}\n• Topup Gemini or OpenAI credit, then set stage back to 'cover' to resume.`
+    : `Cover for "${title}" rejected ${dispatchCount} times.\n• ${book_id}|cover — ${dispatchCount} paid dispatches\n• Last reason: ${reason.slice(0, 300)}`;
+  try {
+    await db().from("alert_log").upsert({
+      alert_class, severity: "critical",
+      title: alertTitle, body,
+      evidence: { book_id, title, reason: reason.slice(0, 500), dispatchCount, law: "cover_3_strike_stop_v10" },
+      dedupe_key,
+    }, { onConflict: "dedupe_key" });
+  } catch (_) { /* best-effort */ }
+}
+
+async function parkCoverAsFailed(book_id: string, reason: string) {
+  try {
+    await db().from("coloring_v2_books")
+      .update({
+        stage: "failed",
+        stage_updated_at: new Date().toISOString(),
+        last_error: `cover_3_strike_stop_v10: ${reason.slice(0, 400)}`,
+        generation_status: "failed",
+      })
+      .eq("id", book_id);
+  } catch (_) { /* best-effort */ }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
   const { book_id } = await req.json().catch(() => ({}));
@@ -111,6 +157,17 @@ Deno.serve(async (req: Request) => {
   try {
     const book = await fetchBook(book_id);
     if (book.stage !== "cover") return json({ ok: true, skipped: true, stage: book.stage });
+
+    // Hard cap on cross-dispatch retries. `stage_attempt_count` increments in
+    // recordError on every failed dispatch of this stage. Once we've already
+    // burned the cap, refuse to re-dispatch and park + alert.
+    const priorAttempts = Number(book.stage_attempt_count ?? 0);
+    if (priorAttempts >= COVER_HARD_ATTEMPT_CAP) {
+      const reason = book.last_error ?? "cover_attempts_exhausted";
+      await parkCoverAsFailed(book_id, reason);
+      await raiseCoverAlert(book_id, book.title ?? "Untitled", reason, priorAttempts);
+      return json({ ok: false, parked: true, reason: "cover_3_strike_stop_v10", attempts: priorAttempts }, 200);
+    }
 
     const prof = getAgeProfile(book.age_band);
     const { data: conceptAsset } = await db().from("coloring_v2_assets")
@@ -122,16 +179,9 @@ Deno.serve(async (req: Request) => {
     if (title !== rawTitle) {
       await db().from("coloring_v2_books").update({ title }).eq("id", book_id);
     }
-    // OWNER LAW `cover_no_age_badge_v7` (2026-07-21):
-    //   Age is shown on the storefront card/product page as a chip. Baking
-    //   an "Ages X-Y" mark into the cover art produced awkward floating
-    //   circles that broke the composition ("ทำภาพเสีย"). Remove entirely
-    //   from V2 covers — the master prompt treats empty ageBadge as omitted
-    //   and the OCR verifier will now reject any baked age glyph as extra.
     void prof;
     const ageBadge = "";
 
-    // 3 interior refs (interior-first, cover-last law)
     const { data: interiorAssets } = await db().from("coloring_v2_assets")
       .select("storage_path, page_number").eq("book_id", book_id).eq("kind", "interior")
       .order("page_number", { ascending: true }).limit(3);
@@ -161,6 +211,7 @@ Deno.serve(async (req: Request) => {
     let bestVerdict: any = null;
     let bestProvider: CoverProvider | null = null;
     let transcriberFailures = 0;
+    let smartAiUnavailableCount = 0;
 
     for (let attempt = 1; attempt <= BAKE_ATTEMPTS; attempt++) {
       try {
@@ -177,9 +228,6 @@ Deno.serve(async (req: Request) => {
         lastVerdict = verdict;
         if (verdict.pass) { passBytes = candidate; passVerdict = verdict; break; }
         const reasonStr = String(verdict.reason ?? "");
-        // Track transcriber-unavailable separately: if OCR itself is down, we
-        // cannot punish the bake — record and keep the first candidate as
-        // best so we can soft-ship after the cap.
         if (/transcriber_unavailable|transcriber_error/i.test(reasonStr)) {
           transcriberFailures++;
           if (!bestBytes) { bestBytes = candidate; bestExtras = 0; bestVerdict = verdict; bestProvider = provider; }
@@ -188,16 +236,22 @@ Deno.serve(async (req: Request) => {
           if (extras < bestExtras) { bestBytes = candidate; bestExtras = extras; bestVerdict = verdict; bestProvider = provider; }
         }
         console.warn(`[coloring-v2-cover] bake attempt ${attempt} (${provider}) rejected: ${verdict.reason} extras=${JSON.stringify(verdict.extra)} misspelled=${JSON.stringify(verdict.misspelled)}`);
-      } catch (e) { lastErr = e; console.warn(`[coloring-v2-cover] bake attempt ${attempt} error:`, e?.message ?? e); }
+      } catch (e: any) {
+        lastErr = e;
+        const em = String(e?.message ?? e);
+        if (/cover_smart_ai_unavailable|billing|quota|prepayment|credit|402|429/i.test(em)) smartAiUnavailableCount++;
+        console.warn(`[coloring-v2-cover] bake attempt ${attempt} error:`, em);
+      }
     }
 
-    // OWNER LAW `cover_bake_only_v6_hard_reject` (amended 2026-07-20):
-    //   • Strict pass = ship.
-    //   • Transcriber unavailable on ALL attempts = SOFT-ACCEPT best attempt.
-    //     Vision provider outage must not stall the book or bleed quota.
-    //   • Cloudflare fallback path = SOFT-ACCEPT (CF typography is weaker
-    //     than Ideogram; we already logged the degradation).
-    //   • Otherwise = hard reject (garbled Ideogram title stays blocked).
+    // Both smart-AI providers billing-locked on every attempt → stop immediately.
+    if (!passBytes && smartAiUnavailableCount >= BAKE_ATTEMPTS) {
+      const reason = String(lastErr?.message ?? "cover_smart_ai_unavailable:gemini_and_openai_both_failed");
+      await parkCoverAsFailed(book_id, reason);
+      await raiseCoverAlert(book_id, title, reason, priorAttempts + 1);
+      return json({ ok: false, parked: true, reason: "smart_ai_billing_locked", provider_error: reason }, 200);
+    }
+
     let softAcceptReason: string | null = null;
     if (!passBytes || !passVerdict?.pass) {
       if (transcriberFailures >= BAKE_ATTEMPTS && bestBytes) {
@@ -205,6 +259,12 @@ Deno.serve(async (req: Request) => {
         softAcceptReason = "soft_accept_transcriber_unavailable_all_attempts";
       } else {
         const reason = lastVerdict?.reason ?? lastErr?.message ?? "unknown";
+        // This dispatch is a strike. If it's the final strike allowed, park + alert.
+        const nextAttempt = priorAttempts + 1;
+        if (nextAttempt >= COVER_HARD_ATTEMPT_CAP) {
+          await parkCoverAsFailed(book_id, reason);
+          await raiseCoverAlert(book_id, title, reason, nextAttempt);
+        }
         throw new Error(`cover_ocr_hard_reject_after_${BAKE_ATTEMPTS}_attempts:${reason}`);
       }
     }

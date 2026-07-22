@@ -13,6 +13,7 @@ import { AutoFixChip } from "@/components/admin/AutoFixChip";
 import { AutopilotStatusCenter } from "@/components/admin/AutopilotStatusCenter";
 import { OneClickAutopilotButton } from "@/components/admin/OneClickAutopilotButton";
 import { LiveProductionQueue } from "@/components/admin/LiveProductionQueue";
+import { HealthIncidentBanner } from "@/components/admin/HealthIncidentBanner";
 
 type Ebook = {
   id: string; title: string;
@@ -199,6 +200,7 @@ export default function CommandCenter() {
 
   return (
     <div className="space-y-6 max-w-6xl">
+      <HealthIncidentBanner />
       {/* Header — 2 primary buttons, exactly as specified */}
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
