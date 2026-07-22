@@ -33,7 +33,7 @@ const CANVAS = 1024;
 const BAKE_ATTEMPTS = 3;
 const NEGATIVE_PROMPT_BAKE = "any subtitle, any tagline, any 'COLORING BOOK' chip, any 'PAGE' text, any page number, any banner, any ribbon, any sticker, any sale badge, any popup pill, any watermark, any publisher name, any credits, any author line, any letter-shaped ornament, gibberish text, misspelled text, duplicate letters, extra typography, duplicated title, flat vector, line art, black and white, coloring page, uncolored";
 
-type CoverProvider = "gemini" | "openai" | "runware" | "cloudflare_fallback";
+type CoverProvider = "gemini" | "openai";
 
 async function logProvider(book_id: string, provider: string, model: string, purpose: string, success: boolean, err: string | null, latency_ms: number) {
   try {
