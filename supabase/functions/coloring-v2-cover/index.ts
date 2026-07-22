@@ -45,10 +45,10 @@ async function logProvider(book_id: string, provider: string, model: string, pur
   } catch (_) { /* observability best-effort */ }
 }
 
-// OWNER LAW `cover_uses_gemini_openai_primary_v8` (2026-07-21, fixed 2026-07-21):
-//   Cover bake priority: Gemini image (direct) → OpenAI gpt-image (direct)
-//   → Runware/Ideogram → Cloudflare (last-resort). Each attempt is logged
-//   to coloring_v2_provider_calls so we can see WHY a provider was skipped.
+// OWNER LAW `cover_smart_ai_only_v9` (2026-07-22, PERMANENT):
+//   Covers use ONLY smart AI (Gemini image → OpenAI gpt-image). No Runware,
+//   no Ideogram, no Cloudflare fallback for cover. Interior pages may still
+//   use cheaper providers, but the cover ships smart-AI or does not ship.
 async function renderCoverBake(opts: any, attempt: number, book_id: string): Promise<{ bytes: Uint8Array; provider: CoverProvider }> {
   // 1. Gemini native image (google_direct)
   {
@@ -64,7 +64,6 @@ async function renderCoverBake(opts: any, attempt: number, book_id: string): Pro
         return { bytes, provider: "gemini" };
       }
       await logProvider(book_id, meta.provider, meta.model, `cover_bake_a${attempt}_gemini`, false, `empty_bytes:${meta.finishReason ?? meta.blockReason ?? "no_image"}`, Date.now() - t0);
-      console.warn("[coloring-v2-cover] gemini returned empty image, trying openai");
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       await logProvider(book_id, "google_direct", GEMINI_IMAGE_MODEL, `cover_bake_a${attempt}_gemini`, false, msg, Date.now() - t0);
@@ -92,18 +91,7 @@ async function renderCoverBake(opts: any, attempt: number, book_id: string): Pro
       console.warn(`[coloring-v2-cover] openai-image failed: ${msg.slice(0, 300)}`);
     }
   }
-  // 3. Runware/Ideogram fallback (already logs internally)
-  try {
-    const bytes = await runwareInference(opts);
-    return { bytes, provider: "runware" };
-  } catch (e: any) {
-    const msg = String(e?.message ?? e ?? "");
-    const billingLocked = /insufficient|balance|credit|billing|payment required|402/i.test(msg);
-    if (!billingLocked) throw e;
-    console.warn(`[coloring-v2-cover] runware billing-locked; CF last-resort: ${msg.slice(0, 200)}`);
-    const bytes = await renderImageWithFallback(opts);
-    return { bytes, provider: "cloudflare_fallback" };
-  }
+  throw new Error("cover_smart_ai_unavailable:gemini_and_openai_both_failed");
 }
 
 function ensureColoringBookInTitle(t: string): string {
