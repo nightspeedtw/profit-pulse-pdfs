@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import { supabase } from "@/integrations/supabase/client";
 import { ProductStrip } from "@/components/blog/ProductStrip";
+import { resolveBlogImage, fallbackBlogImage } from "@/lib/blogImage";
 
 type Author = {
   id: string; slug: string; full_name: string; photo_url: string | null;
