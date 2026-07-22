@@ -45,14 +45,19 @@ Deno.serve(async (req) => {
     await callInternal("seo-keyword-seed", {});
   }
 
-  // 2) Daily budget check
+  // 2) Daily + monthly budget check (monthly cap is the hard ceiling)
   const dayAgo = new Date(Date.now() - 24 * 3600_000).toISOString();
-  const [{ count: draftedToday }, { count: publishedToday }] = await Promise.all([
+  const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0,0,0,0);
+  const monthStartIso = monthStart.toISOString();
+  const [{ count: draftedToday }, { count: publishedToday }, { count: publishedThisMonth }] = await Promise.all([
     db.from("seo_content_queue").select("id", { count: "exact", head: true }).gte("created_at", dayAgo).in("status", ["draft","approved","qa_failed"]),
     db.from("seo_content_queue").select("id", { count: "exact", head: true }).gte("published_at", dayAgo).eq("status", "published"),
+    db.from("seo_content_queue").select("id", { count: "exact", head: true }).gte("published_at", monthStartIso).eq("status", "published"),
   ]);
   const draftBudget = Math.max(0, (settings.max_draft_pages_per_day ?? 10) - (draftedToday ?? 0));
-  const publishBudget = Math.max(0, (settings.max_blog_posts_per_day ?? 1) - (publishedToday ?? 0));
+  const monthlyBudget = Math.max(0, (settings.max_blog_posts_per_month ?? 8) - (publishedThisMonth ?? 0));
+  const dailyBudget = Math.max(0, (settings.max_blog_posts_per_day ?? 1) - (publishedToday ?? 0));
+  const publishBudget = Math.min(dailyBudget, monthlyBudget);
 
   // 3) Pick clusters not already drafted today
   const { data: clusters } = await db
