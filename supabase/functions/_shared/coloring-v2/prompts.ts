@@ -122,6 +122,12 @@ export function buildInteriorImagePrompt(page: any, styleBible: any, ageBand: V2
 export const INTERIOR_NEGATIVE_PROMPT = [
   "color fills", "watercolor", "gray shading", "photograph", "3d render",
   "text", "letters", "watermark", "logo", "signature", "page number",
-  "extra limbs", "missing limbs", "deformed anatomy", "fused fingers",
+  // Anatomy deformity vocabulary (coloring_v2_anatomy_gate_v1)
+  "two heads", "extra head", "duplicated head", "fused faces", "fused limbs",
+  "extra limbs", "missing limbs", "floating limbs", "disembodied parts",
+  "wrong number of legs", "wrong number of fins", "wrong number of arms",
+  "deformed anatomy", "malformed body", "mangled anatomy", "twisted body",
+  "frankenstein composition", "stitched body", "fused fingers", "six fingers",
+  "amorphous blob", "potato shape", "unrecognizable creature",
   "solid black fills", "solid black shapes",
 ].join(", ");
