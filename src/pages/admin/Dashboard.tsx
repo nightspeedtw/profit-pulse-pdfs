@@ -200,6 +200,7 @@ export default function CommandCenter() {
 
   return (
     <div className="space-y-6 max-w-6xl">
+      <HealthIncidentBanner />
       {/* Header — 2 primary buttons, exactly as specified */}
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
