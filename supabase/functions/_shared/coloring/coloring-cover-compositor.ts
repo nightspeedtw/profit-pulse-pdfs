@@ -163,6 +163,7 @@ export async function composeColoringCover(params: {
     artOnlyBytes,
     overlayBytes: treatment.png,
     finalBytes,
+    svg: (treatment as any).svg ?? "",
     treatmentMeta: {
       ...treatment.metadata,
       compositor: COLORING_COVER_COMPOSITOR_VERSION,
