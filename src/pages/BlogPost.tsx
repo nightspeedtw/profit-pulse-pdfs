@@ -81,6 +81,7 @@ export default function BlogPost() {
   const [products, setProducts] = useState<Product[]>([]);
   const [author, setAuthor] = useState<Author | null>(null);
   const [reviewer, setReviewer] = useState<Reviewer | null>(null);
+  const [heroSrc, setHeroSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
