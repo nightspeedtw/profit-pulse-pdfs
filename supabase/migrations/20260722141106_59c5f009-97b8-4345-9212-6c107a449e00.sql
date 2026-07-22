@@ -1,0 +1,1 @@
+UPDATE coloring_v2_assets SET meta = meta - 'repair_verdict' WHERE book_id='6133ac75-44c1-4757-bb82-16a6f7c4d967' AND kind='interior';
