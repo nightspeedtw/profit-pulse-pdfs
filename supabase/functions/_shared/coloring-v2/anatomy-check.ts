@@ -19,9 +19,13 @@ function getGeminiKey(): string | undefined {
   try { return (globalThis as any).Deno?.env?.get?.("GEMINI_API_KEY"); }
   catch { return undefined; }
 }
+// PERMANENT FIX (2026-07-22 anatomy_gate_model_ladder_v2):
+// gemini-2.5-flash-lite is 404 for new users. Use current GA multimodal
+// models that accept inlineData.
 const MODEL_LADDER = [
   "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash",
 ];
 
 export const V2_ANATOMY_GATE_VERSION = "v1:coloring_v2_anatomy_gate";
