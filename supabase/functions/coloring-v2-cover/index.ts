@@ -35,7 +35,7 @@ const GEMINI_IMAGE_MODEL = "google/gemini-2.5-flash-image";
 const OPENAI_IMAGE_MODEL = "gpt-image-1";
 const BAKE_ATTEMPTS = 3;
 const COVER_HARD_ATTEMPT_CAP = 3;
-const COVER_LAW = "cover_v2_deterministic_typography";
+const COVER_LAW = "cover_source_of_truth_v11";
 
 type CoverProvider = "gemini" | "openai";
 
