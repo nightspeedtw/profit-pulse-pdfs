@@ -716,6 +716,210 @@ export type Database = {
           },
         ]
       }
+      blog_authors: {
+        Row: {
+          active: boolean
+          author_page_url: string | null
+          biography: string | null
+          created_at: string
+          disclosure: string | null
+          experience: string | null
+          expertise: string[] | null
+          full_name: string
+          id: string
+          job_title: string | null
+          photo_url: string | null
+          slug: string
+          social_links: Json | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          author_page_url?: string | null
+          biography?: string | null
+          created_at?: string
+          disclosure?: string | null
+          experience?: string | null
+          expertise?: string[] | null
+          full_name: string
+          id?: string
+          job_title?: string | null
+          photo_url?: string | null
+          slug: string
+          social_links?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          author_page_url?: string | null
+          biography?: string | null
+          created_at?: string
+          disclosure?: string | null
+          experience?: string | null
+          expertise?: string[] | null
+          full_name?: string
+          id?: string
+          job_title?: string | null
+          photo_url?: string | null
+          slug?: string
+          social_links?: Json | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      blog_content_clusters: {
+        Row: {
+          active: boolean
+          cluster_key: string
+          cluster_name: string
+          created_at: string
+          description: string | null
+          id: string
+          pillar_post_id: string | null
+          primary_keyword: string | null
+          search_intent: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          cluster_key: string
+          cluster_name: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          pillar_post_id?: string | null
+          primary_keyword?: string | null
+          search_intent?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          cluster_key?: string
+          cluster_name?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          pillar_post_id?: string | null
+          primary_keyword?: string | null
+          search_intent?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "blog_clusters_pillar_fk"
+            columns: ["pillar_post_id"]
+            isOneToOne: false
+            referencedRelation: "blog_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      blog_decay_metrics: {
+        Row: {
+          avg_position: number | null
+          broken_link_count: number | null
+          clicks: number | null
+          conversions: number | null
+          created_at: string
+          ctr: number | null
+          decay_status: Database["public"]["Enums"]["blog_decay_status"] | null
+          id: string
+          impressions: number | null
+          indexed: boolean | null
+          metric_date: string
+          notes: string | null
+          post_id: string
+          traffic_change_pct: number | null
+        }
+        Insert: {
+          avg_position?: number | null
+          broken_link_count?: number | null
+          clicks?: number | null
+          conversions?: number | null
+          created_at?: string
+          ctr?: number | null
+          decay_status?: Database["public"]["Enums"]["blog_decay_status"] | null
+          id?: string
+          impressions?: number | null
+          indexed?: boolean | null
+          metric_date: string
+          notes?: string | null
+          post_id: string
+          traffic_change_pct?: number | null
+        }
+        Update: {
+          avg_position?: number | null
+          broken_link_count?: number | null
+          clicks?: number | null
+          conversions?: number | null
+          created_at?: string
+          ctr?: number | null
+          decay_status?: Database["public"]["Enums"]["blog_decay_status"] | null
+          id?: string
+          impressions?: number | null
+          indexed?: boolean | null
+          metric_date?: string
+          notes?: string | null
+          post_id?: string
+          traffic_change_pct?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "blog_decay_metrics_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "blog_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      blog_internal_link_suggestions: {
+        Row: {
+          accepted: boolean
+          anchor_text: string
+          created_at: string
+          id: string
+          inserted_at_paragraph: number | null
+          post_id: string
+          reason: string | null
+          relevance_score: number | null
+          target_slug: string
+          target_url: string | null
+        }
+        Insert: {
+          accepted?: boolean
+          anchor_text: string
+          created_at?: string
+          id?: string
+          inserted_at_paragraph?: number | null
+          post_id: string
+          reason?: string | null
+          relevance_score?: number | null
+          target_slug: string
+          target_url?: string | null
+        }
+        Update: {
+          accepted?: boolean
+          anchor_text?: string
+          created_at?: string
+          id?: string
+          inserted_at_paragraph?: number | null
+          post_id?: string
+          reason?: string | null
+          relevance_score?: number | null
+          target_slug?: string
+          target_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "blog_internal_link_suggestions_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "blog_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       blog_keywords: {
         Row: {
           age_band: string | null
@@ -754,80 +958,382 @@ export type Database = {
       }
       blog_posts: {
         Row: {
+          article_section: string | null
+          author_id: string | null
           body_md: string
+          cannibalization_risk: string | null
+          canonical_url: string | null
           category: string | null
+          cluster_id: string | null
+          competing_urls: string[] | null
+          content_score: number | null
+          content_status:
+            | Database["public"]["Enums"]["blog_content_status"]
+            | null
+          country: string | null
           created_at: string
+          decay_status: Database["public"]["Enums"]["blog_decay_status"] | null
           dek: string | null
+          direct_answer: string | null
+          entities: string[] | null
           faq: Json | null
+          funnel_stage: string | null
           hero_image_url: string | null
           id: string
+          internal_links: Json | null
+          language: string | null
+          last_updated_at: string | null
+          long_tail_questions: string[] | null
           meta_description: string | null
           meta_title: string | null
+          noindex: boolean
+          og_image: string | null
+          parent_pillar_id: string | null
           primary_keyword: string | null
           product_ids: string[] | null
           published_at: string | null
+          reading_time_min: number | null
+          redirects_to: string | null
+          reviewed_at: string | null
+          reviewer_id: string | null
+          robots: string | null
           schema_json: Json
+          search_intent: string | null
           secondary_keywords: string[] | null
+          semantic_keywords: string[] | null
           seo_queue_id: string | null
           slug: string
           source: string | null
+          sources: Json | null
           status: string
+          tags: string[] | null
+          takeaways: string[] | null
+          target_audience: string | null
           title: string
+          toc_enabled: boolean
+          twitter_image: string | null
           updated_at: string
           word_count: number | null
+          word_count_target_max: number | null
+          word_count_target_min: number | null
         }
         Insert: {
+          article_section?: string | null
+          author_id?: string | null
           body_md: string
+          cannibalization_risk?: string | null
+          canonical_url?: string | null
           category?: string | null
+          cluster_id?: string | null
+          competing_urls?: string[] | null
+          content_score?: number | null
+          content_status?:
+            | Database["public"]["Enums"]["blog_content_status"]
+            | null
+          country?: string | null
           created_at?: string
+          decay_status?: Database["public"]["Enums"]["blog_decay_status"] | null
           dek?: string | null
+          direct_answer?: string | null
+          entities?: string[] | null
           faq?: Json | null
+          funnel_stage?: string | null
           hero_image_url?: string | null
           id?: string
+          internal_links?: Json | null
+          language?: string | null
+          last_updated_at?: string | null
+          long_tail_questions?: string[] | null
           meta_description?: string | null
           meta_title?: string | null
+          noindex?: boolean
+          og_image?: string | null
+          parent_pillar_id?: string | null
           primary_keyword?: string | null
           product_ids?: string[] | null
           published_at?: string | null
+          reading_time_min?: number | null
+          redirects_to?: string | null
+          reviewed_at?: string | null
+          reviewer_id?: string | null
+          robots?: string | null
           schema_json?: Json
+          search_intent?: string | null
           secondary_keywords?: string[] | null
+          semantic_keywords?: string[] | null
           seo_queue_id?: string | null
           slug: string
           source?: string | null
+          sources?: Json | null
           status?: string
+          tags?: string[] | null
+          takeaways?: string[] | null
+          target_audience?: string | null
           title: string
+          toc_enabled?: boolean
+          twitter_image?: string | null
           updated_at?: string
           word_count?: number | null
+          word_count_target_max?: number | null
+          word_count_target_min?: number | null
         }
         Update: {
+          article_section?: string | null
+          author_id?: string | null
           body_md?: string
+          cannibalization_risk?: string | null
+          canonical_url?: string | null
           category?: string | null
+          cluster_id?: string | null
+          competing_urls?: string[] | null
+          content_score?: number | null
+          content_status?:
+            | Database["public"]["Enums"]["blog_content_status"]
+            | null
+          country?: string | null
           created_at?: string
+          decay_status?: Database["public"]["Enums"]["blog_decay_status"] | null
           dek?: string | null
+          direct_answer?: string | null
+          entities?: string[] | null
           faq?: Json | null
+          funnel_stage?: string | null
           hero_image_url?: string | null
           id?: string
+          internal_links?: Json | null
+          language?: string | null
+          last_updated_at?: string | null
+          long_tail_questions?: string[] | null
           meta_description?: string | null
           meta_title?: string | null
+          noindex?: boolean
+          og_image?: string | null
+          parent_pillar_id?: string | null
           primary_keyword?: string | null
           product_ids?: string[] | null
           published_at?: string | null
+          reading_time_min?: number | null
+          redirects_to?: string | null
+          reviewed_at?: string | null
+          reviewer_id?: string | null
+          robots?: string | null
           schema_json?: Json
+          search_intent?: string | null
           secondary_keywords?: string[] | null
+          semantic_keywords?: string[] | null
           seo_queue_id?: string | null
           slug?: string
           source?: string | null
+          sources?: Json | null
           status?: string
+          tags?: string[] | null
+          takeaways?: string[] | null
+          target_audience?: string | null
           title?: string
+          toc_enabled?: boolean
+          twitter_image?: string | null
           updated_at?: string
           word_count?: number | null
+          word_count_target_max?: number | null
+          word_count_target_min?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "blog_posts_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "blog_authors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "blog_posts_cluster_id_fkey"
+            columns: ["cluster_id"]
+            isOneToOne: false
+            referencedRelation: "blog_content_clusters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "blog_posts_parent_pillar_id_fkey"
+            columns: ["parent_pillar_id"]
+            isOneToOne: false
+            referencedRelation: "blog_posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "blog_posts_reviewer_id_fkey"
+            columns: ["reviewer_id"]
+            isOneToOne: false
+            referencedRelation: "blog_reviewers"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "blog_posts_seo_queue_id_fkey"
             columns: ["seo_queue_id"]
             isOneToOne: false
             referencedRelation: "seo_content_queue"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      blog_qa_findings: {
+        Row: {
+          category: string | null
+          check_name: string
+          detected_at: string
+          evidence: Json | null
+          id: string
+          message: string
+          post_id: string
+          resolved: boolean
+          resolved_at: string | null
+          severity: string
+        }
+        Insert: {
+          category?: string | null
+          check_name: string
+          detected_at?: string
+          evidence?: Json | null
+          id?: string
+          message: string
+          post_id: string
+          resolved?: boolean
+          resolved_at?: string | null
+          severity: string
+        }
+        Update: {
+          category?: string | null
+          check_name?: string
+          detected_at?: string
+          evidence?: Json | null
+          id?: string
+          message?: string
+          post_id?: string
+          resolved?: boolean
+          resolved_at?: string | null
+          severity?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "blog_qa_findings_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "blog_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      blog_redirects: {
+        Row: {
+          active: boolean
+          created_at: string
+          from_path: string
+          id: string
+          reason: string | null
+          status_code: number
+          to_path: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          from_path: string
+          id?: string
+          reason?: string | null
+          status_code?: number
+          to_path: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          from_path?: string
+          id?: string
+          reason?: string | null
+          status_code?: number
+          to_path?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      blog_reviewers: {
+        Row: {
+          active: boolean
+          bio: string | null
+          created_at: string
+          credentials: string | null
+          full_name: string
+          id: string
+          photo_url: string | null
+          slug: string
+          social_links: Json | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          bio?: string | null
+          created_at?: string
+          credentials?: string | null
+          full_name: string
+          id?: string
+          photo_url?: string | null
+          slug: string
+          social_links?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          bio?: string | null
+          created_at?: string
+          credentials?: string | null
+          full_name?: string
+          id?: string
+          photo_url?: string | null
+          slug?: string
+          social_links?: Json | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      blog_revisions: {
+        Row: {
+          change_note: string | null
+          content_score: number | null
+          created_at: string
+          editor_id: string | null
+          editor_label: string | null
+          id: string
+          post_id: string
+          revision_number: number
+          snapshot: Json
+        }
+        Insert: {
+          change_note?: string | null
+          content_score?: number | null
+          created_at?: string
+          editor_id?: string | null
+          editor_label?: string | null
+          id?: string
+          post_id: string
+          revision_number: number
+          snapshot: Json
+        }
+        Update: {
+          change_note?: string | null
+          content_score?: number | null
+          created_at?: string
+          editor_id?: string | null
+          editor_label?: string | null
+          id?: string
+          post_id?: string
+          revision_number?: number
+          snapshot?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "blog_revisions_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "blog_posts"
             referencedColumns: ["id"]
           },
         ]
@@ -7516,6 +8022,25 @@ export type Database = {
     }
     Enums: {
       app_role: "admin"
+      blog_content_status:
+        | "draft"
+        | "ai_generated"
+        | "needs_fact_check"
+        | "needs_human_review"
+        | "approved"
+        | "scheduled"
+        | "published"
+        | "needs_update"
+        | "archived"
+      blog_decay_status:
+        | "stable"
+        | "growing"
+        | "declining"
+        | "needs_refresh"
+        | "needs_rewrite"
+        | "merge_candidate"
+        | "redirect_candidate"
+        | "remove_candidate"
       generation_mode: "low_cost" | "premium" | "hybrid"
       job_status: "queued" | "running" | "done" | "failed"
       kids_book_type: "picture_book" | "coloring_book"
@@ -7679,6 +8204,27 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin"],
+      blog_content_status: [
+        "draft",
+        "ai_generated",
+        "needs_fact_check",
+        "needs_human_review",
+        "approved",
+        "scheduled",
+        "published",
+        "needs_update",
+        "archived",
+      ],
+      blog_decay_status: [
+        "stable",
+        "growing",
+        "declining",
+        "needs_refresh",
+        "needs_rewrite",
+        "merge_candidate",
+        "redirect_candidate",
+        "remove_candidate",
+      ],
       generation_mode: ["low_cost", "premium", "hybrid"],
       job_status: ["queued", "running", "done", "failed"],
       kids_book_type: ["picture_book", "coloring_book"],
