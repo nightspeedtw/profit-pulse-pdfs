@@ -15,7 +15,10 @@
 
 declare const Deno: any;
 
-const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY");
+function getGeminiKey(): string | undefined {
+  try { return (globalThis as any).Deno?.env?.get?.("GEMINI_API_KEY"); }
+  catch { return undefined; }
+}
 const MODEL_LADDER = [
   "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
