@@ -63,7 +63,7 @@ describe("cover_v2 style-family selector — diversity via recency avoidance", (
   it("picks a space family for a space-themed title", () => {
     const fam = pickStyleFamily({
       title: "Cosmic Astronauts Coloring Book",
-      theme: "outer space adventure",
+      theme: "planets galaxy nebula",
       ageBand: "5-7",
       recentFamilies: [],
     });
