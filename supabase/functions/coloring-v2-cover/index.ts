@@ -203,9 +203,6 @@ Deno.serve(async (req: Request) => {
       if (transcriberFailures >= BAKE_ATTEMPTS && bestBytes) {
         passBytes = bestBytes; passVerdict = bestVerdict;
         softAcceptReason = "soft_accept_transcriber_unavailable_all_attempts";
-      } else if (bestProvider === "cloudflare_fallback" && bestBytes) {
-        passBytes = bestBytes; passVerdict = bestVerdict;
-        softAcceptReason = "soft_accept_cf_fallback_runware_billing_locked";
       } else {
         const reason = lastVerdict?.reason ?? lastErr?.message ?? "unknown";
         throw new Error(`cover_ocr_hard_reject_after_${BAKE_ATTEMPTS}_attempts:${reason}`);
@@ -220,7 +217,7 @@ Deno.serve(async (req: Request) => {
       overlay: COVER_OVERLAY_CONTRACT,
       text_mode: "bake_only",
       prompt_version: COLORING_MASTER_COVER_PROMPT_VERSION,
-      law: "cover_uses_gemini_openai_primary_v8",
+      law: "cover_smart_ai_only_v9",
     });
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
