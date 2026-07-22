@@ -89,7 +89,7 @@ async function callOne(
   subject: string,
   scene: string,
 ): Promise<{ ok: boolean; reason?: string; verdict?: V2AnatomyVerdict }> {
-  if (!GEMINI_KEY) return { ok: false, reason: "no_gemini_key" };
+  const GEMINI_KEY = getGeminiKey(); if (!GEMINI_KEY) return { ok: false, reason: "no_gemini_key" };
   const user = [
     `Planned subject: "${subject}".`,
     scene ? `Scene: "${scene}".` : "",
@@ -155,7 +155,7 @@ export async function checkPageAnatomy(input: {
   subject: string;
   scene?: string;
 }): Promise<V2AnatomyVerdict> {
-  if (!GEMINI_KEY) return degraded("no_gemini_key");
+  if (!getGeminiKey()) return degraded("no_gemini_key");
   let lastReason = "no_models_tried";
   for (const m of MODEL_LADDER) {
     const res = await callOne(m, input.bytes, input.mime || "image/jpeg", input.subject || "the subject", input.scene ?? "");
