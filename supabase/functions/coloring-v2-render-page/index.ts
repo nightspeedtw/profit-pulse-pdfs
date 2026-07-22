@@ -1,9 +1,18 @@
 // coloring-v2-render-page — renders one page then chains to the next.
 // When all pages are done, advances to `cover` and fires the cover stage.
+//
+// Anatomy gate (coloring_v2_anatomy_gate_v1, 2026-07-22):
+// Every attempt goes through checkPageAnatomy BEFORE uploadAsset. Failing
+// verdicts trigger a retry with defect-specific negative prompt clauses.
+// After MAX_ATTEMPTS real defects, the book is parked at stage='failed'
+// with last_error='anatomy_unrecoverable_page_N' so credits stop burning.
+// A degraded verdict (verifier outage) uploads normally and marks
+// metadata.anatomy_unmeasured=true — the QC safety net will re-check.
 // @ts-nocheck
 import { advance, corsHeaders, db, fetchBook, fireStage, json, recordError, uploadAsset } from "../_shared/coloring-v2/state.ts";
 import { INTERIOR_NEGATIVE_PROMPT } from "../_shared/coloring-v2/prompts.ts";
 import { renderImageWithFallback } from "../_shared/coloring-v2/image-fallback.ts";
+import { checkPageAnatomy, defectsToNegativeClause } from "../_shared/coloring-v2/anatomy-check.ts";
 
 declare const Deno: any;
 
@@ -30,11 +39,16 @@ Deno.serve(async (req: Request) => {
     let assetId = existing?.id;
     if (!assetId) {
       let lastErr: any = null;
+      let extraNegative = "";
+      let lastDefects: string[] = [];
+      let anatomyUnmeasured = false;
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         try {
           const bytes = await renderImageWithFallback({
             prompt: plan.prompt,
-            negative_prompt: INTERIOR_NEGATIVE_PROMPT,
+            negative_prompt: extraNegative
+              ? `${INTERIOR_NEGATIVE_PROMPT}, ${extraNegative}`
+              : INTERIOR_NEGATIVE_PROMPT,
             model: IDEOGRAM_MODEL,
             width: CANVAS, height: CANVAS,
             num_inference_steps: 8,
@@ -44,8 +58,67 @@ Deno.serve(async (req: Request) => {
             purpose: `interior_p${String(page_number).padStart(2, "0")}_a${attempt}`,
             prompt_version: "v2_page_plan@1",
           });
+
+          // Anatomy gate — refuse to upload deformed pages.
+          const verdict = await checkPageAnatomy({
+            bytes,
+            mime: "image/jpeg",
+            subject: plan.focal_subject || plan.scene || book.theme || "the subject",
+            scene: plan.scene ?? "",
+          });
+
+          if (verdict.degraded) {
+            // Verifier outage — upload but flag for QC safety net.
+            console.warn(`[coloring-v2 render] anatomy verifier degraded page ${page_number}: ${verdict.defects[0] ?? "unknown"}`);
+            anatomyUnmeasured = true;
+          } else if (!verdict.pass) {
+            lastDefects = verdict.defects;
+            const clause = defectsToNegativeClause(verdict.defects);
+            extraNegative = clause || "deformed anatomy, malformed body, wrong number of parts";
+            console.warn(`[coloring-v2 render] anatomy fail page ${page_number} attempt ${attempt}: score=${verdict.anatomy_score} defects=${verdict.defects.join("|")}`);
+            // Do NOT upload — try next attempt with stronger negative.
+            if (attempt < MAX_ATTEMPTS) continue;
+            // Final attempt failed → park the book.
+            await db().from("coloring_v2_qc_findings").insert({
+              book_id,
+              rule_id: "anatomy_deformity_persistent",
+              severity: "hard",
+              measured: {
+                page_number,
+                attempts: MAX_ATTEMPTS,
+                last_defects: verdict.defects,
+                last_score: verdict.anatomy_score,
+                named_subject: verdict.named_subject,
+                planned_subject: plan.focal_subject,
+                gate_version: "coloring_v2_anatomy_gate_v1",
+              },
+            }).catch(() => {});
+            await db().from("coloring_v2_books").update({
+              stage: "failed",
+              generation_status: "failed",
+              stage_updated_at: new Date().toISOString(),
+              last_error: `anatomy_unrecoverable_page_${page_number}:${verdict.defects.slice(0, 3).join(",")}`,
+            }).eq("id", book_id);
+            return json({
+              ok: false,
+              parked: true,
+              reason: "anatomy_unrecoverable",
+              page_number,
+              defects: verdict.defects,
+              attempts: MAX_ATTEMPTS,
+            }, 200);
+          }
+
           const asset = await uploadAsset(book_id, "interior", bytes, "jpg",
-            { attempt, prompt_len: plan.prompt.length }, page_number);
+            {
+              attempt,
+              prompt_len: plan.prompt.length,
+              anatomy_score: verdict.anatomy_score,
+              anatomy_pass: verdict.pass,
+              anatomy_unmeasured: anatomyUnmeasured,
+              anatomy_model: verdict.model ?? null,
+              anatomy_gate_version: "coloring_v2_anatomy_gate_v1",
+            }, page_number);
           assetId = asset.id;
           lastErr = null;
           break;
