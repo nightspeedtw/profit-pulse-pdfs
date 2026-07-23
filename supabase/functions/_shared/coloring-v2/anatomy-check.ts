@@ -162,12 +162,15 @@ function normalizeVerdict(parsed: any, providerModel: string): V2AnatomyVerdict 
   };
 }
 
-function tryParseJson(text: string): any | null {
-  try { return JSON.parse(text); } catch {}
-  const m = text.match(/\{[\s\S]*\}/);
+function tryParseJson(text: unknown): any | null {
+  const s = typeof text === "string" ? text : (text == null ? "" : String(text));
+  if (!s) return null;
+  try { return JSON.parse(s); } catch {}
+  const m = s.match(/\{[\s\S]*\}/);
   if (!m) return null;
   try { return JSON.parse(m[0]); } catch { return null; }
 }
+
 
 function buildUserPrompt(subject: string, scene: string): string {
   const canon = canonicalPartsFor(subject) ?? canonicalPartsFor(scene);
