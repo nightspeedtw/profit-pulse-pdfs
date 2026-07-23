@@ -226,12 +226,16 @@ Deno.serve(async (req: Request) => {
 
     // Upload as PNG (gpt-image-1 returns PNG bytes).
     const asset = await uploadAsset(book_id, "cover_final", bytes, "png", {
-      law: "cover_illustrated_hand_lettered_once_v1",
+      law: "cover_illustrated_lettering_v13",
       provider,
       model,
       text_mode: "illustrated_hand_lettered_baked",
+      lettering_style: lettering.id,
+      mood: mood.id,
+      age_badge: ageLabel ?? null,
       prompt_len: prompt.length,
     });
+
 
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
