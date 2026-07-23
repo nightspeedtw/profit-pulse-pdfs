@@ -38,28 +38,9 @@ function c(rgbArr: [number, number, number]) {
   return rgb(rgbArr[0], rgbArr[1], rgbArr[2]);
 }
 
-/**
- * OWNER LAW `matter_pages_no_overlap_v1` (2026-07-23):
- *   The four decorative layers on every matter page — border ring, corner
- *   confetti dots, corner vignettes, and the SecretPDF brand footer
- *   (© line + logo) — must live in reserved zones that never intersect.
- *   The bottom of the page is owned by the brand footer alone; borders,
- *   dots, and vignettes must yield.
- */
-export const MATTER_LAYOUT = {
-  /** Height of the reserved footer band at the bottom of the page. */
-  footerBandH: 34,
-  /** Padding above the inner-rule when placing the footer baseline. */
-  footerBaselinePad: 6,
-  /** Max logo height inside the footer band. */
-  logoMaxH: 18,
-  /** Max logo width as fraction of page width. */
-  logoMaxWFrac: 0.22,
-  /** Horizontal gap between © text and logo. */
-  copyLogoGap: 24,
-  /** Y-coordinate that page content must stay ABOVE to avoid the footer. */
-  contentMinY: 66,
-} as const;
+// MATTER_LAYOUT lives in ./matter-pages-layout.ts (pure module) and is
+// re-exported at the top of this file. See owner law
+// `matter_pages_no_overlap_v1` (2026-07-23).
 
 /**
  * Draw a palette-tinted decorative border: outer soft wash rectangle,
