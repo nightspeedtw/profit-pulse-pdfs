@@ -87,7 +87,7 @@ Deno.serve(async (req: Request) => {
     // Upload as PNG (gpt-image-1 returns PNG bytes).
     const asset = await uploadAsset(book_id, "cover_final", bytes, "png", {
       law: "cover_illustrated_hand_lettered_once_v1",
-      provider: "openai_direct",
+      provider,
       model,
       text_mode: "illustrated_hand_lettered_baked",
       prompt_len: prompt.length,
