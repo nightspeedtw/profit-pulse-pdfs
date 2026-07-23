@@ -492,7 +492,7 @@ export function drawColoringHowToPage(
       borderColor: c(P.ink), borderWidth: 0.6,
     });
   }
-  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo }, { borderInset: 28 });
 }
 
 /** Certificate page: same palette-border treatment as title. */
