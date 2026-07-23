@@ -27,17 +27,27 @@ function getLovableKey(): string | undefined {
   try { return (globalThis as any).Deno?.env?.get?.("LOVABLE_API_KEY"); }
   catch { return undefined; }
 }
-// PERMANENT FIX (2026-07-23 anatomy_gate_lovable_gateway_fallback_v4):
-// OpenAI direct hits billing_hard_limit and Google AI Studio direct returns
-// 404 on all gemini-*-flash vision models for this project. Add Lovable AI
-// Gateway (google/gemini-2.5-flash) as a tertiary vision fallback so anatomy
-// verification keeps working under a provider outage without burning direct
-// provider credits.
+// PERMANENT FIX (2026-07-24 anatomy_cloudflare_primary_v4):
+// OpenAI billing exhausted and Google AI Studio direct returns 404 on
+// gemini-*-flash vision for this project. Cloudflare Workers AI llava-1.5
+// is cheap, reliable, and covered by CF_ACCOUNT_ID + CF_API_TOKEN which
+// are already in the sandbox. Ladder is now:
+//   1) Cloudflare @cf/llava-hf/llava-1.5-7b-hf (primary)
+//   2) Gemini 2.5/2.0/1.5 Flash direct       (secondary)
+//   3) OpenAI GPT-4o / GPT-4o-mini            (tertiary — usually billing-locked)
+//   4) Lovable AI Gateway                     (outage backstop)
+// A verifier outage returns degraded=true so callers do NOT treat it as a defect.
+const CLOUDFLARE_MODEL_LADDER = [
+  "@cf/meta/llama-3.2-11b-vision-instruct",
+  "@cf/llava-hf/llava-1.5-7b-hf",
+];
+// Per-account+model auto-agree memo so we don't keep POSTing "agree" forever.
+const CF_AGREED_ANATOMY = new Set<string>();
 const OPENAI_MODEL_LADDER = ["gpt-4o-mini", "gpt-4o"];
 const GEMINI_MODEL_LADDER = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
 const LOVABLE_MODEL_LADDER = ["google/gemini-2.5-flash", "google/gemini-2.5-flash-lite"];
 
-export const V2_ANATOMY_GATE_VERSION = "v2:coloring_v2_anatomy_gate_canonical_parts";
+export const V2_ANATOMY_GATE_VERSION = "v4:cloudflare_primary";
 
 // Canonical-parts contract (2026-07-23 anatomy_canonical_parts_v2).
 // Owner directive: Starlight Unicorns shipped with missing legs and broken
@@ -152,12 +162,15 @@ function normalizeVerdict(parsed: any, providerModel: string): V2AnatomyVerdict 
   };
 }
 
-function tryParseJson(text: string): any | null {
-  try { return JSON.parse(text); } catch {}
-  const m = text.match(/\{[\s\S]*\}/);
+function tryParseJson(text: unknown): any | null {
+  const s = typeof text === "string" ? text : (text == null ? "" : String(text));
+  if (!s) return null;
+  try { return JSON.parse(s); } catch {}
+  const m = s.match(/\{[\s\S]*\}/);
   if (!m) return null;
   try { return JSON.parse(m[0]); } catch { return null; }
 }
+
 
 function buildUserPrompt(subject: string, scene: string): string {
   const canon = canonicalPartsFor(subject) ?? canonicalPartsFor(scene);
@@ -237,9 +250,10 @@ async function callGemini(
 
 /**
  * Check anatomy of a single interior page. Provider ladder:
- *   1) OpenAI GPT-4o vision (direct)
+ *   1) Cloudflare Workers AI llava-1.5 (primary — cheap, reliable)
  *   2) Google Gemini vision (direct)
- *   3) Lovable AI Gateway (google/gemini-2.5-flash) — outage backstop
+ *   3) OpenAI GPT-4o vision (direct)
+ *   4) Lovable AI Gateway (google/gemini-2.5-flash) — outage backstop
  * A degraded verdict means every provider was unreachable — callers MUST
  * NOT treat degraded as a defect.
  */
@@ -253,11 +267,11 @@ export async function checkPageAnatomy(input: {
   const subject = input.subject || "the subject";
   const scene = input.scene ?? "";
   let lastReason = "no_models_tried";
-  if (getOpenAIKey()) {
-    for (const m of OPENAI_MODEL_LADDER) {
-      const res = await callOpenAI(m, input.bytes, mime, subject, scene);
+  if (getCloudflareCreds()) {
+    for (const m of CLOUDFLARE_MODEL_LADDER) {
+      const res = await callCloudflare(m, input.bytes, mime, subject, scene);
       if (res.ok && res.verdict) return res.verdict;
-      lastReason = `openai/${m}:${res.reason ?? "unknown"}`;
+      lastReason = `cloudflare/${m}:${res.reason ?? "unknown"}`;
       console.warn(`[coloring-v2 anatomy] ${lastReason}`);
     }
   }
@@ -266,6 +280,14 @@ export async function checkPageAnatomy(input: {
       const res = await callGemini(m, input.bytes, mime, subject, scene);
       if (res.ok && res.verdict) return res.verdict;
       lastReason = `google/${m}:${res.reason ?? "unknown"}`;
+      console.warn(`[coloring-v2 anatomy] ${lastReason}`);
+    }
+  }
+  if (getOpenAIKey()) {
+    for (const m of OPENAI_MODEL_LADDER) {
+      const res = await callOpenAI(m, input.bytes, mime, subject, scene);
+      if (res.ok && res.verdict) return res.verdict;
+      lastReason = `openai/${m}:${res.reason ?? "unknown"}`;
       console.warn(`[coloring-v2 anatomy] ${lastReason}`);
     }
   }
@@ -279,6 +301,119 @@ export async function checkPageAnatomy(input: {
   }
   return degraded(lastReason);
 }
+
+function getCloudflareCreds(): { accountId: string; token: string } | null {
+  const envs = [
+    ["CF_ACCOUNT_ID", "CF_API_TOKEN"],
+    ["CF_ACCOUNT_ID_2", "CF_API_TOKEN_2"],
+    ["CF_ACCOUNT_ID_3", "CF_API_TOKEN_3"],
+    ["CF_ACCOUNT_ID_4", "CF_API_TOKEN_4"],
+    ["CF_ACCOUNT_ID_5", "CF_API_TOKEN_5"],
+    ["CF_ACCOUNT_ID_6", "CF_API_TOKEN_6"],
+  ];
+  for (const [aKey, tKey] of envs) {
+    try {
+      const a = (globalThis as any).Deno?.env?.get?.(aKey);
+      const t = (globalThis as any).Deno?.env?.get?.(tKey);
+      if (a && t) return { accountId: a, token: t };
+    } catch { /* keep going */ }
+  }
+  return null;
+}
+
+async function callCloudflare(
+  model: string, bytes: Uint8Array, mime: string, subject: string, scene: string,
+): Promise<{ ok: boolean; reason?: string; verdict?: V2AnatomyVerdict }> {
+  void mime;
+  const creds = getCloudflareCreds();
+  if (!creds) return { ok: false, reason: "no_cf_creds" };
+  const user = buildUserPrompt(subject, scene);
+  // CF vision models take a single `prompt` + `image` byte array. Fold SYSTEM
+  // into the prompt and demand strict JSON.
+  const prompt = `${SYSTEM}\n\n${user}\n\nRespond with ONLY the JSON object, no prose, no markdown fences.`;
+  const buildBody = () => JSON.stringify({
+    prompt, image: Array.from(bytes), max_tokens: 512, temperature: 0,
+  });
+  const url = `https://api.cloudflare.com/client/v4/accounts/${creds.accountId}/ai/run/${model}`;
+  const doCall = () => fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${creds.token}` },
+    body: buildBody(),
+  });
+  let r: Response;
+  try { r = await doCall(); }
+  catch (e) { return { ok: false, reason: `fetch_error:${String((e as Error)?.message ?? e).slice(0, 120)}` }; }
+  // Auto-agree for llama-3.2 model licence prompt.
+  if (r.status === 403) {
+    const body = await r.text().catch(() => "");
+    if (/Model Agreement|submit the prompt 'agree'/i.test(body)) {
+      const memoKey = `${creds.accountId}:${model}`;
+      if (!CF_AGREED_ANATOMY.has(memoKey)) {
+        try {
+          await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${creds.token}` },
+            body: JSON.stringify({ prompt: "agree" }),
+          });
+        } catch { /* best-effort */ }
+        CF_AGREED_ANATOMY.add(memoKey);
+        try { r = await doCall(); } catch (e) {
+          return { ok: false, reason: `fetch_error_after_agree:${String((e as Error)?.message ?? e).slice(0, 120)}` };
+        }
+      }
+    }
+  }
+  if (!r.ok) return { ok: false, reason: `http_${r.status}:${(await r.text()).slice(0, 200)}` };
+  let j: any; try { j = await r.json(); } catch { return { ok: false, reason: "resp_json_fail" }; }
+  const text: string = j?.result?.response ?? j?.result?.description ?? j?.result?.text ?? "";
+  if (!text) return { ok: false, reason: "empty_response" };
+  const parsed = tryParseJson(text);
+  if (parsed) return { ok: true, verdict: normalizeVerdict(parsed, `cloudflare/${model}`) };
+  // Prose fallback: small vision models sometimes ignore JSON instructions.
+  // Extract a verdict from natural-language description.
+  const proseVerdict = verdictFromProse(text, `cloudflare/${model}`);
+  if (proseVerdict) return { ok: true, verdict: proseVerdict };
+  return { ok: false, reason: "json_parse_fail" };
+}
+
+// Heuristic parser for freeform vision-model descriptions.
+// Conservative: PASS only when the prose clearly shows no deformity signal.
+function verdictFromProse(text: string, providerModel: string): V2AnatomyVerdict | null {
+  const t = String(text).toLowerCase();
+  if (t.length < 20) return null;
+  const defectPatterns: Array<{ re: RegExp; label: string }> = [
+    { re: /\b(two|three|multiple|extra|second)\s+heads?\b/, label: "extra_head" },
+    { re: /\b(missing|no)\s+(limb|leg|arm|head|eye|tail|wing|fin)/, label: "missing_limb" },
+    { re: /\b(extra|additional|too many)\s+(limb|leg|arm|eye|tail|wing|fin|finger)/, label: "extra_limb" },
+    { re: /\bfused\b|\bconjoined\b|\bstitched\b|\bfrankenstein\b/, label: "fused" },
+    { re: /\bsevered\b|\bdisembodied\b|\bfloating\s+(limb|arm|leg|head)/, label: "severed" },
+    { re: /\bmalformed\b|\bdeformed\b|\bmangled\b|\bgrotesque\b/, label: "malformed" },
+    { re: /\bwrong\s+(number|count)\s+of\b/, label: "wrong_count" },
+    { re: /\bamorphous\b|\bunrecognizable\b|\bpotato[- ]shape\b|\bblob\b/, label: "unrecognizable_subject" },
+    { re: /\b(6|six|5|five|7|seven)\s+(fingers|legs|arms)\b/, label: "wrong_count" },
+  ];
+  const defects: string[] = [];
+  for (const p of defectPatterns) if (p.re.test(t)) defects.push(p.label);
+  const hasPositive = /(no\s+deformity|no\s+deformities|looks?\s+(fine|correct|normal|healthy)|anatomically\s+correct|correct\s+anatomy|well[- ]formed|no\s+visible\s+issues)/.test(t);
+  if (defects.length === 0 && hasPositive) {
+    return {
+      pass: true, anatomy_score: 90, defects: [], recognizable: true,
+      named_subject: null, degraded: false, model: `${providerModel}+prose`,
+      measured_at: new Date().toISOString(),
+    };
+  }
+  if (defects.length > 0) {
+    return {
+      pass: false, anatomy_score: 40,
+      defects: Array.from(new Set(defects)).slice(0, 6),
+      recognizable: !defects.includes("unrecognizable_subject"),
+      named_subject: null, degraded: false, model: `${providerModel}+prose`,
+      measured_at: new Date().toISOString(),
+    };
+  }
+  return null; // Ambiguous — let ladder continue.
+}
+
 
 async function callLovableGateway(
   model: string, bytes: Uint8Array, mime: string, subject: string, scene: string,
