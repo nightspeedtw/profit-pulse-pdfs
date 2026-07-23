@@ -44,8 +44,8 @@ const CLOUDFLARE_MODEL_LADDER = [
 // Per-account+model auto-agree memo so we don't keep POSTing "agree" forever.
 const CF_AGREED_ANATOMY = new Set<string>();
 const OPENAI_MODEL_LADDER = ["gpt-4o-mini", "gpt-4o"];
-const GEMINI_MODEL_LADDER = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
-const LOVABLE_MODEL_LADDER = ["google/gemini-2.5-flash", "google/gemini-2.5-flash-lite"];
+const GEMINI_MODEL_LADDER = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+const LOVABLE_MODEL_LADDER = ["google/gemini-3.5-flash", "google/gemini-3.6-flash"];
 
 export const V2_ANATOMY_GATE_VERSION = "v4:cloudflare_primary";
 
