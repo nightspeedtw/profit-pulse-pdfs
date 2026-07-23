@@ -59,7 +59,7 @@ export async function geminiDirectImageWithMeta(opts: {
     if (LOVABLE_KEY) return gatewayImageWithMeta(opts, "GEMINI_API_KEY not set");
     throw new Error("GEMINI_API_KEY not set");
   }
-  const model = normalize(opts.model ?? "google/gemini-2.5-flash-image");
+  const model = normalize(opts.model ?? "google/gemini-3.1-flash-image");
   const parts: Array<Record<string, unknown>> = [{ text: opts.prompt }];
   for (const u of opts.referenceUrls) {
     const { data, mime } = await fetchImageAsB64(u);
@@ -170,7 +170,7 @@ export async function geminiDirectChat(opts: {
   responseJson?: boolean;
 }): Promise<{ text: string; input_tokens: number; output_tokens: number; model: string }> {
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set");
-  const model = normalize(opts.model ?? "google/gemini-2.5-flash");
+  const model = normalize(opts.model ?? "google/gemini-3.5-flash");
   const body: Record<string, unknown> = {
     contents: [{ role: "user", parts: [{ text: opts.user }] }],
     generationConfig: opts.responseJson ? { responseMimeType: "application/json" } : {},
@@ -214,7 +214,7 @@ export async function geminiDirectVisionChat(opts: {
   timeoutMs?: number;
 }): Promise<{ text: string; input_tokens: number; output_tokens: number; model: string }> {
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set");
-  const model = normalize(opts.model ?? "google/gemini-2.5-flash");
+  const model = normalize(opts.model ?? "google/gemini-3.5-flash");
   const parts: Array<Record<string, unknown>> = [{ text: opts.userText }];
   for (const u of opts.imageUrls) {
     const { data, mime } = await fetchImageAsB64(u);
