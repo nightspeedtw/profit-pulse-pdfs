@@ -1,0 +1,1 @@
+SELECT public.coloring_v2_advance_stage('6133ac75-44c1-4757-bb82-16a6f7c4d967'::uuid, 'qc', 'pdf', '{}'::jsonb);
