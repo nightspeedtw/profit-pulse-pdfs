@@ -27,17 +27,22 @@ function getLovableKey(): string | undefined {
   try { return (globalThis as any).Deno?.env?.get?.("LOVABLE_API_KEY"); }
   catch { return undefined; }
 }
-// PERMANENT FIX (2026-07-23 anatomy_gate_lovable_gateway_fallback_v4):
-// OpenAI direct hits billing_hard_limit and Google AI Studio direct returns
-// 404 on all gemini-*-flash vision models for this project. Add Lovable AI
-// Gateway (google/gemini-2.5-flash) as a tertiary vision fallback so anatomy
-// verification keeps working under a provider outage without burning direct
-// provider credits.
+// PERMANENT FIX (2026-07-24 anatomy_cloudflare_primary_v4):
+// OpenAI billing exhausted and Google AI Studio direct returns 404 on
+// gemini-*-flash vision for this project. Cloudflare Workers AI llava-1.5
+// is cheap, reliable, and covered by CF_ACCOUNT_ID + CF_API_TOKEN which
+// are already in the sandbox. Ladder is now:
+//   1) Cloudflare @cf/llava-hf/llava-1.5-7b-hf (primary)
+//   2) Gemini 2.5/2.0/1.5 Flash direct       (secondary)
+//   3) OpenAI GPT-4o / GPT-4o-mini            (tertiary — usually billing-locked)
+//   4) Lovable AI Gateway                     (outage backstop)
+// A verifier outage returns degraded=true so callers do NOT treat it as a defect.
+const CLOUDFLARE_MODEL_LADDER = ["@cf/llava-hf/llava-1.5-7b-hf"];
 const OPENAI_MODEL_LADDER = ["gpt-4o-mini", "gpt-4o"];
 const GEMINI_MODEL_LADDER = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
 const LOVABLE_MODEL_LADDER = ["google/gemini-2.5-flash", "google/gemini-2.5-flash-lite"];
 
-export const V2_ANATOMY_GATE_VERSION = "v2:coloring_v2_anatomy_gate_canonical_parts";
+export const V2_ANATOMY_GATE_VERSION = "v4:cloudflare_primary";
 
 // Canonical-parts contract (2026-07-23 anatomy_canonical_parts_v2).
 // Owner directive: Starlight Unicorns shipped with missing legs and broken
@@ -237,9 +242,10 @@ async function callGemini(
 
 /**
  * Check anatomy of a single interior page. Provider ladder:
- *   1) OpenAI GPT-4o vision (direct)
+ *   1) Cloudflare Workers AI llava-1.5 (primary — cheap, reliable)
  *   2) Google Gemini vision (direct)
- *   3) Lovable AI Gateway (google/gemini-2.5-flash) — outage backstop
+ *   3) OpenAI GPT-4o vision (direct)
+ *   4) Lovable AI Gateway (google/gemini-2.5-flash) — outage backstop
  * A degraded verdict means every provider was unreachable — callers MUST
  * NOT treat degraded as a defect.
  */
@@ -253,11 +259,11 @@ export async function checkPageAnatomy(input: {
   const subject = input.subject || "the subject";
   const scene = input.scene ?? "";
   let lastReason = "no_models_tried";
-  if (getOpenAIKey()) {
-    for (const m of OPENAI_MODEL_LADDER) {
-      const res = await callOpenAI(m, input.bytes, mime, subject, scene);
+  if (getCloudflareCreds()) {
+    for (const m of CLOUDFLARE_MODEL_LADDER) {
+      const res = await callCloudflare(m, input.bytes, mime, subject, scene);
       if (res.ok && res.verdict) return res.verdict;
-      lastReason = `openai/${m}:${res.reason ?? "unknown"}`;
+      lastReason = `cloudflare/${m}:${res.reason ?? "unknown"}`;
       console.warn(`[coloring-v2 anatomy] ${lastReason}`);
     }
   }
@@ -266,6 +272,14 @@ export async function checkPageAnatomy(input: {
       const res = await callGemini(m, input.bytes, mime, subject, scene);
       if (res.ok && res.verdict) return res.verdict;
       lastReason = `google/${m}:${res.reason ?? "unknown"}`;
+      console.warn(`[coloring-v2 anatomy] ${lastReason}`);
+    }
+  }
+  if (getOpenAIKey()) {
+    for (const m of OPENAI_MODEL_LADDER) {
+      const res = await callOpenAI(m, input.bytes, mime, subject, scene);
+      if (res.ok && res.verdict) return res.verdict;
+      lastReason = `openai/${m}:${res.reason ?? "unknown"}`;
       console.warn(`[coloring-v2 anatomy] ${lastReason}`);
     }
   }
@@ -278,6 +292,61 @@ export async function checkPageAnatomy(input: {
     }
   }
   return degraded(lastReason);
+}
+
+function getCloudflareCreds(): { accountId: string; token: string } | null {
+  const envs = [
+    ["CF_ACCOUNT_ID", "CF_API_TOKEN"],
+    ["CF_ACCOUNT_ID_2", "CF_API_TOKEN_2"],
+    ["CF_ACCOUNT_ID_3", "CF_API_TOKEN_3"],
+    ["CF_ACCOUNT_ID_4", "CF_API_TOKEN_4"],
+    ["CF_ACCOUNT_ID_5", "CF_API_TOKEN_5"],
+    ["CF_ACCOUNT_ID_6", "CF_API_TOKEN_6"],
+  ];
+  for (const [aKey, tKey] of envs) {
+    try {
+      const a = (globalThis as any).Deno?.env?.get?.(aKey);
+      const t = (globalThis as any).Deno?.env?.get?.(tKey);
+      if (a && t) return { accountId: a, token: t };
+    } catch { /* keep going */ }
+  }
+  return null;
+}
+
+async function callCloudflare(
+  model: string, bytes: Uint8Array, mime: string, subject: string, scene: string,
+): Promise<{ ok: boolean; reason?: string; verdict?: V2AnatomyVerdict }> {
+  void mime;
+  const creds = getCloudflareCreds();
+  if (!creds) return { ok: false, reason: "no_cf_creds" };
+  const user = buildUserPrompt(subject, scene);
+  // llava-1.5 takes a single `prompt` + `image` byte array. It has no
+  // system-role slot, so we fold SYSTEM into the prompt and ask for strict JSON.
+  const prompt = `${SYSTEM}\n\n${user}\n\nRespond with ONLY the JSON object, no prose.`;
+  const body = {
+    prompt,
+    image: Array.from(bytes),
+    max_tokens: 512,
+  };
+  let r: Response;
+  try {
+    r = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${creds.accountId}/ai/run/${model}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${creds.token}` },
+        body: JSON.stringify(body),
+      },
+    );
+  } catch (e) {
+    return { ok: false, reason: `fetch_error:${String((e as Error)?.message ?? e).slice(0, 120)}` };
+  }
+  if (!r.ok) return { ok: false, reason: `http_${r.status}:${(await r.text()).slice(0, 200)}` };
+  let j: any; try { j = await r.json(); } catch { return { ok: false, reason: "resp_json_fail" }; }
+  const text: string = j?.result?.response ?? j?.result?.description ?? j?.result?.text ?? "";
+  const parsed = tryParseJson(text);
+  if (!parsed) return { ok: false, reason: "json_parse_fail" };
+  return { ok: true, verdict: normalizeVerdict(parsed, `cloudflare/${model}`) };
 }
 
 async function callLovableGateway(
