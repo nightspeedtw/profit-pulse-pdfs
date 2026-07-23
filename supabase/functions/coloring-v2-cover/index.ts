@@ -1,31 +1,24 @@
-// Coloring cover — Cover Builder V2.
+// Coloring cover — Illustrated-Only lane.
 //
-// OWNER LAW `cover_v2_deterministic_typography` (2026-07-22, PERMANENT):
-//   Three-layer contract:
-//     1. illustration_layer — TEXTLESS art from Gemini/OpenAI with an
-//        intentionally designed title environment (ribbon, sky panel,
-//        magic smoke, shield, etc.).
-//     2. typography_layer   — deterministic artistic glyphs rendered
-//        server-side from CANONICAL METADATA via renderKidsTitleTreatment.
-//        Every glyph proven against approved tokens BEFORE raster.
-//     3. final_composite    — flattened master PNG. This is the only URL
-//        exposed as cover_url + thumbnail_url + PDF page 1.
+// OWNER LAW `cover_illustrated_only_v12` (2026-07-23, PERMANENT):
+//   Coloring-book covers MUST be fully painted illustrations where the
+//   title is HAND-LETTERED as part of the artwork by the image model.
+//   Deterministic SVG/font typography is FORBIDDEN on the coloring lane.
 //
-//   Frontend never composites text over the cover; all text is baked into
-//   final_composite so the image survives outside the website.
+//   Provider ladder (smart-AI only, no Lovable gateway):
+//     1. Gemini 2.5 Flash Image (google direct)
+//     2. OpenAI gpt-image-1 (direct)
 //
-//   Retry cap: 3 dispatches. On exhaustion, park and raise a critical
-//   dashboard alert.
+//   Sticky short-circuit: if ANY existing cover_final asset for the book
+//   was produced by an illustrated law (`cover_illustrated_hand_lettered_once_v1`
+//   OR `cover_illustrated_only_v12`), it is re-approved and the stage
+//   advances to QC. Repair sweeps can never overwrite an owner-approved
+//   hand-lettered cover.
+//
+//   Retry cap: 3 dispatches. On exhaustion, park + raise dashboard alert.
 //
 // @ts-nocheck
 import { advance, corsHeaders, db, fetchBook, fireStage, json, recordError, signedUrl, uploadAsset } from "../_shared/coloring-v2/state.ts";
-import { buildTextlessColoringCoverPrompt, COLORING_TEXTLESS_COVER_PROMPT_VERSION } from "../_shared/coloring/textless-cover-prompt.ts";
-import { getAgeProfile } from "../_shared/coloring-v2/age-matrix.ts";
-import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
-import { pickStyleFamily, STYLE_FAMILIES } from "../_shared/coloring/style-families.ts";
-import { loadRecencyPicks } from "../_shared/coloring/cover-recency.ts";
-import { composeColoringCover, COLORING_COVER_COMPOSITOR_VERSION, COLORING_COVER_WIDTH, COLORING_COVER_HEIGHT } from "../_shared/coloring/coloring-cover-compositor.ts";
-import { verifyTypographySource } from "../_shared/coloring/typography-source-verifier.ts";
 import { geminiDirectImageWithMeta } from "../_shared/gemini-direct.ts";
 import { openaiDirectImage } from "../_shared/openai-direct.ts";
 
@@ -35,7 +28,11 @@ const GEMINI_IMAGE_MODEL = "google/gemini-2.5-flash-image";
 const OPENAI_IMAGE_MODEL = "gpt-image-1";
 const BAKE_ATTEMPTS = 3;
 const COVER_HARD_ATTEMPT_CAP = 3;
-const COVER_LAW = "cover_source_of_truth_v11";
+const COVER_LAW = "cover_illustrated_only_v12";
+const STICKY_LAWS = new Set([
+  "cover_illustrated_hand_lettered_once_v1",
+  "cover_illustrated_only_v12",
+]);
 
 type CoverProvider = "gemini" | "openai";
 
@@ -43,53 +40,10 @@ async function logProvider(book_id: string, provider: string, model: string, pur
   try {
     await db().from("coloring_v2_provider_calls").insert({
       book_id, provider, model, purpose,
-      prompt_version: COLORING_TEXTLESS_COVER_PROMPT_VERSION,
+      prompt_version: COVER_LAW,
       success, error_message: err?.slice(0, 500) ?? null, latency_ms,
     });
   } catch (_) { /* best-effort */ }
-}
-
-async function renderTextlessArt(opts: { prompt: string; refs: string[] }, attempt: number, book_id: string): Promise<{ bytes: Uint8Array; provider: CoverProvider }> {
-  {
-    const t0 = Date.now();
-    try {
-      const { bytes, meta } = await geminiDirectImageWithMeta({
-        prompt: opts.prompt,
-        referenceUrls: opts.refs,
-        model: GEMINI_IMAGE_MODEL,
-      });
-      if (bytes.length > 0) {
-        await logProvider(book_id, meta.provider, meta.model, `cover_textless_a${attempt}_gemini`, true, null, Date.now() - t0);
-        return { bytes, provider: "gemini" };
-      }
-      await logProvider(book_id, meta.provider, meta.model, `cover_textless_a${attempt}_gemini`, false, `empty_bytes:${meta.finishReason ?? meta.blockReason ?? "no_image"}`, Date.now() - t0);
-    } catch (e: any) {
-      const msg = String(e?.message ?? e);
-      await logProvider(book_id, "google_direct", GEMINI_IMAGE_MODEL, `cover_textless_a${attempt}_gemini`, false, msg, Date.now() - t0);
-      console.warn(`[coloring-v2-cover] gemini failed: ${msg.slice(0, 300)}`);
-    }
-  }
-  {
-    const t0 = Date.now();
-    try {
-      const { bytes } = await openaiDirectImage({
-        prompt: opts.prompt,
-        model: OPENAI_IMAGE_MODEL,
-        size: "1024x1024",
-        quality: "high",
-      });
-      if (bytes.length > 0) {
-        await logProvider(book_id, "openai_direct", OPENAI_IMAGE_MODEL, `cover_textless_a${attempt}_openai`, true, null, Date.now() - t0);
-        return { bytes, provider: "openai" };
-      }
-      await logProvider(book_id, "openai_direct", OPENAI_IMAGE_MODEL, `cover_textless_a${attempt}_openai`, false, "empty_bytes", Date.now() - t0);
-    } catch (e: any) {
-      const msg = String(e?.message ?? e);
-      await logProvider(book_id, "openai_direct", OPENAI_IMAGE_MODEL, `cover_textless_a${attempt}_openai`, false, msg, Date.now() - t0);
-      console.warn(`[coloring-v2-cover] openai-image failed: ${msg.slice(0, 300)}`);
-    }
-  }
-  throw new Error("cover_smart_ai_unavailable:gemini_and_openai_both_failed");
 }
 
 function ensureColoringBookInTitle(t: string): string {
@@ -98,30 +52,87 @@ function ensureColoringBookInTitle(t: string): string {
   return /coloring/i.test(s) ? s : `${s} Coloring Book`;
 }
 
-function normalizeAgeBadge(raw: string): string {
-  const s = (raw ?? "").trim();
-  if (!s) return "";
-  if (/^ages?\s/i.test(s)) return s.replace(/^ages?\s+/i, "Ages ");
-  if (/^\d+\s*[-–—]\s*\d+$/.test(s)) return `Ages ${s.replace(/\s+/g, "")}`;
-  return `Ages ${s}`;
+// Subject-aware scene clause — mirrors the illustrated-cover-once helper so
+// the cover matches the actual interior subject matter (unicorns vs oceans
+// vs dinos etc.) rather than defaulting to any single theme.
+async function buildSceneClause(book_id: string, title: string): Promise<string> {
+  try {
+    const c = db();
+    const { data: concept } = await c.from("coloring_v2_assets")
+      .select("meta").eq("book_id", book_id).eq("kind", "concept")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const heroes: string[] = Array.isArray(concept?.meta?.hero_subjects) ? concept.meta.hero_subjects.slice(0, 3) : [];
+    const motifs: string[] = Array.isArray(concept?.meta?.motif_inventory) ? concept.meta.motif_inventory.slice(0, 6) : [];
+    if (heroes.length) {
+      const heroText = heroes.join("; ");
+      const motifText = motifs.length ? ` Motifs to include: ${motifs.join(", ")}.` : "";
+      return `Depict a charming scene featuring: ${heroText}. Polished, print-ready art.${motifText}`;
+    }
+  } catch (_) { /* fall through */ }
+  const t = title.toLowerCase();
+  if (/unicorn/.test(t)) return "Depict charming cartoon unicorns — each with FOUR legs, ONE horn, ONE tail, correct proportions — playing among stars, rainbows, and sparkles. Every unicorn anatomically complete and non-deformed.";
+  if (/dragon/.test(t)) return "Depict charming cartoon dragons — each with 4 legs, 2 wings, 1 tail — playing among clouds and treasure.";
+  if (/mermaid/.test(t)) return "Depict charming cartoon mermaids — each with 2 arms, 1 tail-fin, complete anatomy — playing among coral and bubbles.";
+  if (/ocean|sea|fish|bubbly/.test(t)) return "Depict charming cartoon ocean creatures (fish, octopus, turtle, dolphins) among coral and kelp — each anatomically complete.";
+  if (/dino/.test(t)) return "Depict charming cartoon dinosaurs — each anatomically complete — playing among volcanoes and ferns.";
+  if (/farm|woodland|forest/.test(t)) return "Depict charming cartoon farm and woodland animals — each anatomically complete — in a cheerful meadow.";
+  return "Depict charming cartoon subjects from the book, each anatomically complete and non-deformed, in a playful storybook scene.";
 }
 
-function titleEnvironmentFor(styleId: string): { env: string; zone: string } {
-  switch (styleId) {
-    case "magical_storybook":       return { env: "a soft glowing cloud ribbon with sparkling stars around it", zone: "upper 40%" };
-    case "bold_cartoon_adventure":  return { env: "a bold banner arch with dynamic sparks and speed lines", zone: "upper 35%" };
-    case "space_sci":               return { env: "a wide horizontal starfield panel with a subtle nebula glow", zone: "upper 35%" };
-    case "fantasy_dragon":          return { env: "a stone-and-metal shield crest with heraldic flourishes", zone: "upper 40%" };
-    case "futuristic_neon":         return { env: "a rectangular neon-lit holographic panel with soft cyan glow", zone: "upper 35%" };
-    case "cute_preschool":          return { env: "a rounded pastel bubble with a soft cushion shape", zone: "upper 40%" };
-    case "nature_woodland":         return { env: "a wooden signboard framed by leaves, vines and small berries", zone: "upper 40%" };
-    case "retro_comic":             return { env: "a jagged comic starburst callout with halftone dot backing", zone: "upper 35%" };
-    case "elegant_illustrated_serif": return { env: "a delicate botanical wreath with a smooth ivory bookplate inside", zone: "upper 40%" };
-    case "hand_drawn_playful":      return { env: "a hand-painted paper-tape banner with playful doodled sparkles", zone: "upper 40%" };
-    case "epic_cinematic":          return { env: "a dark metallic scroll panel with volumetric light behind it", zone: "lower 35%" };
-    case "japanese_graphic":        return { env: "a flat graphic rectangle with a sakura petal ornament in one corner", zone: "upper 40%" };
-    default:                        return { env: "a soft cloud panel with sparkles", zone: "upper 40%" };
+function buildIllustratedPrompt(title: string, sceneClause: string): string {
+  return [
+    `Beautiful full-color hand-painted children's coloring-book COVER illustration for "${title}".`,
+    `Square 1:1 composition, warm cheerful storybook style — premium picture-book cover, gouache + watercolor feel, expressive, playful, high production value.`,
+    sceneClause,
+    `Every creature/character MUST be anatomically complete and non-deformed: correct number of legs, one head, one tail, complete limbs, no severed or floating body parts, no fused bodies, no extra heads, no missing features. Canonical proportions.`,
+    `The title "${title}" MUST appear as HAND-LETTERED PAINTED TYPOGRAPHY integrated INTO the artwork itself — drawn by the illustrator as part of the painting (bubble-letter or brushed-script style, playful, colorful, with soft shadow and highlight painted in). NOT a font overlay, NOT flat digital text — it must look painted by hand.`,
+    `Place the title in the upper third of the cover, arced or on a soft painted ribbon that is part of the scene.`,
+    `Do NOT include: any logo, any watermark, any URL, any age badge, any subtitle, any extra text besides the title, any UI element, any book mockup, any border/frame.`,
+    `Spelling of the title MUST be exact.`,
+  ].join(" ");
+}
+
+async function renderIllustratedCover(prompt: string, attempt: number, book_id: string): Promise<{ bytes: Uint8Array; provider: CoverProvider; model: string }> {
+  {
+    const t0 = Date.now();
+    try {
+      const { bytes, meta } = await geminiDirectImageWithMeta({
+        prompt,
+        referenceUrls: [],
+        model: GEMINI_IMAGE_MODEL,
+      });
+      if (bytes && bytes.length > 20_000) {
+        await logProvider(book_id, meta.provider, meta.model, `cover_illustrated_a${attempt}_gemini`, true, null, Date.now() - t0);
+        return { bytes, provider: "gemini", model: meta.model };
+      }
+      await logProvider(book_id, meta.provider, meta.model, `cover_illustrated_a${attempt}_gemini`, false, `empty_bytes:${meta.finishReason ?? meta.blockReason ?? "no_image"}`, Date.now() - t0);
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      await logProvider(book_id, "google_direct", GEMINI_IMAGE_MODEL, `cover_illustrated_a${attempt}_gemini`, false, msg, Date.now() - t0);
+      console.warn(`[coloring-v2-cover] gemini failed: ${msg.slice(0, 300)}`);
+    }
   }
+  {
+    const t0 = Date.now();
+    try {
+      const { bytes } = await openaiDirectImage({
+        prompt,
+        model: OPENAI_IMAGE_MODEL,
+        size: "1024x1024",
+        quality: "high",
+      });
+      if (bytes && bytes.length > 20_000) {
+        await logProvider(book_id, "openai_direct", OPENAI_IMAGE_MODEL, `cover_illustrated_a${attempt}_openai`, true, null, Date.now() - t0);
+        return { bytes, provider: "openai", model: OPENAI_IMAGE_MODEL };
+      }
+      await logProvider(book_id, "openai_direct", OPENAI_IMAGE_MODEL, `cover_illustrated_a${attempt}_openai`, false, "empty_bytes", Date.now() - t0);
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      await logProvider(book_id, "openai_direct", OPENAI_IMAGE_MODEL, `cover_illustrated_a${attempt}_openai`, false, msg, Date.now() - t0);
+      console.warn(`[coloring-v2-cover] openai-image failed: ${msg.slice(0, 300)}`);
+    }
+  }
+  throw new Error("cover_smart_ai_unavailable:gemini_and_openai_both_failed");
 }
 
 function isProviderBillingError(msg: string): boolean {
@@ -135,7 +146,7 @@ async function raiseCoverAlert(book_id: string, title: string, reason: string, d
   const dedupe_key = `cover_${alert_class}_${book_id}`;
   const alertTitle = billing
     ? `Provider billing block active: gemini+openai (cover ${book_id.slice(0, 8)})`
-    : `Cover Builder V2 exceeded ${COVER_HARD_ATTEMPT_CAP} attempts for ${book_id.slice(0, 8)}`;
+    : `Illustrated cover exceeded ${COVER_HARD_ATTEMPT_CAP} attempts for ${book_id.slice(0, 8)}`;
   const body = billing
     ? `Cover for "${title}" cannot generate — both smart-AI providers refused.\n• Book ${book_id.slice(0, 8)} parked at stage=failed after ${dispatchCount} dispatches.\n• Reason: ${reason.slice(0, 300)}`
     : `Cover for "${title}" rejected ${dispatchCount} times.\n• Last reason: ${reason.slice(0, 300)}`;
@@ -162,6 +173,18 @@ async function parkCoverAsFailed(book_id: string, reason: string) {
   } catch (_) { /* best-effort */ }
 }
 
+// Sticky short-circuit: find any existing hand-lettered illustrated cover
+// asset for this book (regardless of what approved_cover_asset_id currently
+// points to). If found, re-approve and advance to QC.
+async function findStickyIllustratedCover(book_id: string) {
+  const { data } = await db().from("coloring_v2_assets")
+    .select("id, meta, kind, created_at")
+    .eq("book_id", book_id).eq("kind", "cover_final")
+    .order("created_at", { ascending: false }).limit(20);
+  const rows = data ?? [];
+  return rows.find((r: any) => r?.meta?.law && STICKY_LAWS.has(String(r.meta.law))) ?? null;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
   const { book_id } = await req.json().catch(() => ({}));
@@ -170,18 +193,16 @@ Deno.serve(async (req: Request) => {
     const book = await fetchBook(book_id);
     if (book.stage !== "cover") return json({ ok: true, skipped: true, stage: book.stage });
 
-    // Hand-lettered / manually-approved cover short-circuit:
-    // if an approved cover_final asset already exists and its meta records
-    // the illustrated-hand-lettered law, skip regeneration and advance to QC
-    // so a repair sweep doesn't overwrite the owner-approved artwork.
-    if (book.approved_cover_asset_id) {
-      const { data: existing } = await db().from("coloring_v2_assets")
-        .select("id, meta, kind").eq("id", book.approved_cover_asset_id).maybeSingle();
-      if (existing && existing.kind === "cover_final" && existing.meta?.law === "cover_illustrated_hand_lettered_once_v1") {
-        await advance(book_id, "cover", "qc");
-        await fireStage("coloring-v2-qc", { book_id });
-        return json({ ok: true, skipped: true, reason: "hand_lettered_cover_preserved", next: "qc" });
+    // Sticky illustrated-cover short-circuit — defense in depth.
+    const sticky = await findStickyIllustratedCover(book_id);
+    if (sticky) {
+      if (book.approved_cover_asset_id !== sticky.id) {
+        await db().from("coloring_v2_books")
+          .update({ approved_cover_asset_id: sticky.id }).eq("id", book_id);
       }
+      await advance(book_id, "cover", "qc");
+      await fireStage("coloring-v2-qc", { book_id });
+      return json({ ok: true, skipped: true, reason: "illustrated_cover_preserved", sticky_asset: sticky.id, next: "qc" });
     }
 
     const priorAttempts = Number(book.stage_attempt_count ?? 0);
@@ -192,115 +213,30 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, parked: true, reason: COVER_LAW, attempts: priorAttempts }, 200);
     }
 
-    const prof = getAgeProfile(book.age_band);
-    const { data: conceptAsset } = await db().from("coloring_v2_assets")
-      .select("meta").eq("book_id", book_id).eq("kind", "concept").order("created_at", { ascending: false }).limit(1).maybeSingle();
-    const concept = conceptAsset?.meta ?? {};
-
-    const rawTitle = book.title ?? concept.title ?? "Untitled";
+    const rawTitle = book.title ?? "Untitled";
     const title = ensureColoringBookInTitle(rawTitle);
     if (title !== rawTitle) {
       await db().from("coloring_v2_books").update({ title }).eq("id", book_id);
     }
-    const ageBadge = normalizeAgeBadge(book.age_band ?? "");
 
-    // Style + layout pick with recency avoidance.
-    const recency = await loadRecencyPicks(db(), 15);
-    const family = pickStyleFamily({
-      title, theme: book.theme, ageBand: book.age_band,
-      recentFamilies: recency.families,
-    });
-    // Prefer a layout the family recommends AND that isn't in the recency window.
-    const layout = family.preferredLayouts.find((l) => !recency.layouts.includes(l))
-      ?? family.preferredLayouts[0];
-    const { env: titleEnvironment, zone: titleZoneDescriptor } = titleEnvironmentFor(family.id);
+    const sceneClause = await buildSceneClause(book_id, title);
+    const prompt = buildIllustratedPrompt(title, sceneClause);
 
-    const { data: interiorAssets } = await db().from("coloring_v2_assets")
-      .select("storage_path, page_number").eq("book_id", book_id).eq("kind", "interior")
-      .order("page_number", { ascending: true }).limit(3);
-    const refs: string[] = [];
-    for (const a of (interiorAssets ?? [])) {
-      try { refs.push(await signedUrl(a.storage_path, 3600)); } catch { /* skip */ }
-    }
-
-    const textlessPrompt = buildTextlessColoringCoverPrompt({
-      title,
-      theme: book.theme,
-      mainCharacters: (concept.hero_subjects ?? []).slice(0, 3),
-      backgroundElements: (concept.motif_inventory ?? []).slice(0, 6),
-      aspectDescriptor: "8.5 x 8.5 inches, square 1:1",
-      hasInteriorReferences: refs.length > 0,
-      styleMode: book.cover_mood === "ya_scifi_cinematic" ? "ya_scifi_cinematic" : "default",
-      layoutFamily: layout,
-      styleFamilyLabel: family.label,
-      titleEnvironment,
-      titleZoneDescriptor,
-    });
-    void prof;
-
-    let flattened: Uint8Array | null = null;
-    let treatmentMeta: any = null;
-    let ocrVerdict: any = null;
-    let sourceVerdict: any = null;
+    let bytes: Uint8Array | null = null;
+    let usedProvider: CoverProvider | null = null;
+    let usedModel = "";
     let lastErr: any = null;
     let smartAiUnavailableCount = 0;
-    let usedProvider: CoverProvider | null = null;
-    let artBytesForAsset: Uint8Array | null = null;
-    let overlayBytesForAsset: Uint8Array | null = null;
 
     for (let attempt = 1; attempt <= BAKE_ATTEMPTS; attempt++) {
       try {
-        const { bytes: artBytes, provider } = await renderTextlessArt({ prompt: textlessPrompt, refs }, attempt, book_id);
-
-        // Compose deterministic typography over the textless art.
-        const composed = await composeColoringCover({
-          artBytes,
-          title,
-          subtitle: "",
-          description: null,
-          palette: [],
-          ageBadge,
-        });
-
-        // Pre-OCR canonical-source verification of the SVG typography.
-        // The compositor's svg is exposed via treatmentMeta on the returned result;
-        // when unavailable, fall back to trusting the compositor (all glyphs are
-        // deterministic from canonical metadata by construction).
-        const svg = (composed as any).svg ?? (composed.treatmentMeta as any)?.svg ?? "";
-        sourceVerdict = svg
-          ? verifyTypographySource(svg, { title, ageBadge, brandName: "SecretPDF Kids" })
-          : { pass: true, reason: null, approved_tokens: [], found_text_nodes: [], unapproved_nodes: [], missing_required: [] };
-        if (!sourceVerdict.pass) {
-          throw new Error(`typography_source_violation:${sourceVerdict.reason}`);
+        const r = await renderIllustratedCover(prompt, attempt, book_id);
+        if (r.bytes && r.bytes.length > 20_000) {
+          bytes = r.bytes;
+          usedProvider = r.provider;
+          usedModel = r.model;
+          break;
         }
-
-        // OWNER LAW `cover_source_of_truth_v11` (2026-07-22, PERMANENT):
-        // The typography layer is rendered deterministically by us from
-        // canonical metadata (ebooks_kids.title). typography-source-verifier
-        // (above) is the HARD spelling gate — every glyph is proven to come
-        // from approved tokens BEFORE raster. OCR on the flattened raster is
-        // best-effort double-check only: Tesseract has high false-negative
-        // rate on decorative/curved fonts, and failing on it blocks perfectly
-        // correct covers and burns credits on retries.
-        // → When source-verifier passes, ACCEPT the cover. OCR is logged as
-        //   warn-only for audit; it never blocks and never triggers retry.
-        try {
-          const verdict = await verifyExactCoverText(composed.finalBytes, { title, subtitle: "", ageBadge });
-          ocrVerdict = verdict;
-          if (!verdict.pass) {
-            console.warn(`[coloring-v2-cover] attempt ${attempt} OCR warn (soft-accept, source-verified): ${verdict.reason}`);
-          }
-        } catch (ocrErr) {
-          console.warn(`[coloring-v2-cover] attempt ${attempt} OCR skipped:`, String((ocrErr as any)?.message ?? ocrErr));
-          ocrVerdict = { pass: false, reason: `ocr_skipped:${String((ocrErr as any)?.message ?? ocrErr)}` };
-        }
-
-        flattened = composed.finalBytes;
-        treatmentMeta = composed.treatmentMeta;
-        artBytesForAsset = composed.artOnlyBytes;
-        overlayBytesForAsset = composed.overlayBytes;
-        usedProvider = provider;
-        break;
       } catch (e: any) {
         lastErr = e;
         const em = String(e?.message ?? e);
@@ -309,57 +245,31 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    if (!flattened && smartAiUnavailableCount >= BAKE_ATTEMPTS) {
+    if (!bytes && smartAiUnavailableCount >= BAKE_ATTEMPTS) {
       const reason = String(lastErr?.message ?? "cover_smart_ai_unavailable");
       await parkCoverAsFailed(book_id, reason);
       await raiseCoverAlert(book_id, title, reason, priorAttempts + 1);
       return json({ ok: false, parked: true, reason: "smart_ai_billing_locked", provider_error: reason }, 200);
     }
 
-    if (!flattened) {
-      const reason = ocrVerdict?.reason ?? sourceVerdict?.reason ?? lastErr?.message ?? "unknown";
+    if (!bytes) {
+      const reason = String(lastErr?.message ?? "unknown");
       const nextAttempt = priorAttempts + 1;
       if (nextAttempt >= COVER_HARD_ATTEMPT_CAP) {
         await parkCoverAsFailed(book_id, reason);
         await raiseCoverAlert(book_id, title, reason, nextAttempt);
       }
-      throw new Error(`cover_v2_hard_reject_after_${BAKE_ATTEMPTS}_attempts:${reason}`);
+      throw new Error(`cover_illustrated_hard_reject_after_${BAKE_ATTEMPTS}_attempts:${reason}`);
     }
 
-    // Persist the three-layer artifacts so QC + admin can inspect them.
-    if (artBytesForAsset) {
-      await uploadAsset(book_id, "cover_illustration_layer", artBytesForAsset, "png", {
-        law: COVER_LAW, layer: "illustration",
-        style_family_id: family.id, layout_family_id: layout,
-        cover_family: { style_family_id: family.id, layout_family_id: layout, style_family_label: family.label },
-      });
-    }
-    if (overlayBytesForAsset) {
-      await uploadAsset(book_id, "cover_typography_layer", overlayBytesForAsset, "png", {
-        law: COVER_LAW, layer: "typography",
-        source_verified: sourceVerdict?.pass === true,
-        approved_tokens: sourceVerdict?.approved_tokens ?? [],
-        rendered_text_nodes: sourceVerdict?.found_text_nodes ?? [],
-      });
-    }
-
-    const asset = await uploadAsset(book_id, "cover_final", flattened, "jpg", {
-      prompt_len: textlessPrompt.length, refs: refs.length,
-      ocr_verdict: ocrVerdict?.reason ?? "n/a",
-      ocr_pass: ocrVerdict?.pass === true,
-      typography_source: "deterministic_exact_title_render",
-      typography_source_verified: sourceVerdict?.pass === true,
-      typography_source_reason: sourceVerdict?.reason ?? null,
-      cover_family: { style_family_id: family.id, layout_family_id: layout, style_family_label: family.label },
-      style_family_id: family.id,
-      layout_family_id: layout,
-      compositor: COLORING_COVER_COMPOSITOR_VERSION,
-      canvas: { width: COLORING_COVER_WIDTH, height: COLORING_COVER_HEIGHT },
-      text_mode: "textless_art_plus_deterministic_typography",
-      prompt_version: COLORING_TEXTLESS_COVER_PROMPT_VERSION,
-      provider: usedProvider,
-      treatment: treatmentMeta,
+    // Upload as PNG (both providers return PNG bytes).
+    const asset = await uploadAsset(book_id, "cover_final", bytes, "png", {
       law: COVER_LAW,
+      text_mode: "illustrated_hand_lettered_baked",
+      typography_source: "illustrated_hand_lettered_baked",
+      provider: usedProvider,
+      model: usedModel,
+      prompt_len: prompt.length,
     });
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
@@ -367,10 +277,8 @@ Deno.serve(async (req: Request) => {
     await fireStage("coloring-v2-qc", { book_id });
     return json({
       ok: true, cover_asset: asset.id, next: "qc",
-      text_mode: "textless_art_plus_deterministic_typography",
-      style_family: family.id, layout: layout,
-      source_verified: sourceVerdict?.pass === true,
-      ocr: ocrVerdict?.reason ?? "pass",
+      text_mode: "illustrated_hand_lettered_baked",
+      provider: usedProvider, model: usedModel, law: COVER_LAW,
     });
   } catch (e: any) {
     await recordError(book_id, "cover", e);
