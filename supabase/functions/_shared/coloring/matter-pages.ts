@@ -375,8 +375,8 @@ export function drawColoringCopyrightPage(
     }
   }
 
-  // Legal box at bottom half
-  const boxX = 70, boxY = 70, boxW = pageW - 140, boxH = pageH * 0.36;
+  // Legal box — bottom edge sits above the reserved footer band.
+  const boxX = 70, boxY = MATTER_LAYOUT.contentMinY + 12, boxW = pageW - 140, boxH = pageH * 0.36;
   page.drawRectangle({
     x: boxX, y: boxY, width: boxW, height: boxH,
     color: rgb(1, 1, 1), opacity: 0.92,
