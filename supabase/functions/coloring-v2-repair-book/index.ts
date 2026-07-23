@@ -34,8 +34,22 @@ async function fetchBytes(path: string): Promise<{ bytes: Uint8Array; mime: stri
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
-  const { book_id, dry_run, preserve_cover } = await req.json().catch(() => ({}));
+  const { book_id, dry_run, preserve_cover, clear_prior_verdicts } = await req.json().catch(() => ({}));
   if (!book_id) return json({ error: "book_id required" }, 400);
+
+  const c0 = db();
+  if (clear_prior_verdicts) {
+    // Wipe stale repair_verdict entries so the sweep re-checks every page
+    // against the current anatomy-gate rules (e.g. canonical_parts_v2).
+    const { data: rows } = await c0.from("coloring_v2_assets")
+      .select("id, meta").eq("book_id", book_id).eq("kind", "interior");
+    for (const r of rows ?? []) {
+      if (r.meta?.repair_verdict) {
+        const nm = { ...r.meta }; delete nm.repair_verdict;
+        await c0.from("coloring_v2_assets").update({ meta: nm }).eq("id", r.id);
+      }
+    }
+  }
 
   const book = await fetchBook(book_id);
   const c = db();
