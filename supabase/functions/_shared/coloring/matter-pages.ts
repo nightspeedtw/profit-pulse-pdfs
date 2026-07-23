@@ -129,21 +129,38 @@ export function drawDecorativeBorder(
  * Embed up to 2 grayscale-tinted interior vignettes in opposite corners.
  * Reuses page bytes the caller already has — zero new AI cost.
  * `vignettes` = pre-embedded pdf-lib images (caller does the embed once).
+ *
+ * When `avoidBottom` is true (default for matter pages that carry the
+ * brand footer), the two vignette slots move to top-left + top-right so
+ * the corner art never lands behind the © line or the logo.
  */
 export function drawCornerVignettes(
   page: any,
-  opts: { pageW: number; pageH: number; style: MatterStyle; vignettes: any[]; opacity?: number },
+  opts: {
+    pageW: number;
+    pageH: number;
+    style: MatterStyle;
+    vignettes: any[];
+    opacity?: number;
+    avoidBottom?: boolean;
+  },
 ) {
   const { pageW, pageH, style, vignettes } = opts;
   const opacity = opts.opacity ?? 0.14;
+  const avoidBottom = opts.avoidBottom !== false; // default ON
   if (!vignettes || vignettes.length === 0) return;
   const size = pageW * style.cornerVignetteFrac;
   const margin = 44;
 
-  const positions: Array<{ x: number; y: number }> = [
-    { x: margin, y: pageH - margin - size },              // top-left
-    { x: pageW - margin - size, y: margin },              // bottom-right
-  ];
+  const positions: Array<{ x: number; y: number }> = avoidBottom
+    ? [
+        { x: margin, y: pageH - margin - size },                // top-left
+        { x: pageW - margin - size, y: pageH - margin - size }, // top-right
+      ]
+    : [
+        { x: margin, y: pageH - margin - size },                // top-left
+        { x: pageW - margin - size, y: margin },                // bottom-right
+      ];
   for (let i = 0; i < Math.min(2, vignettes.length); i++) {
     const img = vignettes[i];
     if (!img) continue;
@@ -160,42 +177,57 @@ export function drawCornerVignettes(
 }
 
 /**
- * OWNER LAW `matter_pages_brand_footer_v1` (2026-07-21):
- * Every matter page in the V2 assembler (Title / Copyright / How-to /
- * Certificate) must carry the SecretPDF branding footer: © line on the
- * bottom-left and the logo on the bottom-right. Applied uniformly to
- * avoid the recurring "logo missing on Terms page" defect.
+ * OWNER LAW `matter_pages_brand_footer_v1` (2026-07-21) +
+ * `matter_pages_no_overlap_v1` (2026-07-23):
+ * Every matter page carries the © line on the bottom-left and the
+ * SecretPDF logo on the bottom-right. Both live INSIDE the inner border
+ * rule with an enforced horizontal gap so they never overlap each other,
+ * the border ring, the corner confetti, or the corner vignettes.
  */
 export function drawBrandFooter(
   ctx: { page: any; pageW: number; pageH: number; style: MatterStyle; font: any; logo?: any },
-  opts: { copyrightLine?: string } = {},
+  opts: { copyrightLine?: string; borderInset?: number } = {},
 ) {
   const { page, pageW, style, font, logo } = ctx;
   const P = style.palette;
-  const marginX = 30;
-  const marginY = 22;
+  const borderInset = opts.borderInset ?? 28;
+  const innerRuleY = borderInset + 8;
+  const baselineY = innerRuleY + MATTER_LAYOUT.footerBaselinePad; // inside the inner rule
+  const marginX = borderInset + 14; // clear of the border ring
   const copyLine = opts.copyrightLine ?? `© ${new Date().getUTCFullYear()} SecretPDF Kids`;
 
-  // © line, bottom-left
+  // Logo geometry first — © text wraps around it with a mandatory gap.
+  let logoW = 0;
+  let logoH = 0;
+  let logoX = 0;
+  let logoY = baselineY;
+  if (logo) {
+    const maxLogoH = MATTER_LAYOUT.logoMaxH;
+    const maxLogoW = pageW * MATTER_LAYOUT.logoMaxWFrac;
+    const scale = Math.min(maxLogoW / logo.width, maxLogoH / logo.height);
+    logoW = logo.width * scale;
+    logoH = logo.height * scale;
+    logoX = pageW - marginX - logoW;
+    logoY = baselineY;
+  }
+
+  // © line, bottom-left — width capped so it can never reach the logo.
+  const copyRightEdge = logo
+    ? (logoX - MATTER_LAYOUT.copyLogoGap)
+    : (pageW - marginX);
+  const copyMaxW = Math.max(80, copyRightEdge - marginX);
   drawFitText(page, {
     text: copyLine,
-    x: marginX, y: marginY,
-    maxWidth: pageW * 0.55,
+    x: marginX, y: baselineY,
+    maxWidth: copyMaxW,
     font, size: Math.max(7, style.tinyPt - 1), minSize: 6,
     color: c(P.ink), align: "left",
   });
 
-  // Logo, bottom-right
   if (logo) {
-    const maxLogoH = 22;
-    const maxLogoW = pageW * 0.28;
-    const scale = Math.min(maxLogoW / logo.width, maxLogoH / logo.height);
-    const lw = logo.width * scale;
-    const lh = logo.height * scale;
     page.drawImage(logo, {
-      x: pageW - marginX - lw,
-      y: marginY - 4,
-      width: lw, height: lh,
+      x: logoX, y: logoY,
+      width: logoW, height: logoH,
       opacity: 0.9,
     });
   }
