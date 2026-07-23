@@ -54,13 +54,15 @@ Deno.serve(async (req: Request) => {
     let bytes: Uint8Array | null = null;
     let model = "";
     let provider = "";
-    // Prefer Gemini (OpenAI billing hard-limit hit); fall back to OpenAI.
+
+    // Try Gemini direct first.
     try {
       const g = await geminiDirectImageWithMeta({
         prompt,
         referenceUrls: [],
         model: "google/gemini-2.5-flash-image",
       });
+      console.log(`[gemini] bytes=${g.bytes?.length ?? 0} finish=${g.meta.finishReason} block=${g.meta.blockReason}`);
       if (g.bytes && g.bytes.length > 20_000) {
         bytes = g.bytes;
         model = g.meta.model;
@@ -69,6 +71,40 @@ Deno.serve(async (req: Request) => {
     } catch (e) {
       console.warn("gemini image failed:", String((e as any)?.message ?? e));
     }
+
+    // Fall back to Lovable AI Gateway with openai/gpt-image-2.
+    if (!bytes) {
+      try {
+        const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY");
+        if (!LOVABLE_KEY) throw new Error("LOVABLE_API_KEY missing");
+        const r = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
+          body: JSON.stringify({
+            model: "openai/gpt-image-2",
+            prompt,
+            size: "1024x1024",
+            quality: "high",
+            n: 1,
+          }),
+        });
+        if (!r.ok) throw new Error(`lovable gateway ${r.status}: ${(await r.text()).slice(0, 300)}`);
+        const j = await r.json() as { data?: Array<{ b64_json?: string }> };
+        const b64 = j.data?.[0]?.b64_json;
+        if (b64) {
+          const bin = atob(b64);
+          const buf = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+          bytes = buf;
+          model = "openai/gpt-image-2";
+          provider = "lovable_gateway";
+        }
+      } catch (e) {
+        console.warn("gateway image failed:", String((e as any)?.message ?? e));
+      }
+    }
+
+    // Final fallback: OpenAI direct (may hit billing limit).
     if (!bytes) {
       const o = await openaiDirectImage({
         prompt,
@@ -81,6 +117,7 @@ Deno.serve(async (req: Request) => {
       model = o.model;
       provider = "openai_direct";
     }
+
     if (!bytes || bytes.length < 20_000) {
       return json({ error: "empty_or_tiny_image", size: bytes?.length ?? 0 }, 500);
     }
