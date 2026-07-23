@@ -34,7 +34,7 @@ async function fetchBytes(path: string): Promise<{ bytes: Uint8Array; mime: stri
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
-  const { book_id, dry_run } = await req.json().catch(() => ({}));
+  const { book_id, dry_run, preserve_cover } = await req.json().catch(() => ({}));
   if (!book_id) return json({ error: "book_id required" }, 400);
 
   const book = await fetchBook(book_id);
@@ -137,12 +137,18 @@ Deno.serve(async (req: Request) => {
   }
 
   // Cover assets — drop so cover regenerates fresh with the latest prompt.
-  const { data: coverAssets } = await c.from("coloring_v2_assets")
-    .select("id, storage_path")
-    .eq("book_id", book_id)
-    .in("kind", ["cover_final", "cover_illustration_layer", "cover_typography_layer"]);
-  const coverIds = (coverAssets ?? []).map((a) => a.id);
-  const coverPaths = (coverAssets ?? []).map((a) => a.storage_path);
+  // preserve_cover=true skips this so a hand-lettered / manually-approved
+  // cover survives the interior repair sweep.
+  let coverIds: string[] = [];
+  let coverPaths: string[] = [];
+  if (!preserve_cover) {
+    const { data: coverAssets } = await c.from("coloring_v2_assets")
+      .select("id, storage_path")
+      .eq("book_id", book_id)
+      .in("kind", ["cover_final", "cover_illustration_layer", "cover_typography_layer"]);
+    coverIds = (coverAssets ?? []).map((a) => a.id);
+    coverPaths = (coverAssets ?? []).map((a) => a.storage_path);
+  }
 
   const allDelIds = [...dupIds, ...failIds, ...coverIds];
   const allDelPaths = [...dupPaths, ...failPaths, ...coverPaths];
@@ -153,14 +159,15 @@ Deno.serve(async (req: Request) => {
     await c.from("coloring_v2_assets").delete().in("id", allDelIds);
   }
 
-  await c.from("coloring_v2_books").update({
-    approved_cover_asset_id: null,
+  const bookUpdate: Record<string, unknown> = {
     stage: "interior_render",
     stage_updated_at: new Date().toISOString(),
     stage_attempt_count: 0,
     last_error: null,
     generation_status: "running",
-  }).eq("id", book_id);
+  };
+  if (!preserve_cover) bookUpdate.approved_cover_asset_id = null;
+  await c.from("coloring_v2_books").update(bookUpdate).eq("id", book_id);
 
   const passedSet = new Set(passedPages);
   const missing: number[] = [];
