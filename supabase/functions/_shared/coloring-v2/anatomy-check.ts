@@ -37,7 +37,49 @@ const OPENAI_MODEL_LADDER = ["gpt-4o-mini", "gpt-4o"];
 const GEMINI_MODEL_LADDER = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
 const LOVABLE_MODEL_LADDER = ["google/gemini-2.5-flash", "google/gemini-2.5-flash-lite"];
 
-export const V2_ANATOMY_GATE_VERSION = "v1:coloring_v2_anatomy_gate";
+export const V2_ANATOMY_GATE_VERSION = "v2:coloring_v2_anatomy_gate_canonical_parts";
+
+// Canonical-parts contract (2026-07-23 anatomy_canonical_parts_v2).
+// Owner directive: Starlight Unicorns shipped with missing legs and broken
+// horns because the auditor had no explicit part inventory. We now bind
+// subject → canonical part counts and pass them to the vision judge as a
+// hard checklist. Wrong counts fail the gate.
+type CanonicalParts = {
+  head: number; eyes: number; legs?: number; arms?: number;
+  horn?: number; tail?: number; wings?: number; fins?: number; tail_fin?: number;
+};
+const CANONICAL_PARTS: Array<{ match: RegExp; label: string; parts: CanonicalParts }> = [
+  { match: /unicorn/i, label: "unicorn", parts: { head: 1, eyes: 2, legs: 4, horn: 1, tail: 1 } },
+  { match: /pegasus/i, label: "pegasus", parts: { head: 1, eyes: 2, legs: 4, wings: 2, tail: 1 } },
+  { match: /dragon/i, label: "dragon", parts: { head: 1, eyes: 2, legs: 4, wings: 2, tail: 1 } },
+  { match: /mermaid/i, label: "mermaid", parts: { head: 1, eyes: 2, arms: 2, tail_fin: 1 } },
+  { match: /fairy|angel/i, label: "fairy", parts: { head: 1, eyes: 2, arms: 2, legs: 2, wings: 2 } },
+  { match: /butterfly|moth/i, label: "butterfly", parts: { head: 1, wings: 4, legs: 6 } },
+  { match: /octopus/i, label: "octopus", parts: { head: 1, eyes: 2, legs: 8 } },
+  { match: /spider/i, label: "spider", parts: { head: 1, legs: 8 } },
+  { match: /crab/i, label: "crab", parts: { head: 1, eyes: 2, legs: 8 } },
+  { match: /bird|owl|penguin|chick|duck/i, label: "bird", parts: { head: 1, eyes: 2, wings: 2, legs: 2, tail: 1 } },
+  { match: /fish|shark|whale|dolphin/i, label: "fish", parts: { head: 1, eyes: 2, fins: 4, tail_fin: 1 } },
+  { match: /turtle|tortoise/i, label: "turtle", parts: { head: 1, eyes: 2, legs: 4, tail: 1 } },
+  { match: /dino|dinosaur|t-?rex|triceratops/i, label: "dinosaur", parts: { head: 1, eyes: 2, legs: 4, tail: 1 } },
+  { match: /horse|pony/i, label: "horse", parts: { head: 1, eyes: 2, legs: 4, tail: 1 } },
+  { match: /cat|dog|puppy|kitten|fox|bear|panda|rabbit|bunny|deer|lion|tiger|elephant|cow|pig|sheep|goat|monkey/i, label: "quadruped", parts: { head: 1, eyes: 2, legs: 4, tail: 1 } },
+  { match: /human|child|kid|girl|boy|person/i, label: "human", parts: { head: 1, eyes: 2, arms: 2, legs: 2 } },
+];
+
+function canonicalPartsFor(subject: string): { label: string; parts: CanonicalParts } | null {
+  const s = String(subject ?? "");
+  for (const c of CANONICAL_PARTS) if (c.match.test(s)) return { label: c.label, parts: c.parts };
+  return null;
+}
+
+function formatPartsChecklist(parts: CanonicalParts): string {
+  return Object.entries(parts)
+    .filter(([, v]) => typeof v === "number" && v > 0)
+    .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
+    .join(", ");
+}
+
 
 export interface V2AnatomyVerdict {
   pass: boolean;
