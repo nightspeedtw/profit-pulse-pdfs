@@ -405,7 +405,7 @@ export function drawColoringCopyrightPage(
     color: c(P.ink),
     lineHeightFactor: 1.45,
   });
-  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo }, { borderInset: 28 });
 }
 
 
