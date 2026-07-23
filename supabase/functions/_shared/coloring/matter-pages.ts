@@ -503,8 +503,8 @@ export function drawColoringCertificatePage(
   const { page, pageW, pageH, style, font, fontBold, vignettes } = ctx;
   const P = style.palette;
 
-  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: 28, heavy: true });
-  drawCornerVignettes(page, { pageW, pageH, style, vignettes: vignettes ?? [], opacity: 0.10 });
+  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: 28, heavy: true, reserveFooter: true });
+  drawCornerVignettes(page, { pageW, pageH, style, vignettes: vignettes ?? [], opacity: 0.10, avoidBottom: true });
 
   // Ribbon-style header
   const ribbonY = pageH * 0.78;
