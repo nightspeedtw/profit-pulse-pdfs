@@ -59,7 +59,7 @@ export async function geminiDirectImageWithMeta(opts: {
     if (LOVABLE_KEY) return gatewayImageWithMeta(opts, "GEMINI_API_KEY not set");
     throw new Error("GEMINI_API_KEY not set");
   }
-  const model = normalize(opts.model ?? "google/gemini-2.5-flash-image");
+  const model = normalize(opts.model ?? "google/gemini-3.1-flash-image");
   const parts: Array<Record<string, unknown>> = [{ text: opts.prompt }];
   for (const u of opts.referenceUrls) {
     const { data, mime } = await fetchImageAsB64(u);
