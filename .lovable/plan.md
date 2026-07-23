@@ -1,60 +1,73 @@
-# แผนถาวร: หยุดสัตว์พิการในหนังสือระบายสี V2
 
-## รากของปัญหา (ยืนยันจากโค้ด)
+## Target book
+`Starlight Unicorns Coloring Book`
+- `ebooks_kids.id` = `10bcda01-319a-40e7-bf12-55df05370770` (live, sellable, qc=92)
+- `coloring_v2_books.id` = `0c1bfd74-0a00-4ab0-be16-794706c5420c`
+- Current cover asset meta: `ocr_pass:false`, `ocr_soft_accept:soft_accept_cf_fallback_runware_billing_locked` — cover was accepted under a soft‑accept branch during a provider outage, which is why the title spelling / composition slipped through.
+- Interior assets carry no `repair_verdict` yet — the anatomy sweep has never run on this book.
 
-หน้าปกใน "Bubbly Ocean Buddies" มีเต่าหัว 2 หัว / ครีบซ้อน เพราะ **pipeline V2 ไม่เรียก anatomy verifier เลย**:
+The user reports: cover spelling wrong, unicorn proportions wrong, missing/severed limbs, deformity. Both cover AND interior must be repaired, and the fix must be permanent (defect class, not one row).
 
-- `supabase/functions/coloring-v2-render-page/index.ts` → ยิง Ideogram แล้ว upload ทันที ไม่มีการตรวจกายวิภาค
-- `supabase/functions/coloring-v2-qc/index.ts` → เช็คแค่ 3 อย่าง: หน้าครบไหม, มีปก, มี title เท่านั้น pass = 92 คงที่
-- โมดูล `_shared/coloring/anatomy-verify.ts` (v6 `deformity_hard_gate`) มีอยู่แล้ว ครบเครื่อง (deformity + recognizability + text-contamination) แต่ **V2 lane ไม่เคยเรียก** — ใช้อยู่แค่ใน V1 legacy
+## Part A — Repair this specific book (one-book-at-a-time law)
 
-นี่คือ defect class ระดับ pipeline ไม่ใช่ bug รายเล่ม — แก้ที่ต้นทางครั้งเดียว จบทุกเล่มในอนาคต
+1. Demote the book off the storefront while repair runs
+   - `ebooks_kids`: `listing_status='draft'`, `sellable=false`, `blocker_reason='repair_starlight_unicorns_anatomy_cover'`.
+   - `coloring_v2_books`: `publish_status='draft'`, `qc_status='pending'`, `stage='interior_render'`, `stage_attempt_count=0`.
 
-## การแก้ (Defect-class fix, ไม่แตะเล่มเก่า)
+2. Interior sweep (permanent, resumable)
+   - Drop stale `repair_verdict` on any interior asset for this book (schema already supports it in `meta.repair_verdict`).
+   - Call `coloring-v2-repair-book` in the existing bounded-batch loop (BATCH_SIZE=6) with `preserve_cover:false` — this book's cover is bad, we want it regenerated too. The function will:
+     - dedupe interior duplicates,
+     - run `checkPageAnatomy` (OpenAI → Gemini → Lovable ladder),
+     - drop failed pages + all cover assets,
+     - reset stage to `interior_render` and fire `coloring-v2-render-page` at the first missing page.
+   - The V2 render worker already carries the negative-prompt clause from `defectsToNegativeClause` so re-rendered pages get "no fused limbs / severed limbs / wrong count of legs / missing limbs / extra head".
 
-### 1. Anatomy gate ที่ตอน render (ต้นน้ำ)
-แก้ `coloring-v2-render-page/index.ts`:
-- หลังได้ bytes จาก Ideogram แต่**ก่อน** `uploadAsset` → เรียก `verifyAnatomyBatch([{page, subject, bytes, mime, category_key, scene}])`
-- `subject` + `category_key` + `scene` ดึงจาก `coloring_v2_page_plans` (มีอยู่แล้วใน plan.prompt แต่ต้อง persist เป็น columns — ดูข้อ 4)
-- ถ้า `verdict.pass === false` และ `!degraded` → ทิ้ง bytes, retry ด้วย negative prompt ที่ inject defect classes (`extra_head`, `fused_limbs`, `two_heads`, etc.) เข้า `INTERIOR_NEGATIVE_PROMPT`
-- `MAX_ATTEMPTS` เดิม = 3 → คงไว้ แต่ทุก attempt ต้องผ่าน verifier ก่อนถึงจะ upload
-- ถ้า 3 attempts ยังไม่ผ่าน → บันทึก `coloring_v2_qc_findings` (rule_id=`anatomy_deformity_persistent`) และ park book ที่ `stage=needs_admin` + `blocker_reason=anatomy_unrecoverable_page_N` (แจ้งใน HealthIncidentBanner แล้วหยุดเผาเครดิต)
-- ถ้า `verdict.degraded === true` (verifier ล่ม) → upload ตามปกติแต่ mark asset `metadata.anatomy_unmeasured=true` เพื่อให้ QC gate จับต่อ
+3. Cover regen — illustrated hand‑lettered path (drawn cover, not overlay)
+   - Owner law from earlier: unicorn cover must be *drawn*, not font‑stamped.
+   - After interiors pass, invoke `coloring-v2-illustrated-cover-once` (already exists, produces the `cover_illustrated_hand_lettered_once_v1` asset that the V2 cover stage short-circuits on).
+   - This runs on the smart‑AI‑only ladder (Gemini / GPT‑Image) per the `cover_smart_ai_only_v9` + `cover_3_strike_stop_v10` doctrine — no Cloudflare / Runware for covers.
 
-### 2. Anatomy gate ที่ตอน QC (ปลายน้ำ safety net)
-แก้ `coloring-v2-qc/index.ts`:
-- ก่อน advance ไป `pdf` → ดึงทุก interior asset, batch-verify (batch 6 ภาพต่อ call เพื่อประหยัด token)
-- Hard fail ถ้ามีหน้าใดๆ ที่ `pass=false && !degraded` → rewind ไป `interior_render` เฉพาะหน้านั้น (ลบ asset เดิม, re-queue) — ใช้ pattern เดิมที่ `qc-v2` มีอยู่แล้ว
-- Hard fail ถ้า `unmeasured_pages.length > 0` → verifier ต้องกลับมาก่อนถึงจะปล่อยผ่าน (ไม่ให้ค่า default 92)
-- คะแนน overall = `min(page anatomy_score)` แทน hardcoded 92
+4. Finish + republish
+   - Fire `coloring-v2-pdf` → `coloring-v2-qc` → `coloring-v2-publish` via the existing tick.
+   - Only re‑flip `listing_status='live'` when: (a) OCR/typography verifier passes on the new cover, (b) every interior has `repair_verdict.pass=true` and `degraded=false`, (c) QC ≥ 90.
 
-### 3. Negative prompt ที่ target deformity ตรงๆ
-แก้ `_shared/coloring-v2/prompts.ts` `INTERIOR_NEGATIVE_PROMPT`:
-- เพิ่ม: `two heads, extra head, duplicated head, fused faces, extra limbs, missing limbs, floating limbs, disembodied parts, wrong number of legs, wrong number of fins, mangled anatomy, deformed body, frankenstein composition`
-- เมื่อ retry จาก verdict → concat defect classes ที่ verifier ระบุ (dynamic negative)
+## Part B — Permanent fixes (defect class)
 
-### 4. Persist subject/category บน page_plan
-เพิ่มคอลัมน์ (migration): `coloring_v2_page_plans.subject text, category_key text, scene text`
-- Backfill จาก `book.category_key` + parse จาก `prompt` (regex "a [subject]" หรือ store ตอน `coloring-v2-page-plan` สร้าง plan)
-- แก้ `coloring-v2-page-plan/index.ts` ให้ persist 3 field นี้พร้อม prompt
+These change the *system*, not just this book, so future unicorn / horned / winged animals cannot ship with the same defect.
 
-### 5. Regression test (ปิดฝา defect class)
-- `src/__tests__/coloring-v2-render-anatomy-gate.test.ts`: mock render → คืนภาพ "2 heads" → verify ว่า render loop ไม่ upload, retry, และ park ที่ attempt 3
-- `src/__tests__/coloring-v2-qc-anatomy-safety-net.test.ts`: seed asset ที่ verdict fail → verify QC rewinds ไม่ advance
-- `src/__tests__/coloring-v2-page-plan-persists-subject.test.ts`: verify plan row มี subject/category_key/scene
+1. `_shared/coloring-v2/anatomy-check.ts` — subject-aware canonical-parts contract
+   - Extend the auditor with a small per‑subject part inventory (unicorn: 4 legs, 1 horn, 1 tail, 2 eyes, 1 head; pegasus: +2 wings; mermaid: 1 tail-fin, 2 arms; dragon: 4 legs+2 wings+1 tail; etc.).
+   - Feed it in the user prompt as `Canonical parts: {…}`. The auditor already fails on wrong-count / missing / extra parts; giving it the count table upgrades detection from "vibes" to a checklist.
+   - Add `wing_count`, `horn_count`, `tail_count` to the defect map + `defectsToNegativeClause`, so renderer negative prompts get "no extra horn, no missing tail, no missing wing, no bent horn" for unicorn class.
+   - Bump gate version to `v2:coloring_v2_anatomy_gate` and record it in `pipeline_skills`.
 
-### 6. เล่มเก่า (36 เล่ม legacy + Bubbly Ocean Buddies)
-- **ไม่แตะ** legacy 36 เล่มตามคำสั่งเจ้าของก่อนหน้า
-- Bubbly Ocean Buddies: หลัง gate ทำงาน จะ re-verify ตอน sweep ปกติ — ถ้าเจ้าของสั่งให้ regen หน้าที่พิการ ค่อยรันเป็น task แยก
+2. Kill the cover soft‑accept branch for spelling
+   - In `coloring-v2-cover/index.ts`, the current path allowed `ocr_soft_accept:soft_accept_cf_fallback_*` to mark the cover final when OCR mismatched during a provider outage.
+   - New rule: if OCR/typography verifier fails, do NOT persist as `cover_final`. Instead persist as `cover_candidate`, keep `approved_cover_asset_id=null`, and route to `coloring-v2-illustrated-cover-once`. Emit `cover_no_soft_accept_v12` skill.
+   - Legacy books already live keep their assets; this only stops future books from being force‑accepted.
 
-## Definition of Done
-1. 3 fresh books ผ่านโดยไม่มี `anatomy_deformity_persistent` finding
-2. Regression tests ทั้ง 3 pass
-3. ไม่มีการลด threshold, ไม่มี bypass, ไม่มีการ manually แก้ QC score
-4. เครดิตต่อเล่มจำกัด: ≤ 3 retries × page_count (คุมโดย MAX_ATTEMPTS + park mechanism)
+3. Republish guard
+   - Extend `ebooks_kids_coloring_spelling_guard` (already demotes on missing OCR evidence) to also demote when `metadata.coloring_cover.evidence.transcription.ocr_soft_accept` contains `runware_billing_locked` or `cf_fallback` — a legacy flag from the soft‑accept era. Prevents any republish of a book that only ever passed under soft‑accept.
 
-## เทคนิคที่จะแตะ
-- Files: `coloring-v2-render-page/index.ts`, `coloring-v2-qc/index.ts`, `coloring-v2-page-plan/index.ts`, `_shared/coloring-v2/prompts.ts`
-- Migration: `coloring_v2_page_plans` add columns
-- Tests: 3 ไฟล์ใหม่ใน `src/__tests__/`
-- ไม่แตะ: legacy V1 code, cover pipeline (ปัญหานี้คือ interior)
+4. Regression fixtures
+   - Add `.lovable/regressions/unicorn-anatomy-and-cover.md` documenting: (a) the Starlight Unicorns failure, (b) canonical-parts contract, (c) soft-accept removal, (d) three-book fresh-run expectation.
+   - Register `pipeline_skills` rows: `anatomy_canonical_parts_v2`, `cover_no_soft_accept_v12`.
+
+## Technical section
+
+- Files created/changed:
+  - `supabase/functions/_shared/coloring-v2/anatomy-check.ts` — add canonical-parts prompt block + expanded defect map; version bump.
+  - `supabase/functions/coloring-v2-cover/index.ts` — remove soft-accept `cover_final` write; persist as `cover_candidate`; hand off to illustrated-cover-once.
+  - `supabase/functions/coloring-v2-repair-book/index.ts` — accept `clear_prior_verdicts:true` to wipe `meta.repair_verdict` on demand (needed to force re-check of this book's interiors under v2 rules).
+  - Migration (data-only, no schema): update `ebooks_kids` + `coloring_v2_books` for the target book; insert two `pipeline_skills` rows.
+  - `.lovable/regressions/unicorn-anatomy-and-cover.md`.
+- No new tables, no RLS changes.
+- No lowered thresholds. Anatomy gate stays at `score ≥ 90 && defects=[] && recognizable=true`.
+- One book at a time: nothing else re-enters the queue during this run.
+
+## Exit criteria
+- Every interior page of Starlight Unicorns has `meta.repair_verdict.pass=true`, `degraded=false`, `score ≥ 90`.
+- New cover asset carries `cover_illustrated_hand_lettered_once_v1` + OCR/typography verifier pass=true (no soft-accept).
+- QC ≥ 90, PDF regenerated, `listing_status='live'`, `sellable=true`.
+- Next two fresh unicorn/horned-animal books hit `final_pdf_ready` without a soft-accept flag.
