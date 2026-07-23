@@ -174,43 +174,27 @@ export function drawBrandFooter(
   const { page, pageW, style, font, logo } = ctx;
   const P = style.palette;
   const borderInset = opts.borderInset ?? 28;
-  const innerRuleY = borderInset + 8;
-  const baselineY = innerRuleY + MATTER_LAYOUT.footerBaselinePad; // inside the inner rule
-  const marginX = borderInset + 14; // clear of the border ring
   const copyLine = opts.copyrightLine ?? `© ${new Date().getUTCFullYear()} SecretPDF Kids`;
 
-  // Logo geometry first — © text wraps around it with a mandatory gap.
-  let logoW = 0;
-  let logoH = 0;
-  let logoX = 0;
-  let logoY = baselineY;
-  if (logo) {
-    const maxLogoH = MATTER_LAYOUT.logoMaxH;
-    const maxLogoW = pageW * MATTER_LAYOUT.logoMaxWFrac;
-    const scale = Math.min(maxLogoW / logo.width, maxLogoH / logo.height);
-    logoW = logo.width * scale;
-    logoH = logo.height * scale;
-    logoX = pageW - marginX - logoW;
-    logoY = baselineY;
-  }
+  const layout = computeFooterLayout(
+    pageW,
+    borderInset,
+    logo ? { w: logo.width, h: logo.height } : undefined,
+  );
 
   // © line, bottom-left — width capped so it can never reach the logo.
-  const copyRightEdge = logo
-    ? (logoX - MATTER_LAYOUT.copyLogoGap)
-    : (pageW - marginX);
-  const copyMaxW = Math.max(80, copyRightEdge - marginX);
   drawFitText(page, {
     text: copyLine,
-    x: marginX, y: baselineY,
-    maxWidth: copyMaxW,
+    x: layout.copyRect.x, y: layout.copyRect.y,
+    maxWidth: layout.copyRect.w,
     font, size: Math.max(7, style.tinyPt - 1), minSize: 6,
     color: c(P.ink), align: "left",
   });
 
   if (logo) {
     page.drawImage(logo, {
-      x: logoX, y: logoY,
-      width: logoW, height: logoH,
+      x: layout.logoRect.x, y: layout.logoRect.y,
+      width: layout.logoRect.w, height: layout.logoRect.h,
       opacity: 0.9,
     });
   }
