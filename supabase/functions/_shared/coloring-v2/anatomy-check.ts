@@ -159,6 +159,18 @@ function tryParseJson(text: string): any | null {
   try { return JSON.parse(m[0]); } catch { return null; }
 }
 
+function buildUserPrompt(subject: string, scene: string): string {
+  const canon = canonicalPartsFor(subject) ?? canonicalPartsFor(scene);
+  const checklist = canon ? `Canonical parts for "${canon.label}" (fail if wrong count): ${formatPartsChecklist(canon.parts)}.` : "";
+  return [
+    `Planned subject: "${subject}".`,
+    scene ? `Scene: "${scene}".` : "",
+    checklist,
+    "Audit the attached image and return the JSON.",
+  ].filter(Boolean).join("\n");
+}
+
+
 async function callOpenAI(
   model: string, bytes: Uint8Array, mime: string, subject: string, scene: string,
 ): Promise<{ ok: boolean; reason?: string; verdict?: V2AnatomyVerdict }> {
