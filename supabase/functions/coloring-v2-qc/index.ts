@@ -60,6 +60,11 @@ Deno.serve(async (req: Request) => {
       const planByPage = new Map<number, any>();
       for (const p of (plans ?? [])) planByPage.set(p.page_number, p);
 
+      // Verifier-outage circuit breaker: if the ladder is fully degraded,
+      // stop hammering it and mark remaining pages unmeasured. Prevents CPU
+      // timeout when every provider (CF/Gemini/OpenAI/Lovable) is down.
+      let consecutiveDegraded = 0;
+      let verifierDown = false;
       for (const [pageNum, asset] of byPage.entries()) {
         // Trust a prior pass: if the render step recorded anatomy_pass=true
         // and no unmeasured flag, skip the re-check to save credits.
