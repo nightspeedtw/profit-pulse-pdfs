@@ -170,7 +170,7 @@ export async function geminiDirectChat(opts: {
   responseJson?: boolean;
 }): Promise<{ text: string; input_tokens: number; output_tokens: number; model: string }> {
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set");
-  const model = normalize(opts.model ?? "google/gemini-2.5-flash");
+  const model = normalize(opts.model ?? "google/gemini-3.5-flash");
   const body: Record<string, unknown> = {
     contents: [{ role: "user", parts: [{ text: opts.user }] }],
     generationConfig: opts.responseJson ? { responseMimeType: "application/json" } : {},
