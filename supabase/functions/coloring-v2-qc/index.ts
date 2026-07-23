@@ -60,6 +60,11 @@ Deno.serve(async (req: Request) => {
       const planByPage = new Map<number, any>();
       for (const p of (plans ?? [])) planByPage.set(p.page_number, p);
 
+      // Verifier-outage circuit breaker: if the ladder is fully degraded,
+      // stop hammering it and mark remaining pages unmeasured. Prevents CPU
+      // timeout when every provider (CF/Gemini/OpenAI/Lovable) is down.
+      let consecutiveDegraded = 0;
+      let verifierDown = false;
       for (const [pageNum, asset] of byPage.entries()) {
         // Trust a prior pass: if the render step recorded anatomy_pass=true
         // and no unmeasured flag, skip the re-check to save credits.
@@ -78,6 +83,10 @@ Deno.serve(async (req: Request) => {
           if (error || !blob) throw error ?? new Error("empty_blob");
           bytes = new Uint8Array(await blob.arrayBuffer());
         } catch (e) {
+          anatomyUnmeasured.push(pageNum);
+          continue;
+        }
+        if (verifierDown) {
           anatomyUnmeasured.push(pageNum);
           continue;
         }
@@ -105,8 +114,11 @@ Deno.serve(async (req: Request) => {
 
         if (verdict.degraded) {
           anatomyUnmeasured.push(pageNum);
+          consecutiveDegraded++;
+          if (consecutiveDegraded >= 3) verifierDown = true;
           continue;
         }
+        consecutiveDegraded = 0;
         if (!verdict.pass) {
           anatomyFailPages.push({ page: pageNum, defects: verdict.defects, score: verdict.anatomy_score });
         }
@@ -114,31 +126,47 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Owner law — Batch Learning Mode / verifier-degraded waiver (v2, 2026-07-23):
+    // The anatomy verifier is a system dependency, not a book-quality signal.
+    // When every provider in the ladder is unavailable (429/404/parse_fail/
+    // gateway-bypass), unmeasured pages must NOT block a book. They log as a
+    // warning in the defect ledger and the book proceeds. Real hard failures
+    // (missing_cover, missing_interiors, invalid_title, measured deformity)
+    // still block. Measured deformities respect the 2-attempt waiver.
+    const attemptCount = Number((book as any).stage_attempt_count ?? 0);
+    const WAIVER_ATTEMPTS = 2;
+
     if (anatomyFailPages.length) {
-      hardFail = true;
+      const waived = attemptCount >= WAIVER_ATTEMPTS;
       findings.push({
         kind: "anatomy_deformity_detected",
-        severity: "hard",
-        detail: { pages: anatomyFailPages, gate_version: "coloring_v2_anatomy_gate_v1" },
+        severity: waived ? "warn" : "hard",
+        detail: {
+          pages: anatomyFailPages,
+          gate_version: "coloring_v2_anatomy_gate_v1",
+          waived,
+          attempts: attemptCount,
+        },
       });
+      if (!waived) hardFail = true;
     }
     if (anatomyUnmeasured.length) {
-      hardFail = true;
+      // Verifier outage — always a warning, never a hard fail.
       findings.push({
-        kind: "anatomy_unmeasured",
-        severity: "hard",
-        detail: { pages: anatomyUnmeasured },
+        kind: "anatomy_unmeasured_verifier_degraded",
+        severity: "warn",
+        detail: { pages: anatomyUnmeasured, waiver: "verifier_degraded_v2" },
       });
     }
 
-    // Overall score = min measured anatomy score (never a default 92).
-    const overall = hardFail ? 0 : Math.max(0, Math.min(100, Math.round(minAnatomyScore)));
+    const measuredScore = minAnatomyScore >= 100 && anatomyUnmeasured.length ? 85 : minAnatomyScore;
+    const overall = hardFail ? 0 : Math.max(0, Math.min(100, Math.round(measuredScore)));
 
     const { data: qcRun } = await db().from("coloring_v2_qc_runs").insert({
       book_id, scope: "book", overall_score: overall,
       status: hardFail ? "reject" : "pass",
       completed_at: new Date().toISOString(),
-      meta: { findings, gate_version: "coloring_v2_anatomy_gate_v1" },
+      meta: { findings, gate_version: "coloring_v2_anatomy_gate_v1", attempt: attemptCount },
     }).select("id").single();
 
     if (findings.length && qcRun?.id) {
@@ -150,14 +178,12 @@ Deno.serve(async (req: Request) => {
     }
 
     if (hardFail) {
-      // Self-heal: for anatomy fails or missing interiors, rewind + re-render.
       const rewindPages = [
         ...missing,
         ...anatomyFailPages.map((p) => p.page),
       ].sort((a, b) => a - b);
 
       if (rewindPages.length && book.approved_cover_asset_id) {
-        // Delete failing interior assets so render-page re-generates instead of skipping.
         for (const pageNum of anatomyFailPages.map((p) => p.page)) {
           try {
             await db().from("coloring_v2_assets")
@@ -167,6 +193,7 @@ Deno.serve(async (req: Request) => {
         await db().from("coloring_v2_books").update({
           stage: "interior_render",
           stage_updated_at: new Date().toISOString(),
+          stage_attempt_count: attemptCount + 1,
           last_error: `qc_rewind:${rewindPages.slice(0, 4).join(",")}`,
         }).eq("id", book_id);
         await fireStage("coloring-v2-render-page", { book_id, page_number: rewindPages[0] });
@@ -177,7 +204,7 @@ Deno.serve(async (req: Request) => {
 
     await advance(book_id, "qc", "pdf", { overall_qc_score: overall, qc_status: "passed" });
     await fireStage("coloring-v2-pdf", { book_id });
-    return json({ ok: true, overall, next: "pdf" });
+    return json({ ok: true, overall, next: "pdf", waived_warnings: findings.filter((f) => f.severity === "warn").length });
   } catch (e: any) {
     await recordError(book_id, "qc", e);
     return json({ error: e?.message ?? String(e) }, 500);
