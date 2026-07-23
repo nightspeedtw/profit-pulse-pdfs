@@ -165,29 +165,43 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 5. Hero image via Runware.
+    // 5. Hero image — fail-closed provider ladder (Runware → Cloudflare → Gemini).
+    // Per blog_hero_fail_closed_v1: never publish a post without a hero image.
     let heroUrl: string | null = null;
+    let heroProvider: string | null = null;
+    let heroError: string | null = null;
+    const heroPrompt = `${draft.hero_image_prompt ?? draft.title}. Editorial magazine style, bright, kid-friendly. No text.`;
     try {
-      const bytes = await runwareInference({
-        prompt: `${draft.hero_image_prompt ?? draft.title}. Editorial magazine style, bright, kid-friendly. No text.`,
-        image_size: "landscape_16_9",
-        model: RUNWARE_MODELS.line_art,
-        step: "blog_hero",
+      const result = await generateBlogHero(heroPrompt);
+      const ext = result.contentType === "image/png" ? "png" : "jpg";
+      const path = `blog/${today}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+      const { error: upErr } = await db.storage.from("ebook-covers").upload(path, result.bytes, {
+        contentType: result.contentType, upsert: true,
       });
-      const path = `blog/${today}-${crypto.randomUUID().slice(0, 8)}.jpg`;
-      const { error: upErr } = await db.storage.from("ebook-covers").upload(path, bytes, {
-        contentType: "image/jpeg", upsert: true,
-      });
-      if (!upErr) heroUrl = `sb:ebook-covers/${path}`;
+      if (upErr) throw new Error(`upload_failed: ${upErr.message}`);
+      heroUrl = `sb:ebook-covers/${path}`;
+      heroProvider = result.provider;
     } catch (e) {
-      console.warn("[blog-autopilot] hero image failed:", (e as Error).message);
+      heroError = (e as Error).message;
+      console.warn("[blog-autopilot] hero ladder failed:", heroError);
+      try {
+        await db.from("alert_log").insert({
+          alert_type: "blog_hero_all_providers_failed",
+          severity: "high",
+          message: heroError.slice(0, 500),
+          metadata: e instanceof BlogHeroAllProvidersFailedError ? { errors: e.errors } : {},
+        });
+      } catch { /* alert_log optional */ }
     }
 
-    // 6. Insert / block on critical failures.
+    // 6. Insert / block on critical failures OR missing hero.
     const hasCritical = qa.findings.some((f) => f.severity === "critical");
-    if (hasCritical) {
-      // Save as draft (not published) so a human can review.
+    const missingHero = !heroUrl;
+    if (hasCritical || missingHero) {
       const status = "draft";
+      const blockerReason = missingHero
+        ? "hero_image_all_providers_failed"
+        : "critical_quality_finding";
       let slug = slugify(draft.title ?? `draft-${crypto.randomUUID().slice(0, 6)}`);
       const { data: existing } = await db.from("blog_posts").select("id").eq("slug", slug).maybeSingle();
       if (existing) slug = `${slug}-${crypto.randomUUID().slice(0, 6)}`;
@@ -203,8 +217,9 @@ Deno.serve(async (req) => {
       }).select().single();
       if (post) await persistFindings(db, post.id, qa);
       return jsonRes({
-        ok: false, blocked: true, reason: "critical_quality_finding",
+        ok: false, blocked: true, reason: blockerReason,
         slug: post?.slug, qa_score: qa.score, findings: qa.findings, attempts,
+        hero_error: heroError,
       });
     }
 
