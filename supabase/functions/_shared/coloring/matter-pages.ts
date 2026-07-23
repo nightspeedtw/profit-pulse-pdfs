@@ -255,8 +255,9 @@ export function drawColoringTitlePage(
   const { page, pageW, pageH, style, font, fontBold, vignettes } = ctx;
   const P = style.palette;
 
-  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: 24, heavy: true });
-  drawCornerVignettes(page, { pageW, pageH, style, vignettes: vignettes ?? [], opacity: 0.12 });
+  const TITLE_BORDER_INSET = 24;
+  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: TITLE_BORDER_INSET, heavy: true, reserveFooter: true });
+  drawCornerVignettes(page, { pageW, pageH, style, vignettes: vignettes ?? [], opacity: 0.12, avoidBottom: true });
 
   // Title zone (upper 55%)
   const titleY = pageH * 0.72;
