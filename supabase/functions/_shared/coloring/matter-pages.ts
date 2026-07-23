@@ -570,14 +570,14 @@ export function drawColoringCertificatePage(
   if (opts.miniTestFooter) {
     drawFitText(page, {
       text: opts.miniTestFooter,
-      x: pageW / 2, y: 60,
+      x: pageW / 2, y: MATTER_LAYOUT.contentMinY + 16,
       maxWidth: pageW - 140,
       font, size: style.tinyPt - 1, minSize: 6,
       color: c(P.ink), align: "center",
     });
   }
 
-  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo }, { borderInset: 28 });
 }
 
 // defaultCopyrightText + MATTER_PAGES_DESIGN_VERSION are re-exported from
