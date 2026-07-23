@@ -75,6 +75,51 @@ function pickMood(bookId: string): typeof COVER_ART_MOODS[number] {
   return COVER_ART_MOODS[h % COVER_ART_MOODS.length];
 }
 
+// ── LETTERING STYLES (cover_illustrated_lettering_v13) ───────────────
+// Each style is a hand-illustrated title treatment inspired by best-selling
+// kids-book covers. Chosen deterministically per book so a re-render of the
+// same book keeps the same lettering identity, but the shelf shows variety.
+export const LETTERING_STYLES: Array<{ id: string; brief: string }> = [
+  {
+    id: "chunky_puffy_multicolor",
+    brief: "CHUNKY PUFFY MULTICOLOR letters: each letter thick, rounded, three-dimensional, painted a DIFFERENT bright color (red, orange, yellow, green, blue, purple rotating), thick dark outline around every letter, chunky drop-shadow, tiny stars/sparkles bursting between letters, joyful energetic poster feel.",
+  },
+  {
+    id: "cracked_metal_epic",
+    brief: "CRACKED METAL EPIC letters: bold blocky capitals with a chrome/metal painted surface, subtle cracks and shattered-glass highlights across the face, dramatic edge glow, electric energy leaking from the letters, cinematic graphic-novel poster energy.",
+  },
+  {
+    id: "arcade_chrome_neon",
+    brief: "ARCADE CHROME NEON letters: bold retro-arcade capitals with a mirror-chrome painted face, thick neon-outline glow (electric cyan or magenta), soft light bloom around each letter, gamer/2026 esports-poster aesthetic.",
+  },
+  {
+    id: "hand_painted_storybook",
+    brief: "HAND-PAINTED STORYBOOK letters: warm brush-lettered title with slightly irregular baseline, gouache texture inside each letter, gentle drop-shadow, painted highlight on the top edge of every letter, classic premium picture-book cover feel.",
+  },
+  {
+    id: "balloon_bubble_gradient",
+    brief: "BALLOON BUBBLE GRADIENT letters: super round bubble letters, glossy gradient fill on each (sunset, candy, or sky gradient), bright specular highlight on the top of every letter, tiny cast shadow, ultra-friendly picture-book feel.",
+  },
+  {
+    id: "wood_carved_adventure",
+    brief: "WOOD-CARVED ADVENTURE letters: chunky letters painted to look like carved / burnished wood plaque, warm amber gradient, gold rim, hand-painted grain texture, small decorative accents tucked around the letters, adventure-storybook feel.",
+  },
+];
+export function pickLetteringStyle(bookId: string): typeof LETTERING_STYLES[number] {
+  let h = 0;
+  for (let i = 0; i < bookId.length; i++) h = (h * 137 + bookId.charCodeAt(i)) >>> 0;
+  return LETTERING_STYLES[h % LETTERING_STYLES.length];
+}
+
+// ── AGE BADGE ─────────────────────────────────────────────────────────
+export function ageBadgeLabel(ageBand?: string | null): string | null {
+  const s = String(ageBand ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/(\d{1,2})\s*[-–]\s*(\d{1,2})/);
+  if (!m) return null;
+  return `AGES ${m[1]}-${m[2]}`;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
   try {
@@ -85,6 +130,12 @@ Deno.serve(async (req: Request) => {
     const title = ensureColoringBookInTitle(book.title ?? "Coloring Book");
     const sceneClause = await buildSceneClause(book_id, title);
     const mood = pickMood(book_id);
+    const lettering = pickLetteringStyle(book_id);
+    const ageLabel = ageBadgeLabel(book.age_band);
+
+    const ageBadgeClause = ageLabel
+      ? `Include a PAINTED CIRCULAR AGE BADGE in the TOP-RIGHT corner of the cover: a bright circular sticker/seal (yellow, orange, or red — choose whichever contrasts best with the background), thick dark outline, subtle drop-shadow, with the EXACT text "${ageLabel}" hand-lettered inside in bold rounded capitals. The badge is part of the painting, not a font overlay. Size roughly 15-18% of the cover width. Do NOT place any other text near it.`
+      : `Do NOT add any age badge, age indicator, or age-range text anywhere on the cover.`;
 
     const prompt = [
       `Beautiful full-color hand-painted children's coloring-book COVER illustration for "${title}".`,
@@ -95,10 +146,10 @@ Deno.serve(async (req: Request) => {
       `Premium picture-book cover: gouache + digital-brush feel with glossy playful mark-making, expressive and vivid, high production value. Fill the background completely with a rich painted environment that reaches all four edges.`,
       sceneClause,
       `Every creature/character MUST be anatomically complete and non-deformed: correct number of legs, one head, one tail, complete limbs, no severed or floating body parts, no fused bodies, no extra heads, no missing features. Canonical proportions.`,
-      `The title "${title}" MUST appear as HAND-LETTERED PAINTED TYPOGRAPHY integrated INTO the artwork itself — drawn by the illustrator as part of the painting (bubble-letter or brushed-script style, playful, colorful, with soft shadow and highlight painted in). NOT a font overlay, NOT flat text — it must look painted by hand.`,
-      `Place the title in the upper third of the cover, arced or on a soft painted ribbon that is part of the scene. The ribbon/banner (if used) sits INSIDE the painted scene — it does NOT touch the canvas edges and does NOT create a white border around the artwork.`,
-      `Do NOT include: any logo, any watermark, any URL, any age badge, any subtitle, any extra text besides the title, any UI element, any book mockup, any border, any frame, any white padding, any decorative edge strip.`,
-      `Spelling of the title MUST be exact.`,
+      `TITLE TREATMENT — style "${lettering.id}": ${lettering.brief} The title "${title}" MUST appear as HAND-ILLUSTRATED CUSTOM LETTERING that is PART OF THE PAINTING — every letter drawn individually by the illustrator with texture, highlight, and shadow painted in. Absolutely NO system font, NO flat digital typography, NO clean vector text. The title should occupy roughly 40-50% of the cover area, placed prominently in the upper half, arced, stacked, or on a painted banner that is part of the scene.`,
+      ageBadgeClause,
+      `Do NOT include: any logo, any watermark, any URL, any subtitle, any extra text besides the title and the age badge (if requested above), any UI element, any book mockup, any border, any frame, any white padding, any decorative edge strip.`,
+      `Spelling of the title MUST be exact. If an age badge is requested, its spelling MUST be exact.`,
     ].join(" ");
 
 
@@ -175,12 +226,16 @@ Deno.serve(async (req: Request) => {
 
     // Upload as PNG (gpt-image-1 returns PNG bytes).
     const asset = await uploadAsset(book_id, "cover_final", bytes, "png", {
-      law: "cover_illustrated_hand_lettered_once_v1",
+      law: "cover_illustrated_lettering_v13",
       provider,
       model,
       text_mode: "illustrated_hand_lettered_baked",
+      lettering_style: lettering.id,
+      mood: mood.id,
+      age_badge: ageLabel ?? null,
       prompt_len: prompt.length,
     });
+
 
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
