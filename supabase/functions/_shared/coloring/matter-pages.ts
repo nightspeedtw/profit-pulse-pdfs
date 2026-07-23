@@ -321,18 +321,18 @@ export function drawColoringTitlePage(
     thickness: 1.2, color: c(P.primary),
   });
 
-  // Brand tagline
+  // Brand tagline — sits ABOVE the reserved footer band.
   if (opts.brand) {
     drawFitText(page, {
       text: opts.brand,
-      x: pageW / 2, y: 52,
+      x: pageW / 2, y: MATTER_LAYOUT.contentMinY + 20,
       maxWidth: pageW - 120,
       font, size: style.tinyPt, minSize: 7,
       color: c(P.ink), align: "center",
     });
   }
 
-  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo }, { borderInset: TITLE_BORDER_INSET });
 }
 
 /** Copyright page: small legal text at bottom, decorative top fill. */
