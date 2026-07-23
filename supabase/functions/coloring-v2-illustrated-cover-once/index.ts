@@ -32,6 +32,33 @@ async function jpegEncode(pngBytes: Uint8Array): Promise<Uint8Array> {
   return pngBytes;
 }
 
+// Subject-aware cover scene. The old version was hard-coded for ocean
+// creatures, which shipped an ocean cover on unicorn books. We now infer
+// the scene from the book title + concept.hero_subjects + concept.motif_inventory
+// so covers match the actual interior subject matter.
+async function buildSceneClause(book_id: string, title: string): Promise<string> {
+  try {
+    const c = db();
+    const { data: concept } = await c.from("coloring_v2_assets")
+      .select("meta").eq("book_id", book_id).eq("kind", "concept").maybeSingle();
+    const heroes: string[] = Array.isArray(concept?.meta?.hero_subjects) ? concept.meta.hero_subjects.slice(0, 3) : [];
+    const motifs: string[] = Array.isArray(concept?.meta?.motif_inventory) ? concept.meta.motif_inventory.slice(0, 6) : [];
+    if (heroes.length) {
+      const heroText = heroes.join("; ");
+      const motifText = motifs.length ? ` Motifs to include: ${motifs.join(", ")}.` : "";
+      return `Depict a charming scene featuring: ${heroText}. Polished, print-ready art.${motifText}`;
+    }
+  } catch (_) { /* fall through */ }
+  // Title-based inference as last resort.
+  const t = title.toLowerCase();
+  if (/unicorn/.test(t)) return "Depict charming cartoon unicorns — each with FOUR legs, ONE horn, ONE tail, correct proportions — playing among stars, rainbows, and sparkles. Every unicorn anatomically complete and non-deformed.";
+  if (/dragon/.test(t)) return "Depict charming cartoon dragons — each with 4 legs, 2 wings, 1 tail — playing among clouds and treasure.";
+  if (/mermaid/.test(t)) return "Depict charming cartoon mermaids — each with 2 arms, 1 tail-fin, complete anatomy — playing among coral and bubbles.";
+  if (/ocean|sea|fish/.test(t)) return "Depict charming cartoon ocean creatures (fish, octopus, turtle, dolphins) among coral and kelp.";
+  if (/dino/.test(t)) return "Depict charming cartoon dinosaurs — each anatomically complete — playing among volcanoes and ferns.";
+  return "Depict charming cartoon subjects from the book, each anatomically complete and non-deformed, in a playful storybook scene.";
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
   try {
@@ -40,16 +67,19 @@ Deno.serve(async (req: Request) => {
 
     const book = await fetchBook(book_id);
     const title = ensureColoringBookInTitle(book.title ?? "Coloring Book");
+    const sceneClause = await buildSceneClause(book_id, title);
 
     const prompt = [
       `Beautiful full-color hand-painted children's coloring-book COVER illustration for "${title}".`,
       `Square 1:1 composition, warm cheerful storybook style — think premium picture-book cover, gouache + watercolor feel, expressive, playful, high production value.`,
-      `Depict a charming scene of friendly cartoon ocean creatures (bubbly cute fish, a smiling octopus, a little turtle, playful dolphins, coral, kelp, gentle sunbeams underwater) — polished, print-ready art.`,
+      sceneClause,
+      `Every creature/character MUST be anatomically complete and non-deformed: correct number of legs, one head, one tail, complete limbs, no severed or floating body parts, no fused bodies, no extra heads, no missing features. Canonical proportions.`,
       `The title "${title}" MUST appear as HAND-LETTERED PAINTED TYPOGRAPHY integrated INTO the artwork itself — drawn by the illustrator as part of the painting (bubble-letter or brushed-script style, playful, colorful, with soft shadow and highlight painted in). NOT a font overlay, NOT flat text — it must look painted by hand.`,
       `Place the title in the upper third of the cover, arced or on a soft painted ribbon that is part of the scene.`,
       `Do NOT include: any logo, any watermark, any URL, any age badge, any subtitle, any extra text besides the title, any UI element, any book mockup, any border/frame.`,
       `Spelling of the title MUST be exact.`,
     ].join(" ");
+
 
     let bytes: Uint8Array | null = null;
     let model = "";
