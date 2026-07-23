@@ -211,11 +211,8 @@ async function callGemini(
   model: string, bytes: Uint8Array, mime: string, subject: string, scene: string,
 ): Promise<{ ok: boolean; reason?: string; verdict?: V2AnatomyVerdict }> {
   const GEMINI_KEY = getGeminiKey(); if (!GEMINI_KEY) return { ok: false, reason: "no_gemini_key" };
-  const user = [
-    `Planned subject: "${subject}".`,
-    scene ? `Scene: "${scene}".` : "",
-    "Audit the attached image and return the JSON.",
-  ].filter(Boolean).join("\n");
+  const user = buildUserPrompt(subject, scene);
+
   const body = {
     contents: [{ role: "user", parts: [{ text: user }, { inlineData: { mimeType: mime, data: bytesToB64(bytes) } }] }],
     systemInstruction: { parts: [{ text: SYSTEM }] },
