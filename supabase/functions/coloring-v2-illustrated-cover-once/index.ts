@@ -58,6 +58,7 @@ Deno.serve(async (req: Request) => {
     try {
       const g = await geminiDirectImageWithMeta({
         prompt,
+        referenceUrls: [],
         model: "google/gemini-2.5-flash-image",
       });
       if (g.bytes && g.bytes.length > 20_000) {
