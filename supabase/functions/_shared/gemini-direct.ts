@@ -214,7 +214,7 @@ export async function geminiDirectVisionChat(opts: {
   timeoutMs?: number;
 }): Promise<{ text: string; input_tokens: number; output_tokens: number; model: string }> {
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not set");
-  const model = normalize(opts.model ?? "google/gemini-2.5-flash");
+  const model = normalize(opts.model ?? "google/gemini-3.5-flash");
   const parts: Array<Record<string, unknown>> = [{ text: opts.userText }];
   for (const u of opts.imageUrls) {
     const { data, mime } = await fetchImageAsB64(u);
