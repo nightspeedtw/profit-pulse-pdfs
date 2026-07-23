@@ -325,34 +325,92 @@ async function callCloudflare(
   const creds = getCloudflareCreds();
   if (!creds) return { ok: false, reason: "no_cf_creds" };
   const user = buildUserPrompt(subject, scene);
-  // llava-1.5 takes a single `prompt` + `image` byte array. It has no
-  // system-role slot, so we fold SYSTEM into the prompt and ask for strict JSON.
-  const prompt = `${SYSTEM}\n\n${user}\n\nRespond with ONLY the JSON object, no prose.`;
-  const body = {
-    prompt,
-    image: Array.from(bytes),
-    max_tokens: 512,
-  };
+  // CF vision models take a single `prompt` + `image` byte array. Fold SYSTEM
+  // into the prompt and demand strict JSON.
+  const prompt = `${SYSTEM}\n\n${user}\n\nRespond with ONLY the JSON object, no prose, no markdown fences.`;
+  const buildBody = () => JSON.stringify({
+    prompt, image: Array.from(bytes), max_tokens: 512, temperature: 0,
+  });
+  const url = `https://api.cloudflare.com/client/v4/accounts/${creds.accountId}/ai/run/${model}`;
+  const doCall = () => fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${creds.token}` },
+    body: buildBody(),
+  });
   let r: Response;
-  try {
-    r = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${creds.accountId}/ai/run/${model}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${creds.token}` },
-        body: JSON.stringify(body),
-      },
-    );
-  } catch (e) {
-    return { ok: false, reason: `fetch_error:${String((e as Error)?.message ?? e).slice(0, 120)}` };
+  try { r = await doCall(); }
+  catch (e) { return { ok: false, reason: `fetch_error:${String((e as Error)?.message ?? e).slice(0, 120)}` }; }
+  // Auto-agree for llama-3.2 model licence prompt.
+  if (r.status === 403) {
+    const body = await r.text().catch(() => "");
+    if (/Model Agreement|submit the prompt 'agree'/i.test(body)) {
+      const memoKey = `${creds.accountId}:${model}`;
+      if (!CF_AGREED_ANATOMY.has(memoKey)) {
+        try {
+          await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${creds.token}` },
+            body: JSON.stringify({ prompt: "agree" }),
+          });
+        } catch { /* best-effort */ }
+        CF_AGREED_ANATOMY.add(memoKey);
+        try { r = await doCall(); } catch (e) {
+          return { ok: false, reason: `fetch_error_after_agree:${String((e as Error)?.message ?? e).slice(0, 120)}` };
+        }
+      }
+    }
   }
   if (!r.ok) return { ok: false, reason: `http_${r.status}:${(await r.text()).slice(0, 200)}` };
   let j: any; try { j = await r.json(); } catch { return { ok: false, reason: "resp_json_fail" }; }
   const text: string = j?.result?.response ?? j?.result?.description ?? j?.result?.text ?? "";
+  if (!text) return { ok: false, reason: "empty_response" };
   const parsed = tryParseJson(text);
-  if (!parsed) return { ok: false, reason: "json_parse_fail" };
-  return { ok: true, verdict: normalizeVerdict(parsed, `cloudflare/${model}`) };
+  if (parsed) return { ok: true, verdict: normalizeVerdict(parsed, `cloudflare/${model}`) };
+  // Prose fallback: small vision models sometimes ignore JSON instructions.
+  // Extract a verdict from natural-language description.
+  const proseVerdict = verdictFromProse(text, `cloudflare/${model}`);
+  if (proseVerdict) return { ok: true, verdict: proseVerdict };
+  return { ok: false, reason: "json_parse_fail" };
 }
+
+// Heuristic parser for freeform vision-model descriptions.
+// Conservative: PASS only when the prose clearly shows no deformity signal.
+function verdictFromProse(text: string, providerModel: string): V2AnatomyVerdict | null {
+  const t = String(text).toLowerCase();
+  if (t.length < 20) return null;
+  const defectPatterns: Array<{ re: RegExp; label: string }> = [
+    { re: /\b(two|three|multiple|extra|second)\s+heads?\b/, label: "extra_head" },
+    { re: /\b(missing|no)\s+(limb|leg|arm|head|eye|tail|wing|fin)/, label: "missing_limb" },
+    { re: /\b(extra|additional|too many)\s+(limb|leg|arm|eye|tail|wing|fin|finger)/, label: "extra_limb" },
+    { re: /\bfused\b|\bconjoined\b|\bstitched\b|\bfrankenstein\b/, label: "fused" },
+    { re: /\bsevered\b|\bdisembodied\b|\bfloating\s+(limb|arm|leg|head)/, label: "severed" },
+    { re: /\bmalformed\b|\bdeformed\b|\bmangled\b|\bgrotesque\b/, label: "malformed" },
+    { re: /\bwrong\s+(number|count)\s+of\b/, label: "wrong_count" },
+    { re: /\bamorphous\b|\bunrecognizable\b|\bpotato[- ]shape\b|\bblob\b/, label: "unrecognizable_subject" },
+    { re: /\b(6|six|5|five|7|seven)\s+(fingers|legs|arms)\b/, label: "wrong_count" },
+  ];
+  const defects: string[] = [];
+  for (const p of defectPatterns) if (p.re.test(t)) defects.push(p.label);
+  const hasPositive = /(no\s+deformity|no\s+deformities|looks?\s+(fine|correct|normal|healthy)|anatomically\s+correct|correct\s+anatomy|well[- ]formed|no\s+visible\s+issues)/.test(t);
+  if (defects.length === 0 && hasPositive) {
+    return {
+      pass: true, anatomy_score: 90, defects: [], recognizable: true,
+      named_subject: null, degraded: false, model: `${providerModel}+prose`,
+      measured_at: new Date().toISOString(),
+    };
+  }
+  if (defects.length > 0) {
+    return {
+      pass: false, anatomy_score: 40,
+      defects: Array.from(new Set(defects)).slice(0, 6),
+      recognizable: !defects.includes("unrecognizable_subject"),
+      named_subject: null, degraded: false, model: `${providerModel}+prose`,
+      measured_at: new Date().toISOString(),
+    };
+  }
+  return null; // Ambiguous — let ladder continue.
+}
+
 
 async function callLovableGateway(
   model: string, bytes: Uint8Array, mime: string, subject: string, scene: string,
