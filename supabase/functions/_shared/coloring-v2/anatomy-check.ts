@@ -252,9 +252,9 @@ async function callGemini(
 /**
  * Check anatomy of a single interior page. Provider ladder:
  *   1) Cloudflare Workers AI llava-1.5 (primary — cheap, reliable)
- *   2) Google Gemini vision (direct)
+ *   2) Google Gemini vision (direct: gemini-3.5-flash, gemini-2.5-flash)
  *   3) OpenAI GPT-4o vision (direct)
- *   4) Lovable AI Gateway (google/gemini-2.5-flash) — outage backstop
+ *   4) Lovable AI Gateway (google/gemini-3.5-flash) — outage backstop
  * A degraded verdict means every provider was unreachable — callers MUST
  * NOT treat degraded as a defect.
  */
