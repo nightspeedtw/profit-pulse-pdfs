@@ -1,0 +1,1 @@
+UPDATE public.coloring_v2_books SET stage='interior_render', generation_status='running', last_error=NULL, stage_attempt_count=0, stage_updated_at=now() WHERE id='6133ac75-44c1-4757-bb82-16a6f7c4d967';
