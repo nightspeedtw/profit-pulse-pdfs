@@ -464,9 +464,9 @@ export function drawColoringHowToPage(
     });
   }
 
-  // "Try your colors here!" swatch box
+  // "Try your colors here!" swatch box — sits above the reserved footer band.
   const boxW = pageW - 176, boxH = 82;
-  const boxX = 88, boxY = 92;
+  const boxX = 88, boxY = MATTER_LAYOUT.contentMinY + 14;
   page.drawRectangle({
     x: boxX, y: boxY, width: boxW, height: boxH,
     color: rgb(1, 1, 1), opacity: 0.9,
