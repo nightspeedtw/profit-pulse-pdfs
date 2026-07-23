@@ -1,0 +1,2 @@
+UPDATE coloring_v2_books SET stage='interior_render', stage_updated_at=now(), stage_attempt_count=0, last_error=NULL
+WHERE id IN ('8e75f22e-d039-4f63-b4c6-9f4489f7c948','a284d5e3-8869-43a1-a789-a0710f982f8f','51d69d19-4aab-45f7-8f87-ba645d4e744f','0a44c172-f7c1-4cee-a574-db06a3027712');
