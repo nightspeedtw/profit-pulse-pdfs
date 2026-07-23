@@ -114,8 +114,11 @@ Deno.serve(async (req: Request) => {
 
         if (verdict.degraded) {
           anatomyUnmeasured.push(pageNum);
+          consecutiveDegraded++;
+          if (consecutiveDegraded >= 3) verifierDown = true;
           continue;
         }
+        consecutiveDegraded = 0;
         if (!verdict.pass) {
           anatomyFailPages.push({ page: pageNum, defects: verdict.defects, score: verdict.anatomy_score });
         }
