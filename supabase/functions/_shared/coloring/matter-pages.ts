@@ -24,9 +24,11 @@ import {
   type MatterPalette,
   type MatterStyle,
 } from "./matter-pages-style.ts";
+import { MATTER_LAYOUT, computeFooterLayout } from "./matter-pages-layout.ts";
 
 // Re-export the pure style API so callers only import this file.
 export { resolveMatterStyle, defaultCopyrightText, MATTER_PAGES_DESIGN_VERSION };
+export { MATTER_LAYOUT, computeFooterLayout };
 export type { MatterPalette, MatterStyle };
 
 
@@ -36,18 +38,32 @@ function c(rgbArr: [number, number, number]) {
   return rgb(rgbArr[0], rgbArr[1], rgbArr[2]);
 }
 
+// MATTER_LAYOUT lives in ./matter-pages-layout.ts (pure module) and is
+// re-exported at the top of this file. See owner law
+// `matter_pages_no_overlap_v1` (2026-07-23).
+
 /**
  * Draw a palette-tinted decorative border: outer soft wash rectangle,
  * inner double rule, and 4 corner "confetti dots" from the accent color.
+ * When `reserveFooter` is true, the bottom two confetti clusters are
+ * omitted so the brand footer (© + logo) can sit cleanly in that band.
  * Deterministic — no AI, no external assets.
  */
 export function drawDecorativeBorder(
   page: any,
-  opts: { pageW: number; pageH: number; palette: MatterPalette; inset?: number; heavy?: boolean },
+  opts: {
+    pageW: number;
+    pageH: number;
+    palette: MatterPalette;
+    inset?: number;
+    heavy?: boolean;
+    reserveFooter?: boolean;
+  },
 ) {
   const { pageW, pageH, palette } = opts;
   const inset = opts.inset ?? 28;
   const heavy = !!opts.heavy;
+  const reserveFooter = opts.reserveFooter !== false; // default ON
 
   // outer tint band (very soft)
   page.drawRectangle({
@@ -68,7 +84,9 @@ export function drawDecorativeBorder(
     color: undefined,
   });
 
-  // 4 confetti-dot corners: 3 dots each, decreasing in size
+  // 4 confetti-dot corners: 3 dots each, decreasing in size.
+  // Bottom two corners are skipped when the footer band is reserved so
+  // the © line and logo never land on top of confetti dots.
   const cornerDot = (cx: number, cy: number, dir: [1 | -1, 1 | -1]) => {
     for (let i = 0; i < 3; i++) {
       const r = (heavy ? 6 : 4.5) - i * 1.1;
@@ -81,31 +99,51 @@ export function drawDecorativeBorder(
       });
     }
   };
+  // Top corners always render.
   cornerDot(inset + 18, pageH - inset - 18, [1, -1]);
   cornerDot(pageW - inset - 18, pageH - inset - 18, [-1, -1]);
-  cornerDot(inset + 18, inset + 18, [1, 1]);
-  cornerDot(pageW - inset - 18, inset + 18, [-1, 1]);
+  if (!reserveFooter) {
+    cornerDot(inset + 18, inset + 18, [1, 1]);
+    cornerDot(pageW - inset - 18, inset + 18, [-1, 1]);
+  }
 }
 
 /**
  * Embed up to 2 grayscale-tinted interior vignettes in opposite corners.
  * Reuses page bytes the caller already has — zero new AI cost.
  * `vignettes` = pre-embedded pdf-lib images (caller does the embed once).
+ *
+ * When `avoidBottom` is true (default for matter pages that carry the
+ * brand footer), the two vignette slots move to top-left + top-right so
+ * the corner art never lands behind the © line or the logo.
  */
 export function drawCornerVignettes(
   page: any,
-  opts: { pageW: number; pageH: number; style: MatterStyle; vignettes: any[]; opacity?: number },
+  opts: {
+    pageW: number;
+    pageH: number;
+    style: MatterStyle;
+    vignettes: any[];
+    opacity?: number;
+    avoidBottom?: boolean;
+  },
 ) {
   const { pageW, pageH, style, vignettes } = opts;
   const opacity = opts.opacity ?? 0.14;
+  const avoidBottom = opts.avoidBottom !== false; // default ON
   if (!vignettes || vignettes.length === 0) return;
   const size = pageW * style.cornerVignetteFrac;
   const margin = 44;
 
-  const positions: Array<{ x: number; y: number }> = [
-    { x: margin, y: pageH - margin - size },              // top-left
-    { x: pageW - margin - size, y: margin },              // bottom-right
-  ];
+  const positions: Array<{ x: number; y: number }> = avoidBottom
+    ? [
+        { x: margin, y: pageH - margin - size },                // top-left
+        { x: pageW - margin - size, y: pageH - margin - size }, // top-right
+      ]
+    : [
+        { x: margin, y: pageH - margin - size },                // top-left
+        { x: pageW - margin - size, y: margin },                // bottom-right
+      ];
   for (let i = 0; i < Math.min(2, vignettes.length); i++) {
     const img = vignettes[i];
     if (!img) continue;
@@ -122,42 +160,41 @@ export function drawCornerVignettes(
 }
 
 /**
- * OWNER LAW `matter_pages_brand_footer_v1` (2026-07-21):
- * Every matter page in the V2 assembler (Title / Copyright / How-to /
- * Certificate) must carry the SecretPDF branding footer: © line on the
- * bottom-left and the logo on the bottom-right. Applied uniformly to
- * avoid the recurring "logo missing on Terms page" defect.
+ * OWNER LAW `matter_pages_brand_footer_v1` (2026-07-21) +
+ * `matter_pages_no_overlap_v1` (2026-07-23):
+ * Every matter page carries the © line on the bottom-left and the
+ * SecretPDF logo on the bottom-right. Both live INSIDE the inner border
+ * rule with an enforced horizontal gap so they never overlap each other,
+ * the border ring, the corner confetti, or the corner vignettes.
  */
 export function drawBrandFooter(
   ctx: { page: any; pageW: number; pageH: number; style: MatterStyle; font: any; logo?: any },
-  opts: { copyrightLine?: string } = {},
+  opts: { copyrightLine?: string; borderInset?: number } = {},
 ) {
   const { page, pageW, style, font, logo } = ctx;
   const P = style.palette;
-  const marginX = 30;
-  const marginY = 22;
+  const borderInset = opts.borderInset ?? 28;
   const copyLine = opts.copyrightLine ?? `© ${new Date().getUTCFullYear()} SecretPDF Kids`;
 
-  // © line, bottom-left
+  const layout = computeFooterLayout(
+    pageW,
+    borderInset,
+    logo ? { w: logo.width, h: logo.height } : undefined,
+  );
+
+  // © line, bottom-left — width capped so it can never reach the logo.
   drawFitText(page, {
     text: copyLine,
-    x: marginX, y: marginY,
-    maxWidth: pageW * 0.55,
+    x: layout.copyRect.x, y: layout.copyRect.y,
+    maxWidth: layout.copyRect.w,
     font, size: Math.max(7, style.tinyPt - 1), minSize: 6,
     color: c(P.ink), align: "left",
   });
 
-  // Logo, bottom-right
   if (logo) {
-    const maxLogoH = 22;
-    const maxLogoW = pageW * 0.28;
-    const scale = Math.min(maxLogoW / logo.width, maxLogoH / logo.height);
-    const lw = logo.width * scale;
-    const lh = logo.height * scale;
     page.drawImage(logo, {
-      x: pageW - marginX - lw,
-      y: marginY - 4,
-      width: lw, height: lh,
+      x: layout.logoRect.x, y: layout.logoRect.y,
+      width: layout.logoRect.w, height: layout.logoRect.h,
       opacity: 0.9,
     });
   }
@@ -185,8 +222,9 @@ export function drawColoringTitlePage(
   const { page, pageW, pageH, style, font, fontBold, vignettes } = ctx;
   const P = style.palette;
 
-  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: 24, heavy: true });
-  drawCornerVignettes(page, { pageW, pageH, style, vignettes: vignettes ?? [], opacity: 0.12 });
+  const TITLE_BORDER_INSET = 24;
+  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: TITLE_BORDER_INSET, heavy: true, reserveFooter: true });
+  drawCornerVignettes(page, { pageW, pageH, style, vignettes: vignettes ?? [], opacity: 0.12, avoidBottom: true });
 
   // Title zone (upper 55%)
   const titleY = pageH * 0.72;
@@ -250,18 +288,18 @@ export function drawColoringTitlePage(
     thickness: 1.2, color: c(P.primary),
   });
 
-  // Brand tagline
+  // Brand tagline — sits ABOVE the reserved footer band.
   if (opts.brand) {
     drawFitText(page, {
       text: opts.brand,
-      x: pageW / 2, y: 52,
+      x: pageW / 2, y: MATTER_LAYOUT.contentMinY + 20,
       maxWidth: pageW - 120,
       font, size: style.tinyPt, minSize: 7,
       color: c(P.ink), align: "center",
     });
   }
 
-  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo }, { borderInset: TITLE_BORDER_INSET });
 }
 
 /** Copyright page: small legal text at bottom, decorative top fill. */
@@ -272,7 +310,7 @@ export function drawColoringCopyrightPage(
   const { page, pageW, pageH, style, font, fontBold, vignettes, logo } = ctx;
   const P = style.palette;
 
-  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: 28 });
+  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: 28, reserveFooter: true });
 
   // Top decoration: large greyed vignette fills the upper 45% at low opacity.
   if (vignettes && vignettes.length > 0) {
@@ -304,8 +342,8 @@ export function drawColoringCopyrightPage(
     }
   }
 
-  // Legal box at bottom half
-  const boxX = 70, boxY = 70, boxW = pageW - 140, boxH = pageH * 0.36;
+  // Legal box — bottom edge sits above the reserved footer band.
+  const boxX = 70, boxY = MATTER_LAYOUT.contentMinY + 12, boxW = pageW - 140, boxH = pageH * 0.36;
   page.drawRectangle({
     x: boxX, y: boxY, width: boxW, height: boxH,
     color: rgb(1, 1, 1), opacity: 0.92,
@@ -334,7 +372,7 @@ export function drawColoringCopyrightPage(
     color: c(P.ink),
     lineHeightFactor: 1.45,
   });
-  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo }, { borderInset: 28 });
 }
 
 
@@ -346,8 +384,8 @@ export function drawColoringHowToPage(
   const { page, pageW, pageH, style, font, fontBold, vignettes } = ctx;
   const P = style.palette;
 
-  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: 28 });
-  drawCornerVignettes(page, { pageW, pageH, style, vignettes: vignettes ?? [], opacity: 0.10 });
+  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: 28, reserveFooter: true });
+  drawCornerVignettes(page, { pageW, pageH, style, vignettes: vignettes ?? [], opacity: 0.10, avoidBottom: true });
 
   // Heading
   drawFitText(page, {
@@ -393,9 +431,9 @@ export function drawColoringHowToPage(
     });
   }
 
-  // "Try your colors here!" swatch box
+  // "Try your colors here!" swatch box — sits above the reserved footer band.
   const boxW = pageW - 176, boxH = 82;
-  const boxX = 88, boxY = 92;
+  const boxX = 88, boxY = MATTER_LAYOUT.contentMinY + 14;
   page.drawRectangle({
     x: boxX, y: boxY, width: boxW, height: boxH,
     color: rgb(1, 1, 1), opacity: 0.9,
@@ -421,7 +459,7 @@ export function drawColoringHowToPage(
       borderColor: c(P.ink), borderWidth: 0.6,
     });
   }
-  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo }, { borderInset: 28 });
 }
 
 /** Certificate page: same palette-border treatment as title. */
@@ -432,8 +470,8 @@ export function drawColoringCertificatePage(
   const { page, pageW, pageH, style, font, fontBold, vignettes } = ctx;
   const P = style.palette;
 
-  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: 28, heavy: true });
-  drawCornerVignettes(page, { pageW, pageH, style, vignettes: vignettes ?? [], opacity: 0.10 });
+  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: 28, heavy: true, reserveFooter: true });
+  drawCornerVignettes(page, { pageW, pageH, style, vignettes: vignettes ?? [], opacity: 0.10, avoidBottom: true });
 
   // Ribbon-style header
   const ribbonY = pageH * 0.78;
@@ -499,14 +537,14 @@ export function drawColoringCertificatePage(
   if (opts.miniTestFooter) {
     drawFitText(page, {
       text: opts.miniTestFooter,
-      x: pageW / 2, y: 60,
+      x: pageW / 2, y: MATTER_LAYOUT.contentMinY + 16,
       maxWidth: pageW - 140,
       font, size: style.tinyPt - 1, minSize: 6,
       color: c(P.ink), align: "center",
     });
   }
 
-  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo });
+  drawBrandFooter({ page, pageW, pageH, style, font, logo: ctx.logo }, { borderInset: 28 });
 }
 
 // defaultCopyrightText + MATTER_PAGES_DESIGN_VERSION are re-exported from
