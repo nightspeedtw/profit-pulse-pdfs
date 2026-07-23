@@ -86,6 +86,10 @@ Deno.serve(async (req: Request) => {
           anatomyUnmeasured.push(pageNum);
           continue;
         }
+        if (verifierDown) {
+          anatomyUnmeasured.push(pageNum);
+          continue;
+        }
         const plan = planByPage.get(pageNum);
         const verdict = await checkPageAnatomy({
           bytes,
