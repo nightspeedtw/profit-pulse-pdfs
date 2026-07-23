@@ -59,6 +59,22 @@ async function buildSceneClause(book_id: string, title: string): Promise<string>
   return "Depict charming cartoon subjects from the book, each anatomically complete and non-deformed, in a playful storybook scene.";
 }
 
+// 2026 art-direction mood pool. Deterministic pick from book_id hash so
+// covers spread visually across the shelf instead of clustering on one look.
+const COVER_ART_MOODS: Array<{ id: string; palette: string; energy: string }> = [
+  { id: "neon-pop",     palette: "hot pink, electric yellow, cyan, violet", energy: "glossy risograph pop-art, bold shape language, playful marks" },
+  { id: "sunset-blaze", palette: "coral, marigold, magenta, warm violet",   energy: "sunset gradient sky, warm cinematic glow, joyful energy" },
+  { id: "candy-bright", palette: "blush pink, mint, lemon, sky blue",       energy: "stickery pastel-highlighter poster feel, crisp cheerful shapes" },
+  { id: "vapor-chrome", palette: "iridescent pastels + chrome accents",     energy: "Y2K/2026 futurism, glossy holographic highlights, poster energy" },
+  { id: "tropical-hifi",palette: "turquoise, lime, hibiscus red, sunshine", energy: "saturated jungle-print energy, high-chroma tropical picture-book" },
+  { id: "dreamy-holo",  palette: "soft holographic pastels with sparkles",  energy: "dreamy iridescent sheen, twinkle highlights, magical poster feel" },
+];
+function pickMood(bookId: string): typeof COVER_ART_MOODS[number] {
+  let h = 0;
+  for (let i = 0; i < bookId.length; i++) h = (h * 31 + bookId.charCodeAt(i)) >>> 0;
+  return COVER_ART_MOODS[h % COVER_ART_MOODS.length];
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
   try {
@@ -68,11 +84,15 @@ Deno.serve(async (req: Request) => {
     const book = await fetchBook(book_id);
     const title = ensureColoringBookInTitle(book.title ?? "Coloring Book");
     const sceneClause = await buildSceneClause(book_id, title);
+    const mood = pickMood(book_id);
 
     const prompt = [
       `Beautiful full-color hand-painted children's coloring-book COVER illustration for "${title}".`,
+      `Art direction — MOOD "${mood.id}": palette = ${mood.palette}; energy = ${mood.energy}.`,
+      `BRIGHT, SATURATED, MODERN 2026 picture-book aesthetic. High-chroma joyful palette, fresh shelf-release feel, poster-punchy at 160px thumbnail size. Bold shape language and one clear focal hero.`,
+      `Do NOT look muted, retro, vintage, sepia, dusty, faded, brown, tea-stained, or watercolor-washed. Reject any "old storybook" feeling. Reject muddy neutrals.`,
       `Square 1:1 composition, FULL-BLEED edge-to-edge: painted color must extend all the way to every edge of the canvas — top, bottom, left, right. NO white background, NO white margin, NO empty paper showing, NO vignette fade to white, NO inner border, NO outer frame, NO passe-partout. Every pixel of the 1024x1024 canvas is painted illustration.`,
-      `Warm cheerful storybook style — premium picture-book cover, gouache + watercolor feel, expressive, playful, high production value. Fill the background completely with a rich painted environment (sky/water/scenery) that reaches all four edges.`,
+      `Premium picture-book cover: gouache + digital-brush feel with glossy playful mark-making, expressive and vivid, high production value. Fill the background completely with a rich painted environment that reaches all four edges.`,
       sceneClause,
       `Every creature/character MUST be anatomically complete and non-deformed: correct number of legs, one head, one tail, complete limbs, no severed or floating body parts, no fused bodies, no extra heads, no missing features. Canonical proportions.`,
       `The title "${title}" MUST appear as HAND-LETTERED PAINTED TYPOGRAPHY integrated INTO the artwork itself — drawn by the illustrator as part of the painting (bubble-letter or brushed-script style, playful, colorful, with soft shadow and highlight painted in). NOT a font overlay, NOT flat text — it must look painted by hand.`,

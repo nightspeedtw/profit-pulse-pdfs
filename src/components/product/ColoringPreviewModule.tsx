@@ -50,7 +50,12 @@ export default function ColoringPreviewModule({
         {pageCount && <Badge icon={FileText}>{pageCount} coloring pages</Badge>}
         {trimSize && <Badge icon={Ruler}>{trimSize}</Badge>}
         <Badge icon={Printer}>Print-ready PDF</Badge>
+        <Badge icon={Zap}>Instant download</Badge>
+        <Badge icon={Shield}>Personal + classroom use</Badge>
         {categoryLabel && <Badge>{categoryLabel}</Badge>}
+        <span className="ml-auto text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+          Art powered by Runware · Gemini · Cloudflare AI
+        </span>
       </div>
 
       <div className="px-5 md:px-7 py-6 md:py-8 space-y-6">
