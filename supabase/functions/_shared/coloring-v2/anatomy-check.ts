@@ -335,6 +335,14 @@ export function defectsToNegativeClause(defects: string[]): string {
     malformed: "malformed anatomy",
     unrecognizable_subject: "amorphous blob, potato shape, unrecognizable creature",
     blob_shape: "amorphous blob, potato shape",
+    horn: "extra horn, missing horn, broken horn, bent horn, two horns on one head",
+    wing: "extra wings, missing wings, torn wings, one wing",
+    tail: "extra tail, missing tail, severed tail",
+    leg: "wrong number of legs, missing leg, extra leg, severed leg",
+    fin: "wrong number of fins, missing fin",
+    eye: "three eyes, one eye, wrong number of eyes",
+    hand: "six fingers, extra fingers, missing fingers",
+    proportion: "wrong proportions, distorted proportions",
   };
   const hits = new Set<string>();
   for (const d of defects) {
