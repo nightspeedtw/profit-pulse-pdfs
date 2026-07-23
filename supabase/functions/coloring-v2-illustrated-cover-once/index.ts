@@ -120,6 +120,37 @@ export function ageBadgeLabel(ageBand?: string | null): string | null {
   return `AGES ${m[1]}-${m[2]}`;
 }
 
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
+  try {
+    const { book_id, ebook_id } = await req.json().catch(() => ({}));
+    if (!book_id) return json({ error: "book_id required" }, 400);
+
+    const book = await fetchBook(book_id);
+    const title = ensureColoringBookInTitle(book.title ?? "Coloring Book");
+    const sceneClause = await buildSceneClause(book_id, title);
+    const mood = pickMood(book_id);
+    const lettering = pickLetteringStyle(book_id);
+    const ageLabel = ageBadgeLabel(book.age_band);
+
+    const ageBadgeClause = ageLabel
+      ? `Include a PAINTED CIRCULAR AGE BADGE in the TOP-RIGHT corner of the cover: a bright circular sticker/seal (yellow, orange, or red — choose whichever contrasts best with the background), thick dark outline, subtle drop-shadow, with the EXACT text "${ageLabel}" hand-lettered inside in bold rounded capitals. The badge is part of the painting, not a font overlay. Size roughly 15-18% of the cover width. Do NOT place any other text near it.`
+      : `Do NOT add any age badge, age indicator, or age-range text anywhere on the cover.`;
+
+    const prompt = [
+      `Beautiful full-color hand-painted children's coloring-book COVER illustration for "${title}".`,
+      `Art direction — MOOD "${mood.id}": palette = ${mood.palette}; energy = ${mood.energy}.`,
+      `BRIGHT, SATURATED, MODERN 2026 picture-book aesthetic. High-chroma joyful palette, fresh shelf-release feel, poster-punchy at 160px thumbnail size. Bold shape language and one clear focal hero.`,
+      `Do NOT look muted, retro, vintage, sepia, dusty, faded, brown, tea-stained, or watercolor-washed. Reject any "old storybook" feeling. Reject muddy neutrals.`,
+      `Square 1:1 composition, FULL-BLEED edge-to-edge: painted color must extend all the way to every edge of the canvas — top, bottom, left, right. NO white background, NO white margin, NO empty paper showing, NO vignette fade to white, NO inner border, NO outer frame, NO passe-partout. Every pixel of the 1024x1024 canvas is painted illustration.`,
+      `Premium picture-book cover: gouache + digital-brush feel with glossy playful mark-making, expressive and vivid, high production value. Fill the background completely with a rich painted environment that reaches all four edges.`,
+      sceneClause,
+      `Every creature/character MUST be anatomically complete and non-deformed: correct number of legs, one head, one tail, complete limbs, no severed or floating body parts, no fused bodies, no extra heads, no missing features. Canonical proportions.`,
+      `TITLE TREATMENT — style "${lettering.id}": ${lettering.brief} The title "${title}" MUST appear as HAND-ILLUSTRATED CUSTOM LETTERING that is PART OF THE PAINTING — every letter drawn individually by the illustrator with texture, highlight, and shadow painted in. Absolutely NO system font, NO flat digital typography, NO clean vector text. The title should occupy roughly 40-50% of the cover area, placed prominently in the upper half, arced, stacked, or on a painted banner that is part of the scene.`,
+      ageBadgeClause,
+      `Do NOT include: any logo, any watermark, any URL, any subtitle, any extra text besides the title and the age badge (if requested above), any UI element, any book mockup, any border, any frame, any white padding, any decorative edge strip.`,
+      `Spelling of the title MUST be exact. If an age badge is requested, its spelling MUST be exact.`,
+    ].join(" ");
 
 
     let bytes: Uint8Array | null = null;
