@@ -37,7 +37,12 @@ function getLovableKey(): string | undefined {
 //   3) OpenAI GPT-4o / GPT-4o-mini            (tertiary — usually billing-locked)
 //   4) Lovable AI Gateway                     (outage backstop)
 // A verifier outage returns degraded=true so callers do NOT treat it as a defect.
-const CLOUDFLARE_MODEL_LADDER = ["@cf/llava-hf/llava-1.5-7b-hf"];
+const CLOUDFLARE_MODEL_LADDER = [
+  "@cf/meta/llama-3.2-11b-vision-instruct",
+  "@cf/llava-hf/llava-1.5-7b-hf",
+];
+// Per-account+model auto-agree memo so we don't keep POSTing "agree" forever.
+const CF_AGREED_ANATOMY = new Set<string>();
 const OPENAI_MODEL_LADDER = ["gpt-4o-mini", "gpt-4o"];
 const GEMINI_MODEL_LADDER = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
 const LOVABLE_MODEL_LADDER = ["google/gemini-2.5-flash", "google/gemini-2.5-flash-lite"];
