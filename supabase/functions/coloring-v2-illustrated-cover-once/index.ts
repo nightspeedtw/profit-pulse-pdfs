@@ -71,12 +71,13 @@ Deno.serve(async (req: Request) => {
 
     const prompt = [
       `Beautiful full-color hand-painted children's coloring-book COVER illustration for "${title}".`,
-      `Square 1:1 composition, warm cheerful storybook style — think premium picture-book cover, gouache + watercolor feel, expressive, playful, high production value.`,
+      `Square 1:1 composition, FULL-BLEED edge-to-edge: painted color must extend all the way to every edge of the canvas — top, bottom, left, right. NO white background, NO white margin, NO empty paper showing, NO vignette fade to white, NO inner border, NO outer frame, NO passe-partout. Every pixel of the 1024x1024 canvas is painted illustration.`,
+      `Warm cheerful storybook style — premium picture-book cover, gouache + watercolor feel, expressive, playful, high production value. Fill the background completely with a rich painted environment (sky/water/scenery) that reaches all four edges.`,
       sceneClause,
       `Every creature/character MUST be anatomically complete and non-deformed: correct number of legs, one head, one tail, complete limbs, no severed or floating body parts, no fused bodies, no extra heads, no missing features. Canonical proportions.`,
       `The title "${title}" MUST appear as HAND-LETTERED PAINTED TYPOGRAPHY integrated INTO the artwork itself — drawn by the illustrator as part of the painting (bubble-letter or brushed-script style, playful, colorful, with soft shadow and highlight painted in). NOT a font overlay, NOT flat text — it must look painted by hand.`,
-      `Place the title in the upper third of the cover, arced or on a soft painted ribbon that is part of the scene.`,
-      `Do NOT include: any logo, any watermark, any URL, any age badge, any subtitle, any extra text besides the title, any UI element, any book mockup, any border/frame.`,
+      `Place the title in the upper third of the cover, arced or on a soft painted ribbon that is part of the scene. The ribbon/banner (if used) sits INSIDE the painted scene — it does NOT touch the canvas edges and does NOT create a white border around the artwork.`,
+      `Do NOT include: any logo, any watermark, any URL, any age badge, any subtitle, any extra text besides the title, any UI element, any book mockup, any border, any frame, any white padding, any decorative edge strip.`,
       `Spelling of the title MUST be exact.`,
     ].join(" ");
 
