@@ -217,9 +217,9 @@ Deno.serve(async (req: Request) => {
     const plan: any[] = [];
     for (let i = 0; i < slots; i++) {
       const band = bandOrder[i % bandOrder.length];
-      const theme = await pickTheme(c, band);
-      if (!theme) continue;
-      plan.push({ age_band: band, theme, page_count: cfg.page_count });
+      const picked = await pickTheme(c, band);
+      if (!picked) continue;
+      plan.push({ age_band: band, theme: picked.theme, bucket: picked.bucket, page_count: cfg.page_count });
     }
 
     const dispatchWork = (async () => {
