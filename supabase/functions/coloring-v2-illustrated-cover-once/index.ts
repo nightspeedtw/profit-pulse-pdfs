@@ -16,6 +16,7 @@
 // @ts-nocheck
 import { corsHeaders, db, fetchBook, json, signedUrl, uploadAsset } from "../_shared/coloring-v2/state.ts";
 import { openaiDirectImage } from "../_shared/openai-direct.ts";
+import { geminiDirectImageWithMeta } from "../_shared/gemini-direct.ts";
 
 declare const Deno: any;
 
@@ -50,13 +51,35 @@ Deno.serve(async (req: Request) => {
       `Spelling of the title MUST be exact.`,
     ].join(" ");
 
-    const { bytes, model } = await openaiDirectImage({
-      prompt,
-      model: "gpt-image-1",
-      size: "1024x1024",
-      quality: "high",
-      timeoutMs: 180_000,
-    });
+    let bytes: Uint8Array | null = null;
+    let model = "";
+    let provider = "";
+    // Prefer Gemini (OpenAI billing hard-limit hit); fall back to OpenAI.
+    try {
+      const g = await geminiDirectImageWithMeta({
+        prompt,
+        model: "google/gemini-2.5-flash-image",
+      });
+      if (g.bytes && g.bytes.length > 20_000) {
+        bytes = g.bytes;
+        model = g.meta.model;
+        provider = g.meta.provider;
+      }
+    } catch (e) {
+      console.warn("gemini image failed:", String((e as any)?.message ?? e));
+    }
+    if (!bytes) {
+      const o = await openaiDirectImage({
+        prompt,
+        model: "gpt-image-1",
+        size: "1024x1024",
+        quality: "high",
+        timeoutMs: 180_000,
+      });
+      bytes = o.bytes;
+      model = o.model;
+      provider = "openai_direct";
+    }
     if (!bytes || bytes.length < 20_000) {
       return json({ error: "empty_or_tiny_image", size: bytes?.length ?? 0 }, 500);
     }
