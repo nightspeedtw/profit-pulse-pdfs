@@ -19,6 +19,7 @@ import ItemDetailsSection from "@/components/product/ItemDetailsSection";
 import SocialProofBadges from "@/components/product/SocialProofBadges";
 import CompleteTheSetBundle from "@/components/product/CompleteTheSetBundle";
 import FlipbookPreview from "@/components/product/FlipbookPreview";
+import LookInsideFlipbook from "@/components/product/LookInsideFlipbook";
 import ReviewSummary from "@/components/product/ReviewSummary";
 import { ensureColoringLabel } from "@/lib/coloring-title";
 import { useActiveCampaign } from "@/hooks/useActiveCampaign";
