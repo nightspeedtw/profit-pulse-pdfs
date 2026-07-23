@@ -24,9 +24,11 @@ import {
   type MatterPalette,
   type MatterStyle,
 } from "./matter-pages-style.ts";
+import { MATTER_LAYOUT, computeFooterLayout } from "./matter-pages-layout.ts";
 
 // Re-export the pure style API so callers only import this file.
 export { resolveMatterStyle, defaultCopyrightText, MATTER_PAGES_DESIGN_VERSION };
+export { MATTER_LAYOUT, computeFooterLayout };
 export type { MatterPalette, MatterStyle };
 
 
