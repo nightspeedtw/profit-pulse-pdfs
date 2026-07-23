@@ -13,12 +13,47 @@ const db = () => createClient(SB_URL, SB_KEY, { auth: { persistSession: false } 
 
 const AGE_BANDS = ["2-4", "4-6", "6-8", "8-12", "13-17"];
 
-const THEME_POOL: Record<string, string[]> = {
-  "2-4":   ["Friendly Farm Animals", "Chunky Vehicles", "First ABCs", "Playful Sea Creatures", "Cuddly Bears"],
-  "4-6":   ["Magical Unicorns", "Brave Dinosaurs", "Enchanted Forest", "Under the Sea Adventure", "Space Explorers"],
-  "6-8":   ["Mythic Creatures", "Fairy Garden Kingdom", "Robot Inventors", "Jungle Safari", "Dragon Riders"],
-  "8-12":  ["Cyberpunk Cats", "Steampunk Airships", "Deep Sea Discovery", "Fantasy Warriors", "Space Colony"],
-  "13-17": ["Neon Rebellion", "Sacred Geometry Mandalas", "Anime Skylines", "Mythic Constellations", "Dystopian Cityscapes"],
+// Themes grouped into 5 buckets so rotation forces topic variety across
+// the shelf. Every 5 books, all buckets should get hit at least once.
+type Bucket = "animals_nature" | "vehicles_city_jobs" | "food_daily_life" | "world_culture_travel" | "imagination_fantasy_space";
+const BUCKETS: Bucket[] = ["animals_nature", "vehicles_city_jobs", "food_daily_life", "world_culture_travel", "imagination_fantasy_space"];
+
+const THEME_BUCKETS: Record<string, Record<Bucket, string[]>> = {
+  "2-4": {
+    animals_nature:        ["Friendly Farm Animals", "Playful Sea Creatures", "Cuddly Bear Cubs", "Backyard Bugs", "Baby Zoo Friends"],
+    vehicles_city_jobs:    ["Chunky Vehicles", "Little Firefighters", "Toy Trains", "Busy Builders", "Post Office Day"],
+    food_daily_life:       ["Ice Cream Truck", "Bakery Morning", "Pajama Party", "Bath Time Bubbles", "First ABCs"],
+    world_culture_travel:  ["Tiny World Passports", "Beach Day Around the World", "Festival Lanterns", "Snowy Village Friends", "Market Day Colors"],
+    imagination_fantasy_space: ["Cloud Kingdom", "Dream Balloons", "Tiny Rocket Trip", "Sleepy Moon Friends", "Rainbow Dreams"],
+  },
+  "4-6": {
+    animals_nature:        ["Jungle Safari Friends", "Coral Reef Explorers", "Arctic Adventures", "Rainforest Canopy", "Prairie Wildlife Day"],
+    vehicles_city_jobs:    ["Fire Station Heroes", "Robot Workshop", "Chef's Kitchen", "Construction Zone", "Pilot's Sky Tour"],
+    food_daily_life:       ["Farmer's Market", "Backyard Garden", "Toy Store Wonders", "Doughnut Diner", "Rainy Day Indoors"],
+    world_culture_travel:  ["Tokyo Neon Streets", "Kyoto Cherry Blossom", "Marrakech Market", "Rio Carnival", "Reykjavik Puffins"],
+    imagination_fantasy_space: ["Magical Unicorns", "Enchanted Forest", "Space Explorers", "Brave Dinosaurs", "Cosmic Whales"],
+  },
+  "6-8": {
+    animals_nature:        ["Deep Ocean Discoveries", "Savanna Sunset", "Mountain Bear Country", "Desert Cactus Wildlife", "Coral Reef Detectives"],
+    vehicles_city_jobs:    ["Skyline Rescue Crew", "Robot Inventors", "Bakery Boss", "Aviation Museum", "Deep Sea Submariner"],
+    food_daily_life:       ["Street Food Festival", "Boba Tea Shop", "Farmer's Market Fair", "School Field Day", "Weekend Farmers Fair"],
+    world_culture_travel:  ["Kyoto Lantern Night", "Mexican Mercado", "Nordic Aurora", "Sahara Caravan", "Andes Village"],
+    imagination_fantasy_space: ["Mythic Creatures", "Fairy Garden Kingdom", "Dragon Riders", "Cosmic Whale Migration", "Time-Machine Tea Party"],
+  },
+  "8-12": {
+    animals_nature:        ["Deep Sea Discovery", "Endangered Species Portraits", "Amazon Canopy", "Arctic Wildlife Journal", "Coral Reef Biome"],
+    vehicles_city_jobs:    ["Steampunk Airships", "Space Colony Engineer", "Cyberpunk Repair Shop", "Race Track Pit Crew", "Robotics Lab"],
+    food_daily_life:       ["Ramen Alley Night", "Vintage Diner", "Global Street Eats", "Skate Park Weekend", "Backyard Astronomy Night"],
+    world_culture_travel:  ["Istanbul Bazaar", "Petra Ancient City", "Icelandic Coast", "Havana Streets", "Kyoto Alleyways"],
+    imagination_fantasy_space: ["Cyberpunk Cats", "Fantasy Warriors", "Sky Pirates", "Moon Colony Kids", "Underwater Kingdom"],
+  },
+  "13-17": {
+    animals_nature:        ["Bioluminescent Reefs", "Endangered Portraits", "Rewilding Landscapes", "Botanical Studies", "Aurora Wildlife"],
+    vehicles_city_jobs:    ["Neon City Motorcycles", "Formula Circuit", "Space Station Interiors", "Vintage Aviation", "Modern Architecture Studies"],
+    food_daily_life:       ["Cafe Aesthetic", "Night Market Neon", "Skateboard Culture", "Vinyl Record Shop", "Coffee Studio"],
+    world_culture_travel:  ["Anime Skylines", "Marrakech Souks", "Reykjavik Aurora", "Kyoto Alley Night", "Havana Vintage"],
+    imagination_fantasy_space: ["Neon Rebellion", "Sacred Geometry Mandalas", "Mythic Constellations", "Dystopian Cityscapes", "Cosmic Warriors"],
+  },
 };
 
 const CORS = {
@@ -30,19 +65,51 @@ const j = (x: any, s = 200) => new Response(JSON.stringify(x), {
   status: s, headers: { ...CORS, "Content-Type": "application/json" },
 });
 
-async function alreadyUsedTitles(c: any, band: string): Promise<Set<string>> {
-  const { data } = await c.from("coloring_v2_books")
-    .select("theme").eq("age_band", band).limit(200);
-  return new Set((data ?? []).map((r: any) => String(r.theme ?? "").toLowerCase().trim()));
+const ADJECTIVES = ["Sparkling", "Mighty", "Cozy", "Radiant", "Whimsical", "Golden", "Twilight", "Sunny", "Dreamy", "Bold"];
+
+function themeToBucket(band: string, theme: string): Bucket | null {
+  const t = String(theme ?? "").toLowerCase().trim();
+  const bands = THEME_BUCKETS[band] ?? {};
+  for (const b of BUCKETS) {
+    if ((bands[b] ?? []).some((x) => x.toLowerCase() === t)) return b;
+  }
+  return null;
 }
 
-async function pickTheme(c: any, band: string): Promise<string | null> {
-  const pool = THEME_POOL[band] ?? [];
-  const used = await alreadyUsedTitles(c, band);
-  for (const t of pool) if (!used.has(t.toLowerCase())) return t;
-  // fallback: rotate with variant suffix
-  const base = pool[Math.floor(Math.random() * pool.length)] ?? "Coloring Adventure";
-  return `${base} Volume ${Math.floor(Math.random() * 900) + 100}`;
+async function pickTheme(c: any, band: string): Promise<{ theme: string; bucket: Bucket } | null> {
+  const bands = THEME_BUCKETS[band];
+  if (!bands) return null;
+
+  // Look at the last 10 books in this age band to compute bucket distribution.
+  const { data: recent } = await c.from("coloring_v2_books")
+    .select("theme").eq("age_band", band).order("created_at", { ascending: false }).limit(10);
+  const bucketCounts: Record<Bucket, number> = {
+    animals_nature: 0, vehicles_city_jobs: 0, food_daily_life: 0,
+    world_culture_travel: 0, imagination_fantasy_space: 0,
+  };
+  for (const r of (recent ?? [])) {
+    const b = themeToBucket(band, r.theme ?? "");
+    if (b) bucketCounts[b]++;
+  }
+  // Pick bucket with fewest hits (ties broken randomly)
+  const minCount = Math.min(...BUCKETS.map((b) => bucketCounts[b]));
+  const candidates = BUCKETS.filter((b) => bucketCounts[b] === minCount);
+  const chosenBucket = candidates[Math.floor(Math.random() * candidates.length)];
+
+  // Used titles overall in this band
+  const { data: usedRows } = await c.from("coloring_v2_books")
+    .select("theme").eq("age_band", band).limit(500);
+  const used = new Set((usedRows ?? []).map((r: any) => String(r.theme ?? "").toLowerCase().trim()));
+
+  const pool = bands[chosenBucket] ?? [];
+  const unused = pool.filter((t) => !used.has(t.toLowerCase()));
+  if (unused.length) {
+    return { theme: unused[Math.floor(Math.random() * unused.length)], bucket: chosenBucket };
+  }
+  // Compound fallback (no "Volume N" numeric suffixes)
+  const base = pool[Math.floor(Math.random() * Math.max(1, pool.length))] ?? "Coloring Adventure";
+  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  return { theme: `${adj} ${base}`, bucket: chosenBucket };
 }
 
 Deno.serve(async (req: Request) => {

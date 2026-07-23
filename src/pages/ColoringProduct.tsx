@@ -68,6 +68,7 @@ export default function ColoringProduct() {
   const [notFound, setNotFound] = useState(false);
   const [siblings, setSiblings] = useState<Sibling[]>([]);
   const [preview, setPreview] = useState(false);
+  const [flipbookOpen, setFlipbookOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const saleCfg = useSaleConfig();
@@ -140,6 +141,11 @@ export default function ColoringProduct() {
   const pageCount = Number(meta.page_count ?? pricing?.page_count ?? 32);
   const bandLabel = ageBandLabel(ageMin, ageMax);
   const previewUrls: string[] = Array.isArray(meta.preview_page_urls) ? meta.preview_page_urls.slice(0, 6) : [];
+  const galleryUrlsAll: string[] = Array.isArray(meta.gallery_urls) ? meta.gallery_urls.filter(Boolean) : [];
+  // Flipbook shows every available interior page (not just 6). Prefer full
+  // gallery, fall back to preview_page_urls, dedupe while preserving order.
+  const flipbookImagesRaw = [...galleryUrlsAll, ...previewUrls].filter(Boolean) as string[];
+  const flipbookImages = Array.from(new Set(flipbookImagesRaw));
   const contactSheetThumbs: string[] = Array.isArray(meta.contact_sheet_thumbs)
     ? meta.contact_sheet_thumbs.slice(0, 10)
     : previewUrls.slice(0, 6);
@@ -168,9 +174,8 @@ export default function ColoringProduct() {
   };
 
   const openPreview = () => {
-    if (previewUrls.length === 0 && !book.cover_url) return;
     void emitColoringEvent("open_preview", book.id);
-    setPreview(true);
+    setFlipbookOpen(true);
   };
 
   const clickBuy = async () => {
@@ -549,6 +554,15 @@ export default function ColoringProduct() {
         previewUrls={previewUrls}
         open={preview}
         onClose={() => setPreview(false)}
+      />
+
+      <LookInsideFlipbook
+        open={flipbookOpen}
+        onClose={() => setFlipbookOpen(false)}
+        images={flipbookImages}
+        title={displayTitle}
+        priceLabel={priceText}
+        onBuy={() => { setFlipbookOpen(false); void clickBuy(); }}
       />
     </div>
   );
