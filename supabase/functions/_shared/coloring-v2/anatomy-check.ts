@@ -284,11 +284,8 @@ async function callLovableGateway(
   model: string, bytes: Uint8Array, mime: string, subject: string, scene: string,
 ): Promise<{ ok: boolean; reason?: string; verdict?: V2AnatomyVerdict }> {
   const key = getLovableKey(); if (!key) return { ok: false, reason: "no_lovable_key" };
-  const user = [
-    `Planned subject: "${subject}".`,
-    scene ? `Scene: "${scene}".` : "",
-    "Audit the attached image and return the JSON.",
-  ].filter(Boolean).join("\n");
+  const user = buildUserPrompt(subject, scene);
+
   const dataUrl = `data:${mime};base64,${bytesToB64(bytes)}`;
   const body = {
     model,
