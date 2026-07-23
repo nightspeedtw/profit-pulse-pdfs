@@ -5,7 +5,7 @@
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { runwareInference, RUNWARE_MODELS } from "../_shared/runware.ts";
+import { generateBlogHero, BlogHeroAllProvidersFailedError } from "../_shared/blog-hero-image.ts";
 import { runQualityGate, type BlogDraft, type QaResult } from "../_shared/blog-quality-gate.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
