@@ -1,0 +1,1 @@
+UPDATE coloring_v2_books SET stage='pdf', stage_updated_at=now() WHERE id='3f9357f7-6118-4ba0-97bf-ae051e39b36d';
