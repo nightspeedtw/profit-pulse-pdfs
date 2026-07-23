@@ -87,16 +87,16 @@ export const KidsBookCard = ({ book, themes, variant = "grid", index = 0, onPrev
       style={{ animationDelay: `${Math.min(index * 30, 240)}ms` }}
     >
       {/* Image tile — square, rounded, borderless. The image IS the card.
-          SQUARE-FIRST law: coloring thumbnails render exact-fit (object-contain)
-          on white so native 1:1 marketing thumbs display complete and legacy
-          rectangular covers never crop. Picture books remain object-cover. */}
-      <div className={`relative w-full aspect-square overflow-hidden rounded-lg ${isColoring ? "bg-white" : "bg-muted"}`}>
+          FILL-THUMBNAIL law (owner order 2026-07-23): thumbnails fill the
+          tile edge-to-edge with no white borders. object-cover on all books;
+          the cover art's own safe-zone keeps the title readable. */}
+      <div className="relative w-full aspect-square overflow-hidden rounded-lg bg-muted">
         {image ? (
           <img
             src={image}
             alt={displayTitle}
             loading="lazy"
-            className={`absolute inset-0 w-full h-full ${isColoring ? "object-contain" : "object-cover object-center"} transition-transform duration-500 group-hover:scale-[1.03]`}
+            className="absolute inset-0 w-full h-full object-cover object-center transition-transform duration-500 group-hover:scale-[1.03]"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-muted-foreground">
