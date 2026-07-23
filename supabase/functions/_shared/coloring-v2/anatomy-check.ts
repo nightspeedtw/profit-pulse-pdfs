@@ -27,19 +27,20 @@ function getLovableKey(): string | undefined {
   try { return (globalThis as any).Deno?.env?.get?.("LOVABLE_API_KEY"); }
   catch { return undefined; }
 }
-// PERMANENT FIX (2026-07-24 anatomy_cloudflare_primary_v4):
-// OpenAI billing exhausted and Google AI Studio direct returns 404 on
-// gemini-*-flash vision for this project. Cloudflare Workers AI llava-1.5
-// is cheap, reliable, and covered by CF_ACCOUNT_ID + CF_API_TOKEN which
-// are already in the sandbox. Ladder is now:
+// PERMANENT FIX (2026-07-24 anatomy_cloudflare_primary_v4 → v5:model_refresh):
+// OpenAI billing exhausted and Google AI Studio direct returns 404 on the
+// older gemini-*-flash vision IDs for this project. Cloudflare Workers AI
+// llava-1.5 is cheap and covered by CF_ACCOUNT_ID + CF_API_TOKEN. The
+// Gemini direct ladder is refreshed to the current stable model names.
+// Ladder is now:
 //   1) Cloudflare @cf/llava-hf/llava-1.5-7b-hf (primary)
-//   2) Gemini 2.5/2.0/1.5 Flash direct       (secondary)
-//   3) OpenAI GPT-4o / GPT-4o-mini            (tertiary — usually billing-locked)
-//   4) Lovable AI Gateway                     (outage backstop)
+//   2) Google Gemini 3.5/2.5 Flash direct        (secondary)
+//   3) OpenAI GPT-4o / GPT-4o-mini             (tertiary — usually billing-locked)
+//   4) Lovable AI Gateway                      (outage backstop)
 // A verifier outage returns degraded=true so callers do NOT treat it as a defect.
 const CLOUDFLARE_MODEL_LADDER = [
-  "@cf/meta/llama-3.2-11b-vision-instruct",
   "@cf/llava-hf/llava-1.5-7b-hf",
+  "@cf/meta/llama-3.2-11b-vision-instruct",
 ];
 // Per-account+model auto-agree memo so we don't keep POSTing "agree" forever.
 const CF_AGREED_ANATOMY = new Set<string>();
@@ -47,7 +48,7 @@ const OPENAI_MODEL_LADDER = ["gpt-4o-mini", "gpt-4o"];
 const GEMINI_MODEL_LADDER = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
 const LOVABLE_MODEL_LADDER = ["google/gemini-3.5-flash", "google/gemini-3.6-flash"];
 
-export const V2_ANATOMY_GATE_VERSION = "v4:cloudflare_primary";
+export const V2_ANATOMY_GATE_VERSION = "v5:model_refresh";
 
 // Canonical-parts contract (2026-07-23 anatomy_canonical_parts_v2).
 // Owner directive: Starlight Unicorns shipped with missing legs and broken
