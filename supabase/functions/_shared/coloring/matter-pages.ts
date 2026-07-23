@@ -37,17 +37,50 @@ function c(rgbArr: [number, number, number]) {
 }
 
 /**
+ * OWNER LAW `matter_pages_no_overlap_v1` (2026-07-23):
+ *   The four decorative layers on every matter page — border ring, corner
+ *   confetti dots, corner vignettes, and the SecretPDF brand footer
+ *   (© line + logo) — must live in reserved zones that never intersect.
+ *   The bottom of the page is owned by the brand footer alone; borders,
+ *   dots, and vignettes must yield.
+ */
+export const MATTER_LAYOUT = {
+  /** Height of the reserved footer band at the bottom of the page. */
+  footerBandH: 34,
+  /** Padding above the inner-rule when placing the footer baseline. */
+  footerBaselinePad: 6,
+  /** Max logo height inside the footer band. */
+  logoMaxH: 18,
+  /** Max logo width as fraction of page width. */
+  logoMaxWFrac: 0.22,
+  /** Horizontal gap between © text and logo. */
+  copyLogoGap: 24,
+  /** Y-coordinate that page content must stay ABOVE to avoid the footer. */
+  contentMinY: 66,
+} as const;
+
+/**
  * Draw a palette-tinted decorative border: outer soft wash rectangle,
  * inner double rule, and 4 corner "confetti dots" from the accent color.
+ * When `reserveFooter` is true, the bottom two confetti clusters are
+ * omitted so the brand footer (© + logo) can sit cleanly in that band.
  * Deterministic — no AI, no external assets.
  */
 export function drawDecorativeBorder(
   page: any,
-  opts: { pageW: number; pageH: number; palette: MatterPalette; inset?: number; heavy?: boolean },
+  opts: {
+    pageW: number;
+    pageH: number;
+    palette: MatterPalette;
+    inset?: number;
+    heavy?: boolean;
+    reserveFooter?: boolean;
+  },
 ) {
   const { pageW, pageH, palette } = opts;
   const inset = opts.inset ?? 28;
   const heavy = !!opts.heavy;
+  const reserveFooter = opts.reserveFooter !== false; // default ON
 
   // outer tint band (very soft)
   page.drawRectangle({
@@ -68,7 +101,9 @@ export function drawDecorativeBorder(
     color: undefined,
   });
 
-  // 4 confetti-dot corners: 3 dots each, decreasing in size
+  // 4 confetti-dot corners: 3 dots each, decreasing in size.
+  // Bottom two corners are skipped when the footer band is reserved so
+  // the © line and logo never land on top of confetti dots.
   const cornerDot = (cx: number, cy: number, dir: [1 | -1, 1 | -1]) => {
     for (let i = 0; i < 3; i++) {
       const r = (heavy ? 6 : 4.5) - i * 1.1;
@@ -81,10 +116,13 @@ export function drawDecorativeBorder(
       });
     }
   };
+  // Top corners always render.
   cornerDot(inset + 18, pageH - inset - 18, [1, -1]);
   cornerDot(pageW - inset - 18, pageH - inset - 18, [-1, -1]);
-  cornerDot(inset + 18, inset + 18, [1, 1]);
-  cornerDot(pageW - inset - 18, inset + 18, [-1, 1]);
+  if (!reserveFooter) {
+    cornerDot(inset + 18, inset + 18, [1, 1]);
+    cornerDot(pageW - inset - 18, inset + 18, [-1, 1]);
+  }
 }
 
 /**
