@@ -23,13 +23,19 @@ function getOpenAIKey(): string | undefined {
   try { return (globalThis as any).Deno?.env?.get?.("OPENAI_API_KEY"); }
   catch { return undefined; }
 }
-// PERMANENT FIX (2026-07-22 anatomy_gate_openai_primary_v3):
-// Google AI Studio free tier returns 404 on all gemini-*-flash vision
-// models for this project. Switch primary verifier to OpenAI GPT-4o vision
-// (OPENAI_API_KEY is provisioned). Keep Gemini as fallback for the day the
-// Google quota is restored — ladder tries OpenAI first, then Gemini.
+function getLovableKey(): string | undefined {
+  try { return (globalThis as any).Deno?.env?.get?.("LOVABLE_API_KEY"); }
+  catch { return undefined; }
+}
+// PERMANENT FIX (2026-07-23 anatomy_gate_lovable_gateway_fallback_v4):
+// OpenAI direct hits billing_hard_limit and Google AI Studio direct returns
+// 404 on all gemini-*-flash vision models for this project. Add Lovable AI
+// Gateway (google/gemini-2.5-flash) as a tertiary vision fallback so anatomy
+// verification keeps working under a provider outage without burning direct
+// provider credits.
 const OPENAI_MODEL_LADDER = ["gpt-4o-mini", "gpt-4o"];
 const GEMINI_MODEL_LADDER = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+const LOVABLE_MODEL_LADDER = ["google/gemini-2.5-flash", "google/gemini-2.5-flash-lite"];
 
 export const V2_ANATOMY_GATE_VERSION = "v1:coloring_v2_anatomy_gate";
 
@@ -182,9 +188,12 @@ async function callGemini(
 }
 
 /**
- * Check anatomy of a single interior page. OpenAI GPT-4o vision primary,
- * Gemini fallback. A degraded verdict means both providers were
- * unreachable — callers MUST NOT treat degraded as a defect.
+ * Check anatomy of a single interior page. Provider ladder:
+ *   1) OpenAI GPT-4o vision (direct)
+ *   2) Google Gemini vision (direct)
+ *   3) Lovable AI Gateway (google/gemini-2.5-flash) — outage backstop
+ * A degraded verdict means every provider was unreachable — callers MUST
+ * NOT treat degraded as a defect.
  */
 export async function checkPageAnatomy(input: {
   bytes: Uint8Array;
@@ -212,7 +221,54 @@ export async function checkPageAnatomy(input: {
       console.warn(`[coloring-v2 anatomy] ${lastReason}`);
     }
   }
+  if (getLovableKey()) {
+    for (const m of LOVABLE_MODEL_LADDER) {
+      const res = await callLovableGateway(m, input.bytes, mime, subject, scene);
+      if (res.ok && res.verdict) return res.verdict;
+      lastReason = `lovable/${m}:${res.reason ?? "unknown"}`;
+      console.warn(`[coloring-v2 anatomy] ${lastReason}`);
+    }
+  }
   return degraded(lastReason);
+}
+
+async function callLovableGateway(
+  model: string, bytes: Uint8Array, mime: string, subject: string, scene: string,
+): Promise<{ ok: boolean; reason?: string; verdict?: V2AnatomyVerdict }> {
+  const key = getLovableKey(); if (!key) return { ok: false, reason: "no_lovable_key" };
+  const user = [
+    `Planned subject: "${subject}".`,
+    scene ? `Scene: "${scene}".` : "",
+    "Audit the attached image and return the JSON.",
+  ].filter(Boolean).join("\n");
+  const dataUrl = `data:${mime};base64,${bytesToB64(bytes)}`;
+  const body = {
+    model,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: SYSTEM },
+      { role: "user", content: [
+        { type: "text", text: user },
+        { type: "image_url", image_url: { url: dataUrl } },
+      ]},
+    ],
+  };
+  let r: Response;
+  try {
+    r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    return { ok: false, reason: `fetch_error:${String((e as Error)?.message ?? e).slice(0, 120)}` };
+  }
+  if (!r.ok) return { ok: false, reason: `http_${r.status}:${(await r.text()).slice(0, 200)}` };
+  let j: any; try { j = await r.json(); } catch { return { ok: false, reason: "resp_json_fail" }; }
+  const text = j?.choices?.[0]?.message?.content ?? "";
+  const parsed = tryParseJson(text);
+  if (!parsed) return { ok: false, reason: "json_parse_fail" };
+  return { ok: true, verdict: normalizeVerdict(parsed, `lovable/${model}`) };
 }
 
 /** Derive an additive negative-prompt clause from a failed verdict. */

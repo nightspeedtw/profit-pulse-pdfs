@@ -170,6 +170,20 @@ Deno.serve(async (req: Request) => {
     const book = await fetchBook(book_id);
     if (book.stage !== "cover") return json({ ok: true, skipped: true, stage: book.stage });
 
+    // Hand-lettered / manually-approved cover short-circuit:
+    // if an approved cover_final asset already exists and its meta records
+    // the illustrated-hand-lettered law, skip regeneration and advance to QC
+    // so a repair sweep doesn't overwrite the owner-approved artwork.
+    if (book.approved_cover_asset_id) {
+      const { data: existing } = await db().from("coloring_v2_assets")
+        .select("id, meta, kind").eq("id", book.approved_cover_asset_id).maybeSingle();
+      if (existing && existing.kind === "cover_final" && existing.meta?.law === "cover_illustrated_hand_lettered_once_v1") {
+        await advance(book_id, "cover", "qc");
+        await fireStage("coloring-v2-qc", { book_id });
+        return json({ ok: true, skipped: true, reason: "hand_lettered_cover_preserved", next: "qc" });
+      }
+    }
+
     const priorAttempts = Number(book.stage_attempt_count ?? 0);
     if (priorAttempts >= COVER_HARD_ATTEMPT_CAP) {
       const reason = book.last_error ?? "cover_attempts_exhausted";
