@@ -1,0 +1,1 @@
+UPDATE public.coloring_v2_books SET stage='pdf' WHERE id='7bcc0efd-834d-4df1-bdca-bb10a1b5bb34';
