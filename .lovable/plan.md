@@ -1,73 +1,61 @@
 
-## Target book
-`Starlight Unicorns Coloring Book`
-- `ebooks_kids.id` = `10bcda01-319a-40e7-bf12-55df05370770` (live, sellable, qc=92)
-- `coloring_v2_books.id` = `0c1bfd74-0a00-4ab0-be16-794706c5420c`
-- Current cover asset meta: `ocr_pass:false`, `ocr_soft_accept:soft_accept_cf_fallback_runware_billing_locked` — cover was accepted under a soft‑accept branch during a provider outage, which is why the title spelling / composition slipped through.
-- Interior assets carry no `repair_verdict` yet — the anatomy sweep has never run on this book.
+## เป้าหมาย
+Unblock vision provider ด้วย Vertex AI (GCP) แล้วเก็บ Starlight Unicorns ให้จบ (ปกวาดใหม่ + anatomy sweep) ก่อนไปเล่มถัดไป (Bold Block Alphabet) ตามกฎ one-book-at-a-time
 
-The user reports: cover spelling wrong, unicorn proportions wrong, missing/severed limbs, deformity. Both cover AND interior must be repaired, and the fix must be permanent (defect class, not one row).
+## ต้องได้จากเจ้าของก่อน (blocker)
+Vertex AI ต้องใช้ GCP service account credentials ผมจะขอเป็น secret 3 ตัว:
+- `GCP_PROJECT_ID` — GCP project ที่เปิด Vertex AI API แล้ว
+- `GCP_LOCATION` — เช่น `us-central1` หรือ `asia-southeast1`
+- `GCP_SERVICE_ACCOUNT_JSON` — service account key JSON (มี `roles/aiplatform.user`)
 
-## Part A — Repair this specific book (one-book-at-a-time law)
+เจ้าของทำใน GCP Console:
+1. Enable **Vertex AI API** ใน project ที่เลือก
+2. IAM → Service Accounts → สร้างใหม่ → grant **Vertex AI User**
+3. Keys → Add Key → JSON → ดาวน์โหลด → ทั้งไฟล์ = value ของ `GCP_SERVICE_ACCOUNT_JSON`
 
-1. Demote the book off the storefront while repair runs
-   - `ebooks_kids`: `listing_status='draft'`, `sellable=false`, `blocker_reason='repair_starlight_unicorns_anatomy_cover'`.
-   - `coloring_v2_books`: `publish_status='draft'`, `qc_status='pending'`, `stage='interior_render'`, `stage_attempt_count=0`.
+ระหว่างรอ ผม implement โค้ดให้พร้อมเรียกได้ทันทีที่ secrets มา
 
-2. Interior sweep (permanent, resumable)
-   - Drop stale `repair_verdict` on any interior asset for this book (schema already supports it in `meta.repair_verdict`).
-   - Call `coloring-v2-repair-book` in the existing bounded-batch loop (BATCH_SIZE=6) with `preserve_cover:false` — this book's cover is bad, we want it regenerated too. The function will:
-     - dedupe interior duplicates,
-     - run `checkPageAnatomy` (OpenAI → Gemini → Lovable ladder),
-     - drop failed pages + all cover assets,
-     - reset stage to `interior_render` and fire `coloring-v2-render-page` at the first missing page.
-   - The V2 render worker already carries the negative-prompt clause from `defectsToNegativeClause` so re-rendered pages get "no fused limbs / severed limbs / wrong count of legs / missing limbs / extra head".
+## แผนงาน
 
-3. Cover regen — illustrated hand‑lettered path (drawn cover, not overlay)
-   - Owner law from earlier: unicorn cover must be *drawn*, not font‑stamped.
-   - After interiors pass, invoke `coloring-v2-illustrated-cover-once` (already exists, produces the `cover_illustrated_hand_lettered_once_v1` asset that the V2 cover stage short-circuits on).
-   - This runs on the smart‑AI‑only ladder (Gemini / GPT‑Image) per the `cover_smart_ai_only_v9` + `cover_3_strike_stop_v10` doctrine — no Cloudflare / Runware for covers.
+### Step 1 — Vertex AI vision adapter (โค้ดใหม่)
+สร้าง `supabase/functions/_shared/vertex-vision.ts`:
+- OAuth2 JWT bearer flow: sign JWT ด้วย service account private key → แลก access_token ที่ `oauth2.googleapis.com/token` (cache 55 นาที)
+- ฟังก์ชัน `vertexGeminiVision({imageUrl, prompt, model})` เรียก `https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/{LOCATION}/publishers/google/models/gemini-2.5-pro:generateContent`
+- Return `{ ok, text, raw }`
 
-4. Finish + republish
-   - Fire `coloring-v2-pdf` → `coloring-v2-qc` → `coloring-v2-publish` via the existing tick.
-   - Only re‑flip `listing_status='live'` when: (a) OCR/typography verifier passes on the new cover, (b) every interior has `repair_verdict.pass=true` and `degraded=false`, (c) QC ≥ 90.
+### Step 2 — Wire เข้า anatomy ladder
+แก้ `supabase/functions/_shared/coloring-v2/anatomy-check.ts`:
+- Ladder ใหม่: **(1) Vertex Gemini 2.5 Pro → (2) OpenAI GPT-4o direct → (3) Gemini AI Studio direct → (4) Lovable Gateway (ถ้ามี allow)**
+- ใช้ `buildUserPrompt` + `CANONICAL_PARTS` checklist ที่ทำไว้แล้ว
+- Skip provider ที่ throw 401/402/404/billing → ลอง provider ถัดไป (3-strike ทั้ง book ถึงจะหยุด, ไม่ใช่ per-page)
 
-## Part B — Permanent fixes (defect class)
+### Step 3 — Wire เข้า cover generator
+แก้ `supabase/functions/coloring-v2-cover/index.ts` + `coloring-v2-illustrated-cover-once/index.ts`:
+- ก่อน route ไป OpenAI images → เช็ค OpenAI available; ถ้า billing_hard_limit → route ไป **Vertex Imagen 3** (`imagen-3.0-generate-002`) เป็น secondary
+- คงกฎ Gemini/OpenAI-only (ห้าม Runware/CF ทำปก) และ 3-strike stop
 
-These change the *system*, not just this book, so future unicorn / horned / winged animals cannot ship with the same defect.
+### Step 4 — Repair Starlight Unicorns
+1. Clear `meta.repair_verdict` ทุกหน้า (v2_id `0c1bfd74-...`)
+2. เรียก `coloring-v2-repair-book` batch (6 หน้าต่อรอบ) จนครบ ~32 หน้า — anatomy gate ใช้ ladder ใหม่จริง
+3. เรียก `coloring-v2-illustrated-cover-once` (subject-aware unicorn prompt ที่ patched ไปแล้ว) → ได้ cover วาดมือใหม่ที่มี **4 legs, 1 horn, 1 tail** ครบ
+4. rebuild PDF, run OCR/SVG spelling verifier, restore `listing_status=live` เมื่อ pass
 
-1. `_shared/coloring-v2/anatomy-check.ts` — subject-aware canonical-parts contract
-   - Extend the auditor with a small per‑subject part inventory (unicorn: 4 legs, 1 horn, 1 tail, 2 eyes, 1 head; pegasus: +2 wings; mermaid: 1 tail-fin, 2 arms; dragon: 4 legs+2 wings+1 tail; etc.).
-   - Feed it in the user prompt as `Canonical parts: {…}`. The auditor already fails on wrong-count / missing / extra parts; giving it the count table upgrades detection from "vibes" to a checklist.
-   - Add `wing_count`, `horn_count`, `tail_count` to the defect map + `defectsToNegativeClause`, so renderer negative prompts get "no extra horn, no missing tail, no missing wing, no bent horn" for unicorn class.
-   - Bump gate version to `v2:coloring_v2_anatomy_gate` and record it in `pipeline_skills`.
+### Step 5 — ไปเล่มถัดไปตามกฎ
+เมื่อ Starlight ขึ้น shelf แล้ว → pick **Bold Block Alphabet Coloring Book** (v2_id `dc696ca8-...`, stage=cover, interiors เสร็จ) → run cover → QC → PDF → publish → ค่อยเลื่อนไปเล่มถัดไป
 
-2. Kill the cover soft‑accept branch for spelling
-   - In `coloring-v2-cover/index.ts`, the current path allowed `ocr_soft_accept:soft_accept_cf_fallback_*` to mark the cover final when OCR mismatched during a provider outage.
-   - New rule: if OCR/typography verifier fails, do NOT persist as `cover_final`. Instead persist as `cover_candidate`, keep `approved_cover_asset_id=null`, and route to `coloring-v2-illustrated-cover-once`. Emit `cover_no_soft_accept_v12` skill.
-   - Legacy books already live keep their assets; this only stops future books from being force‑accepted.
+### Step 6 — Regression + memory
+- Regression fixture: fake OpenAI 402 + fake Gemini 404 → ต้อง fallback ไป Vertex สำเร็จ
+- Register `pipeline_skills` เอกสาร `vertex_vision_ladder_v1`
+- อัปเดต `mem://` core rule: Vision provider ladder = Vertex → OpenAI → Gemini-direct
 
-3. Republish guard
-   - Extend `ebooks_kids_coloring_spelling_guard` (already demotes on missing OCR evidence) to also demote when `metadata.coloring_cover.evidence.transcription.ocr_soft_accept` contains `runware_billing_locked` or `cf_fallback` — a legacy flag from the soft‑accept era. Prevents any republish of a book that only ever passed under soft‑accept.
+## Deliverables
+- โค้ดใหม่/แก้ไข: 4 edge functions + 1 shared helper
+- Starlight Unicorns: `sellable=true`, cover วาดมือใหม่, anatomy pass ทุกหน้า
+- Bold Block Alphabet: อยู่ระหว่างผลิต หรือเสร็จ
+- Regression test + release-manifest validator pass
 
-4. Regression fixtures
-   - Add `.lovable/regressions/unicorn-anatomy-and-cover.md` documenting: (a) the Starlight Unicorns failure, (b) canonical-parts contract, (c) soft-accept removal, (d) three-book fresh-run expectation.
-   - Register `pipeline_skills` rows: `anatomy_canonical_parts_v2`, `cover_no_soft_accept_v12`.
-
-## Technical section
-
-- Files created/changed:
-  - `supabase/functions/_shared/coloring-v2/anatomy-check.ts` — add canonical-parts prompt block + expanded defect map; version bump.
-  - `supabase/functions/coloring-v2-cover/index.ts` — remove soft-accept `cover_final` write; persist as `cover_candidate`; hand off to illustrated-cover-once.
-  - `supabase/functions/coloring-v2-repair-book/index.ts` — accept `clear_prior_verdicts:true` to wipe `meta.repair_verdict` on demand (needed to force re-check of this book's interiors under v2 rules).
-  - Migration (data-only, no schema): update `ebooks_kids` + `coloring_v2_books` for the target book; insert two `pipeline_skills` rows.
-  - `.lovable/regressions/unicorn-anatomy-and-cover.md`.
-- No new tables, no RLS changes.
-- No lowered thresholds. Anatomy gate stays at `score ≥ 90 && defects=[] && recognizable=true`.
-- One book at a time: nothing else re-enters the queue during this run.
-
-## Exit criteria
-- Every interior page of Starlight Unicorns has `meta.repair_verdict.pass=true`, `degraded=false`, `score ≥ 90`.
-- New cover asset carries `cover_illustrated_hand_lettered_once_v1` + OCR/typography verifier pass=true (no soft-accept).
-- QC ≥ 90, PDF regenerated, `listing_status='live'`, `sellable=true`.
-- Next two fresh unicorn/horned-animal books hit `final_pdf_ready` without a soft-accept flag.
+## หมายเหตุ (technical)
+- Vertex OAuth JWT signing ทำใน Deno ผ่าน `crypto.subtle` (RS256) — ไม่ต้องมี dep เพิ่ม
+- Access token cache ใน module scope (edge function warm reuse)
+- ค่าใช้จ่าย: Gemini 2.5 Pro บน Vertex ~$1.25/1M input tokens; vision QC หน้าละ ~$0.005 — ต่ำมาก
+- Vertex billing ไปที่ GCP project ของเจ้าของโดยตรง (ไม่ผ่าน Lovable credits)
