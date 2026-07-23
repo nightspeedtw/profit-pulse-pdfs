@@ -343,7 +343,7 @@ export function drawColoringCopyrightPage(
   const { page, pageW, pageH, style, font, fontBold, vignettes, logo } = ctx;
   const P = style.palette;
 
-  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: 28 });
+  drawDecorativeBorder(page, { pageW, pageH, palette: P, inset: 28, reserveFooter: true });
 
   // Top decoration: large greyed vignette fills the upper 45% at low opacity.
   if (vignettes && vignettes.length > 0) {
