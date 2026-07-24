@@ -28,6 +28,10 @@ export default function FreeSamplePreviewModal({
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [samplePdfUrl, setSamplePdfUrl] = useState<string | null>(null);
+  const [bundleUrl, setBundleUrl] = useState<string | null>(null);
+  const [fullUrl, setFullUrl] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -51,6 +55,7 @@ export default function FreeSamplePreviewModal({
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
     if (firstName.trim().length < 1) return;
     setLoading(true);
+    setSubmitError(null);
     try {
       window.localStorage.setItem(STORAGE_KEY, email);
       window.localStorage.setItem(STORAGE_NAME_KEY, firstName.trim());
@@ -58,6 +63,18 @@ export default function FreeSamplePreviewModal({
         force: true,
         extra: { has_first_name: true, lead_source: "free_sample" },
       });
+
+      const { data, error } = await supabase.functions.invoke("submit-sample-lead", {
+        body: { email, first_name: firstName.trim(), book_id: ebookId },
+      });
+      if (error) throw error;
+      if (data?.sample_pdf_url) setSamplePdfUrl(data.sample_pdf_url as string);
+      if (data?.bundle_offer_url) setBundleUrl(data.bundle_offer_url as string);
+      if (data?.full_product_cta_url) setFullUrl(data.full_product_cta_url as string);
+      setSubmitted(true);
+    } catch (err) {
+      console.error("[FreeSampleModal] submit failed", err);
+      setSubmitError("Something went wrong — your pages are still shown below.");
       setSubmitted(true);
     } finally {
       setLoading(false);
