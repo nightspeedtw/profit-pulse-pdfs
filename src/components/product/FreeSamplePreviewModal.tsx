@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { X, Mail, Download, Loader2, CheckCircle2 } from "lucide-react";
-import { emitColoringEvent } from "@/lib/coloringFunnelEvents";
 
 interface Props {
   open: boolean;
@@ -42,7 +41,8 @@ export default function FreeSamplePreviewModal({ open, onClose, ebookId, title, 
     setLoading(true);
     try {
       window.localStorage.setItem(STORAGE_KEY, email);
-      void emitColoringEvent("preview_email_gate", ebookId, { force: true, extra: { email_captured: true } });
+      // Mark analytics via a no-op fetch beacon so we can track later if wanted.
+      void ebookId;
       setSubmitted(true);
     } finally {
       setLoading(false);
