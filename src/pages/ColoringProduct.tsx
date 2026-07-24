@@ -558,14 +558,18 @@ export default function ColoringProduct() {
         </section>
       )}
 
-      {/* ── Complete-the-set bundle (auto, discounted) ──────────────── */}
-      <CompleteTheSetBundle
-        ebookId={book.id}
-        ebookTitle={displayTitle}
-        ebookPriceCents={priceCents}
-        ebookCoverUrl={book.cover_url}
-        siblings={siblings}
-      />
+      {/* ── Complete-the-set bundle (desktop mount; mobile shows the promoted
+          version above the fold inside the buy box) ────────────────── */}
+      <div className="hidden md:block">
+        <CompleteTheSetBundle
+          ebookId={book.id}
+          ebookTitle={displayTitle}
+          ebookPriceCents={priceCents}
+          ebookCoverUrl={book.cover_url}
+          siblings={siblings}
+          primaryPageCount={pageCount}
+        />
+      </div>
 
       {/* ── Review summary (auto, real reviews only) ─────────────────── */}
       <ReviewSummary ebookId={book.id} />
@@ -604,7 +608,7 @@ export default function ColoringProduct() {
           className="flex-1 h-12 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
         >
           {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          {downloading ? "Preparing…" : "Download"}
+          {downloading ? "Preparing…" : `Start Coloring — ${priceText}`}
         </button>
 
       </div>
@@ -625,6 +629,14 @@ export default function ColoringProduct() {
         title={displayTitle}
         priceLabel={priceText}
         onBuy={() => { setFlipbookOpen(false); void clickBuy(); }}
+      />
+
+      <FreeSamplePreviewModal
+        open={sampleOpen}
+        onClose={() => setSampleOpen(false)}
+        ebookId={book.id}
+        title={displayTitle}
+        previewUrls={previewUrls}
       />
     </div>
   );
