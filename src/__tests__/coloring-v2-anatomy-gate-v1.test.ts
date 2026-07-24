@@ -26,7 +26,7 @@ const qcSrc = readFileSync(
 
 describe("coloring_v2_anatomy_gate_v1", () => {
   it("gate version pinned so future changes trip a fixture", () => {
-    expect(V2_ANATOMY_GATE_VERSION).toBe("v4:cloudflare_primary");
+    expect(V2_ANATOMY_GATE_VERSION).toBe("v7:uninterpretable_skips");
   });
 
   it("INTERIOR_NEGATIVE_PROMPT contains the full deformity vocabulary", () => {
