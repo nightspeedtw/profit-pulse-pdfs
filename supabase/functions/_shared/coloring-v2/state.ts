@@ -86,7 +86,12 @@ export async function callAiJson(prompt: string, system: string, model = "google
     if (!geminiKey) throw new Error("GEMINI_API_KEY missing (BYPASS_LOVABLE_GATEWAY=1 requires direct provider)");
     const { geminiDirectChat } = await import("../gemini-direct.ts");
     // Normalize gateway-style ids; force flash tier for cost.
-    const directModel = model.replace(/^google\//, "").replace("gemini-2.5-pro", "gemini-2.5-flash");
+    // Normalize gateway-style ids; force stable flash tier for direct API.
+    // gemini-2.5-flash was retired for new users (2026-07-24) → route both
+    // 2.5-flash and 2.5-pro to gemini-2.0-flash (confirmed available).
+    const directModel = model
+      .replace(/^google\//, "")
+      .replace(/gemini-2\.5-(pro|flash)/, "gemini-2.0-flash");
     const out = await geminiDirectChat({ system, user: prompt, model: directModel, responseJson: true });
     return parseOrThrow(out.text);
   }
