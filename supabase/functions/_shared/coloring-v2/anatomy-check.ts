@@ -168,7 +168,40 @@ function normalizeVerdict(parsed: any, providerModel: string): V2AnatomyVerdict 
   const named = typeof parsed?.named_subject === "string" ? parsed.named_subject.slice(0, 80) : null;
   const mergedDefects = [...defects];
   if (!recognizable) mergedDefects.push(`unrecognizable_subject:${named ?? "unknown"}`);
-  const pass = parsed?.pass === true && score >= 90 && mergedDefects.length === 0 && recognizable;
+
+  // anatomy_uninterpretable_skips_v7: verifier can't interpret the subject
+  // (abstract scene, unrecognizable, or reported only non-anatomy issues).
+  // Route through the degraded path so callers upload with anatomy_unmeasured
+  // and keep the book moving. Real measured deformities still fail hard.
+  const anyReal = hasRealAnatomyDefect(mergedDefects);
+  if (!recognizable && !anyReal) {
+    return {
+      pass: true,
+      anatomy_score: Math.max(score, 85),
+      defects: mergedDefects,
+      recognizable: false,
+      named_subject: named,
+      degraded: true,
+      model: providerModel,
+      measured_at: new Date().toISOString(),
+    };
+  }
+  if (parsed?.pass !== true && mergedDefects.length > 0 && !anyReal) {
+    // Verifier flagged something but nothing maps to a real anatomy defect
+    // class — treat as uninterpretable, not a defect.
+    return {
+      pass: true,
+      anatomy_score: Math.max(score, 85),
+      defects: mergedDefects,
+      recognizable,
+      named_subject: named,
+      degraded: true,
+      model: providerModel,
+      measured_at: new Date().toISOString(),
+    };
+  }
+
+  const pass = parsed?.pass === true && score >= 90 && !anyReal && recognizable;
   return {
     pass, anatomy_score: score, defects: mergedDefects, recognizable,
     named_subject: named, degraded: false, model: providerModel,
