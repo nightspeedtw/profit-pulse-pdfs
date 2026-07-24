@@ -9,7 +9,14 @@ import { supabase } from "@/integrations/supabase/client";
 export type ColoringEventType =
   | "view_product"
   | "open_preview"
+  | "preview_opened"
   | "preview_page_turn"
+  | "preview_page_viewed"
+  | "sample_modal_opened"
+  | "sample_email_submitted"
+  | "sample_downloaded"
+  | "sample_to_purchase_clicked"
+  | "purchase_completed"
   | "click_buy";
 
 const SESSION_KEY = "sp_session_id";
