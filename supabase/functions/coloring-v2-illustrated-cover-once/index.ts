@@ -111,6 +111,26 @@ export function pickLetteringStyle(bookId: string): typeof LETTERING_STYLES[numb
   return LETTERING_STYLES[h % LETTERING_STYLES.length];
 }
 
+// ── LAYOUT RANDOMIZER (cover_layout_diversity_v14, owner 2026-07-24) ──
+// Forces AI to break away from centered-hero clichés. Deterministic pick
+// from book_id keeps a given book stable on re-render, but the shelf sees
+// wide compositional variety across titles.
+export const LAYOUT_STYLES: Array<{ id: string; brief: string }> = [
+  { id: "corner_emerge",     brief: "Subject emerging from a corner, title integrated into the landscape/environment as if it belongs to the scene." },
+  { id: "circular_badge",    brief: "Circular badge / medallion composition with the title wrapping around the main character in a ring." },
+  { id: "split_horizontal",  brief: "Split layout: upper half is BOLD hand-painted title typography, lower half is the detailed illustration; strong horizontal division." },
+  { id: "framed_ribbon",     brief: "Framed decorative border design with vintage-modern aesthetic; the title is placed elegantly inside a hand-painted center ribbon or plaque." },
+  { id: "dynamic_tilt",      brief: "Dynamic action angle with a tilted horizon; bold hand-painted title typography overlaps the artwork at an energetic diagonal." },
+  { id: "asymmetric_offset", brief: "Highly asymmetrical framing: focal character pushed to one side, title stacked on the opposite side, generous negative space wrapping around the hero." },
+  { id: "text_wrap_around",  brief: "Playful integration where painted letters of the title wrap around, hug, or interact with the subject (e.g. character sitting on a letter, ivy growing on letters)." },
+  { id: "minimal_modern",    brief: "Minimalist modern editorial cover: one hero motif, large hand-painted title, restrained composition, a single accent color pop." },
+];
+export function pickLayoutStyle(bookId: string): typeof LAYOUT_STYLES[number] {
+  let h = 0;
+  for (let i = 0; i < bookId.length; i++) h = (h * 251 + bookId.charCodeAt(i) * 7) >>> 0;
+  return LAYOUT_STYLES[h % LAYOUT_STYLES.length];
+}
+
 // ── AGE BADGE ─────────────────────────────────────────────────────────
 export function ageBadgeLabel(ageBand?: string | null): string | null {
   const s = String(ageBand ?? "").trim();
@@ -131,14 +151,21 @@ Deno.serve(async (req: Request) => {
     const sceneClause = await buildSceneClause(book_id, title);
     const mood = pickMood(book_id);
     const lettering = pickLetteringStyle(book_id);
+    const layout = pickLayoutStyle(book_id);
     const ageLabel = ageBadgeLabel(book.age_band);
 
     const ageBadgeClause = ageLabel
       ? `Include a PAINTED CIRCULAR AGE BADGE in the TOP-RIGHT corner of the cover: a bright circular sticker/seal (yellow, orange, or red — choose whichever contrasts best with the background), thick dark outline, subtle drop-shadow, with the EXACT text "${ageLabel}" hand-lettered inside in bold rounded capitals. The badge is part of the painting, not a font overlay. Size roughly 15-18% of the cover width. Do NOT place any other text near it.`
       : `Do NOT add any age badge, age indicator, or age-range text anywhere on the cover.`;
 
+    // Perfect-spelling guardrails. AI image models routinely drop or
+    // duplicate letters when the title is long; we emit a letter-by-letter
+    // spelling lock plus explicit anti-gibberish clauses.
+    const letterLock = title.split("").join(" ");
+    const spellingClause = `PERFECT TEXT RENDERING — NON-NEGOTIABLE: the cover MUST display the EXACT title "${title}" with flawless spelling, perfect typography, absolutely NO typos, NO missing letters, NO doubled letters, NO extra letters, NO random or gibberish characters anywhere on the cover. Every letter must be recognizable and correctly ordered. Character-by-character spelling lock: [ ${letterLock} ]. Count the letters before drawing. Draw each letter deliberately as its own hand-illustrated shape. Do not invent decorative extra letters. If a letter would not fit cleanly, resize the title — do NOT drop or substitute letters.`;
+
     const prompt = [
-      `Beautiful full-color hand-painted children's coloring-book COVER illustration for "${title}".`,
+      `A highly creative, vibrant, and unique front cover design for a coloring book about ${title}.`,
       `Art direction — MOOD "${mood.id}": palette = ${mood.palette}; energy = ${mood.energy}.`,
       `BRIGHT, SATURATED, MODERN 2026 picture-book aesthetic. High-chroma joyful palette, fresh shelf-release feel, poster-punchy at 160px thumbnail size. Bold shape language and one clear focal hero.`,
       `Do NOT look muted, retro, vintage, sepia, dusty, faded, brown, tea-stained, or watercolor-washed. Reject any "old storybook" feeling. Reject muddy neutrals.`,
@@ -146,10 +173,14 @@ Deno.serve(async (req: Request) => {
       `Premium picture-book cover: gouache + digital-brush feel with glossy playful mark-making, expressive and vivid, high production value. Fill the background completely with a rich painted environment that reaches all four edges.`,
       sceneClause,
       `Every creature/character MUST be anatomically complete and non-deformed: correct number of legs, one head, one tail, complete limbs, no severed or floating body parts, no fused bodies, no extra heads, no missing features. Canonical proportions.`,
-      `TITLE TREATMENT — style "${lettering.id}": ${lettering.brief} The title "${title}" MUST appear as HAND-ILLUSTRATED CUSTOM LETTERING that is PART OF THE PAINTING — every letter drawn individually by the illustrator with texture, highlight, and shadow painted in. Absolutely NO system font, NO flat digital typography, NO clean vector text. The title should occupy roughly 40-50% of the cover area, placed prominently in the upper half, arced, stacked, or on a painted banner that is part of the scene.`,
+      // Composition & Layout — forcing diversity across the shelf.
+      `COMPOSITION & LAYOUT — FORCING DIVERSITY: do NOT default to a standard centered-hero layout. Apply this specific layout approach — "${layout.id}": ${layout.brief} Explore this direction fully; the composition should feel like a distinct design decision, not a generic template.`,
+      // Title treatment (hand-lettering style).
+      `TITLE TREATMENT — style "${lettering.id}": ${lettering.brief} The title "${title}" MUST appear as HAND-ILLUSTRATED CUSTOM LETTERING that is PART OF THE PAINTING — every letter drawn individually by the illustrator with texture, highlight, and shadow painted in. Absolutely NO system font, NO flat digital typography, NO clean vector text. The title should occupy roughly 40-50% of the cover area, positioned per the layout approach above.`,
+      // Spelling guardrails (the specific failure class this file targets).
+      spellingClause,
       ageBadgeClause,
       `Do NOT include: any logo, any watermark, any URL, any subtitle, any extra text besides the title and the age badge (if requested above), any UI element, any book mockup, any border, any frame, any white padding, any decorative edge strip.`,
-      `Spelling of the title MUST be exact. If an age badge is requested, its spelling MUST be exact.`,
     ].join(" ");
 
 
@@ -226,13 +257,15 @@ Deno.serve(async (req: Request) => {
 
     // Upload as PNG (gpt-image-1 returns PNG bytes).
     const asset = await uploadAsset(book_id, "cover_final", bytes, "png", {
-      law: "cover_illustrated_lettering_v13",
+      law: "cover_layout_diversity_v14",
       provider,
       model,
       text_mode: "illustrated_hand_lettered_baked",
       lettering_style: lettering.id,
+      layout_style: layout.id,
       mood: mood.id,
       age_badge: ageLabel ?? null,
+      title_spelling_lock: title,
       prompt_len: prompt.length,
     });
 
