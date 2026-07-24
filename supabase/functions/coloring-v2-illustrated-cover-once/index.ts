@@ -205,40 +205,54 @@ Deno.serve(async (req: Request) => {
     if (!book_id) return json({ error: "book_id required" }, 400);
 
     const book = await fetchBook(book_id);
-    const title = ensureColoringBookInTitle(book.title ?? "Coloring Book");
-    const sceneClause = await buildSceneClause(book_id, title);
+    const fullTitle = ensureColoringBookInTitle(book.title ?? "Coloring Book");
+    const { titleCore, subtitle } = splitTitleForCover(fullTitle);
+    const sceneClause = await buildSceneClause(book_id, fullTitle);
     const mood = pickMood(book_id);
     const lettering = pickLetteringStyle(book_id);
     const layout = pickLayoutStyle(book_id);
+    const container = pickTitleContainer(book_id);
+    const colorMode = pickTitleColorMode(book_id);
+    const motifKit = pickMotifKit(String(book.theme ?? ""), fullTitle);
     const ageLabel = ageBadgeLabel(book.age_band);
 
     const ageBadgeClause = ageLabel
-      ? `Include a PAINTED CIRCULAR AGE BADGE in the TOP-RIGHT corner of the cover: a bright circular sticker/seal (yellow, orange, or red — choose whichever contrasts best with the background), thick dark outline, subtle drop-shadow, with the EXACT text "${ageLabel}" hand-lettered inside in bold rounded capitals. The badge is part of the painting, not a font overlay. Size roughly 15-18% of the cover width. Do NOT place any other text near it.`
+      ? `Include a PAINTED CIRCULAR AGE BADGE as a two-ring sticker in the upper-right area of the cover (roughly 15-18% of cover width): an outer ring in a bright accent color (yellow, orange, or red — whichever contrasts best with the background) and an inner disc in a slightly darker/deeper shade, thick dark outline around both rings, chunky drop-shadow underneath, and the EXACT text "${ageLabel}" hand-lettered inside the inner disc in bold rounded capitals with a subtle engraved/letterpress feel. The badge is part of the painting, not a font overlay. Do NOT place any other text near it.`
       : `Do NOT add any age badge, age indicator, or age-range text anywhere on the cover.`;
 
-    // Perfect-spelling guardrails. AI image models routinely drop or
-    // duplicate letters when the title is long; we emit a letter-by-letter
-    // spelling lock plus explicit anti-gibberish clauses.
-    const letterLock = title.split("").join(" ");
-    const spellingClause = `PERFECT TEXT RENDERING — NON-NEGOTIABLE: the cover MUST display the EXACT title "${title}" with flawless spelling, perfect typography, absolutely NO typos, NO missing letters, NO doubled letters, NO extra letters, NO random or gibberish characters anywhere on the cover. Every letter must be recognizable and correctly ordered. Character-by-character spelling lock: [ ${letterLock} ]. Count the letters before drawing. Draw each letter deliberately as its own hand-illustrated shape. Do not invent decorative extra letters. If a letter would not fit cleanly, resize the title — do NOT drop or substitute letters.`;
+    // Perfect-spelling guardrails — now split across titleCore + subtitle.
+    const coreLock = titleCore.split("").join(" ");
+    const subLock = subtitle.split("").join(" ");
+    const spellingClause = `PERFECT TEXT RENDERING — NON-NEGOTIABLE. TWO text elements only exist on this cover: (1) the CORE TITLE "${titleCore}" rendered big and hero-sized, and (2) a SEPARATE SUBTITLE RIBBON reading "${subtitle}" placed on its own small painted banner directly beneath the core title. Both must be spelled EXACTLY, with absolutely NO typos, NO missing letters, NO doubled letters, NO extra letters, NO gibberish. Character-by-character spelling lock for the core title: [ ${coreLock} ]. Character-by-character spelling lock for the subtitle: [ ${subLock} ]. Count the letters before drawing. Draw each letter deliberately as its own hand-illustrated shape. Do not invent decorative extra letters. Do NOT merge the core title and the subtitle into one block — they are two distinct painted elements.`;
 
     const prompt = [
-      `A highly creative, vibrant, and unique front cover design for a coloring book about ${title}.`,
+      `A highly creative, vibrant, unique, and PACKED front cover design for a children's coloring book — the core title is "${titleCore}" and the subtitle ribbon reads "${subtitle}".`,
       `Art direction — MOOD "${mood.id}": palette = ${mood.palette}; energy = ${mood.energy}.`,
-      `BRIGHT, SATURATED, MODERN 2026 picture-book aesthetic. High-chroma joyful palette, fresh shelf-release feel, poster-punchy at 160px thumbnail size. Bold shape language and one clear focal hero.`,
+      `BRIGHT, SATURATED, MODERN 2026 picture-book aesthetic. High-chroma joyful palette, fresh shelf-release feel, poster-punchy at 160px thumbnail size. Bold shape language and one clear focal hero surrounded by a rich supporting cast.`,
       `Do NOT look muted, retro, vintage, sepia, dusty, faded, brown, tea-stained, or watercolor-washed. Reject any "old storybook" feeling. Reject muddy neutrals.`,
-      `Square 1:1 composition, FULL-BLEED edge-to-edge (NON-NEGOTIABLE): the painted illustration MUST bleed off all four edges of the 1024x1024 canvas. Literally paint past the edge — a one-pixel-wide strip along every edge (top, bottom, left, right) must be full-saturation painted illustration, NOT white paper, NOT a colored bar, NOT a decorative frame, NOT a vignette fade to white or any solid color. Absolutely forbidden: any white or off-white margin, any inner border, any outer frame, any passe-partout, any polaroid-style border, any colored ribbon frame, any inner rectangle, any drop-shadow around the artwork that suggests it is a card floating on a background. Every single pixel of the 1024x1024 canvas is painted illustration.`,
+      `Square 1:1 composition, FULL-BLEED edge-to-edge (NON-NEGOTIABLE): the painted illustration MUST bleed off all four edges of the 1024x1024 canvas. Literally paint past the edge — a one-pixel-wide strip along every edge (top, bottom, left, right) must be full-saturation painted illustration, NOT white paper, NOT a colored bar, NOT a decorative frame, NOT a vignette fade to white or any solid color. Absolutely forbidden: any white or off-white margin, any inner border, any outer frame, any passe-partout, any polaroid-style border, any colored ribbon frame around the whole artwork, any inner rectangle, any drop-shadow around the artwork that suggests it is a card floating on a background. Every single pixel of the 1024x1024 canvas is painted illustration.`,
       `Premium picture-book cover: gouache + digital-brush feel with glossy playful mark-making, expressive and vivid, high production value. Fill the background completely with a rich painted environment that reaches all four edges.`,
       sceneClause,
+      // ENSEMBLE — force multiple characters + supporting cast + edge decoration.
+      `CHARACTER ENSEMBLE — DENSE COVER: place ONE clear hero character at the visual anchor point (per the layout approach below), PLUS 2-3 supporting characters/creatures interacting with the hero (peeking, waving, sitting nearby), PLUS 4-6 painted decorative props from the theme motif kit emerging INWARD from the four edges (top, bottom, left, right) — objects half-in / half-out of frame so no edge is empty painted background. The cover should feel gently packed and celebratory, never a lonely hero on empty color.`,
+      `THEME MOTIF KIT — "${motifKit.id}": ${motifKit.motifs}. Every edge of the cover must have at least one motif from this kit crossing it.`,
       `Every creature/character MUST be anatomically complete and non-deformed: correct number of legs, one head, one tail, complete limbs, no severed or floating body parts, no fused bodies, no extra heads, no missing features. Canonical proportions.`,
       // Composition & Layout — forcing diversity across the shelf.
       `COMPOSITION & LAYOUT — FORCING DIVERSITY: do NOT default to a standard centered-hero layout. Apply this specific layout approach — "${layout.id}": ${layout.brief} Explore this direction fully; the composition should feel like a distinct design decision, not a generic template.`,
-      // Title treatment (hand-lettering style).
-      `TITLE TREATMENT — style "${lettering.id}": ${lettering.brief} The title "${title}" MUST appear as HAND-ILLUSTRATED CUSTOM LETTERING that is PART OF THE PAINTING — every letter drawn individually by the illustrator with texture, highlight, and shadow painted in. Absolutely NO system font, NO flat digital typography, NO clean vector text. The title should occupy roughly 40-50% of the cover area, positioned per the layout approach above.`,
+      // Title container (plaque / ribbon / sticker / stroke).
+      `TITLE CONTAINER — "${container.id}": ${container.brief} This is a MANDATORY element and it must sit on TOP of the illustration (not behind it), so the core title always reads clearly regardless of the artwork behind.`,
+      // Lettering style (hand-lettering execution).
+      `LETTERING STYLE — "${lettering.id}": ${lettering.brief}`,
+      // Letter color mode.
+      `TITLE COLOR MODE — "${colorMode.id}": ${colorMode.brief}`,
+      // Overall title treatment.
+      `TITLE TREATMENT: the CORE TITLE "${titleCore}" MUST appear as HAND-ILLUSTRATED CUSTOM LETTERING that is PART OF THE PAINTING — every letter drawn individually by the illustrator with texture, highlight, and shadow painted in. Absolutely NO system font, NO flat digital typography, NO clean vector text. The core title (together with its container) should occupy roughly 35-45% of the cover area, positioned per the layout approach above.`,
+      // Subtitle ribbon (separate element).
+      `SUBTITLE RIBBON — REQUIRED SEPARATE ELEMENT: directly beneath the core title, place a small painted ribbon/banner (roughly 45-60% the width of the core title and about 12-18% of the cover height) that reads "${subtitle}" in bold hand-lettered capitals — a different (smaller) treatment from the core title, painted in a strongly contrasting color to the ribbon fill (e.g. dark letters on a cream/gold ribbon, or light letters on a deep ribbon), with thin painted outline and a small drop-shadow. The subtitle ribbon must NOT be styled identically to the core title container — they are two distinct painted elements.`,
       // Spelling guardrails (the specific failure class this file targets).
       spellingClause,
       ageBadgeClause,
-      `Do NOT include: any logo, any watermark, any URL, any subtitle, any extra text besides the title and the age badge (if requested above), any UI element, any book mockup, any border, any frame, any white padding, any decorative edge strip.`,
+      `Do NOT include: any logo, any watermark, any URL, any additional text besides the core title, the subtitle ribbon, and the age badge (if requested above), any UI element, any book mockup, any border wrapping the whole cover, any frame, any white padding, any decorative edge strip that acts as a border.`,
     ].join(" ");
 
 
