@@ -66,7 +66,7 @@ export async function fireStage(next: string, body: Record<string, unknown>) {
   } catch { /* best-effort */ }
 }
 
-export async function callAiJson(prompt: string, system: string, model = "google/gemini-2.5-flash"): Promise<any> {
+export async function callAiJson(prompt: string, system: string, model = "google/gemini-2.0-flash"): Promise<any> {
   // Owner directive (2026-07-20): BYPASS_LOVABLE_GATEWAY forces every LLM
   // call in the coloring-v2 lane through google_direct so the gateway 403
   // (workspace credit limit) can never stall page_plan / concept / style_bible.
