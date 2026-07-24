@@ -17,6 +17,7 @@
 import { corsHeaders, db, fetchBook, json, signedUrl, uploadAsset } from "../_shared/coloring-v2/state.ts";
 import { openaiDirectImage } from "../_shared/openai-direct.ts";
 import { geminiDirectImageWithMeta } from "../_shared/gemini-direct.ts";
+import { autoCropBorders, verifyFullBleed, type FullBleedVerdict } from "../_shared/coloring-v2/full-bleed-verify.ts";
 
 declare const Deno: any;
 
@@ -169,7 +170,7 @@ Deno.serve(async (req: Request) => {
       `Art direction — MOOD "${mood.id}": palette = ${mood.palette}; energy = ${mood.energy}.`,
       `BRIGHT, SATURATED, MODERN 2026 picture-book aesthetic. High-chroma joyful palette, fresh shelf-release feel, poster-punchy at 160px thumbnail size. Bold shape language and one clear focal hero.`,
       `Do NOT look muted, retro, vintage, sepia, dusty, faded, brown, tea-stained, or watercolor-washed. Reject any "old storybook" feeling. Reject muddy neutrals.`,
-      `Square 1:1 composition, FULL-BLEED edge-to-edge: painted color must extend all the way to every edge of the canvas — top, bottom, left, right. NO white background, NO white margin, NO empty paper showing, NO vignette fade to white, NO inner border, NO outer frame, NO passe-partout. Every pixel of the 1024x1024 canvas is painted illustration.`,
+      `Square 1:1 composition, FULL-BLEED edge-to-edge (NON-NEGOTIABLE): the painted illustration MUST bleed off all four edges of the 1024x1024 canvas. Literally paint past the edge — a one-pixel-wide strip along every edge (top, bottom, left, right) must be full-saturation painted illustration, NOT white paper, NOT a colored bar, NOT a decorative frame, NOT a vignette fade to white or any solid color. Absolutely forbidden: any white or off-white margin, any inner border, any outer frame, any passe-partout, any polaroid-style border, any colored ribbon frame, any inner rectangle, any drop-shadow around the artwork that suggests it is a card floating on a background. Every single pixel of the 1024x1024 canvas is painted illustration.`,
       `Premium picture-book cover: gouache + digital-brush feel with glossy playful mark-making, expressive and vivid, high production value. Fill the background completely with a rich painted environment that reaches all four edges.`,
       sceneClause,
       `Every creature/character MUST be anatomically complete and non-deformed: correct number of legs, one head, one tail, complete limbs, no severed or floating body parts, no fused bodies, no extra heads, no missing features. Canonical proportions.`,
@@ -184,38 +185,41 @@ Deno.serve(async (req: Request) => {
     ].join(" ");
 
 
-    let bytes: Uint8Array | null = null;
-    let model = "";
-    let provider = "";
+    // ── Provider ladder with FULL-BLEED verifier (cover_full_bleed_edge_verifier_v15) ──
+    // Each attempt runs the verifier; on fail we retry the next provider
+    // with the specific offender appended to the prompt. If all attempts
+    // fail we auto-crop the border as a last-resort rescue.
+    type Attempt = { provider: string; model: string; bytes: Uint8Array; verdict: FullBleedVerdict };
+    const attempts: Attempt[] = [];
+    let extraOffenderClause = "";
 
-    // Try Gemini direct first.
-    try {
-      const g = await geminiDirectImageWithMeta({
-        prompt,
-        referenceUrls: [],
-        model: "google/gemini-2.5-flash-image",
-      });
-      console.log(`[gemini] bytes=${g.bytes?.length ?? 0} finish=${g.meta.finishReason} block=${g.meta.blockReason}`);
-      if (g.bytes && g.bytes.length > 20_000) {
-        bytes = g.bytes;
-        model = g.meta.model;
-        provider = g.meta.provider;
+    async function tryGemini(promptText: string): Promise<{ bytes: Uint8Array; model: string; provider: string } | null> {
+      try {
+        const g = await geminiDirectImageWithMeta({
+          prompt: promptText,
+          referenceUrls: [],
+          model: "google/gemini-2.5-flash-image",
+        });
+        console.log(`[gemini] bytes=${g.bytes?.length ?? 0} finish=${g.meta.finishReason} block=${g.meta.blockReason}`);
+        if (g.bytes && g.bytes.length > 20_000) {
+          return { bytes: g.bytes, model: g.meta.model, provider: g.meta.provider };
+        }
+      } catch (e) {
+        console.warn("gemini image failed:", String((e as any)?.message ?? e));
       }
-    } catch (e) {
-      console.warn("gemini image failed:", String((e as any)?.message ?? e));
+      return null;
     }
 
-    // Fall back to Lovable AI Gateway with openai/gpt-image-2.
-    if (!bytes) {
+    async function tryGateway(promptText: string): Promise<{ bytes: Uint8Array; model: string; provider: string } | null> {
       try {
         const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY");
-        if (!LOVABLE_KEY) throw new Error("LOVABLE_API_KEY missing");
+        if (!LOVABLE_KEY) return null;
         const r = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
           body: JSON.stringify({
             model: "openai/gpt-image-2",
-            prompt,
+            prompt: promptText,
             size: "1024x1024",
             quality: "high",
             n: 1,
@@ -228,36 +232,92 @@ Deno.serve(async (req: Request) => {
           const bin = atob(b64);
           const buf = new Uint8Array(bin.length);
           for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-          bytes = buf;
-          model = "openai/gpt-image-2";
-          provider = "lovable_gateway";
+          return { bytes: buf, model: "openai/gpt-image-2", provider: "lovable_gateway" };
         }
       } catch (e) {
         console.warn("gateway image failed:", String((e as any)?.message ?? e));
       }
+      return null;
     }
 
-    // Final fallback: OpenAI direct (may hit billing limit).
-    if (!bytes) {
-      const o = await openaiDirectImage({
-        prompt,
-        model: "gpt-image-1",
-        size: "1024x1024",
-        quality: "high",
-        timeoutMs: 180_000,
+    async function tryOpenAIDirect(promptText: string): Promise<{ bytes: Uint8Array; model: string; provider: string } | null> {
+      try {
+        const o = await openaiDirectImage({
+          prompt: promptText,
+          model: "gpt-image-1",
+          size: "1024x1024",
+          quality: "high",
+          timeoutMs: 180_000,
+        });
+        if (o.bytes && o.bytes.length > 20_000) {
+          return { bytes: o.bytes, model: o.model, provider: "openai_direct" };
+        }
+      } catch (e) {
+        console.warn("openai-direct image failed:", String((e as any)?.message ?? e));
+      }
+      return null;
+    }
+
+    const providers = [tryGemini, tryGateway, tryOpenAIDirect];
+    let bytes: Uint8Array | null = null;
+    let model = "";
+    let provider = "";
+    let finalVerdict: FullBleedVerdict | null = null;
+    let fullBleedAutocropped = false;
+
+    for (let attempt = 0; attempt < providers.length; attempt++) {
+      const attemptPrompt = extraOffenderClause
+        ? `${prompt} REGENERATE — the previous attempt failed FULL-BLEED verification: ${extraOffenderClause} This attempt MUST paint every pixel to the edge; no white/uniform border of any kind.`
+        : prompt;
+      const gen = await providers[attempt](attemptPrompt);
+      if (!gen) continue;
+      const verdict = await verifyFullBleed(gen.bytes).catch((e) => {
+        console.warn("full-bleed verifier crashed:", String((e as any)?.message ?? e));
+        return { pass: true, worstEdge: null, edges: { top: { whiteRatio: 0, uniformRatio: 0, borderPx: 0 }, bottom: { whiteRatio: 0, uniformRatio: 0, borderPx: 0 }, left: { whiteRatio: 0, uniformRatio: 0, borderPx: 0 }, right: { whiteRatio: 0, uniformRatio: 0, borderPx: 0 } }, reason: "verifier_degraded" } as FullBleedVerdict;
       });
-      bytes = o.bytes;
-      model = o.model;
-      provider = "openai_direct";
+      attempts.push({ provider: gen.provider, model: gen.model, bytes: gen.bytes, verdict });
+      console.log(`[full-bleed] attempt=${attempt + 1} provider=${gen.provider} pass=${verdict.pass} worst=${verdict.worstEdge} reason=${verdict.reason}`);
+      if (verdict.pass) {
+        bytes = gen.bytes;
+        model = gen.model;
+        provider = gen.provider;
+        finalVerdict = verdict;
+        break;
+      }
+      // Strengthen prompt for the next provider
+      const worst = verdict.worstEdge ?? "unknown";
+      const edgeStats = verdict.worstEdge ? verdict.edges[verdict.worstEdge] : null;
+      extraOffenderClause = `previous image had a ${verdict.reason?.startsWith("edge_white_border") ? "WHITE MARGIN" : "SOLID-COLOR FRAME"} on the ${worst} edge (whiteRatio=${edgeStats?.whiteRatio.toFixed(2)}, uniformRatio=${edgeStats?.uniformRatio.toFixed(2)}). PAINT THE ${worst.toUpperCase()} EDGE COMPLETELY with illustration content — no border, no uniform bar, no frame.`;
+    }
+
+    // Rescue path: no attempt passed. Use the best (last) attempt and auto-crop borders.
+    if (!bytes && attempts.length > 0) {
+      const best = attempts[attempts.length - 1];
+      try {
+        const rescued = await autoCropBorders(best.bytes);
+        const reVerdict = await verifyFullBleed(rescued.bytes).catch(() => null);
+        console.log(`[full-bleed] autocrop trimmed=${JSON.stringify(rescued.trimmed)} reVerdict=${reVerdict?.pass}`);
+        bytes = rescued.bytes;
+        model = best.model;
+        provider = best.provider;
+        finalVerdict = reVerdict ?? best.verdict;
+        fullBleedAutocropped = true;
+      } catch (e) {
+        console.warn("autoCropBorders failed, shipping best attempt as-is:", String((e as any)?.message ?? e));
+        bytes = best.bytes;
+        model = best.model;
+        provider = best.provider;
+        finalVerdict = best.verdict;
+      }
     }
 
     if (!bytes || bytes.length < 20_000) {
-      return json({ error: "empty_or_tiny_image", size: bytes?.length ?? 0 }, 500);
+      return json({ error: "empty_or_tiny_image", size: bytes?.length ?? 0, attempts: attempts.length }, 500);
     }
 
     // Upload as PNG (gpt-image-1 returns PNG bytes).
     const asset = await uploadAsset(book_id, "cover_final", bytes, "png", {
-      law: "cover_layout_diversity_v14",
+      law: "cover_full_bleed_edge_verifier_v15",
       provider,
       model,
       text_mode: "illustrated_hand_lettered_baked",
@@ -267,6 +327,16 @@ Deno.serve(async (req: Request) => {
       age_badge: ageLabel ?? null,
       title_spelling_lock: title,
       prompt_len: prompt.length,
+      full_bleed: finalVerdict
+        ? {
+            pass: finalVerdict.pass,
+            worstEdge: finalVerdict.worstEdge,
+            reason: finalVerdict.reason,
+            edges: finalVerdict.edges,
+            attempts: attempts.length,
+            autocropped: fullBleedAutocropped,
+          }
+        : null,
     });
 
 
