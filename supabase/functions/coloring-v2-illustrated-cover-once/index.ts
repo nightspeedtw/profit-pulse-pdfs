@@ -388,15 +388,19 @@ Deno.serve(async (req: Request) => {
 
     // Upload as PNG (gpt-image-1 returns PNG bytes).
     const asset = await uploadAsset(book_id, "cover_final", bytes, "png", {
-      law: "cover_full_bleed_edge_verifier_v15",
+      law: "cover_reference_quality_v16",
       provider,
       model,
       text_mode: "illustrated_hand_lettered_baked",
       lettering_style: lettering.id,
       layout_style: layout.id,
+      title_container: container.id,
+      title_color_mode: colorMode.id,
+      motif_kit: motifKit.id,
       mood: mood.id,
       age_badge: ageLabel ?? null,
-      title_spelling_lock: title,
+      title_spelling_lock: titleCore,
+      subtitle_spelling_lock: subtitle,
       prompt_len: prompt.length,
       full_bleed: finalVerdict
         ? {
