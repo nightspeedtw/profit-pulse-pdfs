@@ -48,7 +48,20 @@ const OPENAI_MODEL_LADDER = ["gpt-4o-mini", "gpt-4o"];
 const GEMINI_MODEL_LADDER = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
 const LOVABLE_MODEL_LADDER = ["google/gemini-3.5-flash", "google/gemini-3.6-flash"];
 
-export const V2_ANATOMY_GATE_VERSION = "v5:model_refresh";
+export const V2_ANATOMY_GATE_VERSION = "v7:uninterpretable_skips";
+
+// Owner law (2026-07-24 anatomy_uninterpretable_skips_v7):
+// If the verifier cannot verify or cannot interpret the subject
+// (unrecognizable_subject, abstract composition, non-creature scene, or
+// only non-anatomy defect tokens), the page is treated as UNMEASURED
+// (degraded=true) — NOT as a defect. The render step uploads it with
+// anatomy_unmeasured=true and the book keeps moving. Only MEASURED,
+// clear deformities of a real creature's canonical form block.
+const REAL_ANATOMY_DEFECT_RE = /(two[_\s-]?heads?|extra[_\s-]?heads?|duplicated[_\s-]?heads?|fused[_\s-]?(?:faces?|limbs?|bodies|heads?)|missing[_\s-]?(?:limb|leg|arm|head|eye)|extra[_\s-]?(?:limb|leg|arm|head|eye|fingers?)|severed|floating[_\s-]?(?:limb|part|head)|disembodied|wrong[_\s-]?number[_\s-]?of|malformed[_\s-]?body|mangled|frankenstein|amorphous[_\s-]?blob|broken[_\s-]?body|crushed[_\s-]?body|twisted[_\s-]?body|incoherent[_\s-]?body|5[_\s-]?legs?|three[_\s-]?arms?|6[_\s-]?fingers?)/i;
+
+function hasRealAnatomyDefect(defects: string[]): boolean {
+  return defects.some((d) => REAL_ANATOMY_DEFECT_RE.test(String(d)));
+}
 
 // Canonical-parts contract (2026-07-23 anatomy_canonical_parts_v2).
 // Owner directive: Starlight Unicorns shipped with missing legs and broken
