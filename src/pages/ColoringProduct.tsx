@@ -631,6 +631,10 @@ export default function ColoringProduct() {
         previewUrls={previewUrls}
         open={preview}
         onClose={() => setPreview(false)}
+        totalPages={pageCount}
+        priceLabel={priceText}
+        onBuy={() => { setPreview(false); void clickBuy(); }}
+        maxPages={5}
       />
 
       <LookInsideFlipbook
@@ -648,7 +652,10 @@ export default function ColoringProduct() {
         ebookId={book.id}
         title={displayTitle}
         previewUrls={previewUrls}
+        priceLabel={priceText}
+        onBuy={() => { setSampleOpen(false); void clickBuy(); }}
       />
+
     </div>
   );
 }
