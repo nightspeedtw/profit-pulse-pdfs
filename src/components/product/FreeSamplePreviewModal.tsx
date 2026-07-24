@@ -67,8 +67,6 @@ export default function FreeSamplePreviewModal({
       });
       if (error) throw error;
       if (data?.sample_pdf_url) setSamplePdfUrl(data.sample_pdf_url as string);
-      if (data?.bundle_offer_url) setBundleUrl(data.bundle_offer_url as string);
-      if (data?.full_product_cta_url) setFullUrl(data.full_product_cta_url as string);
       setSubmitted(true);
     } catch (err) {
       console.error("[FreeSampleModal] submit failed", err);
