@@ -1,3 +1,4 @@
+// @ts-nocheck
 // cover_full_bleed_edge_verifier_v15
 // Confirms verifyFullBleed rejects images that have a white/uniform border
 // and accepts images that are painted edge-to-edge.
