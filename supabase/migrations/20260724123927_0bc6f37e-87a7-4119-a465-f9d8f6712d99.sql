@@ -1,0 +1,1 @@
+UPDATE public.coloring_v2_books SET last_error = NULL, stage_attempt_count = 0, stage_updated_at = now() - interval '5 minutes' WHERE stage = 'page_plan' AND last_error LIKE '%no longer available%';
