@@ -29,8 +29,6 @@ export default function FreeSamplePreviewModal({
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [samplePdfUrl, setSamplePdfUrl] = useState<string | null>(null);
-  const [bundleUrl, setBundleUrl] = useState<string | null>(null);
-  const [fullUrl, setFullUrl] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
