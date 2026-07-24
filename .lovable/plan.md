@@ -1,77 +1,81 @@
-## Goal
-ยกระดับหน้าปก coloring book ให้ได้คุณภาพเทียบเท่ารูปตัวอย่าง 3 ใบ (Robot Doodle Lab / Amazing Earth & Space / The Last Message from Tomorrow) — ตัวอักษรวาดมือหนา สีสันจัดจ้าน ตัวละคร/ฉากรายละเอียดสูง badge อายุกลมกลืน และ full-bleed ทุกด้าน
 
-## สิ่งที่รูปตัวอย่างมีเหมือนกัน (จะ bake เข้า pipeline)
-1. **Hero title lettering** — ตัวหนาแบบ hand-painted / chunky, มี outline ดำหนา, drop-shadow, และ **ไล่สีต่างกันในแต่ละคำหรือแต่ละตัวอักษร** (Amazing/Earth&Space, Robot/Doodle Lab)
-2. **Title container** — วางบน plaque/ribbon/panel สีตัด (rounded black bubble, tan scroll ribbon, torn-paper) เพื่อให้อ่านได้บนพื้นภาพยุ่ง
-3. **Subtitle เป็น ribbon แยก** — "COLORING BOOK" / "COLORING ADVENTURE" ใน banner แคบใต้ title
-4. **Age badge เป็น sticker กลม** — ไล่สี, ขอบเข้ม, engraved "AGES X-Y" (Amazing Earth ชัดเจน)
-5. **Character ensemble แน่นหน้าปก** — hero กลาง + supporting characters ล้อมรอบ พร้อม props/ฉาก
-6. **Environmental frame** — ของแต่ง (gears, planets, stars, lightning) โผล่จากขอบเป็น decorative border
-7. **Rich background** — deep navy, cosmic purple, painted texture — ไม่มีขาวเลย
+# Mobile Conversion Optimization — ColoringProduct
 
-## Root cause ของปกปัจจุบันที่ยังไม่ถึง
-- `LETTERING_STYLES` มี 6 style แต่ prompt ไม่ได้ **บังคับ container/plaque** ใต้ title → ตัวอักษรลอยบนภาพยุ่ง อ่านยาก
-- ไม่ได้บังคับ **multi-color per-word letter fill** (แต่ละคำสีต่างกัน) — ตอนนี้เป็น "chunky puffy multicolor" กว้างเกินไป โมเดลเลยเลือกสีเดียว
-- Subtitle "Coloring Book" ถูกใส่เป็นส่วนของ title spelling lock แทนที่จะเป็น **แยก ribbon**
-- ไม่มี **"ensemble" clause** → มัก generate hero เดี่ยว + พื้นหลังโล่ง
-- Prompt เน้น "square 1:1 full-bleed" แต่ไม่ได้สั่ง **decorative border objects** ที่ทำให้หน้าปกดูเต็ม
+Scope: `src/pages/ColoringProduct.tsx` and a few new small components. Visual identity (SecretPDF Kids brutal-card look, semantic tokens) preserved. No pricing logic changes — CTA copy uses live `priceText`; the "$14.99" in the spec is illustrative and will be whatever the book's actual price is.
 
-## แผนแก้ (v16: `cover_reference_quality_v16`)
+## 1. Hero (mobile-first, above the fold)
 
-### 1. เพิ่ม COMPOSITION SYSTEM ใน `coloring-v2-illustrated-cover-once/index.ts`
-สร้าง 3 building block ใหม่ ประกอบเข้ากับ layout/lettering/mood ที่มีอยู่:
+Reorder for `<md`:
+1. Large cover image (already aspect-square).
+2. **B&W notice pill** directly under cover: "Interior pages are black-and-white coloring designs, ready to print at home."
+3. Title + age/pages/format value chips consolidated into one line: `82 unique pages · Ages 4–8 · A4 + US Letter · Instant PDF`.
+4. Price block (existing `deriveSalePricing`).
+5. **Primary CTA** — replace copy:
+   - Label: `Start Coloring Today — {priceText}`
+   - Sub-line beneath: `Instant download • Print at home • {pageCount} unique pages`
+6. **Secondary CTA** (outline style): `Preview 5 Free Coloring Pages` → opens an email-capture modal, then triggers sample PDF download.
+7. Trust row (rewritten, truthful, see §4).
 
-**`TITLE_CONTAINERS`** (เลือก deterministic จาก book_id):
-- `black_bubble_plaque` — bubble ดำ rounded + starburst decoration (แบบ Robot Doodle Lab)
-- `torn_scroll_ribbon` — กระดาษเก่าฉีก tan/cream + stitching edge (แบบ Amazing Earth)
-- `painted_banner` — แถบสีตัดคาดกลางบน + curl ปลาย (แบบ Last Message)
-- `sticker_stack` — title เป็น sticker แต่ละคำแยกกันซ้อนเหลื่อม (ทางเลือกสำหรับ title สั้น)
-- `clean_stroke_only` — ไม่มี container, ใช้ outline หนาพิเศษเป็น container ในตัว (สำหรับสไตล์ minimal)
+Existing thumbnail strip + "Look inside" button move below the CTA stack on mobile to keep the fold conversion-focused. Interior preview thumbnails (4 small B&W samples) also appear directly under the notice pill so the user *sees* B&W previews before scrolling.
 
-**`TITLE_COLOR_MODES`**:
-- `multi_word_gradient` — แต่ละคำสีต่างกัน (yellow / green-earth / cosmic-purple)
-- `per_letter_theme` — แต่ละตัวอักษรมี theme pattern ในตัว (starfield, water, gears)
-- `duotone_pop` — 2 สีสลับคำ, contrast แรง
-- `unified_glow` — สีเดียวแต่มี inner glow + edge highlight (สำหรับ dramatic mood)
+## 2. Bundle offer — promoted directly below primary CTA
 
-**`ENSEMBLE_CLAUSE`** (บังคับหน้าปกเต็ม):
-- Hero character 1 คน + 2-3 supporting characters + 4-6 decorative props ที่โผล่จากขอบ 4 ด้าน
-- ระบุตำแหน่ง: hero-center-bottom, supporting-left, supporting-right, props-corners
+Move `<CompleteTheSetBundle>` out of the bottom of the page and mount it right after the CTA block on mobile (still shown in current position on desktop, or unified). Redesign the card:
+- `BEST VALUE` badge (accent chip, existing token palette).
+- Row: total pages across bundle, original combined price (strikethrough), bundle price, exact savings in USD.
+- CTA: `Get the Bundle & Save {discountPct}%`.
+- Keeps the existing `free-download` invocation logic — visual redesign only.
 
-### 2. แยก subtitle ribbon ออกจาก title spelling lock
-- Title spelling lock บังคับเฉพาะ **ชื่อเรื่องจริง** (เช่น "Robot Doodle Lab")
-- คำว่า "Coloring Book" / "Coloring Adventure" ถูกสั่งให้เรนเดอร์เป็น **subtitle ribbon แยก** ใต้ title container
-- ยัง verify OCR ทั้งสองส่วน
+## 3. Value section cleanup
 
-### 3. ยกระดับ age badge
-เปลี่ยน `ageBadgeClause` เป็น sticker แบบใน Amazing Earth: วงกลม 2 ชั้น (นอกสี base, ในสีตัด), engraved letterpress "AGES 8-12", drop-shadow ดำหนา, วางมุมขวาบนหรือขวากลาง (deterministic per book)
+- Remove the duplicated `HighlightsBlock`, "Why parents love it" 3-card grid, and `ItemDetailsSection` on mobile (kept on desktop via `hidden md:block`), OR collapse them into a single "What You Get" card.
+- New **What You Get** card (single bordered block, larger text) listing:
+  - `{pageCount} unique pages, no repeats`
+  - `Ages {ageMin}–{ageMax}`
+  - `A4 + US Letter, print-ready PDF`
+  - `Less than {perPageCents}¢ per page` (computed = `Math.round(priceCents / pageCount)`; only shown when result > 0)
+  - `Personal + classroom use`
+- Bump body text from `text-xs/text-sm` to `text-sm/text-base` on mobile; reduce bordered-card density.
 
-### 4. ปรับ FULL-BLEED prompt ให้เจาะจงกว่าเดิม
-เพิ่ม positive clause: "decorative motifs (gears / stars / planets / vines / tools depending on theme) emerging inward from all four edges — objects must cross the frame, half-in half-out — so no edge is empty painted background"
-Verifier v15 ที่เพิ่งใส่ยังใช้ได้เหมือนเดิม แต่ prompt ที่ดีขึ้นจะลด retry จริง
+## 4. Trust elements (truthful only)
 
-### 5. เพิ่ม `theme_motif_kit` mapping
-ตาม theme ของหนังสือ (space / robots / ocean / dinosaurs / etc.) ให้ preset ของ decorative props ที่ต้องโผล่ตามขอบ — ลด "generic decoration" ที่โมเดลชอบใส่ (ดาวสุ่ม, สายรุ้ง)
+New `<PurchaseTrustRow />` near CTA, three items — no reviews, no scarcity, no sales counts:
+- `Print-ready PDF, checked before release`
+- `Secure checkout`
+- `Help with technical download issues` (mailto link to existing support address)
 
-### 6. Regeneration policy
-- **Going forward**: ปกใหม่ทุกใบใช้ v16 อัตโนมัติ
-- **หนังสือที่ live แล้ว**: ไม่แตะ (ไม่สร้างค่าใช้จ่าย regenerate) — เว้นแต่จะสั่งเฉพาะเล่ม
-- **เล่มถัดไปในคิว**: จะเป็น test book แรกของ v16
+Remove `<SocialProofBadges>` from above-the-fold on mobile (kept lower on desktop) if it renders invented counts — if it only renders real data, leave it below the fold.
+
+## 5. Free-preview email capture
+
+New component `<FreeSamplePreviewModal />`:
+- Small form: email input + submit.
+- On submit: inserts into a new lightweight table row (`sample_leads`: `email`, `ebook_id`, `created_at`) via existing supabase client, then calls the existing `free-download` function with a `sample=true` flag (or falls back to constructing a client-side PDF of the first 5 `previewUrls` — MVP uses the direct sample URL from `meta.sample_pdf_url` if present, else the first 5 preview images shown in a lightbox as a printable web view).
+- No email deliverability needed for v1 — success screen shows a `Download 5-page sample` button that triggers the sample.
+- Backend addition is minimal (one table + insert policy). Confirming with user whether that's in scope — if not, we skip DB insert and just gate the sample behind email entered locally.
+
+## 6. Sticky mobile buy bar
+
+Update the existing `md:hidden` sticky bar copy:
+- Left: `{priceText}` + `{pageCount} pages · Ages X–Y` (unchanged).
+- Button label: `Get the Book — {priceText}` (instead of "Download").
 
 ## Technical details
-- ไฟล์ที่แก้: `supabase/functions/coloring-v2-illustrated-cover-once/index.ts` (เพิ่ม `TITLE_CONTAINERS`, `TITLE_COLOR_MODES`, `THEME_MOTIF_KITS`, ปรับ `buildPrompt`)
-- ไฟล์ที่ **ไม่แตะ**: verifier v15, retry ladder, upload flow, storefront bridge — ทำงานได้ดีอยู่แล้ว
-- เพิ่ม regression test: `src/__tests__/coloring-cover-reference-quality-v16.test.ts` — ตรวจว่า prompt ประกอบด้วย container + color mode + ensemble + motif kit clauses
-- Metadata ที่เก็บใน `coloring_v2_assets`: `law: "cover_reference_quality_v16"`, `title_container`, `title_color_mode`, `motif_kit`
 
-## คำถามก่อนลงมือ
-ต้องการให้:
-1. **สร้าง 1 เล่มทดสอบ v16 ทันทีหลัง merge** เพื่อดูผลจริง แล้วค่อยตัดสินใจ regenerate เล่มเก่า? (แนะนำ)
-2. หรือ **regenerate ปกของ 3-5 เล่ม live ล่าสุด** ทันทีเพื่อเทียบ side-by-side?
+Files:
+- `src/pages/ColoringProduct.tsx` — reorder hero, swap CTA copy, add per-page calc, add responsive `hidden`/`md:block` wrappers around removed-on-mobile sections, move bundle mount point.
+- **New** `src/components/product/BWPreviewNotice.tsx` — pill component.
+- **New** `src/components/product/WhatYouGetCard.tsx` — consolidated value card.
+- **New** `src/components/product/PurchaseTrustRow.tsx` — 3-item trust row.
+- **New** `src/components/product/FreeSamplePreviewModal.tsx` — email capture + sample delivery.
+- Edit `src/components/product/CompleteTheSetBundle.tsx` — add BEST VALUE badge, restructure price row, update CTA copy to include discount %.
 
-## Verification
-1. Unit test v16 ผ่าน (prompt structure)
-2. Test cover 1 ใบ → รูปมี title container ชัด + multi-color lettering + ensemble + full-bleed pass ตั้งแต่ attempt 1
-3. Verifier v15 ยังคง pass (edge check ผ่าน)
-4. OCR ตรวจ title + subtitle ถูกต้อง
+No changes to pricing/data logic, backend functions, or the payment path. Colors stay on semantic tokens (`bg-foreground`, `bg-accent`, `border-foreground`, `bg-highlight`).
+
+## Open question for you
+
+For "Preview 5 Free Coloring Pages" — do you want:
+- **(a)** true email capture (creates a `sample_leads` table + sends an email later via Resend), or
+- **(b)** frictionless: enter email → immediately reveal a download link for the first 5 preview pages (email stored client-side only, no DB, no send)?
+
+I'll default to **(b)** unless you say otherwise, since it's shippable now without backend work.

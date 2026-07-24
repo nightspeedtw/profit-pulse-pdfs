@@ -23,6 +23,10 @@ interface Props {
   ebookPriceCents: number;
   ebookCoverUrl: string | null;
   siblings: Sibling[];
+  /** When true, renders in a compact "promoted" form (no outer container/border-top) — used above the fold on mobile. */
+  promoted?: boolean;
+  /** Optional: page count of the primary book, used to show total pages across the bundle. */
+  primaryPageCount?: number;
 }
 
 function centsToUsd(n: number): string {
@@ -35,6 +39,8 @@ export default function CompleteTheSetBundle({
   ebookPriceCents,
   ebookCoverUrl,
   siblings,
+  promoted = false,
+  primaryPageCount,
 }: Props) {
   const [discountPct, setDiscountPct] = useState<number>(20);
   const [downloading, setDownloading] = useState(false);
@@ -105,53 +111,67 @@ export default function CompleteTheSetBundle({
     }
   };
 
+  const totalPages = primaryPageCount ? primaryPageCount * allBooks.length : null;
+
+  const wrapperClass = promoted
+    ? ""
+    : "container max-w-5xl py-8 border-t-2 border-border";
+
   return (
-    <section className="container max-w-5xl py-8 border-t-2 border-border">
-      <div className="flex items-baseline justify-between mb-4">
-        <h2 className="font-display text-2xl uppercase flex items-center gap-2">
+    <section className={wrapperClass}>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h2 className="font-display text-xl md:text-2xl uppercase flex items-center gap-2">
           <Package className="h-5 w-5" /> Complete the set
         </h2>
-        <span className="text-xs font-mono uppercase tracking-widest text-accent-foreground bg-accent px-2 py-1 border-2 border-foreground rounded-full">
-          Save {discountPct}% as a bundle
+        <span className="text-[10px] md:text-xs font-mono uppercase tracking-widest bg-accent text-accent-foreground px-2 py-1 border-2 border-foreground rounded-full font-bold">
+          ★ Best Value
         </span>
       </div>
-      <div className="grid md:grid-cols-[1fr_auto] gap-6 items-center border-2 border-foreground rounded-lg p-4 bg-background">
-        <div className="flex items-center gap-3 flex-wrap">
+
+      <div className="border-2 border-foreground rounded-lg bg-background p-4 space-y-4">
+        <div className="flex items-center gap-2 flex-wrap">
           {allBooks.map((b, i) => (
-            <div key={b.id} className="flex items-center gap-3">
-              <div className="aspect-square w-24 md:w-28 bg-white border-2 border-border overflow-hidden">
+            <div key={b.id} className="flex items-center gap-2">
+              <div className="aspect-square w-20 md:w-24 bg-white border-2 border-border overflow-hidden rounded">
                 {b.cover && (
                   <img src={b.cover} alt={b.title} className="w-full h-full object-contain" loading="lazy" />
                 )}
               </div>
-              {i < allBooks.length - 1 && <span className="font-display text-2xl">+</span>}
+              {i < allBooks.length - 1 && <span className="font-display text-xl">+</span>}
             </div>
           ))}
         </div>
-        <div className="text-right space-y-2">
-          <div>
-            <div className="font-mono text-sm text-muted-foreground line-through">
-              {centsToUsd(combinedCents)}
-            </div>
-            <div className="font-display text-3xl font-black">{centsToUsd(bundleCents)}</div>
-            <div className="text-xs font-mono uppercase tracking-widest text-accent-foreground">
-              You save {centsToUsd(savingsCents)}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={buyBundle}
-            disabled={downloading}
-            className="w-full md:w-auto px-6 h-12 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 disabled:opacity-70"
-          >
-            {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {downloading ? "Preparing bundle…" : "Get the bundle"}
-          </button>
-        </div>
+
+        <dl className="grid grid-cols-2 gap-y-1.5 text-sm">
+          {totalPages && (
+            <>
+              <dt className="text-muted-foreground">Total pages</dt>
+              <dd className="text-right font-bold">{totalPages} pages</dd>
+            </>
+          )}
+          <dt className="text-muted-foreground">Books included</dt>
+          <dd className="text-right font-bold">{allBooks.length}</dd>
+          <dt className="text-muted-foreground">Original price</dt>
+          <dd className="text-right font-mono line-through text-muted-foreground">{centsToUsd(combinedCents)}</dd>
+          <dt className="text-muted-foreground">Bundle price</dt>
+          <dd className="text-right font-display text-2xl font-black">{centsToUsd(bundleCents)}</dd>
+          <dt className="text-accent-foreground font-bold">You save</dt>
+          <dd className="text-right font-bold text-accent-foreground">{centsToUsd(savingsCents)}</dd>
+        </dl>
+
+        <button
+          type="button"
+          onClick={buyBundle}
+          disabled={downloading}
+          className="w-full h-14 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-base inline-flex items-center justify-center gap-2 disabled:opacity-70 hover:bg-accent hover:text-accent-foreground transition-colors"
+        >
+          {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
+          {downloading ? "Preparing bundle…" : `Get the Bundle & Save ${discountPct}%`}
+        </button>
+        <p className="text-[11px] text-muted-foreground text-center">
+          All {allBooks.length} PDFs download instantly. Personal-use license on every book.
+        </p>
       </div>
-      <p className="text-xs text-muted-foreground mt-2">
-        All {allBooks.length} PDFs download instantly. Personal-use license applies to every book.
-      </p>
     </section>
   );
 }

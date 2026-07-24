@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import DOMPurify from "isomorphic-dompurify";
-import { Loader2, Download, Eye, Printer, ShieldCheck, Sparkles, Home } from "lucide-react";
+import { Loader2, Download, Eye, Home, FileText } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { emitColoringEvent } from "@/lib/coloringFunnelEvents";
 import { ColoringPreviewLightbox } from "@/components/kids/ColoringPreviewLightbox";
@@ -21,6 +21,10 @@ import CompleteTheSetBundle from "@/components/product/CompleteTheSetBundle";
 import FlipbookPreview from "@/components/product/FlipbookPreview";
 import LookInsideFlipbook from "@/components/product/LookInsideFlipbook";
 import ReviewSummary from "@/components/product/ReviewSummary";
+import BWPreviewNotice from "@/components/product/BWPreviewNotice";
+import WhatYouGetCard from "@/components/product/WhatYouGetCard";
+import PurchaseTrustRow from "@/components/product/PurchaseTrustRow";
+import FreeSamplePreviewModal from "@/components/product/FreeSamplePreviewModal";
 import { ensureColoringLabel } from "@/lib/coloring-title";
 import { useActiveCampaign } from "@/hooks/useActiveCampaign";
 import { useSuggestedBundle } from "@/hooks/useSuggestedBundle";
@@ -69,6 +73,7 @@ export default function ColoringProduct() {
   const [siblings, setSiblings] = useState<Sibling[]>([]);
   const [preview, setPreview] = useState(false);
   const [flipbookOpen, setFlipbookOpen] = useState(false);
+  const [sampleOpen, setSampleOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const saleCfg = useSaleConfig();
@@ -139,7 +144,7 @@ export default function ColoringProduct() {
   const ageMin = Number(meta.age_min ?? 4);
   const ageMax = Number(meta.age_max ?? 6);
   const pageCount = Number(meta.page_count ?? pricing?.page_count ?? 32);
-  const bandLabel = ageBandLabel(ageMin, ageMax);
+  void ageBandLabel; // band label no longer rendered in the new hero
   const previewUrls: string[] = Array.isArray(meta.preview_page_urls) ? meta.preview_page_urls.slice(0, 6) : [];
   const galleryUrlsAll: string[] = Array.isArray(meta.gallery_urls) ? meta.gallery_urls.filter(Boolean) : [];
   // Flipbook shows every available interior page (not just 6). Prefer full
@@ -310,13 +315,16 @@ export default function ColoringProduct() {
         <div className="space-y-5">
           <div className="flex flex-wrap gap-2">
             <span className="inline-block px-3 py-1 border-2 border-foreground bg-accent text-accent-foreground text-xs font-mono uppercase tracking-widest">
-              {bandLabel} · Ages {ageMin}–{ageMax}
+              Ages {ageMin}–{ageMax}
             </span>
             <span className="inline-block px-3 py-1 border-2 border-foreground bg-highlight text-xs font-mono uppercase tracking-widest">
               {pageCount} pages
             </span>
             <span className="inline-block px-3 py-1 border-2 border-foreground text-xs font-mono uppercase tracking-widest">
-              {categoryName}
+              A4 + US Letter
+            </span>
+            <span className="inline-block px-3 py-1 border-2 border-foreground text-xs font-mono uppercase tracking-widest">
+              Instant PDF
             </span>
           </div>
 
@@ -325,6 +333,24 @@ export default function ColoringProduct() {
           </h1>
           {book.subtitle && (
             <p className="text-base md:text-lg text-muted-foreground">{book.subtitle}</p>
+          )}
+
+          {/* Notice + interior preview thumbs — visible in the first mobile viewport */}
+          <BWPreviewNotice />
+          {previewUrls.length > 0 && (
+            <div className="grid grid-cols-4 gap-2">
+              {previewUrls.slice(0, 4).map((u, i) => (
+                <button
+                  key={u}
+                  type="button"
+                  onClick={openPreview}
+                  className="relative aspect-square border-2 border-foreground bg-white overflow-hidden rounded"
+                  aria-label={`Preview coloring page ${i + 1}`}
+                >
+                  <img src={u} alt="" loading="lazy" className="w-full h-full object-contain" />
+                </button>
+              ))}
+            </div>
           )}
 
           <ProductRating ebookId={book.id} />
@@ -349,14 +375,9 @@ export default function ColoringProduct() {
                     </span>
                   )}
                 </div>
-                <p className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-widest text-muted-foreground">
-                  <Download className="h-3.5 w-3.5" /> Digital Download · Instant PDF
-                </p>
               </div>
             );
           })()}
-
-          <SocialProofBadges ebookId={book.id} />
 
           {activeCampaign && (
             <CampaignRibbon
@@ -367,31 +388,72 @@ export default function ColoringProduct() {
             />
           )}
 
+          {/* Primary CTA — conversion-focused copy */}
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={clickBuy}
+              disabled={downloading}
+              className="w-full h-14 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-base hover:bg-accent hover:text-accent-foreground transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
+            >
+              {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
+              {downloading ? "Preparing your PDF…" : `Start Coloring Today — ${priceText}`}
+            </button>
+            <p className="text-xs md:text-sm text-muted-foreground text-center">
+              Instant download • Print at home • {pageCount} unique pages
+            </p>
+          </div>
+
+          {/* Secondary CTA — email-gated free sample */}
           <button
             type="button"
-            onClick={clickBuy}
-            disabled={downloading}
-            className="w-full h-14 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-base hover:bg-accent hover:text-accent-foreground transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
+            onClick={() => setSampleOpen(true)}
+            className="w-full h-12 rounded-md border-2 border-foreground bg-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 hover:bg-highlight transition-colors"
           >
-            {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
-            {downloading ? "Preparing your PDF…" : "Download instantly — print at home"}
+            <FileText className="h-4 w-4" />
+            Preview 5 Free Coloring Pages
           </button>
+
+          <PurchaseTrustRow />
 
           <AddToCollectionButton ebookId={book.id} />
 
-          <ul className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs md:text-sm text-muted-foreground">
-            <li className="inline-flex items-center gap-2"><Download className="h-3.5 w-3.5" /> Instant PDF</li>
-            <li className="inline-flex items-center gap-2"><Printer className="h-3.5 w-3.5" /> 8.5×8.5 in square, print-ready</li>
-            <li className="inline-flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5" /> Personal-use license</li>
-            <li className="inline-flex items-center gap-2"><Sparkles className="h-3.5 w-3.5" /> Secure checkout</li>
-          </ul>
-
-          <HighlightsBlock
+          {/* Consolidated value card — replaces duplicated highlights on mobile */}
+          <WhatYouGetCard
             pageCount={pageCount}
             ageMin={ageMin}
             ageMax={ageMax}
-            categoryName={categoryName}
+            priceCents={priceCents}
           />
+
+          {/* Promoted bundle offer — directly below the primary CTA on mobile.
+              The full-width mount at the bottom of the page is hidden on mobile
+              so the offer competes for attention here. */}
+          {siblings.length >= 2 && (
+            <div className="md:hidden">
+              <CompleteTheSetBundle
+                ebookId={book.id}
+                ebookTitle={displayTitle}
+                ebookPriceCents={priceCents}
+                ebookCoverUrl={book.cover_url}
+                siblings={siblings}
+                promoted
+                primaryPageCount={pageCount}
+              />
+            </div>
+          )}
+
+          {/* Desktop-only supplemental blocks — kept for larger screens where
+              real estate isn't the bottleneck. */}
+          <div className="hidden md:block space-y-4">
+            <SocialProofBadges ebookId={book.id} />
+            <HighlightsBlock
+              pageCount={pageCount}
+              ageMin={ageMin}
+              ageMax={ageMax}
+              categoryName={categoryName}
+            />
+          </div>
 
           {suggestedBundle && <BundleUpsellCard bundle={suggestedBundle} />}
         </div>
@@ -496,14 +558,18 @@ export default function ColoringProduct() {
         </section>
       )}
 
-      {/* ── Complete-the-set bundle (auto, discounted) ──────────────── */}
-      <CompleteTheSetBundle
-        ebookId={book.id}
-        ebookTitle={displayTitle}
-        ebookPriceCents={priceCents}
-        ebookCoverUrl={book.cover_url}
-        siblings={siblings}
-      />
+      {/* ── Complete-the-set bundle (desktop mount; mobile shows the promoted
+          version above the fold inside the buy box) ────────────────── */}
+      <div className="hidden md:block">
+        <CompleteTheSetBundle
+          ebookId={book.id}
+          ebookTitle={displayTitle}
+          ebookPriceCents={priceCents}
+          ebookCoverUrl={book.cover_url}
+          siblings={siblings}
+          primaryPageCount={pageCount}
+        />
+      </div>
 
       {/* ── Review summary (auto, real reviews only) ─────────────────── */}
       <ReviewSummary ebookId={book.id} />
@@ -542,7 +608,7 @@ export default function ColoringProduct() {
           className="flex-1 h-12 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
         >
           {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          {downloading ? "Preparing…" : "Download"}
+          {downloading ? "Preparing…" : `Start Coloring — ${priceText}`}
         </button>
 
       </div>
@@ -563,6 +629,14 @@ export default function ColoringProduct() {
         title={displayTitle}
         priceLabel={priceText}
         onBuy={() => { setFlipbookOpen(false); void clickBuy(); }}
+      />
+
+      <FreeSamplePreviewModal
+        open={sampleOpen}
+        onClose={() => setSampleOpen(false)}
+        ebookId={book.id}
+        title={displayTitle}
+        previewUrls={previewUrls}
       />
     </div>
   );
