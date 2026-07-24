@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { X, Mail, User, Download, Loader2, CheckCircle2 } from "lucide-react";
 import { emitColoringEvent } from "@/lib/coloringFunnelEvents";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Props {
   open: boolean;
