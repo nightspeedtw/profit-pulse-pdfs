@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
 import DOMPurify from "isomorphic-dompurify";
-import { Loader2, Download, Eye, Printer, ShieldCheck, Sparkles, Home, FileText } from "lucide-react";
+import { Loader2, Download, Eye, Home, FileText } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { emitColoringEvent } from "@/lib/coloringFunnelEvents";
 import { ColoringPreviewLightbox } from "@/components/kids/ColoringPreviewLightbox";
