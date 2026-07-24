@@ -17,6 +17,7 @@
 import { corsHeaders, db, fetchBook, json, signedUrl, uploadAsset } from "../_shared/coloring-v2/state.ts";
 import { openaiDirectImage } from "../_shared/openai-direct.ts";
 import { geminiDirectImageWithMeta } from "../_shared/gemini-direct.ts";
+import { autoCropBorders, verifyFullBleed, type FullBleedVerdict } from "../_shared/coloring-v2/full-bleed-verify.ts";
 
 declare const Deno: any;
 
