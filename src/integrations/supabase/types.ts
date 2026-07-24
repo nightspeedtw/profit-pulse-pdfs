@@ -6860,6 +6860,74 @@ export type Database = {
         }
         Relationships: []
       }
+      sample_leads: {
+        Row: {
+          book_id: string | null
+          created_at: string
+          drip_last_error: string | null
+          drip_last_sent_at: string | null
+          drip_next_at: string
+          drip_stage: number
+          email: string
+          first_name: string | null
+          id: string
+          ip_hash: string | null
+          lead_source: string
+          product_category: string | null
+          product_slug: string | null
+          sample_pdf_url: string | null
+          unsubscribed_at: string | null
+          updated_at: string
+          user_agent: string | null
+        }
+        Insert: {
+          book_id?: string | null
+          created_at?: string
+          drip_last_error?: string | null
+          drip_last_sent_at?: string | null
+          drip_next_at?: string
+          drip_stage?: number
+          email: string
+          first_name?: string | null
+          id?: string
+          ip_hash?: string | null
+          lead_source?: string
+          product_category?: string | null
+          product_slug?: string | null
+          sample_pdf_url?: string | null
+          unsubscribed_at?: string | null
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Update: {
+          book_id?: string | null
+          created_at?: string
+          drip_last_error?: string | null
+          drip_last_sent_at?: string | null
+          drip_next_at?: string
+          drip_stage?: number
+          email?: string
+          first_name?: string | null
+          id?: string
+          ip_hash?: string | null
+          lead_source?: string
+          product_category?: string | null
+          product_slug?: string | null
+          sample_pdf_url?: string | null
+          unsubscribed_at?: string | null
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sample_leads_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks_kids"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       seasonal_calendar_seed: {
         Row: {
           anchor_day: number | null

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { X, Mail, User, Download, Loader2, CheckCircle2 } from "lucide-react";
 import { emitColoringEvent } from "@/lib/coloringFunnelEvents";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Props {
   open: boolean;
@@ -27,6 +28,8 @@ export default function FreeSamplePreviewModal({
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [samplePdfUrl, setSamplePdfUrl] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -50,6 +53,7 @@ export default function FreeSamplePreviewModal({
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
     if (firstName.trim().length < 1) return;
     setLoading(true);
+    setSubmitError(null);
     try {
       window.localStorage.setItem(STORAGE_KEY, email);
       window.localStorage.setItem(STORAGE_NAME_KEY, firstName.trim());
@@ -57,6 +61,16 @@ export default function FreeSamplePreviewModal({
         force: true,
         extra: { has_first_name: true, lead_source: "free_sample" },
       });
+
+      const { data, error } = await supabase.functions.invoke("submit-sample-lead", {
+        body: { email, first_name: firstName.trim(), book_id: ebookId },
+      });
+      if (error) throw error;
+      if (data?.sample_pdf_url) setSamplePdfUrl(data.sample_pdf_url as string);
+      setSubmitted(true);
+    } catch (err) {
+      console.error("[FreeSampleModal] submit failed", err);
+      setSubmitError("Something went wrong — your pages are still shown below.");
       setSubmitted(true);
     } finally {
       setLoading(false);
@@ -139,6 +153,24 @@ export default function FreeSamplePreviewModal({
                 Tap any page to open the full-size printable image. We&apos;ve also emailed the download link to{" "}
                 <span className="font-mono">{email}</span>.
               </p>
+              {samplePdfUrl && (
+                <a
+                  href={samplePdfUrl}
+                  target="_blank"
+                  rel="noopener"
+                  onClick={() => void emitColoringEvent("sample_downloaded", ebookId, {
+                    force: true,
+                    extra: { format: "pdf", lead_source: "free_sample" },
+                  })}
+                  className="mb-4 w-full h-11 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 hover:bg-accent hover:text-accent-foreground transition-colors"
+                >
+                  <Download className="h-4 w-4" />
+                  Download 5-page sample PDF
+                </a>
+              )}
+              {submitError && (
+                <p className="text-xs text-destructive mb-3">{submitError}</p>
+              )}
               {samplePages.length === 0 ? (
                 <p className="text-sm border-2 border-dashed border-border rounded-md p-4 text-center text-muted-foreground">
                   Sample previews are being prepared for this book. Check back shortly.

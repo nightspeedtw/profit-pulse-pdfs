@@ -1,81 +1,78 @@
+## Goal
+Ship the three deferred conversion features fully automatically — no admin UI, no per-book manual data entry. Every live coloring book gets a working "Preview 5 Pages", "Free Sample PDF", and email drip out of the box.
 
-# Mobile Conversion Optimization — ColoringProduct
+## How auto-defaults replace admin work
 
-Scope: `src/pages/ColoringProduct.tsx` and a few new small components. Visual identity (SecretPDF Kids brutal-card look, semantic tokens) preserved. No pricing logic changes — CTA copy uses live `priceText`; the "$14.99" in the spec is illustrative and will be whatever the book's actual price is.
+| Field previously requiring admin | Auto-derived from |
+|---|---|
+| `preview_pages` (which 5 pages to show) | First 5 interior pages from `coloring_v2_pages` where `stage='interior_render'` ordered by `page_number`. Deterministic, same for every book. |
+| `sample_pdf_url` | Generated on first sample request per book, cached in `ebooks_kids.metadata.sample_pdf_url`. Rebuilt if interior pages change. |
+| `sample_email_enabled` | Always `true` for `listing_status='live'` coloring books. |
+| `full_product_cta_url` | `/kids/coloring/{slug}` — already known. |
+| `bundle_offer_url` | Computed by existing `useSuggestedBundle` logic (same category or age band). |
 
-## 1. Hero (mobile-first, above the fold)
+No new columns on `ebooks_kids`, no admin panel.
 
-Reorder for `<md`:
-1. Large cover image (already aspect-square).
-2. **B&W notice pill** directly under cover: "Interior pages are black-and-white coloring designs, ready to print at home."
-3. Title + age/pages/format value chips consolidated into one line: `82 unique pages · Ages 4–8 · A4 + US Letter · Instant PDF`.
-4. Price block (existing `deriveSalePricing`).
-5. **Primary CTA** — replace copy:
-   - Label: `Start Coloring Today — {priceText}`
-   - Sub-line beneath: `Instant download • Print at home • {pageCount} unique pages`
-6. **Secondary CTA** (outline style): `Preview 5 Free Coloring Pages` → opens an email-capture modal, then triggers sample PDF download.
-7. Trust row (rewritten, truthful, see §4).
+## Build steps
 
-Existing thumbnail strip + "Look inside" button move below the CTA stack on mobile to keep the fold conversion-focused. Interior preview thumbnails (4 small B&W samples) also appear directly under the notice pill so the user *sees* B&W previews before scrolling.
+### 1. Sample PDF edge function — `generate-sample-pdf`
+- Input: `{ book_id }`.
+- Reads first 5 interior page image URLs from `coloring_v2_pages`.
+- Composes 5-page PDF (US Letter) with a cover page ("Free Sample — {title}", brand footer, "Buy full 82-page book" CTA URL) + 5 interior pages, each stamped with a subtle "Sample — SecretPDF Kids" footer so the sample can't substitute for the paid product.
+- Uploads to `ebook-pdfs` bucket at `samples/{book_id}.pdf`, signed URL cached in `metadata.sample_pdf_url` + `metadata.sample_pdf_built_at`.
+- Idempotent: returns cached URL if interior page set hash unchanged.
 
-## 2. Bundle offer — promoted directly below primary CTA
+### 2. `sample_leads` table + RLS
+```
+sample_leads(
+  id uuid pk, created_at timestamptz,
+  email text not null, first_name text,
+  book_id uuid references ebooks_kids(id),
+  product_slug text, product_category text,
+  lead_source text default 'free_sample',
+  drip_stage int default 0,          -- 0=welcome sent, 1=bundle sent, 2=last-chance sent
+  drip_next_at timestamptz,
+  unsubscribed_at timestamptz
+)
+```
+GRANTs + RLS: `anon` insert only (via edge function using service role, not direct); `authenticated` no access; `service_role` all. No client-side reads.
 
-Move `<CompleteTheSetBundle>` out of the bottom of the page and mount it right after the CTA block on mobile (still shown in current position on desktop, or unified). Redesign the card:
-- `BEST VALUE` badge (accent chip, existing token palette).
-- Row: total pages across bundle, original combined price (strikethrough), bundle price, exact savings in USD.
-- CTA: `Get the Bundle & Save {discountPct}%`.
-- Keeps the existing `free-download` invocation logic — visual redesign only.
+### 3. Public edge function — `submit-sample-lead`
+- Accepts `{ email, first_name, book_id }`.
+- Validates with Zod, rate-limits by IP+email (existing pattern).
+- Ensures sample PDF exists (calls `generate-sample-pdf` if needed).
+- Inserts into `sample_leads`, schedules `drip_next_at = now()`.
+- Returns `{ sample_pdf_url, bundle_offer_url }` so the modal success state renders immediately.
 
-## 3. Value section cleanup
+### 4. Resend drip worker — `sample-drip-tick` (pg_cron every 15 min)
+Three transactional templates in `_shared/transactional-email-templates/`:
+- `sample-welcome` (stage 0 → 1, delay 0m): download link + book CTA.
+- `sample-bundle` (stage 1 → 2, delay 24h): bundle/category upsell.
+- `sample-last-chance` (stage 2 → done, delay 72h): urgency + discount code.
 
-- Remove the duplicated `HighlightsBlock`, "Why parents love it" 3-card grid, and `ItemDetailsSection` on mobile (kept on desktop via `hidden md:block`), OR collapse them into a single "What You Get" card.
-- New **What You Get** card (single bordered block, larger text) listing:
-  - `{pageCount} unique pages, no repeats`
-  - `Ages {ageMin}–{ageMax}`
-  - `A4 + US Letter, print-ready PDF`
-  - `Less than {perPageCents}¢ per page` (computed = `Math.round(priceCents / pageCount)`; only shown when result > 0)
-  - `Personal + classroom use`
-- Bump body text from `text-xs/text-sm` to `text-sm/text-base` on mobile; reduce bordered-card density.
+Worker picks rows where `drip_next_at <= now()` and `unsubscribed_at is null`, sends via `send-transactional-email`, advances `drip_stage` + `drip_next_at`. Unsubscribe handled by existing `handle-email-unsubscribe`.
 
-## 4. Trust elements (truthful only)
+### 5. Frontend wiring (minimal)
+- `ColoringPreviewLightbox` already caps at 5 pages — no change needed; it just reads the first 5 interior URLs the product page already loads.
+- `FreeSamplePreviewModal` submit → `submit-sample-lead` (replace current stub). Success state renders returned `sample_pdf_url` as the download button + `bundle_offer_url` as the upsell CTA.
+- No new fields shown in any admin screen.
 
-New `<PurchaseTrustRow />` near CTA, three items — no reviews, no scarcity, no sales counts:
-- `Print-ready PDF, checked before release`
-- `Secure checkout`
-- `Help with technical download issues` (mailto link to existing support address)
+### 6. Backfill / rollout
+- No migration data changes required for existing books — sample PDFs generate lazily on first request.
+- Bundle URL uses existing suggestion hook — nothing to seed.
 
-Remove `<SocialProofBadges>` from above-the-fold on mobile (kept lower on desktop) if it renders invented counts — if it only renders real data, leave it below the fold.
+## Technical notes (for engineers)
+- Email domain + `setup_email_infra` prerequisites must already be satisfied; if `email_domain--check_email_domain_status` isn't `active`, the drip worker still enqueues (queue tolerates pending domain).
+- `generate-sample-pdf` reuses the existing `pdf-preflight`/composition helpers where possible; no new PDF library.
+- All three new edge functions are `verify_jwt = false` (public) except `sample-drip-tick` (cron/service-role).
+- Rate-limit `submit-sample-lead` at 5/min/IP to prevent list-bombing.
 
-## 5. Free-preview email capture
+## Out of scope
+- Admin UI, per-book overrides, custom preview page selection, custom sample copy — everything auto.
+- Changing which pages appear in the on-page 5-page lightbox (already the first 5 interior pages).
 
-New component `<FreeSamplePreviewModal />`:
-- Small form: email input + submit.
-- On submit: inserts into a new lightweight table row (`sample_leads`: `email`, `ebook_id`, `created_at`) via existing supabase client, then calls the existing `free-download` function with a `sample=true` flag (or falls back to constructing a client-side PDF of the first 5 `previewUrls` — MVP uses the direct sample URL from `meta.sample_pdf_url` if present, else the first 5 preview images shown in a lightbox as a printable web view).
-- No email deliverability needed for v1 — success screen shows a `Download 5-page sample` button that triggers the sample.
-- Backend addition is minimal (one table + insert policy). Confirming with user whether that's in scope — if not, we skip DB insert and just gate the sample behind email entered locally.
-
-## 6. Sticky mobile buy bar
-
-Update the existing `md:hidden` sticky bar copy:
-- Left: `{priceText}` + `{pageCount} pages · Ages X–Y` (unchanged).
-- Button label: `Get the Book — {priceText}` (instead of "Download").
-
-## Technical details
-
-Files:
-- `src/pages/ColoringProduct.tsx` — reorder hero, swap CTA copy, add per-page calc, add responsive `hidden`/`md:block` wrappers around removed-on-mobile sections, move bundle mount point.
-- **New** `src/components/product/BWPreviewNotice.tsx` — pill component.
-- **New** `src/components/product/WhatYouGetCard.tsx` — consolidated value card.
-- **New** `src/components/product/PurchaseTrustRow.tsx` — 3-item trust row.
-- **New** `src/components/product/FreeSamplePreviewModal.tsx` — email capture + sample delivery.
-- Edit `src/components/product/CompleteTheSetBundle.tsx` — add BEST VALUE badge, restructure price row, update CTA copy to include discount %.
-
-No changes to pricing/data logic, backend functions, or the payment path. Colors stay on semantic tokens (`bg-foreground`, `bg-accent`, `border-foreground`, `bg-highlight`).
-
-## Open question for you
-
-For "Preview 5 Free Coloring Pages" — do you want:
-- **(a)** true email capture (creates a `sample_leads` table + sends an email later via Resend), or
-- **(b)** frictionless: enter email → immediately reveal a download link for the first 5 preview pages (email stored client-side only, no DB, no send)?
-
-I'll default to **(b)** unless you say otherwise, since it's shippable now without backend work.
+## Definition of done
+1. Fresh live book with no admin action shows a working "Preview 5 Pages" (already true) and returns a real 5-page sample PDF after email submit.
+2. Lead row appears in `sample_leads`; welcome email arrives; bundle email at +24h; last-chance at +72h.
+3. Unsubscribe link works and stops the drip.
+4. Zero admin fields, zero manual per-book setup.
