@@ -1,57 +1,77 @@
 ## Goal
-Permanently prevent coloring-book covers from shipping with white / colored borders, frames, or padded margins. The generated art must fill the full canvas edge-to-edge, and the storefront thumbnail must show the artwork filling the tile.
+ยกระดับหน้าปก coloring book ให้ได้คุณภาพเทียบเท่ารูปตัวอย่าง 3 ใบ (Robot Doodle Lab / Amazing Earth & Space / The Last Message from Tomorrow) — ตัวอักษรวาดมือหนา สีสันจัดจ้าน ตัวละคร/ฉากรายละเอียดสูง badge อายุกลมกลืน และ full-bleed ทุกด้าน
 
-## Root cause (verified)
-- `KidsBookCard` and `ColoringProduct` gallery already use `object-cover` — the frontend is not adding borders.
-- The prompt in `coloring-v2-illustrated-cover-once/index.ts` (line 172) already says FULL-BLEED, but Gemini / GPT-image still occasionally bake a white margin, inner frame, or vignette-to-white edge. There is **no post-generation verifier**, so any bordered result is accepted and shipped.
+## สิ่งที่รูปตัวอย่างมีเหมือนกัน (จะ bake เข้า pipeline)
+1. **Hero title lettering** — ตัวหนาแบบ hand-painted / chunky, มี outline ดำหนา, drop-shadow, และ **ไล่สีต่างกันในแต่ละคำหรือแต่ละตัวอักษร** (Amazing/Earth&Space, Robot/Doodle Lab)
+2. **Title container** — วางบน plaque/ribbon/panel สีตัด (rounded black bubble, tan scroll ribbon, torn-paper) เพื่อให้อ่านได้บนพื้นภาพยุ่ง
+3. **Subtitle เป็น ribbon แยก** — "COLORING BOOK" / "COLORING ADVENTURE" ใน banner แคบใต้ title
+4. **Age badge เป็น sticker กลม** — ไล่สี, ขอบเข้ม, engraved "AGES X-Y" (Amazing Earth ชัดเจน)
+5. **Character ensemble แน่นหน้าปก** — hero กลาง + supporting characters ล้อมรอบ พร้อม props/ฉาก
+6. **Environmental frame** — ของแต่ง (gears, planets, stars, lightning) โผล่จากขอบเป็น decorative border
+7. **Rich background** — deep navy, cosmic purple, painted texture — ไม่มีขาวเลย
 
-## Permanent fix — `cover_full_bleed_edge_verifier_v15`
+## Root cause ของปกปัจจุบันที่ยังไม่ถึง
+- `LETTERING_STYLES` มี 6 style แต่ prompt ไม่ได้ **บังคับ container/plaque** ใต้ title → ตัวอักษรลอยบนภาพยุ่ง อ่านยาก
+- ไม่ได้บังคับ **multi-color per-word letter fill** (แต่ละคำสีต่างกัน) — ตอนนี้เป็น "chunky puffy multicolor" กว้างเกินไป โมเดลเลยเลือกสีเดียว
+- Subtitle "Coloring Book" ถูกใส่เป็นส่วนของ title spelling lock แทนที่จะเป็น **แยก ribbon**
+- ไม่มี **"ensemble" clause** → มัก generate hero เดี่ยว + พื้นหลังโล่ง
+- Prompt เน้น "square 1:1 full-bleed" แต่ไม่ได้สั่ง **decorative border objects** ที่ทำให้หน้าปกดูเต็ม
 
-### 1. Edge-pixel verifier (new)
-Add `supabase/functions/_shared/coloring-v2/full-bleed-verify.ts`:
-- Decode PNG bytes (reuse existing PNG decoder from de-fill post-processor).
-- Sample the outer 2% ring on all four edges (top / bottom / left / right rows and columns).
-- Compute, per edge:
-  - `whiteRatio` = fraction of pixels with R,G,B ≥ 245 and low saturation.
-  - `uniformRatio` = fraction of pixels within ΔE ≤ 4 of that edge's mean (detects any solid-color frame, not just white).
-- **Verdict = fail** if any edge has `whiteRatio ≥ 0.40` OR `uniformRatio ≥ 0.85` (indicating a baked border/frame).
-- Return `{ pass, worstEdge, whiteRatio, uniformRatio }`.
+## แผนแก้ (v16: `cover_reference_quality_v16`)
 
-### 2. Verifier loop in `coloring-v2-illustrated-cover-once`
-Wrap the existing Gemini → Gateway → OpenAI ladder in a retry loop (max 3 attempts total across providers):
-- After each provider returns bytes, run `verifyFullBleed(bytes)`.
-- On fail, discard bytes, strengthen the negative clause (append the specific offender, e.g. `"the previous attempt had a white margin along the ${worstEdge} edge — this attempt MUST paint that edge completely"`), and retry the next provider in the ladder.
-- If all 3 attempts fail, auto-crop the detected border (trim rows/columns whose `uniformRatio` exceeds threshold) and rescale back to 1024×1024 via a canvas resize, then upload with `meta.full_bleed_autocropped = true` so we can audit later.
-- Never ship a cover that fails verification without at least the autocrop rescue.
+### 1. เพิ่ม COMPOSITION SYSTEM ใน `coloring-v2-illustrated-cover-once/index.ts`
+สร้าง 3 building block ใหม่ ประกอบเข้ากับ layout/lettering/mood ที่มีอยู่:
 
-### 3. Prompt tightening
-Reword line 172 clause to lead with the failure examples the models keep producing:
-- "The painted illustration must bleed off all four edges — literally paint past the canvas edge. A one-pixel-wide strip along every edge must be full-saturation illustration, not white paper, not a colored bar, not a decorative frame."
-- Add explicit ban: `"NO white 'polaroid' border, NO colored ribbon frame, NO inner rectangle, NO passe-partout, NO drop-shadow around the artwork suggesting it's a card on a background."`
+**`TITLE_CONTAINERS`** (เลือก deterministic จาก book_id):
+- `black_bubble_plaque` — bubble ดำ rounded + starburst decoration (แบบ Robot Doodle Lab)
+- `torn_scroll_ribbon` — กระดาษเก่าฉีก tan/cream + stitching edge (แบบ Amazing Earth)
+- `painted_banner` — แถบสีตัดคาดกลางบน + curl ปลาย (แบบ Last Message)
+- `sticker_stack` — title เป็น sticker แต่ละคำแยกกันซ้อนเหลื่อม (ทางเลือกสำหรับ title สั้น)
+- `clean_stroke_only` — ไม่มี container, ใช้ outline หนาพิเศษเป็น container ในตัว (สำหรับสไตล์ minimal)
 
-### 4. Asset metadata + storefront refresh
-- Store verifier scores in `coloring_v2_assets.meta.full_bleed = { whiteRatio, uniformRatio, verdict, attempts }` for the future QC audit.
-- Bump the law tag from `cover_layout_diversity_v14` → `cover_full_bleed_edge_verifier_v15`.
+**`TITLE_COLOR_MODES`**:
+- `multi_word_gradient` — แต่ละคำสีต่างกัน (yellow / green-earth / cosmic-purple)
+- `per_letter_theme` — แต่ละตัวอักษรมี theme pattern ในตัว (starfield, water, gears)
+- `duotone_pop` — 2 สีสลับคำ, contrast แรง
+- `unified_glow` — สีเดียวแต่มี inner glow + edge highlight (สำหรับ dramatic mood)
 
-### 5. Regenerate current offending book(s)
-- Identify the book the user is currently viewing (latest published; likely the one on their preview screen). Query `coloring_v2_books` + `ebooks_kids` for the most recent live cover and re-run `coloring-v2-illustrated-cover-once` under the new verifier so the storefront thumbnail refreshes.
-- Optionally sweep the last ~10 live books: for each, download the current `cover_url`, run only the verifier (no regen) — regenerate only the ones that fail. Cheap way to clean the shelf without burning credits on already-good covers.
+**`ENSEMBLE_CLAUSE`** (บังคับหน้าปกเต็ม):
+- Hero character 1 คน + 2-3 supporting characters + 4-6 decorative props ที่โผล่จากขอบ 4 ด้าน
+- ระบุตำแหน่ง: hero-center-bottom, supporting-left, supporting-right, props-corners
 
-### 6. Regression test
-Add `src/__tests__/coloring-cover-full-bleed-verifier-v15.test.ts`:
-- Synthetic PNG with a 40-px white border → verifier must fail.
-- Synthetic PNG with a solid-color 30-px frame → verifier must fail.
-- Synthetic full-bleed noise PNG → verifier must pass.
-- Ensures the class stays fixed permanently.
+### 2. แยก subtitle ribbon ออกจาก title spelling lock
+- Title spelling lock บังคับเฉพาะ **ชื่อเรื่องจริง** (เช่น "Robot Doodle Lab")
+- คำว่า "Coloring Book" / "Coloring Adventure" ถูกสั่งให้เรนเดอร์เป็น **subtitle ribbon แยก** ใต้ title container
+- ยัง verify OCR ทั้งสองส่วน
 
-## Files touched
-- **new** `supabase/functions/_shared/coloring-v2/full-bleed-verify.ts`
-- **edit** `supabase/functions/coloring-v2-illustrated-cover-once/index.ts` (retry loop, prompt tightening, meta, autocrop rescue)
-- **new** `src/__tests__/coloring-cover-full-bleed-verifier-v15.test.ts`
+### 3. ยกระดับ age badge
+เปลี่ยน `ageBadgeClause` เป็น sticker แบบใน Amazing Earth: วงกลม 2 ชั้น (นอกสี base, ในสีตัด), engraved letterpress "AGES 8-12", drop-shadow ดำหนา, วางมุมขวาบนหรือขวากลาง (deterministic per book)
 
-## Out of scope
-- No changes to interior renderer, PDF assembler, or thumbnail component (already `object-cover`).
-- No change to the anatomy / spelling / lettering laws.
+### 4. ปรับ FULL-BLEED prompt ให้เจาะจงกว่าเดิม
+เพิ่ม positive clause: "decorative motifs (gears / stars / planets / vines / tools depending on theme) emerging inward from all four edges — objects must cross the frame, half-in half-out — so no edge is empty painted background"
+Verifier v15 ที่เพิ่งใส่ยังใช้ได้เหมือนเดิม แต่ prompt ที่ดีขึ้นจะลด retry จริง
 
-## Open question
-Do you want me to also **sweep the last N live covers** (option in step 5) and auto-regenerate any that fail the new verifier, or only apply the fix going forward + regenerate the one book you're looking at now?
+### 5. เพิ่ม `theme_motif_kit` mapping
+ตาม theme ของหนังสือ (space / robots / ocean / dinosaurs / etc.) ให้ preset ของ decorative props ที่ต้องโผล่ตามขอบ — ลด "generic decoration" ที่โมเดลชอบใส่ (ดาวสุ่ม, สายรุ้ง)
+
+### 6. Regeneration policy
+- **Going forward**: ปกใหม่ทุกใบใช้ v16 อัตโนมัติ
+- **หนังสือที่ live แล้ว**: ไม่แตะ (ไม่สร้างค่าใช้จ่าย regenerate) — เว้นแต่จะสั่งเฉพาะเล่ม
+- **เล่มถัดไปในคิว**: จะเป็น test book แรกของ v16
+
+## Technical details
+- ไฟล์ที่แก้: `supabase/functions/coloring-v2-illustrated-cover-once/index.ts` (เพิ่ม `TITLE_CONTAINERS`, `TITLE_COLOR_MODES`, `THEME_MOTIF_KITS`, ปรับ `buildPrompt`)
+- ไฟล์ที่ **ไม่แตะ**: verifier v15, retry ladder, upload flow, storefront bridge — ทำงานได้ดีอยู่แล้ว
+- เพิ่ม regression test: `src/__tests__/coloring-cover-reference-quality-v16.test.ts` — ตรวจว่า prompt ประกอบด้วย container + color mode + ensemble + motif kit clauses
+- Metadata ที่เก็บใน `coloring_v2_assets`: `law: "cover_reference_quality_v16"`, `title_container`, `title_color_mode`, `motif_kit`
+
+## คำถามก่อนลงมือ
+ต้องการให้:
+1. **สร้าง 1 เล่มทดสอบ v16 ทันทีหลัง merge** เพื่อดูผลจริง แล้วค่อยตัดสินใจ regenerate เล่มเก่า? (แนะนำ)
+2. หรือ **regenerate ปกของ 3-5 เล่ม live ล่าสุด** ทันทีเพื่อเทียบ side-by-side?
+
+## Verification
+1. Unit test v16 ผ่าน (prompt structure)
+2. Test cover 1 ใบ → รูปมี title container ชัด + multi-color lettering + ensemble + full-bleed pass ตั้งแต่ attempt 1
+3. Verifier v15 ยังคง pass (edge check ผ่าน)
+4. OCR ตรวจ title + subtitle ถูกต้อง

@@ -141,6 +141,63 @@ export function ageBadgeLabel(ageBand?: string | null): string | null {
   return `AGES ${m[1]}-${m[2]}`;
 }
 
+// ── TITLE / SUBTITLE SPLIT (cover_reference_quality_v16, 2026-07-25) ──
+// Reference covers (Robot Doodle Lab, Amazing Earth & Space) render the
+// core title big + "COLORING BOOK/ADVENTURE" as a separate ribbon underneath.
+// Split so each half gets its own spelling lock and treatment.
+export function splitTitleForCover(full: string): { titleCore: string; subtitle: string } {
+  const s = (full ?? "").trim();
+  const m = s.match(/^(.*?)\s+(coloring\s+(?:book|adventure|activity\s+book|fun|pages))\s*$/i);
+  if (m) return { titleCore: m[1].trim(), subtitle: m[2].toUpperCase() };
+  return { titleCore: s || "Coloring Book", subtitle: "COLORING BOOK" };
+}
+
+// ── TITLE CONTAINERS (5 plaque/ribbon treatments) ─────────────────────
+export const TITLE_CONTAINERS: Array<{ id: string; brief: string }> = [
+  { id: "black_bubble_plaque", brief: "The title sits inside a BOLD ROUNDED BLACK BUBBLE PLAQUE (deep near-black, thick warm-yellow/cream outline, gentle drop-shadow), with tiny painted starbursts and doodles bursting from the edges of the plaque. The plaque sits high on the cover and the title letters ride confidently inside it." },
+  { id: "torn_scroll_ribbon",  brief: "The title sits on a TORN CREAM/TAN PARCHMENT SCROLL that curves gently across the top of the cover, with visible torn-paper edges, subtle stitching, and hand-painted shadow underneath. The scroll integrates into the artwork; letters are painted directly onto it." },
+  { id: "painted_banner",      brief: "The title rides on a WIDE PAINTED BANNER cutting horizontally across the upper third — solid contrasting fill (cream, gold, or the accent color), thick outlined edge, small curled ribbon tails on both sides, a subtle painted highlight along the top edge." },
+  { id: "sticker_stack",       brief: "The title is composed as STACKED PAINTED STICKERS — each WORD of the title is its own individually painted sticker shape with its own thick outline and drop-shadow, the stickers overlap slightly at bouncy angles, and cast painted shadows onto the artwork behind them." },
+  { id: "clean_stroke_only",   brief: "NO plaque behind the title — instead each letter carries an EXTRA-THICK painted stroke plus a soft painted glow so the title reads cleanly against the illustration; a very subtle painted halo darkens the art directly behind the letters for legibility." },
+];
+export function pickTitleContainer(bookId: string): typeof TITLE_CONTAINERS[number] {
+  let h = 0;
+  for (let i = 0; i < bookId.length; i++) h = (h * 89 + bookId.charCodeAt(i) * 11) >>> 0;
+  return TITLE_CONTAINERS[h % TITLE_CONTAINERS.length];
+}
+
+// ── TITLE COLOR MODES (how letters are colored inside the container) ──
+export const TITLE_COLOR_MODES: Array<{ id: string; brief: string }> = [
+  { id: "multi_word_gradient", brief: "MULTI-WORD COLOR MODE: each WORD of the title is painted a different high-chroma color drawn from the mood palette (e.g. word 1 sunshine yellow, word 2 emerald-earth green, word 3 cosmic violet). Within a word, letters share a fill but may vary slightly in tone. Every word keeps the same thick outline and drop-shadow." },
+  { id: "per_letter_theme",    brief: "PER-LETTER THEME MODE: every individual letter is filled with a tiny scene from the book's theme (e.g. one letter contains a painted starfield, another a wave pattern, another gears) — the letter shape itself becomes a little themed window while retaining a thick outline for legibility." },
+  { id: "duotone_pop",         brief: "DUOTONE POP MODE: alternate WORDS strictly between two hero colors of the palette (e.g. hot pink / electric cyan), creating a punchy pop-poster contrast. Every letter still gets a thick dark outline and a chunky drop-shadow." },
+  { id: "unified_glow",        brief: "UNIFIED GLOW MODE: all letters share ONE dominant hero color from the palette with a painted inner glow and a bright highlighted top edge, plus a thick outline in the palette's darkest accent — for a dramatic, cinematic title feel." },
+];
+export function pickTitleColorMode(bookId: string): typeof TITLE_COLOR_MODES[number] {
+  let h = 0;
+  for (let i = 0; i < bookId.length; i++) h = (h * 53 + bookId.charCodeAt(i) * 17) >>> 0;
+  return TITLE_COLOR_MODES[h % TITLE_COLOR_MODES.length];
+}
+
+// ── THEME MOTIF KITS (theme-specific decorative props at the edges) ───
+// Maps the book's dominant theme keywords to a curated set of decorative
+// objects that should emerge from all four edges of the cover, so the
+// frame reads full-bleed and thematically consistent.
+export function pickMotifKit(theme: string, title: string): { id: string; motifs: string } {
+  const s = `${theme ?? ""} ${title ?? ""}`.toLowerCase();
+  if (/space|planet|cosmic|galax|astro|star|solar/.test(s))     return { id: "space",     motifs: "painted planets, ringed Saturn, crescent moon, comets, star clusters, small rockets, tiny satellites peeking from the corners" };
+  if (/robot|gear|mech|invention|steam|circuit/.test(s))         return { id: "robots",    motifs: "colorful gears, tools (wrench, screwdriver), springs, bolts, circuit patterns, small robot heads and antennae emerging from the edges" };
+  if (/ocean|sea|fish|mermaid|underwater|coral|reef/.test(s))    return { id: "ocean",     motifs: "coral fronds, bubbles, small fish silhouettes, kelp strands, seashells, starfish emerging from the corners" };
+  if (/dino|prehistoric|jurassic/.test(s))                       return { id: "dinos",     motifs: "ferns, volcano puffs, footprints, palm fronds, small pterosaurs, tiny eggs peeking in from the edges" };
+  if (/unicorn|fairy|magic|enchant|rainbow/.test(s))             return { id: "fairy",     motifs: "rainbows, magic sparkles, painted clouds, tiny stars, flower crowns, ribbons trailing from the corners" };
+  if (/forest|jungle|animal|wild|safari/.test(s))                return { id: "wild",      motifs: "leafy vines, painted flowers, butterflies, small animal faces peeking, mushrooms, ferns emerging inward from the edges" };
+  if (/dragon|castle|knight|kingdom|adventure|treasure/.test(s)) return { id: "adventure", motifs: "flags, small castle turrets, treasure coins, scrolls, keys, small dragon wings and tails peeking from the corners" };
+  if (/farm|garden|flower|veggie|bee/.test(s))                   return { id: "garden",    motifs: "sunflowers, daisies, honey bees, watering cans, painted vines and leaves emerging inward from the edges" };
+  if (/alphabet|letter|number|abc|learn/.test(s))                return { id: "abc",       motifs: "tiny painted letter blocks, pencil crayons, stars, paint splashes, little numeric doodles peeking from the corners" };
+  return { id: "generic", motifs: "small joyful hand-painted doodles (stars, hearts, sparkles, tiny flowers, little swirls) emerging inward from every edge — never abstract; always tied to the book's subject" };
+}
+
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
   try {
@@ -148,40 +205,54 @@ Deno.serve(async (req: Request) => {
     if (!book_id) return json({ error: "book_id required" }, 400);
 
     const book = await fetchBook(book_id);
-    const title = ensureColoringBookInTitle(book.title ?? "Coloring Book");
-    const sceneClause = await buildSceneClause(book_id, title);
+    const fullTitle = ensureColoringBookInTitle(book.title ?? "Coloring Book");
+    const { titleCore, subtitle } = splitTitleForCover(fullTitle);
+    const sceneClause = await buildSceneClause(book_id, fullTitle);
     const mood = pickMood(book_id);
     const lettering = pickLetteringStyle(book_id);
     const layout = pickLayoutStyle(book_id);
+    const container = pickTitleContainer(book_id);
+    const colorMode = pickTitleColorMode(book_id);
+    const motifKit = pickMotifKit(String(book.theme ?? ""), fullTitle);
     const ageLabel = ageBadgeLabel(book.age_band);
 
     const ageBadgeClause = ageLabel
-      ? `Include a PAINTED CIRCULAR AGE BADGE in the TOP-RIGHT corner of the cover: a bright circular sticker/seal (yellow, orange, or red — choose whichever contrasts best with the background), thick dark outline, subtle drop-shadow, with the EXACT text "${ageLabel}" hand-lettered inside in bold rounded capitals. The badge is part of the painting, not a font overlay. Size roughly 15-18% of the cover width. Do NOT place any other text near it.`
+      ? `Include a PAINTED CIRCULAR AGE BADGE as a two-ring sticker in the upper-right area of the cover (roughly 15-18% of cover width): an outer ring in a bright accent color (yellow, orange, or red — whichever contrasts best with the background) and an inner disc in a slightly darker/deeper shade, thick dark outline around both rings, chunky drop-shadow underneath, and the EXACT text "${ageLabel}" hand-lettered inside the inner disc in bold rounded capitals with a subtle engraved/letterpress feel. The badge is part of the painting, not a font overlay. Do NOT place any other text near it.`
       : `Do NOT add any age badge, age indicator, or age-range text anywhere on the cover.`;
 
-    // Perfect-spelling guardrails. AI image models routinely drop or
-    // duplicate letters when the title is long; we emit a letter-by-letter
-    // spelling lock plus explicit anti-gibberish clauses.
-    const letterLock = title.split("").join(" ");
-    const spellingClause = `PERFECT TEXT RENDERING — NON-NEGOTIABLE: the cover MUST display the EXACT title "${title}" with flawless spelling, perfect typography, absolutely NO typos, NO missing letters, NO doubled letters, NO extra letters, NO random or gibberish characters anywhere on the cover. Every letter must be recognizable and correctly ordered. Character-by-character spelling lock: [ ${letterLock} ]. Count the letters before drawing. Draw each letter deliberately as its own hand-illustrated shape. Do not invent decorative extra letters. If a letter would not fit cleanly, resize the title — do NOT drop or substitute letters.`;
+    // Perfect-spelling guardrails — now split across titleCore + subtitle.
+    const coreLock = titleCore.split("").join(" ");
+    const subLock = subtitle.split("").join(" ");
+    const spellingClause = `PERFECT TEXT RENDERING — NON-NEGOTIABLE. TWO text elements only exist on this cover: (1) the CORE TITLE "${titleCore}" rendered big and hero-sized, and (2) a SEPARATE SUBTITLE RIBBON reading "${subtitle}" placed on its own small painted banner directly beneath the core title. Both must be spelled EXACTLY, with absolutely NO typos, NO missing letters, NO doubled letters, NO extra letters, NO gibberish. Character-by-character spelling lock for the core title: [ ${coreLock} ]. Character-by-character spelling lock for the subtitle: [ ${subLock} ]. Count the letters before drawing. Draw each letter deliberately as its own hand-illustrated shape. Do not invent decorative extra letters. Do NOT merge the core title and the subtitle into one block — they are two distinct painted elements.`;
 
     const prompt = [
-      `A highly creative, vibrant, and unique front cover design for a coloring book about ${title}.`,
+      `A highly creative, vibrant, unique, and PACKED front cover design for a children's coloring book — the core title is "${titleCore}" and the subtitle ribbon reads "${subtitle}".`,
       `Art direction — MOOD "${mood.id}": palette = ${mood.palette}; energy = ${mood.energy}.`,
-      `BRIGHT, SATURATED, MODERN 2026 picture-book aesthetic. High-chroma joyful palette, fresh shelf-release feel, poster-punchy at 160px thumbnail size. Bold shape language and one clear focal hero.`,
+      `BRIGHT, SATURATED, MODERN 2026 picture-book aesthetic. High-chroma joyful palette, fresh shelf-release feel, poster-punchy at 160px thumbnail size. Bold shape language and one clear focal hero surrounded by a rich supporting cast.`,
       `Do NOT look muted, retro, vintage, sepia, dusty, faded, brown, tea-stained, or watercolor-washed. Reject any "old storybook" feeling. Reject muddy neutrals.`,
-      `Square 1:1 composition, FULL-BLEED edge-to-edge (NON-NEGOTIABLE): the painted illustration MUST bleed off all four edges of the 1024x1024 canvas. Literally paint past the edge — a one-pixel-wide strip along every edge (top, bottom, left, right) must be full-saturation painted illustration, NOT white paper, NOT a colored bar, NOT a decorative frame, NOT a vignette fade to white or any solid color. Absolutely forbidden: any white or off-white margin, any inner border, any outer frame, any passe-partout, any polaroid-style border, any colored ribbon frame, any inner rectangle, any drop-shadow around the artwork that suggests it is a card floating on a background. Every single pixel of the 1024x1024 canvas is painted illustration.`,
+      `Square 1:1 composition, FULL-BLEED edge-to-edge (NON-NEGOTIABLE): the painted illustration MUST bleed off all four edges of the 1024x1024 canvas. Literally paint past the edge — a one-pixel-wide strip along every edge (top, bottom, left, right) must be full-saturation painted illustration, NOT white paper, NOT a colored bar, NOT a decorative frame, NOT a vignette fade to white or any solid color. Absolutely forbidden: any white or off-white margin, any inner border, any outer frame, any passe-partout, any polaroid-style border, any colored ribbon frame around the whole artwork, any inner rectangle, any drop-shadow around the artwork that suggests it is a card floating on a background. Every single pixel of the 1024x1024 canvas is painted illustration.`,
       `Premium picture-book cover: gouache + digital-brush feel with glossy playful mark-making, expressive and vivid, high production value. Fill the background completely with a rich painted environment that reaches all four edges.`,
       sceneClause,
+      // ENSEMBLE — force multiple characters + supporting cast + edge decoration.
+      `CHARACTER ENSEMBLE — DENSE COVER: place ONE clear hero character at the visual anchor point (per the layout approach below), PLUS 2-3 supporting characters/creatures interacting with the hero (peeking, waving, sitting nearby), PLUS 4-6 painted decorative props from the theme motif kit emerging INWARD from the four edges (top, bottom, left, right) — objects half-in / half-out of frame so no edge is empty painted background. The cover should feel gently packed and celebratory, never a lonely hero on empty color.`,
+      `THEME MOTIF KIT — "${motifKit.id}": ${motifKit.motifs}. Every edge of the cover must have at least one motif from this kit crossing it.`,
       `Every creature/character MUST be anatomically complete and non-deformed: correct number of legs, one head, one tail, complete limbs, no severed or floating body parts, no fused bodies, no extra heads, no missing features. Canonical proportions.`,
       // Composition & Layout — forcing diversity across the shelf.
       `COMPOSITION & LAYOUT — FORCING DIVERSITY: do NOT default to a standard centered-hero layout. Apply this specific layout approach — "${layout.id}": ${layout.brief} Explore this direction fully; the composition should feel like a distinct design decision, not a generic template.`,
-      // Title treatment (hand-lettering style).
-      `TITLE TREATMENT — style "${lettering.id}": ${lettering.brief} The title "${title}" MUST appear as HAND-ILLUSTRATED CUSTOM LETTERING that is PART OF THE PAINTING — every letter drawn individually by the illustrator with texture, highlight, and shadow painted in. Absolutely NO system font, NO flat digital typography, NO clean vector text. The title should occupy roughly 40-50% of the cover area, positioned per the layout approach above.`,
+      // Title container (plaque / ribbon / sticker / stroke).
+      `TITLE CONTAINER — "${container.id}": ${container.brief} This is a MANDATORY element and it must sit on TOP of the illustration (not behind it), so the core title always reads clearly regardless of the artwork behind.`,
+      // Lettering style (hand-lettering execution).
+      `LETTERING STYLE — "${lettering.id}": ${lettering.brief}`,
+      // Letter color mode.
+      `TITLE COLOR MODE — "${colorMode.id}": ${colorMode.brief}`,
+      // Overall title treatment.
+      `TITLE TREATMENT: the CORE TITLE "${titleCore}" MUST appear as HAND-ILLUSTRATED CUSTOM LETTERING that is PART OF THE PAINTING — every letter drawn individually by the illustrator with texture, highlight, and shadow painted in. Absolutely NO system font, NO flat digital typography, NO clean vector text. The core title (together with its container) should occupy roughly 35-45% of the cover area, positioned per the layout approach above.`,
+      // Subtitle ribbon (separate element).
+      `SUBTITLE RIBBON — REQUIRED SEPARATE ELEMENT: directly beneath the core title, place a small painted ribbon/banner (roughly 45-60% the width of the core title and about 12-18% of the cover height) that reads "${subtitle}" in bold hand-lettered capitals — a different (smaller) treatment from the core title, painted in a strongly contrasting color to the ribbon fill (e.g. dark letters on a cream/gold ribbon, or light letters on a deep ribbon), with thin painted outline and a small drop-shadow. The subtitle ribbon must NOT be styled identically to the core title container — they are two distinct painted elements.`,
       // Spelling guardrails (the specific failure class this file targets).
       spellingClause,
       ageBadgeClause,
-      `Do NOT include: any logo, any watermark, any URL, any subtitle, any extra text besides the title and the age badge (if requested above), any UI element, any book mockup, any border, any frame, any white padding, any decorative edge strip.`,
+      `Do NOT include: any logo, any watermark, any URL, any additional text besides the core title, the subtitle ribbon, and the age badge (if requested above), any UI element, any book mockup, any border wrapping the whole cover, any frame, any white padding, any decorative edge strip that acts as a border.`,
     ].join(" ");
 
 
@@ -317,15 +388,19 @@ Deno.serve(async (req: Request) => {
 
     // Upload as PNG (gpt-image-1 returns PNG bytes).
     const asset = await uploadAsset(book_id, "cover_final", bytes, "png", {
-      law: "cover_full_bleed_edge_verifier_v15",
+      law: "cover_reference_quality_v16",
       provider,
       model,
       text_mode: "illustrated_hand_lettered_baked",
       lettering_style: lettering.id,
       layout_style: layout.id,
+      title_container: container.id,
+      title_color_mode: colorMode.id,
+      motif_kit: motifKit.id,
       mood: mood.id,
       age_badge: ageLabel ?? null,
-      title_spelling_lock: title,
+      title_spelling_lock: titleCore,
+      subtitle_spelling_lock: subtitle,
       prompt_len: prompt.length,
       full_bleed: finalVerdict
         ? {
