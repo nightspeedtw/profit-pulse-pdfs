@@ -67,9 +67,12 @@ Deno.serve(async (req: Request) => {
             scene: plan.scene ?? "",
           });
 
-          if (verdict.degraded) {
-            // Verifier outage — upload but flag for QC safety net.
-            console.warn(`[coloring-v2 render] anatomy verifier degraded page ${page_number}: ${verdict.defects[0] ?? "unknown"}`);
+          const isUnrecognizable = (verdict.defects || []).some((d) => String(d).startsWith("unrecognizable_subject"));
+          if (verdict.degraded || isUnrecognizable) {
+            // Verifier outage or subject not recognizable (abstract art,
+            // mandalas, skylines, patterns) — upload with anatomy_unmeasured.
+            // Owner law v7: verifier can't interpret → SKIP, don't park.
+            console.warn(`[coloring-v2 render] anatomy skipped page ${page_number}: ${verdict.defects[0] ?? "degraded"}`);
             anatomyUnmeasured = true;
           } else if (!verdict.pass) {
             lastDefects = verdict.defects;
