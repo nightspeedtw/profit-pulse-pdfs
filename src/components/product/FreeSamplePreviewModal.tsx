@@ -157,6 +157,24 @@ export default function FreeSamplePreviewModal({
                 Tap any page to open the full-size printable image. We&apos;ve also emailed the download link to{" "}
                 <span className="font-mono">{email}</span>.
               </p>
+              {samplePdfUrl && (
+                <a
+                  href={samplePdfUrl}
+                  target="_blank"
+                  rel="noopener"
+                  onClick={() => void emitColoringEvent("sample_downloaded", ebookId, {
+                    force: true,
+                    extra: { format: "pdf", lead_source: "free_sample" },
+                  })}
+                  className="mb-4 w-full h-11 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 hover:bg-accent hover:text-accent-foreground transition-colors"
+                >
+                  <Download className="h-4 w-4" />
+                  Download 5-page sample PDF
+                </a>
+              )}
+              {submitError && (
+                <p className="text-xs text-destructive mb-3">{submitError}</p>
+              )}
               {samplePages.length === 0 ? (
                 <p className="text-sm border-2 border-dashed border-border rounded-md p-4 text-center text-muted-foreground">
                   Sample previews are being prepared for this book. Check back shortly.
