@@ -111,7 +111,7 @@ export function buildInteriorImagePrompt(page: any, styleBible: any, ageBand: V2
     `Decorative motifs from the motif bank if relevant: ${(styleBible?.motif_bank ?? []).slice(0, 8).join(", ")}.`,
     `Style Bible decorative language: ${styleBible?.decorative_language ?? ""}.`,
     `LINE-ART LAW: pure black outlines only, NO grayscale fills, NO shading, NO cross-hatching that traps a region closed, NO photo textures, NO watermark, NO logo, NO page number, NO text of any kind inside the illustration, NO signature.`,
-    `Anatomy law: any human, animal, or creature must have anatomically plausible limb counts — no missing arms/legs, no extra arms/legs, no fused digits, no disconnected body parts. Fantasy species are welcome; deformity is not.`,
+    `ANATOMY LAW (anatomy_structure_constraints_v1): anatomically correct structure with flawless body proportions, natural relaxed posture, and believable weight/balance. Correct number of limbs; exactly FIVE distinct, separated fingers on each hand; properly connected joints (shoulder→elbow→wrist, hip→knee→ankle). Symmetrical, well-drawn facial features with accurate eye alignment. For fantasy creatures (mermaids, centaurs, dragons, fairies, unicorns, phoenixes, nagas, garudas, kinnari, multi-armed deities, nine-tailed foxes), blend hybrid anatomical elements with a natural biological flow — canonical mythical forms only, never random extra appendages or deformities.`,
     `Forbidden this page: ${page.forbidden ?? "none"}.`,
     `Global forbidden traits: ${(styleBible?.forbidden_visual_traits ?? prof.negative).join(", ")}.`,
     `Square 1:1 composition, edge-to-edge composition with 6% safe margin.`,
@@ -119,15 +119,28 @@ export function buildInteriorImagePrompt(page: any, styleBible: any, ageBand: V2
   return parts.join("\n");
 }
 
+// anatomy_structure_constraints_v1 (owner 2026-07-24): explicit negative
+// vocabulary for limbs/hands/joints/faces + hybrid-creature deformities.
 export const INTERIOR_NEGATIVE_PROMPT = [
-  "color fills", "watercolor", "gray shading", "photograph", "3d render",
+  "color fills", "watercolor", "gray shading", "grayscale", "hatching", "cross-hatching",
+  "photograph", "3d render", "realistic texture", "blurry lines", "messy background",
   "text", "letters", "watermark", "logo", "signature", "page number",
-  // Anatomy deformity vocabulary (coloring_v2_anatomy_gate_v1)
-  "two heads", "extra head", "duplicated head", "fused faces", "fused limbs",
-  "extra limbs", "missing limbs", "floating limbs", "disembodied parts",
-  "wrong number of legs", "wrong number of fins", "wrong number of arms",
-  "deformed anatomy", "malformed body", "mangled anatomy", "twisted body",
-  "frankenstein composition", "stitched body", "fused fingers", "six fingers",
+  // Limb / hand / finger / joint deformities
+  "extra limbs", "missing arms", "missing legs", "extra legs", "extra arms",
+  "mutated hands", "fused fingers", "extra fingers", "six fingers", "seven fingers",
+  "four fingers on a human hand", "webbed human fingers", "melted fingers",
+  "broken joints", "dislocated joints", "disconnected limbs", "floating limbs",
+  "disembodied parts", "severed limbs",
+  // Head / face deformities
+  "two heads", "extra head", "duplicated head", "fused faces", "distorted face",
+  "asymmetrical eyes", "misaligned eyes", "crossed eyes", "extra eyes",
+  // Body deformities
+  "fused limbs", "wrong number of legs", "wrong number of fins", "wrong number of arms",
+  "deformed anatomy", "bad anatomy", "malformed body", "mangled anatomy",
+  "twisted body", "unnatural twists", "frankenstein composition", "stitched body",
   "amorphous blob", "potato shape", "unrecognizable creature",
+  // Hybrid-creature specific: keep canonical, avoid random appendages
+  "random extra appendages on fantasy creature", "hybrid seams", "unnatural biological flow",
+  // Coloring-book cleanliness
   "solid black fills", "solid black shapes",
 ].join(", ");
