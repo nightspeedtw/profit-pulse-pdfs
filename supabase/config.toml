@@ -8,3 +8,9 @@ verify_jwt = false
 
 [functions.story-batch-v2-plan-portfolio]
 verify_jwt = false
+
+[functions.submit-sample-lead]
+verify_jwt = false
+
+[functions.generate-sample-pdf]
+verify_jwt = false
