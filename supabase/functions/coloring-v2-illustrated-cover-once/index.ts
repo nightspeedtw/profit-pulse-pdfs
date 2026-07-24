@@ -111,6 +111,26 @@ export function pickLetteringStyle(bookId: string): typeof LETTERING_STYLES[numb
   return LETTERING_STYLES[h % LETTERING_STYLES.length];
 }
 
+// ── LAYOUT RANDOMIZER (cover_layout_diversity_v14, owner 2026-07-24) ──
+// Forces AI to break away from centered-hero clichés. Deterministic pick
+// from book_id keeps a given book stable on re-render, but the shelf sees
+// wide compositional variety across titles.
+export const LAYOUT_STYLES: Array<{ id: string; brief: string }> = [
+  { id: "corner_emerge",     brief: "Subject emerging from a corner, title integrated into the landscape/environment as if it belongs to the scene." },
+  { id: "circular_badge",    brief: "Circular badge / medallion composition with the title wrapping around the main character in a ring." },
+  { id: "split_horizontal",  brief: "Split layout: upper half is BOLD hand-painted title typography, lower half is the detailed illustration; strong horizontal division." },
+  { id: "framed_ribbon",     brief: "Framed decorative border design with vintage-modern aesthetic; the title is placed elegantly inside a hand-painted center ribbon or plaque." },
+  { id: "dynamic_tilt",      brief: "Dynamic action angle with a tilted horizon; bold hand-painted title typography overlaps the artwork at an energetic diagonal." },
+  { id: "asymmetric_offset", brief: "Highly asymmetrical framing: focal character pushed to one side, title stacked on the opposite side, generous negative space wrapping around the hero." },
+  { id: "text_wrap_around",  brief: "Playful integration where painted letters of the title wrap around, hug, or interact with the subject (e.g. character sitting on a letter, ivy growing on letters)." },
+  { id: "minimal_modern",    brief: "Minimalist modern editorial cover: one hero motif, large hand-painted title, restrained composition, a single accent color pop." },
+];
+export function pickLayoutStyle(bookId: string): typeof LAYOUT_STYLES[number] {
+  let h = 0;
+  for (let i = 0; i < bookId.length; i++) h = (h * 251 + bookId.charCodeAt(i) * 7) >>> 0;
+  return LAYOUT_STYLES[h % LAYOUT_STYLES.length];
+}
+
 // ── AGE BADGE ─────────────────────────────────────────────────────────
 export function ageBadgeLabel(ageBand?: string | null): string | null {
   const s = String(ageBand ?? "").trim();
