@@ -144,7 +144,7 @@ export default function ColoringProduct() {
   const ageMin = Number(meta.age_min ?? 4);
   const ageMax = Number(meta.age_max ?? 6);
   const pageCount = Number(meta.page_count ?? pricing?.page_count ?? 32);
-  const bandLabel = ageBandLabel(ageMin, ageMax);
+  void ageBandLabel; // band label no longer rendered in the new hero
   const previewUrls: string[] = Array.isArray(meta.preview_page_urls) ? meta.preview_page_urls.slice(0, 6) : [];
   const galleryUrlsAll: string[] = Array.isArray(meta.gallery_urls) ? meta.gallery_urls.filter(Boolean) : [];
   // Flipbook shows every available interior page (not just 6). Prefer full
