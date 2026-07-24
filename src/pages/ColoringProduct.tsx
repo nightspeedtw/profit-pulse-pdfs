@@ -404,15 +404,26 @@ export default function ColoringProduct() {
             </p>
           </div>
 
-          {/* Secondary CTA — email-gated free sample */}
+          {/* Secondary CTA — instant 5-page preview */}
           <button
             type="button"
-            onClick={() => setSampleOpen(true)}
+            onClick={() => { void emitColoringEvent("preview_opened", book.id, { force: true, extra: { source: "secondary_cta" } }); setPreview(true); }}
+            className="w-full h-12 rounded-md border-2 border-foreground bg-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 hover:bg-highlight transition-colors"
+          >
+            <Eye className="h-4 w-4" />
+            Preview Inside — See 5 Pages
+          </button>
+
+          {/* Tertiary CTA — email-gated free sample */}
+          <button
+            type="button"
+            onClick={() => { void emitColoringEvent("sample_modal_opened", book.id, { force: true }); setSampleOpen(true); }}
             className="w-full h-12 rounded-md border-2 border-foreground bg-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 hover:bg-highlight transition-colors"
           >
             <FileText className="h-4 w-4" />
-            Preview 5 Free Coloring Pages
+            Get 5 Free Printable Pages
           </button>
+
 
           <PurchaseTrustRow />
 
