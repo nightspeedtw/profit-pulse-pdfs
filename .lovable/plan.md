@@ -1,59 +1,68 @@
+## Why the rotation looks "missing"
 
-## ปัญหาที่พบ
+Last turn I wired `pickCoverArtStyle` into **only** `supabase/functions/coloring-v2-cover/index.ts` (its local `buildIllustratedPrompt`).
 
-ปกสไตล์ที่คุณชอบ (Bouncy Bubble Letters — book `e2b5a66b`) ไม่เคยถูกใช้ซ้ำเลย เพราะ `supabase/functions/coloring-v2-cover/index.ts` ใช้ prompt เดียวตายตัว:
+But the canonical prompt everyone calls "the master prompt" lives in `supabase/functions/_shared/coloring/master-cover-prompt.ts` (`buildMasterColoringCoverPrompt`, version `coloring_master_cover_v6_bake_only`). That file is imported by:
 
-- `buildIllustratedPrompt()` ฝัง art direction เพียงแบบเดียว: *"warm cheerful storybook style — gouache + watercolor feel"*
-- ไม่มี style rotation, ไม่มี recency window, ไม่มี reference image
-- ทุกเล่มจึงออกมาเป็น "gouache watercolor" ล้วน — ทำให้สลับไปมาแบบสุ่มดูไม่ได้
+- `supabase/functions/coloring-book-cover/index.ts` (V1 coloring cover lane — still used by repair sweeps and older books)
+- `supabase/functions/kids-repair-cover/index.ts` (has its own hard-coded prompt too)
 
-`STYLE_FAMILIES` ใน `_shared/coloring/style-families.ts` (12 แบบ) และ `cover-recency.ts` (recency picker) ถูกเขียนไว้แล้วแต่ **ไม่ได้ถูกเรียกใช้จาก cover generator ปัจจุบัน** — มันค้างจากยุค deterministic typography ที่ถูกปลดไปตอน `cover_illustrated_only_v12`
+In the master prompt, art direction is hard-coded in three fragments — `openingClause`, `paletteClause`, `styleTag` — with only a single `styleMode: "default" | "ya_scifi_cinematic"` switch. No rotation, no bubble-letters, no cut-paper, no crayon. That's why every cover it renders keeps landing on the same "rich saturated painterly" look.
 
-## แผนแก้
+Recent `coloring_v2_assets.meta` also shows zero `cover_art_style` values, because those rows were generated before the V2 change deployed.
 
-### 1. สร้าง `cover-art-styles.ts` (curated illustration styles)
-ตำแหน่ง: `supabase/functions/_shared/coloring/cover-art-styles.ts`
+## What the plan changes
 
-แต่ละ style มี:
-- `id` (slug), `label`
-- `prompt_fragment` — art direction ที่จะแทน "gouache + watercolor" ใน prompt
-- `title_lettering_fragment` — คำสั่งวิธีวาดตัวหนังสือ (bubble letters, brushed script, cut-paper ฯลฯ)
-- `themeAffinity` regex (optional)
+Make style rotation a property of the **Master Prompt itself**, so every lane (V1, V2, repair) inherits it automatically.
 
-Seed 8–10 สไตล์ รวมถึง:
-- `bouncy_bubble_letters` — ตรงกับ URL ที่คุณส่งมา (bold rainbow bubble typography, thick outlines, pop-art fill)
-- `soft_gouache_storybook` — สไตล์เดิม
-- `crayon_scribble_kids`, `cut_paper_collage`, `retro_saturday_cartoon`, `japanese_kawaii_sticker`, `chalkboard_neon`, `flat_vector_bold`, `ink_watercolor_wash`, `puffy_3d_gummy`
+### 1. Extend the master prompt to accept a chosen style
 
-### 2. Weighted style picker with recency window
-ใหม่: `pickCoverArtStyle(db, book)` ใน cover-art-styles.ts
-- ดึง `meta.cover_art_style` ของ `cover_final` 15 เล่มล่าสุด
-- ตัดสไตล์ที่ใช้ในช่วง 4 เล่มล่าสุดออกก่อน แล้วสุ่มถ่วงน้ำหนัก
-- ถ้า title match `themeAffinity` เพิ่ม weight
-- Return `{style, reason}`
+`supabase/functions/_shared/coloring/master-cover-prompt.ts`:
 
-### 3. Wire เข้า `coloring-v2-cover/index.ts`
-- เรียก `pickCoverArtStyle` หลัง sticky check
-- แทน constant art-direction ใน `buildIllustratedPrompt()` ด้วย `style.prompt_fragment` + `style.title_lettering_fragment`
-- บันทึก `cover_art_style: style.id` ใน asset meta (สำหรับ recency + audit)
-- Log ลง `coloring_v2_provider_calls.purpose` เป็น `cover_illustrated_<style_id>_aN`
-- เก็บ hard reject/attempt cap เดิมทั้งหมด (ไม่แตะ sticky short-circuit, ไม่แตะ COVER_HARD_ATTEMPT_CAP, ไม่ลด quality gate)
+- Import `CoverArtStyle` from `_shared/coloring/cover-art-styles.ts`.
+- Add optional `artStyle?: CoverArtStyle` to `MasterColoringCoverInput`.
+- When `artStyle` is present, replace `openingClause` / `paletteClause` / `styleTag` with fragments derived from `artStyle.prompt_fragment`, and replace the generic hand-lettering sentence inside `layoutClause` with `artStyle.title_lettering_fragment`.
+- Keep `styleMode: "ya_scifi_cinematic"` as an override that still forces the cinematic branch (teen books).
+- Bump version constant to `coloring_master_cover_v7_style_rotation` and update `assertMasterPromptShape` to still enforce the title + age-badge verbatim contracts.
 
-### 4. เคลียร์ปกเก่าให้สุ่มสไตล์ใหม่ (optional — คุณสั่งเมื่อพร้อม)
-Migration/script แยกต่างหาก: รีเซ็ต `stage='cover'` + null `approved_cover_asset_id` ให้เล่มที่ยัง live ด้วยสไตล์เดิม เพื่อให้ regenerate ตามสไตล์ใหม่ทีละเล่มตามกฎ one-book-at-a-time
-- **ไม่รันในแผนนี้** — รอคุณอนุมัติหลังเห็น 3–4 เล่มใหม่ออกมาสวย
+### 2. Have the master prompt pick a style when the caller didn't
 
-### 5. Regression test
-`src/__tests__/coloring-cover-style-rotation.test.ts`:
-- `bouncy_bubble_letters` มีอยู่ใน registry
-- `pickCoverArtStyle` ไม่คืนสไตล์ที่อยู่ใน recency 4 เล่มล่าสุด
-- prompt ที่ build มี fragment ของ style ที่ถูกเลือก
+Add a small helper `buildMasterColoringCoverPromptWithRotation(db, input)`:
 
-## ไม่แตะ
-- Sticky-law short-circuit (ปกที่ owner-approved ยังคงอยู่)
-- OCR/spell gate, hard attempt cap, provider ladder (Gemini → OpenAI)
-- One-book-at-a-time law, budget ceiling
-- SVG typography (ยังคงถูกห้ามตาม `cover_illustrated_only_v12`)
+- Calls `pickCoverArtStyle(db, input.title)`.
+- Passes the returned `style` into `buildMasterColoringCoverPrompt`.
+- Returns `{ prompt, style, pickReason }` so callers can persist `cover_art_style` into asset meta.
 
-## Deliverable
-หลัง deploy: เล่มใหม่ทุกเล่มจะสุ่มสไตล์จากกลุ่ม 8–10 แบบ (รวมทั้ง bubble-letters แบบใน URL) โดยไม่ซ้ำติดกัน — catalog จะดูหลากหลาย ไม่ใช่ gouache แบบเดียวทั้งร้าน
+Pure `buildMasterColoringCoverPrompt` stays deterministic (no DB) for tests.
+
+### 3. Wire every remaining cover lane through it
+
+- `supabase/functions/coloring-book-cover/index.ts` (around the current `buildMasterColoringCoverPrompt` call at line ~663): switch to `buildMasterColoringCoverPromptWithRotation` and write `cover_art_style` / `cover_art_style_label` / `cover_art_style_pick_reason` into the uploaded asset's meta.
+- `supabase/functions/kids-repair-cover/index.ts`: replace the inline `masterPrompt` array with the master-prompt call so repairs also rotate.
+- `supabase/functions/coloring-v2-cover/index.ts`: switch its local `buildIllustratedPrompt` to call `buildMasterColoringCoverPrompt({ ..., artStyle })` so V2 and V1 use one prompt source of truth (no more drift).
+
+### 4. Regression tests
+
+Extend `src/__tests__/coloring-cover-style-rotation.test.ts` and add master-prompt-specific assertions:
+
+- `buildMasterColoringCoverPrompt` with `artStyle=bouncy_bubble_letters` must include the bubble-letter fragment and must NOT contain the old "rich saturated painterly illustration" default sentence.
+- `buildMasterColoringCoverPrompt` with `artStyle=cut_paper_collage` must include the cut-paper fragment.
+- `assertMasterPromptShape` still passes (verbatim title + ageBadge intact, length ≤ 3200, banned words only inside negative clauses).
+- `coloring-book-cover/index.ts` and `kids-repair-cover/index.ts` sources must reference `buildMasterColoringCoverPromptWithRotation` (locks the wiring so it can't regress to a hardcoded prompt again).
+
+### 5. No changes to
+
+- QC gates, OCR contract, `cover_illustrated_only_v12` law strings, storefront upload, or PDF assembly.
+- Picture-book (non-coloring) covers — they run on a different path.
+
+## Technical details
+
+- Version bump: `coloring_master_cover_v6_bake_only` → `coloring_master_cover_v7_style_rotation`. Old v6 string stays referenced only inside the version constant name for `alert_log` continuity.
+- Recency window stays at 4 (as implemented in `pickCoverArtStyle`). No new DB migration needed — `cover_art_style` continues to live inside `coloring_v2_assets.meta` and the equivalent V1 asset meta.
+- No threshold, gate, or law is lowered.
+
+## Definition of done
+
+1. `bunx vitest run src/__tests__/coloring-cover-style-rotation.test.ts src/__tests__/cover-bake-only-v6.test.ts src/__tests__/coloring-cover-illustrated-only-v12.test.ts` all green.
+2. Three fresh cover generations (any lane) show three different `cover_art_style` values in `coloring_v2_assets.meta`.
+3. No hardcoded "rich saturated painterly illustration" sentence remains in the master prompt output when an `artStyle` is provided.
