@@ -362,22 +362,38 @@ export default function ColoringProduct() {
           <ProductRating ebookId={book.id} />
 
           {(() => {
+            // Prefer authoritative product_pricing (campaign-aware). Fallback to
+            // legacy honest-pricing helper when no row exists yet.
+            const hasResolved =
+              resolved &&
+              resolved.campaignCents != null &&
+              resolved.effectiveCents < resolved.regularCents;
+            const effectiveCents = resolved?.effectiveCents ?? priceCents;
+            const regularCents = resolved?.regularCents ?? priceCents;
+            const pct = hasResolved
+              ? Math.max(1, Math.round(((regularCents - effectiveCents) / regularCents) * 100))
+              : null;
             const sp = deriveSalePricing(book.id, priceCents, book.storefront_meta);
-            const salesEndsLabel = saleCfg?.enabled ? formatSaleEnds(saleCfg.ends_at) : null;
+            const priceLabel = hasResolved ? `$${(effectiveCents / 100).toFixed(2)}` : sp.priceLabel;
+            const originalLabel = hasResolved ? `$${(regularCents / 100).toFixed(2)}` : sp.originalLabel;
+            const discountPct = hasResolved ? pct : sp.discountPct;
+            const salesEndsLabel = hasResolved && resolved?.campaignValidTo
+              ? new Date(resolved.campaignValidTo).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+              : (saleCfg?.enabled ? formatSaleEnds(saleCfg.ends_at) : null);
             return (
               <div className="space-y-1">
                 <div className="inline-flex items-baseline flex-wrap gap-x-3 gap-y-1 border-2 border-foreground bg-background px-4 py-2">
-                  <span className="font-display text-3xl md:text-4xl font-black text-foreground tracking-tight">
-                    {sp.priceLabel}
+                  <span className="font-display text-3xl md:text-4xl font-black text-red-600 tracking-tight">
+                    {priceLabel}
                   </span>
-                  {sp.originalLabel && (
+                  {originalLabel && (
                     <span className="font-mono text-sm text-muted-foreground line-through">
-                      {sp.originalLabel}
+                      {originalLabel}
                     </span>
                   )}
-                  {sp.discountPct != null && (
-                    <span className="font-mono text-xs text-accent-foreground font-bold">
-                      ({sp.discountPct}% off{salesEndsLabel ? ` · Sale ends ${salesEndsLabel}` : ""})
+                  {discountPct != null && (
+                    <span className="font-mono text-xs text-red-600 font-bold">
+                      Save {discountPct}%{salesEndsLabel ? ` · ends ${salesEndsLabel}` : ""}
                     </span>
                   )}
                 </div>
@@ -394,7 +410,9 @@ export default function ColoringProduct() {
             />
           )}
 
-          {/* Primary CTA — conversion-focused copy */}
+          <WhatYouGetList pageCount={pageCount} ageMin={ageMin} ageMax={ageMax} />
+
+          {/* Primary CTA — owner-spec copy */}
           <div className="space-y-2">
             <button
               type="button"
@@ -403,12 +421,13 @@ export default function ColoringProduct() {
               className="w-full h-14 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-base hover:bg-accent hover:text-accent-foreground transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
             >
               {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
-              {downloading ? "Preparing your PDF…" : `Start Coloring Today — ${priceText}`}
+              {downloading ? "Preparing your PDF…" : `Get Your Coloring Book — ${priceText}`}
             </button>
             <p className="text-xs md:text-sm text-muted-foreground text-center">
-              Instant download • Print at home • {pageCount} unique pages
+              A4 + US Letter · Print Again Anytime · Instant Download
             </p>
           </div>
+
 
           {/* Secondary CTA — instant 5-page preview */}
           <button
