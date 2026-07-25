@@ -7,12 +7,22 @@
 //   spelling contract — we never fall back to overlay typography, because
 //   overlay typography always looks like a plastered popup.
 //
+// OWNER LAW `coloring_master_cover_v7_style_rotation` (2026-07-25):
+//   Art direction is NOT hard-coded anymore. The prompt accepts a
+//   `CoverArtStyle` picked by `pickCoverArtStyle` so the catalog rotates
+//   through the curated style pool (Bouncy Bubble Letters, Cut-Paper
+//   Collage, Crayon Scribble, Kawaii Sticker, …). If no style is passed
+//   we fall back to the historical "rich saturated painterly" default
+//   for backwards compatibility with older callers.
+//
 // Scope: `book_type='coloring_book'` only. Picture-book / adult covers must
 // not import from here.
 //
 // @ts-nocheck  Deno edge runtime
 
-export const COLORING_MASTER_COVER_PROMPT_VERSION = "coloring_master_cover_v6_bake_only";
+import { pickCoverArtStyle, type CoverArtStyle } from "./cover-art-styles.ts";
+
+export const COLORING_MASTER_COVER_PROMPT_VERSION = "coloring_master_cover_v7_style_rotation";
 
 export type ColoringCoverStyleMode = "default" | "ya_scifi_cinematic";
 
@@ -28,6 +38,8 @@ export interface MasterColoringCoverInput {
   categoryName?: string;
   hasInteriorReferences?: boolean;
   styleMode?: ColoringCoverStyleMode;
+  /** Curated art-direction rotation. If omitted, uses the historical default. */
+  artStyle?: CoverArtStyle;
 }
 
 const BANNED_WORDS = ["watermark", "logo", "page number", "website"];
