@@ -660,17 +660,19 @@ Deno.serve(async (req: Request) => {
     const masterPromptAspect = _isSquare
       ? "8.5 x 8.5 inches, square 1:1"
       : "8.5 x 11 inches, portrait";
-    const masterPrompt = buildMasterColoringCoverPrompt({
-      title: row.title,
-      subtitle,
-      ageBadge,
-      theme: categoryNameFinal,
-      mainCharacters: heroSubjects.slice(0, 3),
-      backgroundElements: heroSubjects.slice(3, 8),
-      aspectDescriptor: masterPromptAspect,
-      categoryName: categoryNameFinal,
-      hasInteriorReferences: Array.isArray(referenceImageURLs) && referenceImageURLs.length > 0,
-    });
+    const { prompt: masterPrompt, style: pickedArtStyle, pickReason: artStylePickReason } =
+      await buildMasterColoringCoverPromptWithRotation(db, {
+        title: row.title,
+        subtitle,
+        ageBadge,
+        theme: categoryNameFinal,
+        mainCharacters: heroSubjects.slice(0, 3),
+        backgroundElements: heroSubjects.slice(3, 8),
+        aspectDescriptor: masterPromptAspect,
+        categoryName: categoryNameFinal,
+        hasInteriorReferences: Array.isArray(referenceImageURLs) && referenceImageURLs.length > 0,
+      });
+    console.log(`[coloring-book-cover] master_prompt style=${pickedArtStyle.id} reason=${artStylePickReason}`);
     // Owner order 2026-07-17: on text-only failure, subsequent attempts must
     // INPAINT just the text region on the same base image rather than reroll
     // the entire cover. This preserves art that already passed
