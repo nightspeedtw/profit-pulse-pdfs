@@ -2,6 +2,8 @@
 // @ts-nocheck
 import { acquireColoringV2ProductionLock, advance, callAiJson, chainOwnerMatches, corsHeaders, db, fetchBook, fireStage, json, recordError } from "../_shared/coloring-v2/state.ts";
 import { buildPagePlanPrompt, PAGE_PLAN_SYSTEM, buildInteriorImagePrompt } from "../_shared/coloring-v2/prompts.ts";
+import { coverageSlotLabel, detectCoverageKind, requiredCoveragePages } from "../_shared/coloring/full-coverage-law.ts";
+
 
 declare const Deno: any;
 
