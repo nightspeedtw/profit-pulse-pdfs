@@ -18,6 +18,8 @@ import { corsHeaders, db, fetchBook, json, signedUrl, uploadAsset } from "../_sh
 import { openaiDirectImage } from "../_shared/openai-direct.ts";
 import { geminiDirectImageWithMeta } from "../_shared/gemini-direct.ts";
 import { autoCropBorders, verifyFullBleed, type FullBleedVerdict } from "../_shared/coloring-v2/full-bleed-verify.ts";
+import { pickCoverArtStyle } from "../_shared/coloring/cover-art-styles.ts";
+
 
 declare const Deno: any;
 
