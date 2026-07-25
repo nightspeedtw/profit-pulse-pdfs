@@ -75,6 +75,7 @@ function ageBandLabel(min: number, max: number): string {
 export default function ColoringProduct() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [book, setBook] = useState<Row | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -84,11 +85,21 @@ export default function ColoringProduct() {
   const [sampleOpen, setSampleOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const [licensePrices, setLicensePrices] = useState<{ personal: number; commercial: number }>({ personal: 1499, commercial: 3900 });
   const saleCfg = useSaleConfig();
   const activeCampaign = useActiveCampaign(book?.id ?? null);
   const suggestedBundle = useSuggestedBundle(book?.id ?? null);
   const resolvedPrices = useResolvedKidsPrices(book?.id ? [book.id] : []);
   const resolved = book?.id ? resolvedPrices[book.id] : undefined;
+
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      const { data } = await supabase.from("book_licenses").select("personal_price_cents,commercial_price_cents").eq("book_id", id).maybeSingle();
+      if (data) setLicensePrices({ personal: data.personal_price_cents ?? 1499, commercial: data.commercial_price_cents ?? 3900 });
+    })();
+  }, [id]);
+
 
   useEffect(() => {
     if (!id) return;
