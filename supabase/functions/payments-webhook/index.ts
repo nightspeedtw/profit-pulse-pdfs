@@ -23,6 +23,123 @@ const CREDITS_PER_PRICE: Record<string, number> = {
   kids_unlimited_yearly: 1200,
 };
 
+// Commercial license plans — separate model (commercial_credit_ledger).
+const COMMERCIAL_PLAN_CREDITS: Record<string, { plan: 'commercial_25' | 'commercial_50'; credits: number }> = {
+  commercial_25_monthly: { plan: 'commercial_25', credits: 25 },
+  commercial_50_monthly: { plan: 'commercial_50', credits: 50 },
+};
+
+async function grantCommercialCredits(
+  userId: string,
+  subscriptionId: string,
+  credits: number,
+  periodEnd: string | null | undefined,
+  note: string,
+) {
+  if (credits <= 0) return;
+  // Rollover-one-period rule: this grant is still spendable until the END of
+  // the NEXT billing period. Approximate as +2× period length from period_end,
+  // conservatively defaulting to 60 days if period_end is missing.
+  const end = periodEnd ? new Date(periodEnd) : new Date(Date.now() + 30 * 24 * 3600 * 1000);
+  const expiresAt = new Date(end.getTime() + 30 * 24 * 3600 * 1000).toISOString();
+  await admin().from('commercial_credit_ledger').insert({
+    user_id: userId,
+    subscription_id: subscriptionId,
+    delta: credits,
+    reason: 'period_grant',
+    expires_at: expiresAt,
+    note,
+  });
+}
+
+async function handleCommercialSubscriptionEvent(data: any, env: PaddleEnv, kind: 'created' | 'updated' | 'canceled') {
+  const { id, customerId, items, status, currentBillingPeriod, scheduledChange, customData } = data;
+  const userId = customData?.userId;
+  if (!userId) { console.warn('commercial sub: no userId'); return false; }
+
+  const item = items?.[0];
+  const priceExtId = item?.price?.importMeta?.externalId ?? item?.price?.customData?.externalId;
+  const planMeta = priceExtId ? COMMERCIAL_PLAN_CREDITS[priceExtId] : undefined;
+  if (!planMeta) return false; // Not a commercial plan — let the caller fall through.
+
+  // Fetch prior row for period-rollover detection
+  const { data: prior } = await admin()
+    .from('commercial_subscriptions')
+    .select('id,current_period_start,plan_code,credits_per_period')
+    .eq('paddle_subscription_id', id)
+    .maybeSingle();
+
+  const { data: upserted } = await admin()
+    .from('commercial_subscriptions')
+    .upsert(
+      {
+        user_id: userId,
+        paddle_subscription_id: id,
+        paddle_customer_id: customerId,
+        plan_code: planMeta.plan,
+        credits_per_period: planMeta.credits,
+        status: kind === 'canceled' ? 'canceled' : status,
+        current_period_start: currentBillingPeriod?.startsAt,
+        current_period_end: currentBillingPeriod?.endsAt,
+        cancel_at_period_end: scheduledChange?.action === 'cancel',
+        environment: env,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'paddle_subscription_id' }
+    )
+    .select('id')
+    .single();
+
+  const subRowId = upserted?.id ?? prior?.id;
+  if (!subRowId) return true;
+
+  if (kind === 'created') {
+    await grantCommercialCredits(userId, subRowId, planMeta.credits, currentBillingPeriod?.endsAt, 'initial_grant');
+  } else if (kind === 'updated') {
+    const periodRolled =
+      prior?.current_period_start &&
+      currentBillingPeriod?.startsAt &&
+      new Date(currentBillingPeriod.startsAt).getTime() > new Date(prior.current_period_start).getTime();
+    if (periodRolled) {
+      await grantCommercialCredits(userId, subRowId, planMeta.credits, currentBillingPeriod?.endsAt, 'period_renewal');
+    }
+    const planChanged = prior?.plan_code && prior.plan_code !== planMeta.plan;
+    if (planChanged) {
+      const delta = planMeta.credits - (prior?.credits_per_period ?? 0);
+      if (delta > 0) await grantCommercialCredits(userId, subRowId, delta, currentBillingPeriod?.endsAt, `plan_change_${prior.plan_code}_to_${planMeta.plan}`);
+    }
+  }
+  return true;
+}
+
+async function handleBookLicenseTransaction(data: any, env: PaddleEnv) {
+  const cd = data.customData ?? {};
+  if (cd.kind !== 'book_license') return false;
+  const userId = cd.userId as string | undefined;
+  const bookId = cd.bookId as string | undefined;
+  const licenseType = cd.licenseType as 'personal' | 'commercial' | undefined;
+  if (!userId || !bookId || !licenseType) return true;
+
+  const { data: existing } = await admin()
+    .from('book_licenses_owned')
+    .select('id,license_type')
+    .eq('user_id', userId).eq('book_id', bookId).maybeSingle();
+
+  // Widen personal → commercial. Never narrow commercial back to personal.
+  const newType = existing?.license_type === 'commercial' ? 'commercial' : licenseType;
+
+  await admin().from('book_licenses_owned').upsert({
+    user_id: userId,
+    book_id: bookId,
+    license_type: newType,
+    purchase_source: 'one_off',
+    commercial_rights_active: newType === 'commercial',
+    commercial_rights_last_active_at: newType === 'commercial' ? new Date().toISOString() : null,
+    granted_at: existing ? undefined : new Date().toISOString(),
+  } as any, { onConflict: 'user_id,book_id' });
+  return true;
+}
+
 async function grantSubscriptionCredits(userId: string, credits: number, subscriptionId: string, note: string) {
   if (credits <= 0) return;
   // Ensure wallet row exists
