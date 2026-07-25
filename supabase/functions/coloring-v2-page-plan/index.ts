@@ -2,6 +2,8 @@
 // @ts-nocheck
 import { acquireColoringV2ProductionLock, advance, callAiJson, chainOwnerMatches, corsHeaders, db, fetchBook, fireStage, json, recordError } from "../_shared/coloring-v2/state.ts";
 import { buildPagePlanPrompt, PAGE_PLAN_SYSTEM, buildInteriorImagePrompt } from "../_shared/coloring-v2/prompts.ts";
+import { coverageSlotLabel, detectCoverageKind, requiredCoveragePages } from "../_shared/coloring/full-coverage-law.ts";
+
 
 declare const Deno: any;
 
@@ -33,26 +35,49 @@ Deno.serve(async (req: Request) => {
       throw new Error(`page_plan returned ${pages.length} pages, expected ${book.page_count}`);
     }
 
+    // OWNER LAW `coloring_full_coverage_v1`: if the concept implies A-Z or
+    // 0-9, force deterministic slot labels onto every page so the interior
+    // actually delivers what the cover advertises. Reject partial coverage.
+    const coverageBlob = [
+      book.theme, concept?.title, concept?.subtitle,
+      (concept?.hero_subjects ?? []).join(" "),
+      concept?.parent_hook ?? "",
+    ].join(" ");
+    const coverageKind = detectCoverageKind(coverageBlob);
+    if (coverageKind) {
+      const need = requiredCoveragePages(coverageKind);
+      if (book.page_count < need) {
+        throw new Error(`full_coverage_page_plan_violation:${coverageKind}:need_${need}_have_${book.page_count}`);
+      }
+    }
+
     // Persist each page, pre-render the interior prompt so render-page can just fetch it.
-    const rows = pages.map((p: any, i: number) => ({
-      book_id,
-      page_number: p.page_number ?? (i + 1),
-      purpose: p.purpose ?? "scene",
-      scene: p.scene ?? "",
-      focal_subject: p.focal_subject ?? "",
-      action: p.action ?? "",
-      supporting: p.supporting ?? "",
-      framing: p.framing ?? "mid",
-      detail_target: p.detail_target ?? "",
-      continuity: p.continuity ?? "",
-      forbidden: p.forbidden ?? "",
-      prompt: buildInteriorImagePrompt(p, styleBible, book.age_band),
-      fingerprint: `p${p.page_number ?? (i + 1)}|${p.focal_subject ?? ""}|${p.framing ?? ""}`.slice(0, 200),
-    }));
+    const rows = pages.map((p: any, i: number) => {
+      const slot = coverageKind ? coverageSlotLabel(coverageKind, i) : null;
+      const focal = slot ? `${slot} — ${p.focal_subject ?? ""}`.trim() : (p.focal_subject ?? "");
+      const scene = slot ? `${slot}. ${p.scene ?? ""}`.trim() : (p.scene ?? "");
+      const pageForPrompt = { ...p, focal_subject: focal, scene };
+      return {
+        book_id,
+        page_number: p.page_number ?? (i + 1),
+        purpose: p.purpose ?? "scene",
+        scene,
+        focal_subject: focal,
+        action: p.action ?? "",
+        supporting: p.supporting ?? "",
+        framing: p.framing ?? "mid",
+        detail_target: p.detail_target ?? "",
+        continuity: slot ? `${slot} | ${p.continuity ?? ""}` : (p.continuity ?? ""),
+        forbidden: p.forbidden ?? "",
+        prompt: buildInteriorImagePrompt(pageForPrompt, styleBible, book.age_band),
+        fingerprint: `p${p.page_number ?? (i + 1)}|${focal}|${p.framing ?? ""}`.slice(0, 200),
+      };
+    });
     // clear old plans just in case (idempotent replay)
     await db().from("coloring_v2_page_plans").delete().eq("book_id", book_id);
     const { error } = await db().from("coloring_v2_page_plans").insert(rows);
     if (error) throw error;
+
 
     await advance(book_id, "page_plan", "interior_render");
     await fireStage("coloring-v2-render-page", { book_id, page_number: 1, chain_owner_book_id: book_id });

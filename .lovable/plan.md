@@ -1,48 +1,89 @@
-## Goal
-เพิ่ม Cloudflare account ตัวที่ 7 เข้าไปใน rotation เพื่อปลดล็อค interior render (โควตาเพิ่ม +10,000 neurons/วัน) และให้ระบบเดินหน้าสร้างเล่มใหม่ต่อทันที ไม่ต้องรอ 00:00 UTC
 
-## Current state (verified)
-- 116 เล่มค้างที่ `interior_render` — error เดียวกันทั้งหมด: `provider_billing_locked (429): cloudflare: all 6 accounts daily-latched`
-- Live วันนี้ 9 เล่ม, ล่าสุด 05:09 UTC
-- Production lock ปกติ (ถือโดย `abce4e6d Alphabet Appetites`, page 31/32)
-- Text stages (page_plan/concept) เดินได้ปกติผ่าน Gemini/OpenAI
+# Two owner laws to codify
 
-## Steps
+## Problem 1 — Covers still look the same
 
-### 1. รับ credentials CF #7 (blocking)
-ผมจะเรียก `add_secret` สองตัว — user paste ค่าจาก Cloudflare dashboard ของบัญชีที่ 7:
-- `CF_ACCOUNT_ID_7` — Account ID (32-hex string)
-- `CF_API_TOKEN_7` — API token ที่มีสิทธิ์ Workers AI → Read/Run
+Style rotation is wired in `supabase/functions/coloring-v2-cover/index.ts` (calls `pickCoverArtStyle`, tags `meta.cover_art_style`), but the shelf is not diverse. Evidence from `coloring_v2_assets` where `kind='cover_final'`:
 
-### 2. ต่อสายบัญชีที่ 7 ใน rotation
-แก้ `supabase/functions/_shared/image-providers.ts`:
-- ขยาย `CF_ACCOUNT_SLOTS` จาก 6 → 7
-- เพิ่ม env pair `CF_ACCOUNT_ID_7` / `CF_API_TOKEN_7` เข้า array
-- Round-robin cursor ยังใช้ modulo N เดิม (ไม่ต้องแก้ logic)
-- Latch key ใช้ index `6` (ตัวที่ 7) — key namespace เดิม, ไม่กระทบ latch เก่า
+- Last 14 days: 156 cover finals, only 2 tagged with a rotation style (`kawaii_sticker_pastel`, `soft_gouache_storybook`).
+- Alternate cover writers bypass the rotation entirely:
+  - `coloring-v2-illustrated-cover-once` uses its own hard-coded `COVER_ART_MOODS` pool (6 moods, deterministic by book_id) and its own lettering pool — no `pickCoverArtStyle` call.
+  - Recovery/repair paths and older laws (`cover_source_of_truth_v11`, `cover_reference_quality_v16`, `cover_bake_only_v6_hard_reject`) also skip the rotation.
+- Recency window in `pickCoverArtStyle` = last 4 books only, so the same 2–3 styles cluster back-to-back on the shelf.
 
-### 3. ปลดล็อคเล่มที่ค้าง (เฉพาะ interior_render)
-รัน insert-tool SQL:
-- Reset `stage_attempt_count = 0`, `last_error = NULL` สำหรับ 116 เล่มที่ error = billing_locked
-- **ไม่แตะ** เล่มที่ error อื่น (`PGRST116` ฯลฯ — เป็นคนละ class)
-- **ไม่แตะ** production lock — ปล่อยให้ `abce4e6d` ทำต่อจนจบ แล้ว tick ค่อยเลือกเล่มถัดไปตาม ranking เดิม
+## Problem 2 — Alphabet / numbers books ship without full coverage
 
-### 4. Deploy + verify
-- Deploy เฉพาะ 2 edge functions: `_shared` (ผ่าน function ที่ import) + `coloring-v2-render-page`
-- เรียก `coloring-v2-tick` 1 ครั้งเพื่อยืนยัน dispatch
-- อ่าน log `coloring-v2-render-page` — ต้องเห็น `cf_account_index: 6` ไม่ใช่ `all 6 accounts latched`
+Concept + page-plan generators can emit "Alphabet …" or "Counting …" themes on 16-page or partial 32-page plans. A-Z needs 26 letter pages; 0–9 needs 10 number pages. Neither is enforced anywhere:
 
-## Technical notes
-- Latch state เก็บใน `generation_settings` (row `cf_account_latches`) — mapping by index, ไม่ต้อง migrate. บัญชี #7 (index 6) จะเป็น "unlatched" โดย default
-- ผมจะเก็บ **One-Book-At-A-Time law** ไว้ครบ — lock, chain owner, MAX_SLOTS=1 ไม่แตะ
-- ไม่ลด quality gate, ไม่ bypass QC — แค่เพิ่ม capacity provider
+- No gate in `_shared/coloring-v2/prompts.ts` (concept), `coloring-v2-page-plan`, or seasonal seed data prevents an alphabet book with fewer than 26 letter pages.
+- Existing catalog has "Alphabet Appetites" style titles at 32-page format that do not walk A→Z, plus 16-page number books with gaps.
 
-## Definition of done
-1. `CF_ACCOUNT_ID_7` + `CF_API_TOKEN_7` มีค่าใน secrets
-2. `coloring-v2-render-page` เรียก CF โดยไม่คืน `all 7 accounts latched` (ต้องเห็น success อย่างน้อย 1 หน้า)
-3. เล่มถัดไปหลัง `abce4e6d` เดินหน้าถึง `cover` หรือ `qc` ภายใน 30 นาที
+# Plan
 
-## Not in scope
-- ไม่อัปเกรด CF paid plan
-- ไม่ route interior ไป Runware/Ideogram (คงกฎ CF-primary สำหรับ interior)
-- ไม่แตะ cover stage (Gemini/GPT ตามเดิม)
+## A. Cover-diversity law `cover_style_rotation_v2`
+
+1. **Single source of truth for cover art direction.**
+   - Extract the whole style pool into `_shared/coloring/cover-art-styles.ts` (already exists) and add a `hardMinRecencyWindow` = 8 books.
+   - Give every style equal base weight (`weight: 1`) so no look dominates; keep `themeAffinity` only as a soft +1 bonus.
+   - Add a **hard "no repeat within last 6 covers"** filter in `pickCoverArtStyle` (currently soft avoidance of last 4).
+
+2. **Kill the parallel style pools.**
+   - Delete `COVER_ART_MOODS` + local lettering pool from `coloring-v2-illustrated-cover-once/index.ts`. Route it through `pickCoverArtStyle` and `buildIllustratedPrompt` (or `buildMasterColoringCoverPromptWithRotation`) so every cover writer picks from the same catalog.
+   - Same treatment for any lingering hard-coded style clauses in `coloring-v2-repair-book` cover regen path.
+
+3. **Always persist rotation metadata.**
+   - Every `uploadAsset(..., 'cover_final', ...)` must include `cover_art_style`, `cover_art_style_label`, `cover_art_style_pick_reason` in `meta`. Add a shared helper `buildCoverFinalMeta()` and use it in all three writers.
+   - Add a runtime guard in `state.ts` `uploadAsset`: if `kind === 'cover_final'` and `meta.cover_art_style` is missing, throw — makes the contract permanent.
+
+4. **Regression tests** (`src/__tests__/`):
+   - `coloring-cover-style-rotation.test.ts` (exists) — extend: 20 sequential picks over 10 styles must cover ≥ 8 distinct styles; no style repeats within a 6-book window.
+   - New test: cover-final meta contract — asserts every writer includes `cover_art_style`.
+
+5. **Diversity backfill.**
+   - One-off regen sweep: for the ~150 live coloring books whose `cover_final.meta.cover_art_style` is NULL, enqueue a cover-regen job through `coloring-v2-cover` with a forced rotation pick. Rate-limited to the existing One-Book-At-A-Time lease so it doesn't fight active production.
+
+## B. Alphabet / Numbers coverage law `coloring_full_coverage_v1`
+
+1. **Concept-stage ban.**
+   - In `_shared/coloring-v2/prompts.ts` concept system prompt, add: "If the theme implies alphabet, ABC, letters, phonics, spelling — the book MUST include all 26 letters A–Z, one letter per page. If the theme implies counting, numbers, 123, digits — the book MUST cover 0–9 (10 pages) or 1–20 (20 pages), one number per page. If the requested `page_count` cannot fit full coverage, choose a different theme."
+   - Concept validator rejects (`concept_full_coverage_violation`) any concept where `theme` matches `/alphabet|abc|letters|phonics|spelling/i` and `page_count < 26`, or `/counting|numbers?|123|digits/i` and page_count `< 10`.
+
+2. **Page-plan enforcement.**
+   - In `coloring-v2-page-plan`, when the concept is flagged alphabet/counting, generate a deterministic slotted plan:
+     - Alphabet: page 1 = "A is for …", page 2 = "B is for …", … page 26 = "Z is for …". Remaining pages (if 32-page format = 6 spare) are theme-appropriate bonus scenes.
+     - Counting: page 1 = "1 …", … page 10 = "10 …" (or 0–9 depending on age band). Extras same treatment.
+   - Add validator `validatePagePlan` rule that rejects a plan tagged `alphabet` missing any letter or with duplicates, same for `counting`.
+
+3. **Concept anti-anchor update.**
+   - In `kids-concept-preflight` anti-anchoring list, keep "Alphabet" but require the concept to attach `coverage_contract: { kind: 'alphabet', letters: ['A'…'Z'] }`. Anti-anchor still avoids overusing the theme.
+
+4. **Retire bad legacy books.**
+   - SQL sweep: any `coloring_v2_books` with title matching `/alphabet|abc|counting|numbers?/i` where the interior page plan doesn't satisfy the new contract → set `publish_status='retired'` and `sellable=false`. Do not delete assets (P0 evidence).
+
+5. **Regression tests** (`src/__tests__/`):
+   - `coloring-full-coverage-alphabet.test.ts` — 16-page alphabet concept rejected; 32-page accepted only when plan has all 26 letters distinct.
+   - `coloring-full-coverage-numbers.test.ts` — mirror for counting themes.
+
+## C. Deploy + verify
+
+- Redeploy `coloring-v2-cover`, `coloring-v2-illustrated-cover-once`, `coloring-v2-page-plan`, `coloring-v2-concept`.
+- Run unit tests.
+- Trigger backfill cover-regen queue.
+- Confirm on next tick: (a) new covers show distinct styles across a 6-book window, (b) any queued alphabet/counting book without full coverage is rejected at concept stage.
+
+# Technical notes
+
+- Files touched:
+  - `supabase/functions/coloring-v2-cover/index.ts`
+  - `supabase/functions/coloring-v2-illustrated-cover-once/index.ts`
+  - `supabase/functions/coloring-v2-repair-book/index.ts`
+  - `supabase/functions/coloring-v2-concept/index.ts`, `coloring-v2-page-plan/index.ts`
+  - `supabase/functions/_shared/coloring/cover-art-styles.ts`
+  - `supabase/functions/_shared/coloring/master-cover-prompt.ts`
+  - `supabase/functions/_shared/coloring-v2/state.ts` (uploadAsset guard)
+  - `supabase/functions/_shared/coloring-v2/prompts.ts`
+  - New `src/__tests__/coloring-cover-style-rotation.test.ts` extension + coverage tests.
+- No storefront/UI changes.
+- No threshold reductions or gate bypasses. Fixes the class, not the row.
+
+Confirm and I'll implement in one pass.

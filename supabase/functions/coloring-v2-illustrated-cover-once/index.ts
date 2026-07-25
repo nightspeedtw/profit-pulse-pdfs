@@ -18,6 +18,8 @@ import { corsHeaders, db, fetchBook, json, signedUrl, uploadAsset } from "../_sh
 import { openaiDirectImage } from "../_shared/openai-direct.ts";
 import { geminiDirectImageWithMeta } from "../_shared/gemini-direct.ts";
 import { autoCropBorders, verifyFullBleed, type FullBleedVerdict } from "../_shared/coloring-v2/full-bleed-verify.ts";
+import { pickCoverArtStyle } from "../_shared/coloring/cover-art-styles.ts";
+
 
 declare const Deno: any;
 
@@ -208,6 +210,11 @@ Deno.serve(async (req: Request) => {
     const fullTitle = ensureColoringBookInTitle(book.title ?? "Coloring Book");
     const { titleCore, subtitle } = splitTitleForCover(fullTitle);
     const sceneClause = await buildSceneClause(book_id, fullTitle);
+    // OWNER LAW `cover_style_rotation_v2` (2026-07-25): every cover writer
+    // routes through the shared rotation, so the shelf stays diverse and
+    // the uploadAsset guard is satisfied.
+    const rotation = await pickCoverArtStyle(db(), fullTitle);
+    const artStyle = rotation.style;
     const mood = pickMood(book_id);
     const lettering = pickLetteringStyle(book_id);
     const layout = pickLayoutStyle(book_id);
@@ -215,6 +222,7 @@ Deno.serve(async (req: Request) => {
     const colorMode = pickTitleColorMode(book_id);
     const motifKit = pickMotifKit(String(book.theme ?? ""), fullTitle);
     const ageLabel = ageBadgeLabel(book.age_band);
+
 
     const ageBadgeClause = ageLabel
       ? `Include a PAINTED CIRCULAR AGE BADGE as a two-ring sticker in the upper-right area of the cover (roughly 15-18% of cover width): an outer ring in a bright accent color (yellow, orange, or red — whichever contrasts best with the background) and an inner disc in a slightly darker/deeper shade, thick dark outline around both rings, chunky drop-shadow underneath, and the EXACT text "${ageLabel}" hand-lettered inside the inner disc in bold rounded capitals with a subtle engraved/letterpress feel. The badge is part of the painting, not a font overlay. Do NOT place any other text near it.`
@@ -227,7 +235,9 @@ Deno.serve(async (req: Request) => {
 
     const prompt = [
       `A highly creative, vibrant, unique, and PACKED front cover design for a children's coloring book — the core title is "${titleCore}" and the subtitle ribbon reads "${subtitle}".`,
+      `SHELF-ROTATION ART STYLE — "${artStyle.id}" (${artStyle.label}): ${artStyle.prompt_fragment} Title lettering guidance: ${artStyle.title_lettering_fragment} This anchors the visual identity of the whole cover.`,
       `Art direction — MOOD "${mood.id}": palette = ${mood.palette}; energy = ${mood.energy}.`,
+
       `BRIGHT, SATURATED, MODERN 2026 picture-book aesthetic. High-chroma joyful palette, fresh shelf-release feel, poster-punchy at 160px thumbnail size. Bold shape language and one clear focal hero surrounded by a rich supporting cast.`,
       `Do NOT look muted, retro, vintage, sepia, dusty, faded, brown, tea-stained, or watercolor-washed. Reject any "old storybook" feeling. Reject muddy neutrals.`,
       `Square 1:1 composition, FULL-BLEED edge-to-edge (NON-NEGOTIABLE): the painted illustration MUST bleed off all four edges of the 1024x1024 canvas. Literally paint past the edge — a one-pixel-wide strip along every edge (top, bottom, left, right) must be full-saturation painted illustration, NOT white paper, NOT a colored bar, NOT a decorative frame, NOT a vignette fade to white or any solid color. Absolutely forbidden: any white or off-white margin, any inner border, any outer frame, any passe-partout, any polaroid-style border, any colored ribbon frame around the whole artwork, any inner rectangle, any drop-shadow around the artwork that suggests it is a card floating on a background. Every single pixel of the 1024x1024 canvas is painted illustration.`,
@@ -388,7 +398,11 @@ Deno.serve(async (req: Request) => {
 
     // Upload as PNG (gpt-image-1 returns PNG bytes).
     const asset = await uploadAsset(book_id, "cover_final", bytes, "png", {
-      law: "cover_reference_quality_v16",
+      law: "cover_style_rotation_v2",
+      cover_art_style: artStyle.id,
+      cover_art_label: artStyle.label,
+      rotation_reason: rotation.reason,
+      rotation_recent: rotation.recent.slice(0, 6),
       provider,
       model,
       text_mode: "illustrated_hand_lettered_baked",
@@ -396,6 +410,7 @@ Deno.serve(async (req: Request) => {
       layout_style: layout.id,
       title_container: container.id,
       title_color_mode: colorMode.id,
+
       motif_kit: motifKit.id,
       mood: mood.id,
       age_badge: ageLabel ?? null,

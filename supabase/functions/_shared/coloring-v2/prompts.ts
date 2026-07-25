@@ -24,6 +24,12 @@ Target audience: ${prof.label}
 Page count: ${pageCount}
 Complexity level: ${prof.complexity}
 
+OWNER LAW — FULL COVERAGE (coloring_full_coverage_v1):
+- If your concept promises the alphabet (A-Z) it MUST fit in a book with ≥26 interior pages.
+- If your concept promises numbers 0-9 or counting 1-10 it MUST fit in a book with ≥10 interior pages.
+- This book has ${pageCount} pages. If ${pageCount} < 26 do NOT propose an alphabet/ABC concept. If ${pageCount} < 10 do NOT propose a counting concept. Partial alphabets or partial counting sets are BANNED.
+- Prefer concepts that fit ${pageCount} distinct scenes cleanly.
+
 Return JSON only:
 {
   "title": "2-5 word catchy title, no clichés",
@@ -34,6 +40,7 @@ Return JSON only:
   "spelling_lock": "the title again, letter-for-letter — used for QC"
 }`;
 }
+
 
 export function buildStyleBiblePrompt(concept: any, ageBand: V2AgeBand) {
   const prof = getAgeProfile(ageBand);

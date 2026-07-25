@@ -250,6 +250,17 @@ export async function uploadAsset(
   meta: Record<string, unknown> = {},
   pageNumber: number | null = null,
 ): Promise<{ id: string; storage_path: string; sha256: string }> {
+  // OWNER LAW `cover_style_rotation_v2` (2026-07-25): every cover_final row
+  // MUST carry the rotation metadata so the shelf stays visually diverse
+  // and post-hoc audits can prove no style dominates.
+  if (kind === "cover_final") {
+    const s = (meta as any)?.cover_art_style;
+    if (typeof s !== "string" || s.length === 0) {
+      throw new Error(
+        "cover_final_meta_contract_violation:missing_cover_art_style — every cover writer must set meta.cover_art_style via pickCoverArtStyle",
+      );
+    }
+  }
   const c = db();
   const sha = await sha256Hex(bytes);
   const path = `${bookId}/${kind}${pageNumber != null ? `-p${String(pageNumber).padStart(3, "0")}` : ""}-${sha.slice(0, 12)}.${ext}`;
@@ -271,6 +282,7 @@ export async function uploadAsset(
   if (error) throw error;
   return data as any;
 }
+
 
 export async function signedUrl(storagePath: string, seconds = 3600): Promise<string> {
   const c = db();
