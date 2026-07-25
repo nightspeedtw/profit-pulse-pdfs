@@ -75,21 +75,33 @@ export function buildMasterColoringCoverPrompt(input: MasterColoringCoverInput):
 
   const spellingContract = `SPELLING CONTRACT — the title must read EXACTLY "${title}". Count the letters and check twice. Do NOT invent, drop, duplicate, transpose, hyphenate, split, or join any letter.${ageBadge ? ` The age mark must read EXACTLY "${ageBadge}" — no other digits, no other age word.` : ""}`;
 
-  const layoutClause = `The title must use large CUSTOM HAND-DRAWN illustrated lettering with a thick clean outline and warm fill colors, bold and rounded and playful, integrated with the theme (subtle themed accents like stars/hearts/sparkles are welcome). Place the title inside the upper 30-40% of the cover with generous breathing room.${ageBadge ? ` Place the small "${ageBadge}" mark in the lower 12% of the cover, tucked into the artwork, small and integrated.` : ""}`;
-
   const isYA = input.styleMode === "ya_scifi_cinematic";
+  const rotate = !isYA && !!input.artStyle;
+
+  const defaultLettering = `The title must use large CUSTOM HAND-DRAWN illustrated lettering with a thick clean outline and warm fill colors, bold and rounded and playful, integrated with the theme (subtle themed accents like stars/hearts/sparkles are welcome).`;
+  const letteringClause = rotate
+    ? (input.artStyle as CoverArtStyle).title_lettering_fragment
+    : defaultLettering;
+  const layoutClause = `${letteringClause} Place the title inside the upper 30-40% of the cover with generous breathing room.${ageBadge ? ` Place the small "${ageBadge}" mark in the lower 12% of the cover, tucked into the artwork, small and integrated.` : ""}`;
+
   const openingClause = isYA
     ? `Create a PREMIUM PROFESSIONAL GRAPHIC-NOVEL KEY-ART cover for a teen/young-adult coloring book (ages 13-17). Cinematic movie-poster energy, magazine-quality painterly digital illustration — NOT flat, NOT line-art, NOT a coloring page.`
-    : `Create a PREMIUM AMAZON KDP BESTSELLER children's coloring-book cover. RICH SATURATED FULL-COLOR polished digital illustration, painterly rendering, professional book-cover art direction — NOT flat, NOT line-art, NOT a coloring page.`;
+    : rotate
+      ? `Create a PREMIUM AMAZON KDP BESTSELLER children's coloring-book cover. ${(input.artStyle as CoverArtStyle).prompt_fragment} Polished professional book-cover art direction — NOT flat, NOT line-art, NOT a coloring page.`
+      : `Create a PREMIUM AMAZON KDP BESTSELLER children's coloring-book cover. RICH SATURATED FULL-COLOR polished digital illustration, painterly rendering, professional book-cover art direction — NOT flat, NOT line-art, NOT a coloring page.`;
   const heroClause = isYA
     ? `ONE clear teen protagonist in a dynamic 3/4 cinematic hero pose with wind-swept hair, confident expression, contemporary sci-fi wardrobe. Painterly rendering with detailed shading, rim-light, expressive eyes. Cinematic sci-fi background with real depth: neon skyline, rain, lightning, atmospheric fog, holographic UI — foreground / midground / background layers.`
     : `ONE clear focal hero character (or a tight group of 1-3 friends), expressive face, big kind eyes, dynamic pose, detailed costume, professional lighting with soft shadow / rim-light / warm highlight. Themed atmospheric background with real depth matching the book's theme — foreground / midground / background layers.`;
   const paletteClause = isYA
     ? `FULL-COLOR CINEMATIC PAINTED ILLUSTRATION. Bold YA color grade: deep indigo/navy, electric cyan and violet accents, hot magenta highlights, lightning-white sparks, dramatic contrast, atmospheric depth, moody volumetric lighting. Painterly finish — NOT flat vector, NOT line-art.`
-    : `FULL-COLOR RICH SATURATED PAINTED ILLUSTRATION in the style of a bestseller children's picture book / KDP-bestseller coloring-book cover. Vibrant confident colors (deep sky-blue, sunlit yellow, warm coral, emerald, magenta, gold), professional color grading, dramatic hero lighting, painterly brush texture. Painterly, polished, storybook-illustration quality.`;
+    : rotate
+      ? `FULL-COLOR premium illustrated cover honoring the chosen art direction above. Professional color grading, dramatic hero lighting, cohesive palette, illustration-quality finish.`
+      : `FULL-COLOR RICH SATURATED PAINTED ILLUSTRATION in the style of a bestseller children's picture book / KDP-bestseller coloring-book cover. Vibrant confident colors (deep sky-blue, sunlit yellow, warm coral, emerald, magenta, gold), professional color grading, dramatic hero lighting, painterly brush texture. Painterly, polished, storybook-illustration quality.`;
   const styleTag = isYA
     ? `Style: premium YA sci-fi graphic-novel key-art book cover, cinematic movie-poster feel, painterly digital illustration, high-resolution print-ready.`
-    : `Style: premium bestseller Amazon KDP children's coloring-book cover, rich saturated painterly illustration, professional art direction, high-resolution print-ready.`;
+    : rotate
+      ? `Style: premium bestseller Amazon KDP children's coloring-book cover — art direction "${(input.artStyle as CoverArtStyle).label}". High-resolution print-ready.`
+      : `Style: premium bestseller Amazon KDP children's coloring-book cover, rich saturated painterly illustration, professional art direction, high-resolution print-ready.`;
   const negative = `NEGATIVE — no watermark, no logo, no page numbers, no website URL, no subtitle, no tagline, no descriptor word, no misspelled words, no duplicated title, no SALE ribbon, no sticker badge, no chip label, no popup pill, no line-art, no black-outline-only illustration, no uncolored coloring-page look, no flat vector, no plain fill, no photograph, no 3D CGI plastic look, no cluttered composition, no gore, no missing limbs, no extra limbs, no deformed anatomy.`;
 
   const prompt = [
