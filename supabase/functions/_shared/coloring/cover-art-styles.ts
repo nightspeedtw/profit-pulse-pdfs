@@ -29,7 +29,7 @@ export const COVER_ART_STYLES: CoverArtStyle[] = [
     prompt_fragment:
       "Bold pop-cartoon coloring-book cover, saturated rainbow palette (cherry red, tangerine, sunshine yellow, mint, sky blue, hot pink), thick clean outlines, chunky playful shapes, flat cel-shading with soft gradient highlights, joyful bouncy energy, premium picture-book cover feel.",
     title_lettering_fragment:
-      "The title MUST be painted as HUGE inflated BUBBLE LETTERS — puffy, glossy, each letter a different rainbow color, thick black outline, soft white highlight and drop-shadow painted in. Letters bounce on a slight arc, slightly tilted, integrated into the scene like a pop-art logo.",
+      "The title MUST be painted as HUGE inflated BUBBLE LETTERS — puffy, glossy, each letter a different rainbow color, thick black outline, soft white highlight and drop-shadow painted in. Letters bounce on a slight arc, slightly tilted, integrated into the scene like a pop-art wordmark.",
   },
   {
     id: "soft_gouache_storybook",

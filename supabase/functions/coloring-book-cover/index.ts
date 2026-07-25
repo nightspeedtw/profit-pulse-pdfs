@@ -33,7 +33,7 @@ import { detectBlankRegions } from "../_shared/covers/blank-detect.ts";
 import { renderColoringSelfArtCover, SELF_ART_COVER_VERSION } from "../_shared/coloring/self-art-cover.ts";
 import { composeColoringCover, fitCoverArtToPortraitCanvas, COLORING_COVER_COMPOSITOR_VERSION, COLORING_COVER_HEIGHT, COLORING_COVER_WIDTH } from "../_shared/coloring/coloring-cover-compositor.ts";
 import { generateIdeogramIntegratedCover, generateIdeogramTextInpaint, IDEOGRAM_INTEGRATED_COVER_VERSION } from "../_shared/coloring/ideogram-integrated-cover.ts";
-import { buildMasterColoringCoverPrompt, COLORING_MASTER_COVER_PROMPT_VERSION } from "../_shared/coloring/master-cover-prompt.ts";
+import { buildMasterColoringCoverPrompt, buildMasterColoringCoverPromptWithRotation, COLORING_MASTER_COVER_PROMPT_VERSION, type CoverArtStyle } from "../_shared/coloring/master-cover-prompt.ts";
 import { getTrimProfile } from "../_shared/coloring/trim-lock.ts";
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
 import { renderedColoringCoverProof } from "../_shared/coloring/coloring-cover-proof.ts";
@@ -450,6 +450,12 @@ Deno.serve(async (req: Request) => {
       },
     });
 
+    // Style-rotation state — set by the master-prompt rotation call below.
+    // Declared here so the `persistAcceptedCover` closure can read it even
+    // on early self-art paths (which persist BEFORE the rotation runs).
+    let pickedArtStyle: CoverArtStyle | null = null;
+    let artStylePickReason: string | null = null;
+
     // ── HELPERS shared by rung 1 (flux attempts) and rung 2 (self-art) ──
     async function persistAcceptedCover(params: {
       finalBytes: Uint8Array;
@@ -488,6 +494,9 @@ Deno.serve(async (req: Request) => {
         title_treatment: params.treatmentMeta,
         spelling_verified: (params.treatmentMeta as any)?.title === row.title,
         prompt_hash: promptHash,
+        cover_art_style: pickedArtStyle ? pickedArtStyle.id : null,
+        cover_art_style_label: pickedArtStyle ? pickedArtStyle.label : null,
+        cover_art_style_pick_reason: artStylePickReason,
         prompt_subjects: heroSubjects,
         learned_rules: [...learnedRules.values()].map((r: any) => ({ pattern_key: r.pattern_key, species_key: r.species_key })),
         previous_ladder_state: meta.coloring_cover_ladder ?? null,
@@ -660,7 +669,7 @@ Deno.serve(async (req: Request) => {
     const masterPromptAspect = _isSquare
       ? "8.5 x 8.5 inches, square 1:1"
       : "8.5 x 11 inches, portrait";
-    const masterPrompt = buildMasterColoringCoverPrompt({
+    const _rotation = await buildMasterColoringCoverPromptWithRotation(db, {
       title: row.title,
       subtitle,
       ageBadge,
@@ -671,6 +680,10 @@ Deno.serve(async (req: Request) => {
       categoryName: categoryNameFinal,
       hasInteriorReferences: Array.isArray(referenceImageURLs) && referenceImageURLs.length > 0,
     });
+    const masterPrompt = _rotation.prompt;
+    pickedArtStyle = _rotation.style;
+    artStylePickReason = _rotation.pickReason;
+    console.log(`[coloring-book-cover] master_prompt style=${pickedArtStyle.id} reason=${artStylePickReason}`);
     // Owner order 2026-07-17: on text-only failure, subsequent attempts must
     // INPAINT just the text region on the same base image rather than reroll
     // the entire cover. This preserves art that already passed
