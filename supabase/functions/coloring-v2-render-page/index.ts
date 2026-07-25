@@ -197,6 +197,28 @@ Deno.serve(async (req: Request) => {
           break;
         } catch (e) {
           lastErr = e;
+          // Provider quota / billing lock → do NOT burn attempts. Park the
+          // book with a wake time at CF's next daily reset (00:00 UTC + jitter)
+          // so the tick's `pickClosestColoringV2Book` filter skips it until
+          // fresh quota is available. This is the permanent fix for the
+          // "one book burns 95 attempts against a dry CF quota" regression.
+          if (e instanceof FalBillingLockedError) {
+            const wake = nextCfResetWake();
+            await db().from("coloring_v2_books").update({
+              stage_updated_at: wake.toISOString(),
+              stage_attempt_count: 0,
+              last_error: `awaiting_quota_reset:${String((e as Error).message ?? "cf_all_accounts_latched").slice(0, 240)}`,
+              updated_at: new Date().toISOString(),
+            }).eq("id", book_id);
+            await releaseColoringV2ProductionLock(book_id).catch(() => false);
+            return json({
+              ok: true,
+              parked: true,
+              reason: "awaiting_quota_reset",
+              wake_at: wake.toISOString(),
+              page_number: requestedPage,
+            }, 200);
+          }
         }
       }
       if (!assetId) throw lastErr ?? new Error("render failed");
