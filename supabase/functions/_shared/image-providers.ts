@@ -75,7 +75,7 @@ const CF_MAX_STEPS = 8;
 
 type CfCreds = { accountId: string; token: string; label: string };
 
-function cfCredsList(): CfCreds[] {
+function cfCredsListAll(): CfCreds[] {
   const list: CfCreds[] = [];
   // Slot 1 uses the unsuffixed names for back-compat; slots 2..7 use _N suffix.
   const a1 = Deno.env.get("CF_ACCOUNT_ID");
@@ -89,8 +89,78 @@ function cfCredsList(): CfCreds[] {
   return list;
 }
 
+// Back-compat: unfiltered accessor for existing call sites.
+function cfCredsList(): CfCreds[] { return cfCredsListAll(); }
+
+/**
+ * Per-account daily latch. When a single Cloudflare account returns
+ * 429/neuron-exhausted we record its label + next-UTC-midnight in
+ * `generation_settings.coloring_autopilot.cf_account_latches` and skip it
+ * until reset. Only when ALL configured accounts are latched do we set
+ * the legacy `cf_billing_locked_until` global latch (used by
+ * `readImageProviderPolicy` to swap CF out of the chain entirely).
+ */
+type CfAccountLatches = Record<string, string>; // label -> ISO datetime
+
+// deno-lint-ignore no-explicit-any
+async function readCfAccountLatches(db: any): Promise<CfAccountLatches> {
+  try {
+    const { data } = await db.from("generation_settings")
+      .select("coloring_autopilot").eq("id", 1).maybeSingle();
+    const cfg = (data?.coloring_autopilot ?? {}) as Record<string, unknown>;
+    const raw = (cfg.cf_account_latches ?? {}) as Record<string, string>;
+    const now = Date.now();
+    const active: CfAccountLatches = {};
+    for (const [label, iso] of Object.entries(raw)) {
+      const t = new Date(iso).getTime();
+      if (!isNaN(t) && t > now) active[label] = iso;
+    }
+    return active;
+  } catch (_e) { return {}; }
+}
+
+// deno-lint-ignore no-explicit-any
+async function latchCfAccount(db: any, label: string): Promise<void> {
+  try {
+    const until = nextUtcMidnight().toISOString();
+    const { data } = await db.from("generation_settings")
+      .select("coloring_autopilot").eq("id", 1).maybeSingle();
+    const cfg = (data?.coloring_autopilot ?? {}) as Record<string, unknown>;
+    const latches = { ...((cfg.cf_account_latches ?? {}) as Record<string, string>) };
+    latches[label] = until;
+    await db.from("generation_settings").update({
+      coloring_autopilot: { ...cfg, cf_account_latches: latches },
+    }).eq("id", 1);
+    console.warn(`[cloudflare] account ${label} latched until ${until}`);
+  } catch (_e) { /* best-effort */ }
+}
+
+/**
+ * Round-robin cursor. Read+increment atomically-ish via
+ * `generation_settings.coloring_autopilot.cf_rotation_cursor`. Race-tolerant:
+ * two concurrent bumps collide harmlessly (both pick a valid start index).
+ */
+// deno-lint-ignore no-explicit-any
+async function bumpCfCursor(db: any, mod: number): Promise<number> {
+  if (mod <= 1) return 0;
+  try {
+    const { data } = await db.from("generation_settings")
+      .select("coloring_autopilot").eq("id", 1).maybeSingle();
+    const cfg = (data?.coloring_autopilot ?? {}) as Record<string, unknown>;
+    const cur = Number(cfg.cf_rotation_cursor ?? 0);
+    const idx = ((isFinite(cur) ? cur : 0) % mod + mod) % mod;
+    const next = (idx + 1) % mod;
+    await db.from("generation_settings").update({
+      coloring_autopilot: { ...cfg, cf_rotation_cursor: next },
+    }).eq("id", 1);
+    return idx;
+  } catch (_e) {
+    return Math.floor(Math.random() * mod);
+  }
+}
+
 function cfCreds(): CfCreds | null {
-  const l = cfCredsList();
+  const l = cfCredsListAll();
   return l.length ? l[0] : null;
 }
 
@@ -153,25 +223,64 @@ async function cfRunOnce(creds: CfCreds, opts: GenerateImageOpts): Promise<Uint8
   return bytes;
 }
 
+/**
+ * Multi-account Cloudflare with per-account daily latch + round-robin.
+ *
+ * Strategy: read latches from generation_settings, filter latched accounts
+ * out, round-robin start index across whatever remains. On a per-account
+ * FalBillingLockedError we latch THAT account (not global) and continue.
+ * Only when the filtered candidate list is empty AND every configured
+ * account is latched do we surface FalBillingLockedError up — at which
+ * point the outer generateImageWithFailover sets the legacy global latch
+ * (see readImageProviderPolicy).
+ */
 export async function cloudflareFluxSchnell(opts: GenerateImageOpts): Promise<Uint8Array> {
-  const accounts = cfCredsList();
-  if (accounts.length === 0) {
+  const all = cfCredsListAll();
+  if (all.length === 0) {
     throw new ProviderUnconfiguredError("cloudflare_flux_schnell", "CF_ACCOUNT_ID + CF_API_TOKEN not set");
   }
+  const db = costDb();
+  const latches = await readCfAccountLatches(db);
+  const available = all.filter((c) => !latches[c.label]);
+  if (available.length === 0) {
+    // All configured accounts are individually latched → true CF exhaustion.
+    console.warn(`[cloudflare] all ${all.length} accounts latched; surfacing billing_locked`);
+    throw new FalBillingLockedError(429, `cloudflare: all ${all.length} accounts daily-latched`);
+  }
+
+  // Round-robin start so load spreads across cf1..cfN over the day.
+  const start = await bumpCfCursor(db, available.length);
+  const rotated: CfCreds[] = [
+    ...available.slice(start),
+    ...available.slice(0, start),
+  ];
+
   let lastErr: unknown = null;
-  for (const creds of accounts) {
+  const exhaustedThisCall: string[] = [];
+  for (const creds of rotated) {
     try {
-      return await cfRunOnce(creds, opts);
+      const bytes = await cfRunOnce(creds, opts);
+      return bytes;
     } catch (e) {
       lastErr = e;
-      // Only rotate to next account on quota/billing-lock; hard errors bubble.
       if (e instanceof FalBillingLockedError) {
         console.warn(`[cloudflare] account ${creds.label} quota-latched; rotating to next account`);
+        exhaustedThisCall.push(creds.label);
+        // Fire-and-forget: latch this account for the rest of the UTC day.
+        latchCfAccount(db, creds.label).catch(() => {});
         continue;
       }
       throw e;
     }
   }
+
+  // Every candidate in this call was billing-locked. If that also covers
+  // every configured account, surface FalBillingLockedError so the caller
+  // sets the global CF latch. Otherwise this was a partial exhaustion (some
+  // accounts were pre-latched, the ones we tried also died) — still bubble
+  // FalBillingLockedError since we have nothing usable *right now*, but
+  // the outer generateImageWithFailover will only global-latch when it
+  // re-reads latches and sees N/N.
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
