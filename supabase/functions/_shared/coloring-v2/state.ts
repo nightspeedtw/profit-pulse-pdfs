@@ -95,9 +95,23 @@ export async function callAiJson(prompt: string, system: string, model = "google
     if (!geminiKey) throw new Error("GEMINI_API_KEY missing (BYPASS_LOVABLE_GATEWAY=1 requires direct provider)");
     const { geminiDirectChat } = await import("../gemini-direct.ts");
     const directModel = normalizeColoringV2TextModel(model);
-    const out = await geminiDirectChat({ system, user: prompt, model: directModel, responseJson: true });
-    return parseOrThrow(out.text);
+    try {
+      const out = await geminiDirectChat({ system, user: prompt, model: directModel, responseJson: true });
+      return parseOrThrow(out.text);
+    } catch (e) {
+      const msg = (e as Error).message ?? "";
+      // Fall back to OpenAI direct on Gemini quota / prepay depletion / 429 / 5xx
+      const shouldFallback = /429|RESOURCE_EXHAUSTED|prepayment|credits are depleted|quota|5\d\d/i.test(msg);
+      const openaiKey = Deno.env.get("OPENAI_API_KEY");
+      if (!shouldFallback || !openaiKey) throw e;
+      console.warn(`[callAiJson] gemini-direct failed (${msg.slice(0,120)}) — falling back to openai-direct`);
+      const { openaiDirectChat } = await import("../openai-direct.ts");
+      const oaiModel = /pro/i.test(model) ? "openai/gpt-4o" : "openai/gpt-4o-mini";
+      const out = await openaiDirectChat({ system, user: prompt, model: oaiModel, responseJson: true });
+      return parseOrThrow(out.text);
+    }
   }
+
 
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) throw new Error("LOVABLE_API_KEY missing");
