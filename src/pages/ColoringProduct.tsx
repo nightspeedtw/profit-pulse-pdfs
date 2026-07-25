@@ -23,11 +23,15 @@ import LookInsideFlipbook from "@/components/product/LookInsideFlipbook";
 import ReviewSummary from "@/components/product/ReviewSummary";
 import BWPreviewNotice from "@/components/product/BWPreviewNotice";
 import WhatYouGetCard from "@/components/product/WhatYouGetCard";
+import WhatYouGetList from "@/components/product/WhatYouGetList";
+import BonusStack from "@/components/product/BonusStack";
+import ColoringFAQ from "@/components/product/ColoringFAQ";
 import PurchaseTrustRow from "@/components/product/PurchaseTrustRow";
 import FreeSamplePreviewModal from "@/components/product/FreeSamplePreviewModal";
 import { ensureColoringLabel } from "@/lib/coloring-title";
 import { useActiveCampaign } from "@/hooks/useActiveCampaign";
 import { useSuggestedBundle } from "@/hooks/useSuggestedBundle";
+import { useResolvedKidsPrices } from "@/lib/useResolvedPricing";
 import { CampaignRibbon } from "@/components/kids/CampaignRibbon";
 import { BundleUpsellCard } from "@/components/kids/BundleUpsellCard";
 
@@ -79,6 +83,8 @@ export default function ColoringProduct() {
   const saleCfg = useSaleConfig();
   const activeCampaign = useActiveCampaign(book?.id ?? null);
   const suggestedBundle = useSuggestedBundle(book?.id ?? null);
+  const resolvedPrices = useResolvedKidsPrices(book?.id ? [book.id] : []);
+  const resolved = book?.id ? resolvedPrices[book.id] : undefined;
 
   useEffect(() => {
     if (!id) return;
@@ -356,22 +362,38 @@ export default function ColoringProduct() {
           <ProductRating ebookId={book.id} />
 
           {(() => {
+            // Prefer authoritative product_pricing (campaign-aware). Fallback to
+            // legacy honest-pricing helper when no row exists yet.
+            const hasResolved =
+              resolved &&
+              resolved.campaignCents != null &&
+              resolved.effectiveCents < resolved.regularCents;
+            const effectiveCents = resolved?.effectiveCents ?? priceCents;
+            const regularCents = resolved?.regularCents ?? priceCents;
+            const pct = hasResolved
+              ? Math.max(1, Math.round(((regularCents - effectiveCents) / regularCents) * 100))
+              : null;
             const sp = deriveSalePricing(book.id, priceCents, book.storefront_meta);
-            const salesEndsLabel = saleCfg?.enabled ? formatSaleEnds(saleCfg.ends_at) : null;
+            const priceLabel = hasResolved ? `$${(effectiveCents / 100).toFixed(2)}` : sp.priceLabel;
+            const originalLabel = hasResolved ? `$${(regularCents / 100).toFixed(2)}` : sp.originalLabel;
+            const discountPct = hasResolved ? pct : sp.discountPct;
+            const salesEndsLabel = hasResolved && resolved?.campaignValidTo
+              ? new Date(resolved.campaignValidTo).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+              : (saleCfg?.enabled ? formatSaleEnds(saleCfg.ends_at) : null);
             return (
               <div className="space-y-1">
                 <div className="inline-flex items-baseline flex-wrap gap-x-3 gap-y-1 border-2 border-foreground bg-background px-4 py-2">
-                  <span className="font-display text-3xl md:text-4xl font-black text-foreground tracking-tight">
-                    {sp.priceLabel}
+                  <span className="font-display text-3xl md:text-4xl font-black text-red-600 tracking-tight">
+                    {priceLabel}
                   </span>
-                  {sp.originalLabel && (
+                  {originalLabel && (
                     <span className="font-mono text-sm text-muted-foreground line-through">
-                      {sp.originalLabel}
+                      {originalLabel}
                     </span>
                   )}
-                  {sp.discountPct != null && (
-                    <span className="font-mono text-xs text-accent-foreground font-bold">
-                      ({sp.discountPct}% off{salesEndsLabel ? ` · Sale ends ${salesEndsLabel}` : ""})
+                  {discountPct != null && (
+                    <span className="font-mono text-xs text-red-600 font-bold">
+                      Save {discountPct}%{salesEndsLabel ? ` · ends ${salesEndsLabel}` : ""}
                     </span>
                   )}
                 </div>
@@ -388,7 +410,9 @@ export default function ColoringProduct() {
             />
           )}
 
-          {/* Primary CTA — conversion-focused copy */}
+          <WhatYouGetList pageCount={pageCount} ageMin={ageMin} ageMax={ageMax} />
+
+          {/* Primary CTA — owner-spec copy */}
           <div className="space-y-2">
             <button
               type="button"
@@ -397,12 +421,13 @@ export default function ColoringProduct() {
               className="w-full h-14 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-base hover:bg-accent hover:text-accent-foreground transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
             >
               {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
-              {downloading ? "Preparing your PDF…" : `Start Coloring Today — ${priceText}`}
+              {downloading ? "Preparing your PDF…" : `Get Your Coloring Book — ${priceText}`}
             </button>
             <p className="text-xs md:text-sm text-muted-foreground text-center">
-              Instant download • Print at home • {pageCount} unique pages
+              A4 + US Letter · Print Again Anytime · Instant Download
             </p>
           </div>
+
 
           {/* Secondary CTA — instant 5-page preview */}
           <button
@@ -470,24 +495,29 @@ export default function ColoringProduct() {
         </div>
       </section>
 
-      {/* ── Parent benefits ──────────────────────────────────────────── */}
+      {/* ── Why parents buy this (owner-spec 4 bullets) ─────────────── */}
       <section className="container max-w-5xl py-8 border-t-2 border-border">
-        <h2 className="font-display text-2xl uppercase mb-4">Why parents love it</h2>
-        <ul className="grid md:grid-cols-3 gap-4 text-sm md:text-base">
+        <h2 className="font-display text-2xl uppercase mb-4">Why parents buy this</h2>
+        <ul className="grid md:grid-cols-2 gap-4 text-sm md:text-base">
           <li className="p-4 border-2 border-border rounded-lg">
-            <strong className="block font-display uppercase mb-1">Screen-free time</strong>
-            Quiet, focused coloring that keeps hands busy without a device.
+            <strong className="block font-display uppercase mb-1">Keeps little hands happily busy</strong>
+            Perfect for after-school wind-down, quiet time, or "please, just five minutes" moments.
           </li>
           <li className="p-4 border-2 border-border rounded-lg">
-            <strong className="block font-display uppercase mb-1">Print unlimited copies</strong>
-            One PDF, your whole family — reprint any page whenever a sibling asks.
+            <strong className="block font-display uppercase mb-1">Screen-free creative time</strong>
+            No batteries, no tablets — just crayons, paper, and imagination.
           </li>
           <li className="p-4 border-2 border-border rounded-lg">
-            <strong className="block font-display uppercase mb-1">Age-tuned line thickness</strong>
-            Tested outlines for ages {ageMin}–{ageMax} — thick enough for crayons, clean enough for markers.
+            <strong className="block font-display uppercase mb-1">Easy to print whenever you need it</strong>
+            One PDF, unlimited prints. Reprint any page for siblings, cousins, or a fresh try.
+          </li>
+          <li className="p-4 border-2 border-border rounded-lg">
+            <strong className="block font-display uppercase mb-1">A thoughtful rainy-day or travel activity</strong>
+            Pack it in a folder for road trips, restaurants, and airplane rides — no mess, no fuss.
           </li>
         </ul>
       </section>
+
 
       {/* ── What's Inside (previews) ─────────────────────────────────── */}
       <section className="container max-w-5xl py-8 border-t-2 border-border">
@@ -584,6 +614,10 @@ export default function ColoringProduct() {
 
       {/* ── Review summary (auto, real reviews only) ─────────────────── */}
       <ReviewSummary ebookId={book.id} />
+
+      <BonusStack />
+
+      <ColoringFAQ pageCount={pageCount} />
 
 
       {/* ── Cross-sell rail ─────────────────────────────────────────── */}
