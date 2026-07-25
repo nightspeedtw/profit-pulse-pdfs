@@ -210,6 +210,11 @@ Deno.serve(async (req: Request) => {
     const fullTitle = ensureColoringBookInTitle(book.title ?? "Coloring Book");
     const { titleCore, subtitle } = splitTitleForCover(fullTitle);
     const sceneClause = await buildSceneClause(book_id, fullTitle);
+    // OWNER LAW `cover_style_rotation_v2` (2026-07-25): every cover writer
+    // routes through the shared rotation, so the shelf stays diverse and
+    // the uploadAsset guard is satisfied.
+    const rotation = await pickCoverArtStyle(db(), fullTitle);
+    const artStyle = rotation.style;
     const mood = pickMood(book_id);
     const lettering = pickLetteringStyle(book_id);
     const layout = pickLayoutStyle(book_id);
@@ -217,6 +222,7 @@ Deno.serve(async (req: Request) => {
     const colorMode = pickTitleColorMode(book_id);
     const motifKit = pickMotifKit(String(book.theme ?? ""), fullTitle);
     const ageLabel = ageBadgeLabel(book.age_band);
+
 
     const ageBadgeClause = ageLabel
       ? `Include a PAINTED CIRCULAR AGE BADGE as a two-ring sticker in the upper-right area of the cover (roughly 15-18% of cover width): an outer ring in a bright accent color (yellow, orange, or red — whichever contrasts best with the background) and an inner disc in a slightly darker/deeper shade, thick dark outline around both rings, chunky drop-shadow underneath, and the EXACT text "${ageLabel}" hand-lettered inside the inner disc in bold rounded capitals with a subtle engraved/letterpress feel. The badge is part of the painting, not a font overlay. Do NOT place any other text near it.`
