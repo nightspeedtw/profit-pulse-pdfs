@@ -58,12 +58,13 @@ Deno.serve(async (req: Request) => {
       .limit(1)
       .maybeSingle();
 
-    // Load book info (title, slug, category, price).
-    const { data: book } = await db
+    // Load book info (title, age_band, price, listing_status).
+    const { data: book, error: bookErr } = await db
       .from("ebooks_kids")
-      .select("id, title, slug, category, age_band, price, listing_status")
+      .select("id, title, book_type, age_band, price_cents, listing_status")
       .eq("id", book_id)
       .maybeSingle();
+    if (bookErr) console.error("[submit-sample-lead] book lookup error", bookErr);
     if (!book) return j({ error: "book_not_found" }, 404);
 
     // Ensure sample PDF is available. Call generate-sample-pdf.
