@@ -58,12 +58,13 @@ Deno.serve(async (req: Request) => {
       .limit(1)
       .maybeSingle();
 
-    // Load book info (title, slug, category, price).
-    const { data: book } = await db
+    // Load book info (title, age_band, price, listing_status).
+    const { data: book, error: bookErr } = await db
       .from("ebooks_kids")
-      .select("id, title, slug, category, age_band, price, listing_status")
+      .select("id, title, book_type, age_band, price_cents, listing_status")
       .eq("id", book_id)
       .maybeSingle();
+    if (bookErr) console.error("[submit-sample-lead] book lookup error", bookErr);
     if (!book) return j({ error: "book_not_found" }, 404);
 
     // Ensure sample PDF is available. Call generate-sample-pdf.
@@ -92,10 +93,11 @@ Deno.serve(async (req: Request) => {
     // Bundle URL — same-category storefront filter (frontend hook does this
     // deterministically; here we return a category anchor so the modal can
     // deep-link to a filtered listing.)
-    const bundleOfferUrl = book.category
-      ? `/kids/coloring/category/${encodeURIComponent(String(book.category))}`
+    const bookType = book.book_type ? String(book.book_type) : null;
+    const bundleOfferUrl = bookType
+      ? `/kids/${encodeURIComponent(bookType)}`
       : `/kids`;
-    const fullProductCtaUrl = book.slug ? `/kids/coloring/${book.slug}` : `/kids`;
+    const fullProductCtaUrl = `/kids/coloring/${book.id}`;
 
     if (recent) {
       return j({
@@ -113,8 +115,8 @@ Deno.serve(async (req: Request) => {
       email,
       first_name: first_name ?? null,
       book_id,
-      product_slug: book.slug ?? null,
-      product_category: book.category ? String(book.category) : null,
+      product_slug: null,
+      product_category: bookType,
       lead_source: "free_sample",
       sample_pdf_url: samplePdfUrl,
       drip_stage: 0,
