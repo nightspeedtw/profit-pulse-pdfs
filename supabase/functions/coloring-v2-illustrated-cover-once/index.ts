@@ -235,7 +235,7 @@ Deno.serve(async (req: Request) => {
 
     const prompt = [
       `A highly creative, vibrant, unique, and PACKED front cover design for a children's coloring book — the core title is "${titleCore}" and the subtitle ribbon reads "${subtitle}".`,
-      `SHELF-ROTATION ART STYLE — "${artStyle.id}" (${artStyle.badge}): ${artStyle.promptSnippet}. This anchors the visual identity of the whole cover.`,
+      `SHELF-ROTATION ART STYLE — "${artStyle.id}" (${artStyle.label}): ${artStyle.prompt_fragment} Title lettering guidance: ${artStyle.title_lettering_fragment} This anchors the visual identity of the whole cover.`,
       `Art direction — MOOD "${mood.id}": palette = ${mood.palette}; energy = ${mood.energy}.`,
 
       `BRIGHT, SATURATED, MODERN 2026 picture-book aesthetic. High-chroma joyful palette, fresh shelf-release feel, poster-punchy at 160px thumbnail size. Bold shape language and one clear focal hero surrounded by a rich supporting cast.`,
