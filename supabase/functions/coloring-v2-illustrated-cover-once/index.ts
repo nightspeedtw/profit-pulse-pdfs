@@ -235,7 +235,9 @@ Deno.serve(async (req: Request) => {
 
     const prompt = [
       `A highly creative, vibrant, unique, and PACKED front cover design for a children's coloring book — the core title is "${titleCore}" and the subtitle ribbon reads "${subtitle}".`,
+      `SHELF-ROTATION ART STYLE — "${artStyle.id}" (${artStyle.badge}): ${artStyle.promptSnippet}. This anchors the visual identity of the whole cover.`,
       `Art direction — MOOD "${mood.id}": palette = ${mood.palette}; energy = ${mood.energy}.`,
+
       `BRIGHT, SATURATED, MODERN 2026 picture-book aesthetic. High-chroma joyful palette, fresh shelf-release feel, poster-punchy at 160px thumbnail size. Bold shape language and one clear focal hero surrounded by a rich supporting cast.`,
       `Do NOT look muted, retro, vintage, sepia, dusty, faded, brown, tea-stained, or watercolor-washed. Reject any "old storybook" feeling. Reject muddy neutrals.`,
       `Square 1:1 composition, FULL-BLEED edge-to-edge (NON-NEGOTIABLE): the painted illustration MUST bleed off all four edges of the 1024x1024 canvas. Literally paint past the edge — a one-pixel-wide strip along every edge (top, bottom, left, right) must be full-saturation painted illustration, NOT white paper, NOT a colored bar, NOT a decorative frame, NOT a vignette fade to white or any solid color. Absolutely forbidden: any white or off-white margin, any inner border, any outer frame, any passe-partout, any polaroid-style border, any colored ribbon frame around the whole artwork, any inner rectangle, any drop-shadow around the artwork that suggests it is a card floating on a background. Every single pixel of the 1024x1024 canvas is painted illustration.`,
