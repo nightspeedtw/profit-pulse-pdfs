@@ -14,6 +14,17 @@ import { shouldSpendForRenderPage } from "../_shared/coloring-v2/one-book.ts";
 import { INTERIOR_NEGATIVE_PROMPT } from "../_shared/coloring-v2/prompts.ts";
 import { renderImageWithFallback } from "../_shared/coloring-v2/image-fallback.ts";
 import { checkPageAnatomy, defectsToNegativeClause } from "../_shared/coloring-v2/anatomy-check.ts";
+import { FalBillingLockedError } from "../_shared/fal-billing.ts";
+
+// Wake time for a parked book: next UTC midnight + small jitter, matching
+// _shared/coloring/quota-park.ts. Cloudflare's daily neuron pool resets at
+// 00:00 UTC — parking to that instant means the standard tick will pick
+// this book back up as soon as fresh quota is available.
+function nextCfResetWake(from: Date = new Date()): Date {
+  const wake = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate() + 1, 0, 0, 0, 0));
+  wake.setUTCSeconds(wake.getUTCSeconds() + Math.floor(Math.random() * 180) + 60);
+  return wake;
+}
 
 declare const Deno: any;
 
@@ -186,6 +197,28 @@ Deno.serve(async (req: Request) => {
           break;
         } catch (e) {
           lastErr = e;
+          // Provider quota / billing lock → do NOT burn attempts. Park the
+          // book with a wake time at CF's next daily reset (00:00 UTC + jitter)
+          // so the tick's `pickClosestColoringV2Book` filter skips it until
+          // fresh quota is available. This is the permanent fix for the
+          // "one book burns 95 attempts against a dry CF quota" regression.
+          if (e instanceof FalBillingLockedError) {
+            const wake = nextCfResetWake();
+            await db().from("coloring_v2_books").update({
+              stage_updated_at: wake.toISOString(),
+              stage_attempt_count: 0,
+              last_error: `awaiting_quota_reset:${String((e as Error).message ?? "cf_all_accounts_latched").slice(0, 240)}`,
+              updated_at: new Date().toISOString(),
+            }).eq("id", book_id);
+            await releaseColoringV2ProductionLock(book_id).catch(() => false);
+            return json({
+              ok: true,
+              parked: true,
+              reason: "awaiting_quota_reset",
+              wake_at: wake.toISOString(),
+              page_number: requestedPage,
+            }, 200);
+          }
         }
       }
       if (!assetId) throw lastErr ?? new Error("render failed");

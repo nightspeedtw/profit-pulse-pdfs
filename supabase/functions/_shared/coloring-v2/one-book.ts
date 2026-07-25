@@ -7,9 +7,24 @@ export type ColoringV2BookCandidate = {
   page_count?: number | null;
   stage_attempt_count?: number | null;
   updated_at?: string | null;
+  stage_updated_at?: string | null;
+  last_error?: string | null;
   final_pdf_asset_id?: string | null;
   interiors_done?: number | null;
 };
+
+// A book is "parked" (awaiting a provider quota reset) when its last_error
+// carries the awaiting_quota_reset: prefix AND its stage_updated_at points
+// into the future (the wake time). Tick MUST skip parked books so it doesn't
+// hammer the same stuck book against a dry CF quota (regression class:
+// stage_attempt_count > 5 from provider quota — see plan.md 2026-07-25).
+export function isColoringV2BookParked(row: ColoringV2BookCandidate, now = new Date()): boolean {
+  const err = String(row.last_error ?? "");
+  if (!err.startsWith("awaiting_quota_reset:") && !err.startsWith("awaiting_billing:")) return false;
+  const wake = row.stage_updated_at ? new Date(row.stage_updated_at).getTime() : NaN;
+  if (!Number.isFinite(wake)) return false;
+  return wake > now.getTime();
+}
 
 export function coloringV2StageRank(stage: string): number {
   if (stage === "publish") return 0;
@@ -24,8 +39,9 @@ export function coloringV2StageRank(stage: string): number {
   return 99;
 }
 
-export function pickClosestColoringV2Book<T extends ColoringV2BookCandidate>(rows: T[]): T | null {
-  const sorted = [...rows].sort((a, b) => {
+export function pickClosestColoringV2Book<T extends ColoringV2BookCandidate>(rows: T[], now = new Date()): T | null {
+  const eligible = rows.filter((r) => !isColoringV2BookParked(r, now));
+  const sorted = [...eligible].sort((a, b) => {
     const ar = a.final_pdf_asset_id ? 0 : coloringV2StageRank(a.stage);
     const br = b.final_pdf_asset_id ? 0 : coloringV2StageRank(b.stage);
     if (ar !== br) return ar - br;
