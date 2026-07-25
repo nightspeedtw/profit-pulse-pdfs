@@ -42,7 +42,8 @@ Deno.serve(async (req: Request) => {
     await fireStage("coloring-v2-style-bible", { book_id });
     return json({ ok: true, next: "style_bible", concept });
   } catch (e: any) {
-    await recordError(book_id, "concept", e);
+    const book = await fetchBook(book_id).catch(() => null);
+    await recordError(book_id, book?.stage === "queued" ? "queued" : "concept", e);
     return json({ error: e?.message ?? String(e) }, 500);
   }
 });
