@@ -450,6 +450,12 @@ Deno.serve(async (req: Request) => {
       },
     });
 
+    // Style-rotation state — set by the master-prompt rotation call below.
+    // Declared here so the `persistAcceptedCover` closure can read it even
+    // on early self-art paths (which persist BEFORE the rotation runs).
+    let pickedArtStyle: CoverArtStyle | null = null;
+    let artStylePickReason: string | null = null;
+
     // ── HELPERS shared by rung 1 (flux attempts) and rung 2 (self-art) ──
     async function persistAcceptedCover(params: {
       finalBytes: Uint8Array;
