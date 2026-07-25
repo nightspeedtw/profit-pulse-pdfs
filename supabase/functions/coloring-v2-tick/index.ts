@@ -88,15 +88,34 @@ Deno.serve(async (req: Request) => {
       candidates = queuedBooks ?? [];
     }
 
-    const enriched: any[] = [];
-    for (const row of candidates) {
-      if (row.stage === "interior_render") {
-        const counts = await countInteriors(row.id, Number(row.page_count ?? 32));
-        enriched.push({ ...row, interiors_done: counts.unique, interiors_total: counts.total, next_page: counts.next });
-      } else {
-        enriched.push({ ...row, interiors_done: 0, interiors_total: 0, next_page: 1 });
+    const interiorIds = candidates.filter((r: any) => r.stage === "interior_render").map((r: any) => r.id);
+    const interiorCounts = new Map<string, { unique: number; total: number; next: number }>();
+    if (interiorIds.length) {
+      const { data: assetRows } = await db().from("coloring_v2_assets")
+        .select("book_id, page_number")
+        .in("book_id", interiorIds)
+        .eq("kind", "interior");
+      const byBook = new Map<string, number[]>();
+      for (const a of assetRows ?? []) {
+        const arr = byBook.get(a.book_id) ?? [];
+        arr.push(Number(a.page_number));
+        byBook.set(a.book_id, arr);
+      }
+      for (const row of candidates) {
+        if (row.stage !== "interior_render") continue;
+        const pageCount = Number(row.page_count ?? 32);
+        const pages = (byBook.get(row.id) ?? []).filter((n: number) => Number.isFinite(n));
+        const done = new Set(pages.filter((n: number) => n >= 1 && n <= pageCount));
+        let next = Math.max(1, pageCount);
+        for (let p = 1; p <= pageCount; p++) if (!done.has(p)) { next = p; break; }
+        interiorCounts.set(row.id, { unique: done.size, total: pages.length, next });
       }
     }
+
+    const enriched: any[] = candidates.map((row: any) => {
+      const counts = interiorCounts.get(row.id) ?? { unique: 0, total: 0, next: 1 };
+      return { ...row, interiors_done: counts.unique, interiors_total: counts.total, next_page: counts.next };
+    });
 
     const heldLock = await readColoringV2ProductionLock();
     let selected = null;
