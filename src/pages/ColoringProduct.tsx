@@ -9,6 +9,8 @@ import DOMPurify from "isomorphic-dompurify";
 import { Loader2, Download, Eye, Home, FileText } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { emitColoringEvent } from "@/lib/coloringFunnelEvents";
+import { useAuth } from "@/hooks/useAuth";
+
 import { ColoringPreviewLightbox } from "@/components/kids/ColoringPreviewLightbox";
 import ProductRating from "@/components/product/ProductRating";
 import { deriveSalePricing } from "@/lib/storefrontPricing";
