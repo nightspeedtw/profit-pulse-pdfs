@@ -34,6 +34,8 @@ import { useSuggestedBundle } from "@/hooks/useSuggestedBundle";
 import { useResolvedKidsPrices } from "@/lib/useResolvedPricing";
 import { CampaignRibbon } from "@/components/kids/CampaignRibbon";
 import { BundleUpsellCard } from "@/components/kids/BundleUpsellCard";
+import LicenseSelector from "@/components/product/LicenseSelector";
+
 
 interface Row {
   id: string;
