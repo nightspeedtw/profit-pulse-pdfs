@@ -175,7 +175,9 @@ const App = () => (
             {FEATURES.ENABLE_COLORING_LANE_V2 && (
               <Route path="coloring-lab-v2" element={<ColoringLabV2 />} />
             )}
+            <Route path="commercial" element={<AdminCommercial />} />
           </Route>
+
 
           <Route path="*" element={<NotFound />} />
         </Routes>
