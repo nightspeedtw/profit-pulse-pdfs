@@ -19,13 +19,37 @@ Deno.serve(async (req: Request) => {
     const book = await fetchBook(book_id);
     if (!["queued", "concept"].includes(book.stage)) return json({ ok: true, skipped: true, stage: book.stage });
 
-    const concept = await callAiJson(
-      buildConceptPrompt(book.theme, book.age_band, book.page_count),
-      CONCEPT_SYSTEM,
-    );
-    if (!concept?.title || typeof concept.title !== "string") {
-      throw new Error("concept missing title");
+    // Full-coverage law: if the theme implies A-Z or 0-9, the book must
+    // have enough interior pages to cover it fully. If the model returns a
+    // partial-coverage concept anyway, we retry once with an explicit ban.
+    let concept: any = null;
+    let extraBan = "";
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const promptText = extraBan
+        ? `${buildConceptPrompt(book.theme, book.age_band, book.page_count)}\n\nHARD CONSTRAINT (previous attempt violated): ${extraBan}`
+        : buildConceptPrompt(book.theme, book.age_band, book.page_count);
+      concept = await callAiJson(promptText, CONCEPT_SYSTEM);
+      if (!concept?.title || typeof concept.title !== "string") {
+        throw new Error("concept missing title");
+      }
+      const check = violatesFullCoverage(
+        {
+          theme: book.theme,
+          title: concept.title,
+          subtitle: concept.subtitle,
+          hero_subjects: concept.hero_subjects,
+          parent_hook: concept.parent_hook,
+          motif_inventory: concept.motif_inventory,
+        },
+        book.page_count,
+      );
+      if (!check.violation) break;
+      if (attempt === 1) {
+        throw new Error(check.reason);
+      }
+      extraBan = `Do NOT propose a concept that implies exhaustive coverage of the alphabet (A-Z), the digits 0-9, or counting 1-10. This book only has ${book.page_count} interior pages, which is not enough. Pick a subject that fits ${book.page_count} distinct scenes without promising a complete set.`;
     }
+
 
     // OWNER LAW `cover_text_overlay_only_v2` — every coloring book title
     // MUST contain the words "Coloring Book" so shoppers instantly know the
