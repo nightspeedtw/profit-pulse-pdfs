@@ -649,23 +649,23 @@ export default function ColoringProduct() {
         </section>
       )}
 
-      {/* Sticky buy on mobile */}
+      {/* Sticky buy on mobile — jumps to license selector */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-background border-t-2 border-foreground px-4 py-3 flex items-center justify-between gap-3">
         <div>
-          <div className="font-display text-lg leading-none">{priceText}</div>
-          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{pageCount} pages · Ages {ageMin}–{ageMax}</div>
+          <div className="font-display text-lg leading-none">
+            ${(licensePrices.personal / 100).toFixed(2)}
+          </div>
+          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Personal · from</div>
         </div>
         <button
           type="button"
-          onClick={clickBuy}
-          disabled={downloading}
-          className="flex-1 h-12 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          className="flex-1 h-12 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2"
         >
-          {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          {downloading ? "Preparing…" : `Start Coloring — ${priceText}`}
+          Buy License
         </button>
-
       </div>
+
 
       <ColoringPreviewLightbox
         ebookId={book.id}
