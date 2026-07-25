@@ -1,78 +1,59 @@
-## Goal
-Ship the three deferred conversion features fully automatically — no admin UI, no per-book manual data entry. Every live coloring book gets a working "Preview 5 Pages", "Free Sample PDF", and email drip out of the box.
 
-## How auto-defaults replace admin work
+## ปัญหาที่พบ
 
-| Field previously requiring admin | Auto-derived from |
-|---|---|
-| `preview_pages` (which 5 pages to show) | First 5 interior pages from `coloring_v2_pages` where `stage='interior_render'` ordered by `page_number`. Deterministic, same for every book. |
-| `sample_pdf_url` | Generated on first sample request per book, cached in `ebooks_kids.metadata.sample_pdf_url`. Rebuilt if interior pages change. |
-| `sample_email_enabled` | Always `true` for `listing_status='live'` coloring books. |
-| `full_product_cta_url` | `/kids/coloring/{slug}` — already known. |
-| `bundle_offer_url` | Computed by existing `useSuggestedBundle` logic (same category or age band). |
+ปกสไตล์ที่คุณชอบ (Bouncy Bubble Letters — book `e2b5a66b`) ไม่เคยถูกใช้ซ้ำเลย เพราะ `supabase/functions/coloring-v2-cover/index.ts` ใช้ prompt เดียวตายตัว:
 
-No new columns on `ebooks_kids`, no admin panel.
+- `buildIllustratedPrompt()` ฝัง art direction เพียงแบบเดียว: *"warm cheerful storybook style — gouache + watercolor feel"*
+- ไม่มี style rotation, ไม่มี recency window, ไม่มี reference image
+- ทุกเล่มจึงออกมาเป็น "gouache watercolor" ล้วน — ทำให้สลับไปมาแบบสุ่มดูไม่ได้
 
-## Build steps
+`STYLE_FAMILIES` ใน `_shared/coloring/style-families.ts` (12 แบบ) และ `cover-recency.ts` (recency picker) ถูกเขียนไว้แล้วแต่ **ไม่ได้ถูกเรียกใช้จาก cover generator ปัจจุบัน** — มันค้างจากยุค deterministic typography ที่ถูกปลดไปตอน `cover_illustrated_only_v12`
 
-### 1. Sample PDF edge function — `generate-sample-pdf`
-- Input: `{ book_id }`.
-- Reads first 5 interior page image URLs from `coloring_v2_pages`.
-- Composes 5-page PDF (US Letter) with a cover page ("Free Sample — {title}", brand footer, "Buy full 82-page book" CTA URL) + 5 interior pages, each stamped with a subtle "Sample — SecretPDF Kids" footer so the sample can't substitute for the paid product.
-- Uploads to `ebook-pdfs` bucket at `samples/{book_id}.pdf`, signed URL cached in `metadata.sample_pdf_url` + `metadata.sample_pdf_built_at`.
-- Idempotent: returns cached URL if interior page set hash unchanged.
+## แผนแก้
 
-### 2. `sample_leads` table + RLS
-```
-sample_leads(
-  id uuid pk, created_at timestamptz,
-  email text not null, first_name text,
-  book_id uuid references ebooks_kids(id),
-  product_slug text, product_category text,
-  lead_source text default 'free_sample',
-  drip_stage int default 0,          -- 0=welcome sent, 1=bundle sent, 2=last-chance sent
-  drip_next_at timestamptz,
-  unsubscribed_at timestamptz
-)
-```
-GRANTs + RLS: `anon` insert only (via edge function using service role, not direct); `authenticated` no access; `service_role` all. No client-side reads.
+### 1. สร้าง `cover-art-styles.ts` (curated illustration styles)
+ตำแหน่ง: `supabase/functions/_shared/coloring/cover-art-styles.ts`
 
-### 3. Public edge function — `submit-sample-lead`
-- Accepts `{ email, first_name, book_id }`.
-- Validates with Zod, rate-limits by IP+email (existing pattern).
-- Ensures sample PDF exists (calls `generate-sample-pdf` if needed).
-- Inserts into `sample_leads`, schedules `drip_next_at = now()`.
-- Returns `{ sample_pdf_url, bundle_offer_url }` so the modal success state renders immediately.
+แต่ละ style มี:
+- `id` (slug), `label`
+- `prompt_fragment` — art direction ที่จะแทน "gouache + watercolor" ใน prompt
+- `title_lettering_fragment` — คำสั่งวิธีวาดตัวหนังสือ (bubble letters, brushed script, cut-paper ฯลฯ)
+- `themeAffinity` regex (optional)
 
-### 4. Resend drip worker — `sample-drip-tick` (pg_cron every 15 min)
-Three transactional templates in `_shared/transactional-email-templates/`:
-- `sample-welcome` (stage 0 → 1, delay 0m): download link + book CTA.
-- `sample-bundle` (stage 1 → 2, delay 24h): bundle/category upsell.
-- `sample-last-chance` (stage 2 → done, delay 72h): urgency + discount code.
+Seed 8–10 สไตล์ รวมถึง:
+- `bouncy_bubble_letters` — ตรงกับ URL ที่คุณส่งมา (bold rainbow bubble typography, thick outlines, pop-art fill)
+- `soft_gouache_storybook` — สไตล์เดิม
+- `crayon_scribble_kids`, `cut_paper_collage`, `retro_saturday_cartoon`, `japanese_kawaii_sticker`, `chalkboard_neon`, `flat_vector_bold`, `ink_watercolor_wash`, `puffy_3d_gummy`
 
-Worker picks rows where `drip_next_at <= now()` and `unsubscribed_at is null`, sends via `send-transactional-email`, advances `drip_stage` + `drip_next_at`. Unsubscribe handled by existing `handle-email-unsubscribe`.
+### 2. Weighted style picker with recency window
+ใหม่: `pickCoverArtStyle(db, book)` ใน cover-art-styles.ts
+- ดึง `meta.cover_art_style` ของ `cover_final` 15 เล่มล่าสุด
+- ตัดสไตล์ที่ใช้ในช่วง 4 เล่มล่าสุดออกก่อน แล้วสุ่มถ่วงน้ำหนัก
+- ถ้า title match `themeAffinity` เพิ่ม weight
+- Return `{style, reason}`
 
-### 5. Frontend wiring (minimal)
-- `ColoringPreviewLightbox` already caps at 5 pages — no change needed; it just reads the first 5 interior URLs the product page already loads.
-- `FreeSamplePreviewModal` submit → `submit-sample-lead` (replace current stub). Success state renders returned `sample_pdf_url` as the download button + `bundle_offer_url` as the upsell CTA.
-- No new fields shown in any admin screen.
+### 3. Wire เข้า `coloring-v2-cover/index.ts`
+- เรียก `pickCoverArtStyle` หลัง sticky check
+- แทน constant art-direction ใน `buildIllustratedPrompt()` ด้วย `style.prompt_fragment` + `style.title_lettering_fragment`
+- บันทึก `cover_art_style: style.id` ใน asset meta (สำหรับ recency + audit)
+- Log ลง `coloring_v2_provider_calls.purpose` เป็น `cover_illustrated_<style_id>_aN`
+- เก็บ hard reject/attempt cap เดิมทั้งหมด (ไม่แตะ sticky short-circuit, ไม่แตะ COVER_HARD_ATTEMPT_CAP, ไม่ลด quality gate)
 
-### 6. Backfill / rollout
-- No migration data changes required for existing books — sample PDFs generate lazily on first request.
-- Bundle URL uses existing suggestion hook — nothing to seed.
+### 4. เคลียร์ปกเก่าให้สุ่มสไตล์ใหม่ (optional — คุณสั่งเมื่อพร้อม)
+Migration/script แยกต่างหาก: รีเซ็ต `stage='cover'` + null `approved_cover_asset_id` ให้เล่มที่ยัง live ด้วยสไตล์เดิม เพื่อให้ regenerate ตามสไตล์ใหม่ทีละเล่มตามกฎ one-book-at-a-time
+- **ไม่รันในแผนนี้** — รอคุณอนุมัติหลังเห็น 3–4 เล่มใหม่ออกมาสวย
 
-## Technical notes (for engineers)
-- Email domain + `setup_email_infra` prerequisites must already be satisfied; if `email_domain--check_email_domain_status` isn't `active`, the drip worker still enqueues (queue tolerates pending domain).
-- `generate-sample-pdf` reuses the existing `pdf-preflight`/composition helpers where possible; no new PDF library.
-- All three new edge functions are `verify_jwt = false` (public) except `sample-drip-tick` (cron/service-role).
-- Rate-limit `submit-sample-lead` at 5/min/IP to prevent list-bombing.
+### 5. Regression test
+`src/__tests__/coloring-cover-style-rotation.test.ts`:
+- `bouncy_bubble_letters` มีอยู่ใน registry
+- `pickCoverArtStyle` ไม่คืนสไตล์ที่อยู่ใน recency 4 เล่มล่าสุด
+- prompt ที่ build มี fragment ของ style ที่ถูกเลือก
 
-## Out of scope
-- Admin UI, per-book overrides, custom preview page selection, custom sample copy — everything auto.
-- Changing which pages appear in the on-page 5-page lightbox (already the first 5 interior pages).
+## ไม่แตะ
+- Sticky-law short-circuit (ปกที่ owner-approved ยังคงอยู่)
+- OCR/spell gate, hard attempt cap, provider ladder (Gemini → OpenAI)
+- One-book-at-a-time law, budget ceiling
+- SVG typography (ยังคงถูกห้ามตาม `cover_illustrated_only_v12`)
 
-## Definition of done
-1. Fresh live book with no admin action shows a working "Preview 5 Pages" (already true) and returns a real 5-page sample PDF after email submit.
-2. Lead row appears in `sample_leads`; welcome email arrives; bundle email at +24h; last-chance at +72h.
-3. Unsubscribe link works and stops the drip.
-4. Zero admin fields, zero manual per-book setup.
+## Deliverable
+หลัง deploy: เล่มใหม่ทุกเล่มจะสุ่มสไตล์จากกลุ่ม 8–10 แบบ (รวมทั้ง bubble-letters แบบใน URL) โดยไม่ซ้ำติดกัน — catalog จะดูหลากหลาย ไม่ใช่ gouache แบบเดียวทั้งร้าน
