@@ -80,14 +80,14 @@ async function buildSceneClause(book_id: string, title: string): Promise<string>
   return "Depict charming cartoon subjects from the book, each anatomically complete and non-deformed, in a playful storybook scene.";
 }
 
-function buildIllustratedPrompt(title: string, sceneClause: string): string {
+function buildIllustratedPrompt(title: string, sceneClause: string, style: CoverArtStyle): string {
   return [
     `Beautiful full-color hand-painted children's coloring-book COVER illustration for "${title}".`,
-    `Square 1:1 composition, warm cheerful storybook style — premium picture-book cover, gouache + watercolor feel, expressive, playful, high production value.`,
+    `Square 1:1 composition. Art direction: ${style.prompt_fragment}`,
     sceneClause,
     `Every creature/character MUST be anatomically complete and non-deformed: correct number of legs, one head, one tail, complete limbs, no severed or floating body parts, no fused bodies, no extra heads, no missing features. Canonical proportions.`,
-    `The title "${title}" MUST appear as HAND-LETTERED PAINTED TYPOGRAPHY integrated INTO the artwork itself — drawn by the illustrator as part of the painting (bubble-letter or brushed-script style, playful, colorful, with soft shadow and highlight painted in). NOT a font overlay, NOT flat digital text — it must look painted by hand.`,
-    `Place the title in the upper third of the cover, arced or on a soft painted ribbon that is part of the scene.`,
+    `${style.title_lettering_fragment} The title "${title}" MUST appear as HAND-LETTERED PAINTED TYPOGRAPHY integrated INTO the artwork itself — drawn by the illustrator as part of the painting. NOT a font overlay, NOT flat digital text — it must look painted/drawn by hand.`,
+    `Place the title in the upper third of the cover, integrated into the scene.`,
     `Do NOT include: any logo, any watermark, any URL, any age badge, any subtitle, any extra text besides the title, any UI element, any book mockup, any border/frame.`,
     `Spelling of the title MUST be exact.`,
   ].join(" ");
