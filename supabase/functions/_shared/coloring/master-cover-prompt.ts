@@ -166,3 +166,20 @@ export function assertMasterPromptShape(
     }
   }
 }
+
+/**
+ * Rotation variant — picks a curated art style via `pickCoverArtStyle` and
+ * bakes it into the master prompt. Callers that want deterministic output
+ * (tests, replays) should keep using `buildMasterColoringCoverPrompt` and
+ * pass `artStyle` explicitly.
+ */
+export async function buildMasterColoringCoverPromptWithRotation(
+  db: any,
+  input: MasterColoringCoverInput,
+): Promise<{ prompt: string; style: CoverArtStyle; pickReason: string; recent: string[] }> {
+  const { style, reason, recent } = await pickCoverArtStyle(db, input.title);
+  const prompt = buildMasterColoringCoverPrompt({ ...input, artStyle: style });
+  return { prompt, style, pickReason: reason, recent };
+}
+
+export type { CoverArtStyle } from "./cover-art-styles.ts";
