@@ -243,10 +243,41 @@ Deno.serve(async (req: Request) => {
     let lastErr: any = null;
     let smartAiUnavailableCount = 0;
 
+    // FULL-BLEED LAW v16: verify every attempt; on fail escalate prompt and
+    // retry the next provider; if all fail, autoCropBorders as rescue.
+    type BleedAttempt = { provider: CoverProvider; model: string; bytes: Uint8Array; verdict: FullBleedVerdict };
+    const bleedAttempts: BleedAttempt[] = [];
+    let extraBleedClause = "";
+    let finalVerdict: FullBleedVerdict | null = null;
+    let fullBleedAutocropped = false;
+
     for (let attempt = 1; attempt <= BAKE_ATTEMPTS; attempt++) {
       try {
-        const r = await renderIllustratedCover(prompt, attempt, book_id);
+        const attemptPrompt = extraBleedClause
+          ? `${prompt} REGENERATE — previous attempt failed FULL-BLEED verification: ${extraBleedClause} This attempt MUST paint every pixel to the very edge; no white/cream/uniform border of any kind on any side.`
+          : prompt;
+        const r = await renderIllustratedCover(attemptPrompt, attempt, book_id);
         if (r.bytes && r.bytes.length > 20_000) {
+          const verdict = await verifyFullBleed(r.bytes).catch((e) => {
+            console.warn(`[coloring-v2-cover] full-bleed verifier crashed on attempt ${attempt}:`, String((e as any)?.message ?? e));
+            return null;
+          });
+          if (verdict) {
+            bleedAttempts.push({ provider: r.provider, model: r.model, bytes: r.bytes, verdict });
+            console.log(`[coloring-v2-cover] full-bleed attempt=${attempt} provider=${r.provider} pass=${verdict.pass} worst=${verdict.worstEdge} reason=${verdict.reason}`);
+            if (verdict.pass) {
+              bytes = r.bytes;
+              usedProvider = r.provider;
+              usedModel = r.model;
+              finalVerdict = verdict;
+              break;
+            }
+            const worst = verdict.worstEdge ?? "unknown";
+            const edgeStats = verdict.worstEdge ? verdict.edges[verdict.worstEdge] : null;
+            extraBleedClause = `the ${worst.toUpperCase()} edge had a ${verdict.reason?.startsWith("edge_white_border") ? "WHITE/CREAM MARGIN" : "SOLID-COLOR FRAME"} (whiteRatio=${edgeStats?.whiteRatio.toFixed(2)}, uniformRatio=${edgeStats?.uniformRatio.toFixed(2)}). Extend the illustration all the way across the ${worst.toUpperCase()} edge — no matte, no border, no frame, no uniform strip.`;
+            continue;
+          }
+          // Verifier degraded — accept the image but flag it.
           bytes = r.bytes;
           usedProvider = r.provider;
           usedModel = r.model;
@@ -257,6 +288,27 @@ Deno.serve(async (req: Request) => {
         const em = String(e?.message ?? e);
         if (/cover_smart_ai_unavailable|billing|quota|prepayment|credit|402|429/i.test(em)) smartAiUnavailableCount++;
         console.warn(`[coloring-v2-cover] attempt ${attempt} error:`, em);
+      }
+    }
+
+    // Rescue path: no attempt passed. Auto-crop the last (best) attempt's border.
+    if (!bytes && bleedAttempts.length > 0) {
+      const best = bleedAttempts[bleedAttempts.length - 1];
+      try {
+        const rescued = await autoCropBorders(best.bytes);
+        const reVerdict = await verifyFullBleed(rescued.bytes).catch(() => null);
+        console.log(`[coloring-v2-cover] full-bleed autocrop trimmed=${JSON.stringify(rescued.trimmed)} reVerdictPass=${reVerdict?.pass}`);
+        bytes = rescued.bytes;
+        usedProvider = best.provider;
+        usedModel = best.model;
+        finalVerdict = reVerdict ?? best.verdict;
+        fullBleedAutocropped = true;
+      } catch (e) {
+        console.warn("[coloring-v2-cover] autoCropBorders failed:", String((e as any)?.message ?? e));
+        bytes = best.bytes;
+        usedProvider = best.provider;
+        usedModel = best.model;
+        finalVerdict = best.verdict;
       }
     }
 
@@ -281,6 +333,7 @@ Deno.serve(async (req: Request) => {
     // Upload as PNG (both providers return PNG bytes).
     const asset = await uploadAsset(book_id, "cover_final", bytes, "png", {
       law: COVER_LAW,
+      full_bleed_law: "cover_full_bleed_edge_verifier_v16",
       text_mode: "illustrated_hand_lettered_baked",
       typography_source: "illustrated_hand_lettered_baked",
       provider: usedProvider,
@@ -289,6 +342,16 @@ Deno.serve(async (req: Request) => {
       cover_art_style: artStyle.id,
       cover_art_style_label: artStyle.label,
       cover_art_style_pick_reason: styleReason,
+      full_bleed: finalVerdict
+        ? {
+            pass: finalVerdict.pass,
+            worstEdge: finalVerdict.worstEdge,
+            reason: finalVerdict.reason,
+            edges: finalVerdict.edges,
+            attempts: bleedAttempts.length,
+            autocropped: fullBleedAutocropped,
+          }
+        : { pass: null, reason: "verifier_unavailable", attempts: bleedAttempts.length, autocropped: false },
     });
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
