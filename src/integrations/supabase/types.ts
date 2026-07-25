@@ -1382,6 +1382,101 @@ export type Database = {
           },
         ]
       }
+      book_licenses: {
+        Row: {
+          book_id: string
+          commercial_price_cents: number
+          created_at: string
+          personal_price_cents: number
+          updated_at: string
+        }
+        Insert: {
+          book_id: string
+          commercial_price_cents?: number
+          created_at?: string
+          personal_price_cents?: number
+          updated_at?: string
+        }
+        Update: {
+          book_id?: string
+          commercial_price_cents?: number
+          created_at?: string
+          personal_price_cents?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "book_licenses_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: true
+            referencedRelation: "ebooks_kids"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      book_licenses_owned: {
+        Row: {
+          book_id: string
+          commercial_rights_active: boolean
+          commercial_rights_last_active_at: string | null
+          created_at: string
+          granted_at: string
+          id: string
+          license_type: string
+          order_id: string | null
+          purchase_source: string
+          revoked_at: string | null
+          subscription_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          commercial_rights_active?: boolean
+          commercial_rights_last_active_at?: string | null
+          created_at?: string
+          granted_at?: string
+          id?: string
+          license_type: string
+          order_id?: string | null
+          purchase_source: string
+          revoked_at?: string | null
+          subscription_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          book_id?: string
+          commercial_rights_active?: boolean
+          commercial_rights_last_active_at?: string | null
+          created_at?: string
+          granted_at?: string
+          id?: string
+          license_type?: string
+          order_id?: string | null
+          purchase_source?: string
+          revoked_at?: string | null
+          subscription_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "book_licenses_owned_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks_kids"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "book_licenses_owned_subscription_id_fkey"
+            columns: ["subscription_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_subscriptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       book_royalty_markets: {
         Row: {
           book_id: string
@@ -2914,6 +3009,105 @@ export type Database = {
           },
         ]
       }
+      commercial_credit_ledger: {
+        Row: {
+          book_id: string | null
+          created_at: string
+          delta: number
+          expires_at: string | null
+          id: string
+          note: string | null
+          reason: string
+          subscription_id: string | null
+          user_id: string
+        }
+        Insert: {
+          book_id?: string | null
+          created_at?: string
+          delta: number
+          expires_at?: string | null
+          id?: string
+          note?: string | null
+          reason: string
+          subscription_id?: string | null
+          user_id: string
+        }
+        Update: {
+          book_id?: string | null
+          created_at?: string
+          delta?: number
+          expires_at?: string | null
+          id?: string
+          note?: string | null
+          reason?: string
+          subscription_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commercial_credit_ledger_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks_kids"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commercial_credit_ledger_subscription_id_fkey"
+            columns: ["subscription_id"]
+            isOneToOne: false
+            referencedRelation: "commercial_subscriptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commercial_subscriptions: {
+        Row: {
+          cancel_at_period_end: boolean
+          created_at: string
+          credits_per_period: number
+          current_period_end: string | null
+          current_period_start: string | null
+          environment: string
+          id: string
+          paddle_customer_id: string
+          paddle_subscription_id: string
+          plan_code: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cancel_at_period_end?: boolean
+          created_at?: string
+          credits_per_period: number
+          current_period_end?: string | null
+          current_period_start?: string | null
+          environment?: string
+          id?: string
+          paddle_customer_id: string
+          paddle_subscription_id: string
+          plan_code: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cancel_at_period_end?: boolean
+          created_at?: string
+          credits_per_period?: number
+          current_period_end?: string | null
+          current_period_start?: string | null
+          environment?: string
+          id?: string
+          paddle_customer_id?: string
+          paddle_subscription_id?: string
+          plan_code?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       cost_log: {
         Row: {
           cost_usd: number
@@ -3095,6 +3289,50 @@ export type Database = {
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      download_tokens: {
+        Row: {
+          book_id: string
+          created_at: string
+          expires_at: string
+          id: string
+          license_type: string
+          max_uses: number
+          token: string
+          used_count: number
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          expires_at: string
+          id?: string
+          license_type: string
+          max_uses?: number
+          token: string
+          used_count?: number
+          user_id: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          license_type?: string
+          max_uses?: number
+          token?: string
+          used_count?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "download_tokens_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "ebooks_kids"
             referencedColumns: ["id"]
           },
         ]
@@ -8015,6 +8253,10 @@ export type Database = {
         Args: { p_book: string; p_error: string; p_stage: string }
         Returns: undefined
       }
+      commercial_credit_balance: {
+        Args: { user_uuid: string }
+        Returns: number
+      }
       exchange_buy_amount: {
         Args: {
           p_amount_gross: number
@@ -8033,6 +8275,10 @@ export type Database = {
           p_qty: number
         }
         Returns: Json
+      }
+      has_active_commercial_subscription: {
+        Args: { user_uuid: string }
+        Returns: boolean
       }
       has_active_subscription: {
         Args: { check_env?: string; user_uuid: string }
