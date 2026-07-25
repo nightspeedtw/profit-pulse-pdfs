@@ -39,8 +39,9 @@ export function coloringV2StageRank(stage: string): number {
   return 99;
 }
 
-export function pickClosestColoringV2Book<T extends ColoringV2BookCandidate>(rows: T[]): T | null {
-  const sorted = [...rows].sort((a, b) => {
+export function pickClosestColoringV2Book<T extends ColoringV2BookCandidate>(rows: T[], now = new Date()): T | null {
+  const eligible = rows.filter((r) => !isColoringV2BookParked(r, now));
+  const sorted = [...eligible].sort((a, b) => {
     const ar = a.final_pdf_asset_id ? 0 : coloringV2StageRank(a.stage);
     const br = b.final_pdf_asset_id ? 0 : coloringV2StageRank(b.stage);
     if (ar !== br) return ar - br;
