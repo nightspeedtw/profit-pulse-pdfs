@@ -82,10 +82,11 @@ describe("cover art style rotation", () => {
 
   it("falls back to the full pool when every style is in the recent window", async () => {
     const recent = COVER_ART_STYLES.map((s) => s.id);
-    const { style, reason } = await pickCoverArtStyle(stubDb(recent), "Any Title", { excludeRecent: recent.length });
+    const { style, reason } = await pickCoverArtStyle(stubDb(recent), "Any Title", { hardExcludeRecent: recent.length });
     expect(style).toBeTruthy();
-    expect(reason).toBe("fallback_all_recent");
+    expect(reason).toMatch(/relaxed_hard_exclude_from_/);
   });
+
 });
 
 describe("master prompt style-rotation baked in (v7)", () => {
