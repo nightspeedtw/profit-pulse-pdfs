@@ -33,10 +33,15 @@ Deno.serve(async (req: Request) => {
     if (planErr) throw planErr;
 
     // Skip if this page is already rendered.
-    const { data: existing } = await db().from("coloring_v2_assets")
-      .select("id").eq("book_id", book_id).eq("page_number", page_number).eq("kind", "interior").maybeSingle();
+    const { data: existingRows } = await db().from("coloring_v2_assets")
+      .select("id")
+      .eq("book_id", book_id)
+      .eq("page_number", page_number)
+      .eq("kind", "interior")
+      .order("created_at", { ascending: false })
+      .limit(1);
 
-    let assetId = existing?.id;
+    let assetId = existingRows?.[0]?.id;
     if (!assetId) {
       let lastErr: any = null;
       let extraNegative = "";
@@ -112,6 +117,22 @@ Deno.serve(async (req: Request) => {
               defects: verdict.defects,
               attempts: MAX_ATTEMPTS,
             }, 200);
+          }
+
+          // Race guard: another invocation may have completed this page while
+          // this one was waiting on the image/QC provider. Reuse it instead of
+          // appending a duplicate logical page.
+          const { data: racedRows } = await db().from("coloring_v2_assets")
+            .select("id")
+            .eq("book_id", book_id)
+            .eq("page_number", page_number)
+            .eq("kind", "interior")
+            .order("created_at", { ascending: false })
+            .limit(1);
+          if (racedRows?.[0]?.id) {
+            assetId = racedRows[0].id;
+            lastErr = null;
+            break;
           }
 
           const asset = await uploadAsset(book_id, "interior", bytes, "jpg",
