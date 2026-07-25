@@ -1,102 +1,103 @@
+## Licensing Model Simplification
 
-## Goal
+Replace the current pricing story with exactly two licenses per kids book and two commercial subscription plans. Everything else (bundles, sitewide sale rows, per-book campaigns) becomes secondary — the two license buttons are the primary buy path.
 
-Bring every coloring product page to the owner's 8-point conversion spec, and make sure **preview images, free-sample PDFs, and marketing discounts are generated automatically for every book** — old and new — with zero admin work.
+### 1. Data model (Cloud migration)
 
----
+New tables in `public`:
 
-## Part A — Product page conversion overhaul (`src/pages/ColoringProduct.tsx`)
+- `book_licenses` — canonical per-book price rows
+  - `book_id uuid` (FK ebooks_kids), `personal_price_cents int NOT NULL DEFAULT 1499`, `commercial_price_cents int NOT NULL DEFAULT 3900`, `updated_at`
+  - Seeded once for every live coloring book; commercial books default to $39
+- `commercial_subscriptions`
+  - `id`, `user_id`, `paddle_subscription_id UNIQUE`, `paddle_customer_id`, `plan_code` (`commercial_25` | `commercial_50`), `status`, `credits_per_period int`, `current_period_start`, `current_period_end`, `cancel_at_period_end`, `environment`, timestamps
+- `commercial_credit_ledger` (append-only)
+  - `id`, `user_id`, `subscription_id`, `delta int` (+granted / −spent / −expired), `reason` (`period_grant` | `unlock` | `rollover_expire` | `admin_adjust`), `book_id nullable`, `expires_at` (grant only), `created_at`
+  - Balance = SUM(delta) where `expires_at IS NULL OR expires_at > now()`
+- `book_licenses_owned`
+  - `id`, `user_id`, `book_id`, `license_type` (`personal` | `commercial`), `purchase_source` (`one_off` | `subscription_unlock`), `order_id`, `subscription_id nullable`, `commercial_rights_active bool`, `commercial_rights_last_active_at`, `granted_at`, `revoked_at nullable`
+  - Unique `(user_id, book_id)` — upserts widen personal → commercial when applicable
+- `download_tokens`
+  - `id`, `user_id`, `book_id`, `token text UNIQUE`, `expires_at`, `used_count int`, `max_uses int DEFAULT 5`, `license_type`, `created_at`
 
-Rebuild the page into 8 required sections. Above-the-fold is one mobile viewport.
+All tables: `GRANT` block, RLS enabled, owner-only SELECT on ledger/owned/subs, service-role-only writes. `has_active_commercial_subscription(uid)` SQL function mirrors `has_active_subscription`.
 
-1. **Above the fold (hero, single screen on mobile)**
-   - Large mockup of cover + one interior preview thumbnail beside/under it
-   - Title (with "Coloring Book" enforced), price with strikethrough + discount %
-   - "⚡ Instant Download" line
-   - Primary CTA button: `Get Your Coloring Book — $X.XX`
-   - Trust line under button: `A4 + US Letter • Print Again Anytime`
+### 2. Paddle catalog
 
-2. **"What you get" block** — new `<WhatYouGetList />` with fixed schema:
-   - `40 unique coloring pages` (read from `metadata.interior_page_count` or default)
-   - `Ages 4–8` (from `metadata.age_band`)
-   - `PDF files: A4 + US Letter`
-   - `Download instantly after payment`
-   - `Personal-use license included`
+Create two subscription products via the payment tools (test env, syncs to live on publish):
 
-3. **5-page curated preview carousel** (`<CuratedPreviewCarousel />`)
-   - Auto-picks 5 pages from `coloring_v2_assets` covering: cover / easy / detailed / hero scene / activity. Selection logic in new `_shared/curated-preview.ts` and cached to `ebooks_kids.metadata.curated_preview_urls`.
+- `commercial_25_plan` → price `commercial_25_monthly` = $149/mo
+- `commercial_50_plan` → price `commercial_50_monthly` = $249/mo
 
-4. **"Why parents buy this"** — 4 fixed bullet points with icons.
+Per-book licenses stay one-time transactions handled via existing checkout — no Paddle product per book; the amount comes from `book_licenses` and is charged as a custom one-off.
 
-5. **Bundle upsell under CTA** — reuse `BundleUpsellCard` with copy: *Love this theme? Get 3 printable coloring books and save 35%.*
+### 3. Edge functions
 
-6. **Bonus stack** — "You also get free: Color Reward Certificate + 5 bonus mini pages" (static, already delivered inside the PDF).
+- `paddle-webhook` — extend existing handler to recognize the two subscription prices, upsert `commercial_subscriptions`, and on each renewal insert a `+credits_per_period` grant with `expires_at = new period_end + 1 period` (rollover-one-period rule). On cancel/expire, mark `book_licenses_owned.commercial_rights_active = false` for that sub's books, keep files accessible.
+- `commercial-unlock-book` — signed-in POST `{ book_id }`. Server-side: verify active sub, atomic ledger insert (−1) with row-level lock, upsert `book_licenses_owned` (commercial, `commercial_rights_active = true`). Returns updated balance + license.
+- `commercial-buy-license` — issues Paddle overlay for personal ($14.99) or commercial ($39) one-off checkout; webhook then writes `book_licenses_owned`.
+- `download-book` — replaces client-side signed-URL generation. Verifies `book_licenses_owned` row exists, mints a `download_tokens` row (10-minute TTL, 5 uses), returns a signed Supabase storage URL scoped to that token. Denies if no license.
+- `commercial-credit-rollover-tick` — cron (hourly). Expires ledger grants whose `expires_at < now()` by inserting matching `−expired` rows. Marks `book_licenses_owned.commercial_rights_active = false` for books tied to fully-canceled subs whose period ended.
+- `commercial-subscription-manage` — creates Paddle customer-portal session for upgrade/downgrade/cancel.
 
-7. **FAQ accordion** — 5 fixed questions listed by owner.
+### 4. Frontend
 
-8. **Related products** — 3 sibling coloring books + final CTA to bundle page. (Already partially exists; enforce 3-card row + terminal CTA.)
+**Product page (`ColoringProduct.tsx` + adult `Product.tsx`)**
 
-Remove/collapse anything that pushes trust/CTA below the fold.
+- Replace the single "Get Your Coloring Book — $X" CTA with a **License Selector**:
+  - Radio A: *Personal Use — $14.99* (family / household)
+  - Radio B: *Commercial Activity License — $39* (educators, classrooms, camps, cafes, events)
+  - Short bullet under each explaining what is / isn't allowed (matches owner spec verbatim).
+- Below the selector: sticky **primary CTA** = "Buy License — $X" that opens Paddle overlay with the chosen amount.
+- **Commercial upsell card** under the CTA when Commercial is selected: *"Running a business? Get 25 commercial books/month for $149 → Commercial 50 for $249. Cancel anytime."* Two plan buttons.
+- **License badge** in the buy box when the signed-in user already owns the book (Personal / Commercial · Active / Commercial · Rights inactive).
 
----
+**New page: `/account/commercial-library` (My Commercial Library)**
 
-## Part B — Auto preview + sample for EVERY book (no admin)
+- Header: current plan, credits available, credits expiring soon (badge with date), renewal date, upgrade / downgrade / cancel buttons.
+- Grid of every book the user has personal or commercial rights on:
+  - Cover, title, current license type, "Rights active / inactive" pill.
+  - "Unlock Commercial Rights" button (spends 1 credit) shown for Personal-only books.
+  - "Download" button (calls `download-book`).
+- Empty state: pitch the two commercial plans with clear feature comparison.
 
-New edge function `coloring-storefront-assets-tick` (cron every 5 min):
+**Legal copy**
 
-For each `ebooks_kids` row where `book_type='coloring_book'` AND `listing_status='live'` AND `metadata.curated_preview_urls IS NULL`:
-1. Pull interior page assets from `coloring_v2_assets`.
-2. Run the curated-5 selector (`_shared/curated-preview.ts`).
-3. Upload low-res watermarked JPGs to `ebook-covers/previews/<book-id>/p1..p5.jpg`.
-4. Generate 4-page sample PDF via existing `generate-sample-pdf` (already exists) and store URL in `metadata.sample_pdf_url`.
-5. Patch `metadata` atomically via `atomic_patch_ebooks_kids_meta`.
+- Update `/legal/terms` and add a new `/legal/license` page enumerating exactly the two licenses using the owner's wording. Include the post-cancellation rule ("Files stay yours; commercial rights end after the paid period.").
 
-Also wire this step into `coloring-v2-autopilot` so new books never ship without preview + sample.
+### 5. Admin
 
-**Backfill** run once for existing ~64 live books (invoke the same function with `?backfill=1`).
+New tab in existing admin under `/admin/commercial`:
 
----
+- Subscriptions list (status, plan, MRR, next renewal, cancel-at-period-end).
+- Credits panel per user (balance, upcoming expiry, manual `admin_adjust` action with reason).
+- Claimed-books table with filters (user, book, license type, rights-active).
+- Renewals + cancellations feed sourced from `commercial_subscriptions` change log.
+- Per-book license status (how many personal / commercial claims).
 
-## Part C — Marketing/discount auto-apply on new books
+Wired straight into the existing `admin` roles gate via `has_role('admin')`.
 
-Root cause: `marketing-autopilot-tick` seeds pricing only when a book is inserted into `product_pricing`. New coloring books miss the insert.
+### 6. Sequencing
 
-Fix in `coloring-v2-autopilot` publish step:
-1. On transition to `listing_status='live'`, upsert a row into `product_pricing` with `regular_cents = price_cents`, `effective_cents = round(price_cents * (1 - sitewide_discount_pct))`, `market = 'US'`.
-2. Insert matching `price_history` row with `price_type='regular'` for compare-at legitimacy.
-3. Emit `campaign_products` entry linking to the active sitewide campaign so `useResolvedPricing` picks it up on cards + product page.
+1. Migration + seeds (`book_licenses`, `commercial_*`, `download_tokens`, RLS, `GRANT`s, `has_active_commercial_subscription`).
+2. Create the two Paddle subscription plans.
+3. Extend `paddle-webhook`, add `commercial-*` edge functions, `download-book`, and hourly rollover cron via `pg_cron`.
+4. Rebuild product-page buy box + Commercial Library page + License badge component.
+5. Admin pages.
+6. Legal pages + product-page copy tweaks.
 
-Verify `KidsBookCard` + `ColoringProduct` both read `resolvedPrice` from `useResolvedPricing`, so once `product_pricing` is populated, discount shows automatically.
+### Technical notes
 
-Backfill: one-off SQL patch upserting `product_pricing` + `campaign_products` for every live coloring book missing a row.
+- Everything is scoped to the authenticated user via `auth.uid()`; no client can spend credits or upsert owned licenses — all writes route through the edge functions with `SUPABASE_SERVICE_ROLE_KEY`.
+- Credit expiry is enforced by the ledger's `expires_at`, not by client math — the balance view function filters `now()`.
+- Old sitewide-sale campaign rows for coloring books are frozen (no changes needed); the product page ignores them once the license selector is live so pricing shows the exact $14.99 / $39 the owner set.
+- `download-book` returns a signed URL from Supabase Storage with a 10-minute TTL; the returned URL is what the browser hits — no direct storage access from the client.
+- `commercial_rights_active` decouples file access (always allowed once purchased) from *commercial* use rights (only while sub is active or personal license was bought outright).
 
----
+### Out of scope for this task (owner can request later)
 
-## Files touched
+- Migrating existing bundle / campaign discount logic to the new license model.
+- Bulk gifting / classroom-code redemption.
+- Team seats on the commercial plans (currently one buyer).
 
-**Frontend**
-- `src/pages/ColoringProduct.tsx` — restructure into 8 sections
-- `src/components/product/WhatYouGetList.tsx` *(new)*
-- `src/components/product/CuratedPreviewCarousel.tsx` *(new)*
-- `src/components/product/WhyParentsBuy.tsx` *(new)*
-- `src/components/product/ColoringFAQ.tsx` *(new)*
-- `src/components/product/BonusStack.tsx` *(new)*
-- `src/lib/useResolvedPricing.ts` — ensure it's called on `ColoringProduct`
-
-**Backend**
-- `supabase/functions/_shared/curated-preview.ts` *(new)* — 5-page selector
-- `supabase/functions/coloring-storefront-assets-tick/index.ts` *(new)* — cron for preview + sample backfill
-- `supabase/functions/coloring-v2-autopilot/index.ts` — call the tick + seed `product_pricing`/`campaign_products` on publish
-- `supabase/config.toml` — register cron (5 min)
-
-**Data**
-- One-off backfill via `supabase--insert`: seed `product_pricing` + `campaign_products` for live coloring books missing rows; enqueue preview/sample generation for the ~64 existing books.
-
----
-
-## Acceptance
-
-- Any live coloring product URL shows all 8 sections, mobile-fold-complete.
-- 5 curated previews load without admin action for a brand-new book within 5 min of going live.
-- Free-sample modal downloads a real 4-page PDF for every live book.
-- Discount % and strikethrough visible on both product page and card for every new book automatically.
+This plan touches ~6 new DB tables, ~5 new edge functions, ~3 new pages, and ~4 modified existing components. Ready to implement once approved.
