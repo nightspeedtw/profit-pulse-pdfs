@@ -45,15 +45,30 @@ Deno.serve(async (req: Request) => {
     // Bounded scan: MAX_SLOTS oldest non-terminal, non-live books that
     // have been idle >90s. Indexed on stage_updated_at.
     const cutoff = new Date(Date.now() - 90_000).toISOString();
-    const { data: books, error } = await db().from("coloring_v2_books")
+    const activeStages = ["concept", "style_bible", "page_plan", "interior_render", "cover", "qc", "pdf", "publish"];
+    const { data: activeBooks, error: activeError } = await db().from("coloring_v2_books")
       .select("id, stage, page_count")
-      .neq("stage", "failed")
+      .in("stage", activeStages)
       .neq("publish_status", "live")
       .lte("stage_updated_at", cutoff)
       .lt("stage_attempt_count", 3)
       .order("stage_updated_at", { ascending: true })
       .limit(MAX_SLOTS);
-    if (error) throw error;
+    if (activeError) throw activeError;
+
+    let books = activeBooks ?? [];
+    if (books.length === 0) {
+      const { data: queuedBooks, error: queuedError } = await db().from("coloring_v2_books")
+        .select("id, stage, page_count")
+        .eq("stage", "queued")
+        .neq("publish_status", "live")
+        .lte("stage_updated_at", cutoff)
+        .lt("stage_attempt_count", 3)
+        .order("stage_updated_at", { ascending: true })
+        .limit(MAX_SLOTS);
+      if (queuedError) throw queuedError;
+      books = queuedBooks ?? [];
+    }
 
     // Dispatch inside waitUntil so the response returns immediately.
     const plan = (books ?? []).map((b: any) => ({ book_id: b.id, stage: b.stage, page_count: b.page_count }));
