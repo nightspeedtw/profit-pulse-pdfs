@@ -7,16 +7,20 @@
 // deformity rewinds the offending page to interior_render. Unmeasured pages
 // force a re-measure — never a default pass score.
 // @ts-nocheck
-import { advance, corsHeaders, db, fetchBook, fireStage, json, recordError, signedUrl } from "../_shared/coloring-v2/state.ts";
+import { acquireColoringV2ProductionLock, advance, chainOwnerMatches, corsHeaders, db, fetchBook, fireStage, json, recordError, signedUrl } from "../_shared/coloring-v2/state.ts";
 import { checkPageAnatomy } from "../_shared/coloring-v2/anatomy-check.ts";
 
 declare const Deno: any;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
-  const { book_id } = await req.json().catch(() => ({}));
+  const { book_id, chain_owner_book_id } = await req.json().catch(() => ({}));
   if (!book_id) return json({ error: "book_id required" }, 400);
   try {
+    if (!chainOwnerMatches(book_id, chain_owner_book_id)) return json({ ok: true, skipped: true, reason: "chain_owner_mismatch" });
+    const lock = await acquireColoringV2ProductionLock(book_id);
+    if (!lock.acquired) return json({ ok: true, waiting_for_lock: true, holder: lock.holder, expires_at: lock.expires_at });
+
     const book = await fetchBook(book_id);
     if (book.stage !== "qc") return json({ ok: true, skipped: true, stage: book.stage });
 
@@ -196,14 +200,14 @@ Deno.serve(async (req: Request) => {
           stage_attempt_count: attemptCount + 1,
           last_error: `qc_rewind:${rewindPages.slice(0, 4).join(",")}`,
         }).eq("id", book_id);
-        await fireStage("coloring-v2-render-page", { book_id, page_number: rewindPages[0] });
+        await fireStage("coloring-v2-render-page", { book_id, page_number: rewindPages[0], chain_owner_book_id: book_id });
         return json({ ok: false, rewound: "interior_render", pages: rewindPages, findings });
       }
       throw new Error(`qc_hard_fail: ${findings.map((f) => f.kind).join(",")}`);
     }
 
     await advance(book_id, "qc", "pdf", { overall_qc_score: overall, qc_status: "passed" });
-    await fireStage("coloring-v2-pdf", { book_id });
+    await fireStage("coloring-v2-pdf", { book_id, chain_owner_book_id: book_id });
     return json({ ok: true, overall, next: "pdf", waived_warnings: findings.filter((f) => f.severity === "warn").length });
   } catch (e: any) {
     await recordError(book_id, "qc", e);

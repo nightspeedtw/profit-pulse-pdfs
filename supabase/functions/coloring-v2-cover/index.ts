@@ -18,7 +18,7 @@
 //   Retry cap: 3 dispatches. On exhaustion, park + raise dashboard alert.
 //
 // @ts-nocheck
-import { advance, corsHeaders, db, fetchBook, fireStage, json, recordError, signedUrl, uploadAsset } from "../_shared/coloring-v2/state.ts";
+import { acquireColoringV2ProductionLock, advance, chainOwnerMatches, corsHeaders, db, fetchBook, fireStage, json, recordError, releaseColoringV2ProductionLock, signedUrl, uploadAsset } from "../_shared/coloring-v2/state.ts";
 import { geminiDirectImageWithMeta } from "../_shared/gemini-direct.ts";
 import { openaiDirectImage } from "../_shared/openai-direct.ts";
 import { pickCoverArtStyle, type CoverArtStyle } from "../_shared/coloring/cover-art-styles.ts";
@@ -188,9 +188,13 @@ async function findStickyIllustratedCover(book_id: string) {
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
-  const { book_id } = await req.json().catch(() => ({}));
+  const { book_id, chain_owner_book_id } = await req.json().catch(() => ({}));
   if (!book_id) return json({ error: "book_id required" }, 400);
   try {
+    if (!chainOwnerMatches(book_id, chain_owner_book_id)) return json({ ok: true, skipped: true, reason: "chain_owner_mismatch" });
+    const lock = await acquireColoringV2ProductionLock(book_id);
+    if (!lock.acquired) return json({ ok: true, waiting_for_lock: true, holder: lock.holder, expires_at: lock.expires_at });
+
     const book = await fetchBook(book_id);
     if (book.stage !== "cover") return json({ ok: true, skipped: true, stage: book.stage });
 
@@ -202,7 +206,7 @@ Deno.serve(async (req: Request) => {
           .update({ approved_cover_asset_id: sticky.id }).eq("id", book_id);
       }
       await advance(book_id, "cover", "qc");
-      await fireStage("coloring-v2-qc", { book_id });
+      await fireStage("coloring-v2-qc", { book_id, chain_owner_book_id: book_id });
       return json({ ok: true, skipped: true, reason: "illustrated_cover_preserved", sticky_asset: sticky.id, next: "qc" });
     }
 
@@ -211,6 +215,7 @@ Deno.serve(async (req: Request) => {
       const reason = book.last_error ?? "cover_attempts_exhausted";
       await parkCoverAsFailed(book_id, reason);
       await raiseCoverAlert(book_id, book.title ?? "Untitled", reason, priorAttempts);
+      await releaseColoringV2ProductionLock(book_id).catch(() => false);
       return json({ ok: false, parked: true, reason: COVER_LAW, attempts: priorAttempts }, 200);
     }
 
@@ -252,6 +257,7 @@ Deno.serve(async (req: Request) => {
       const reason = String(lastErr?.message ?? "cover_smart_ai_unavailable");
       await parkCoverAsFailed(book_id, reason);
       await raiseCoverAlert(book_id, title, reason, priorAttempts + 1);
+      await releaseColoringV2ProductionLock(book_id).catch(() => false);
       return json({ ok: false, parked: true, reason: "smart_ai_billing_locked", provider_error: reason }, 200);
     }
 
@@ -280,7 +286,7 @@ Deno.serve(async (req: Request) => {
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
     await advance(book_id, "cover", "qc");
-    await fireStage("coloring-v2-qc", { book_id });
+    await fireStage("coloring-v2-qc", { book_id, chain_owner_book_id: book_id });
     return json({
       ok: true, cover_asset: asset.id, next: "qc",
       text_mode: "illustrated_hand_lettered_baked",

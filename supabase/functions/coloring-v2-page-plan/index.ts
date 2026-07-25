@@ -1,15 +1,19 @@
 // coloring-v2-page-plan — plans N distinct interior pages.
 // @ts-nocheck
-import { advance, callAiJson, corsHeaders, db, fetchBook, fireStage, json, recordError } from "../_shared/coloring-v2/state.ts";
+import { acquireColoringV2ProductionLock, advance, callAiJson, chainOwnerMatches, corsHeaders, db, fetchBook, fireStage, json, recordError } from "../_shared/coloring-v2/state.ts";
 import { buildPagePlanPrompt, PAGE_PLAN_SYSTEM, buildInteriorImagePrompt } from "../_shared/coloring-v2/prompts.ts";
 
 declare const Deno: any;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
-  const { book_id } = await req.json().catch(() => ({}));
+  const { book_id, chain_owner_book_id } = await req.json().catch(() => ({}));
   if (!book_id) return json({ error: "book_id required" }, 400);
   try {
+    if (!chainOwnerMatches(book_id, chain_owner_book_id)) return json({ ok: true, skipped: true, reason: "chain_owner_mismatch" });
+    const lock = await acquireColoringV2ProductionLock(book_id);
+    if (!lock.acquired) return json({ ok: true, waiting_for_lock: true, holder: lock.holder, expires_at: lock.expires_at });
+
     const book = await fetchBook(book_id);
     if (book.stage !== "page_plan") return json({ ok: true, skipped: true, stage: book.stage });
 
@@ -51,7 +55,7 @@ Deno.serve(async (req: Request) => {
     if (error) throw error;
 
     await advance(book_id, "page_plan", "interior_render");
-    await fireStage("coloring-v2-render-page", { book_id, page_number: 1 });
+    await fireStage("coloring-v2-render-page", { book_id, page_number: 1, chain_owner_book_id: book_id });
     return json({ ok: true, pages: rows.length });
   } catch (e: any) {
     await recordError(book_id, "page_plan", e);

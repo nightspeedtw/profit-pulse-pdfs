@@ -1,55 +1,76 @@
-## เป้าหมาย
-ใช้ Cloudflare ทั้ง 6 บัญชี (cf1..cf6, 10k neurons/บัญชี = 60k/วัน) ให้หมดจริง ก่อนที่จะบอกว่า "quota exhausted" และ latch ทั้งเลนออก แก้ถาวรทั้ง distribution และ latch logic
+## Goal
+Make Coloring V2 permanently run one book at a time for heavy production, so it cannot spread interior rendering across many books and burn Cloudflare credits before one book finishes.
 
-## หลักฐาน (ยืนยันจากฐานข้อมูล + code จริง)
-- Secrets: `CF_ACCOUNT_ID`, `CF_ACCOUNT_ID_2..6`, `CF_API_TOKEN`, `CF_API_TOKEN_2..6` ครบ 6 บัญชี ✓
-- `_shared/image-providers.ts:78-90` มี `cfCredsList()` ที่โหลด cf1..cf7 อยู่แล้ว
-- `_shared/image-providers.ts:162-175` วนบัญชี cf1 → cf6 ตามลำดับคงที่
-- 24h cost_log: `cf6` ถูกเรียก 400+ ครั้ง, `cf1` = ~40, **cf2/cf3/cf4/cf5 = 0** → รับรู้ว่ามีอยู่ แต่ไม่ได้ถูกใช้จริง (คงเพราะ cf1 คืน error ที่ไม่ใช่ billing-locked ในบางเคส แล้วโยนออกทันที ข้ามการ rotate)
-- Global latch เก่าที่ `generation_settings.coloring_autopilot.cf_billing_locked_until = 2026-07-20` เป็นอดีต → ไม่บล็อกอยู่ แต่ถ้ามี 429 อีก บรรทัด 397 จะ latch ทั้ง CF ทันทีที่ **บัญชีเดียว**หมด (ผ่าน `cloudflareFluxSchnell` ที่โยน error ก้อนสุดท้ายออกมา ซึ่ง caller ไม่รู้ว่าบัญชีอื่นยังใช้ได้)
+## Confirmed current state
+- Autopilot config already says `daily_cap: 1` and `max_in_flight: 1`, but that only limits new book creation.
+- Existing backlog still has many active books: `317 page_plan`, `116 interior_render`, `1 qc`, plus live cover-sweep leftovers.
+- The tick dispatcher uses `MAX_SLOTS = 1`, but it selects the oldest idle active book, not the single closest-to-done book required by the owner law.
+- Stage functions self-chain with `fireStage()`, so multiple books can continue independently after earlier invocations started them.
+- Some books have more than 32 interior assets despite `page_count = 32`, which confirms duplicate/parallel render activity has already happened.
 
-## สิ่งที่จะแก้ (permanent)
+## Permanent fix
+1. **Add a production lease before any heavy spend**
+   - Use the existing backend lock pattern (`try_acquire_lock` / `release_lock`) with one lock name for Coloring V2 heavy production.
+   - Every spend-heavy stage must acquire the same lock before running:
+     - page plan handoff into interiors
+     - interior render
+     - cover
+     - QC/PDF/publish handoff if they dispatch more work
+   - If another book holds the lock, the function returns `waiting_for_lock` without calling AI/image providers.
 
-### 1. Per-account daily latch
-เพิ่มโครงข้อมูลใน `generation_settings.coloring_autopilot.cf_account_latches`:
-```json
-{ "cf1": "2026-07-26T00:00:00Z", "cf3": "2026-07-26T00:00:00Z" }
-```
-- อ่านผ่าน `readCfAccountLatches(db)` (in-memory cache 30s ต่อ invocation)
-- เขียนผ่าน `latchCfAccount(db, label)` — ตั้ง `locked_until = nextUtcMidnight()`
-- Auto-expire: entry ที่ `locked_until <= now` ถือว่าปลดล็อค
+2. **Make the dispatcher choose the correct single book**
+   - Change `coloring-v2-tick` selection to follow the owner law:
+     ```text
+     final_pdf_asset_id exists
+     → pdf
+     → qc
+     → cover
+     → interior_render with most completed pages
+     → page_plan
+     → style_bible/concept/queued
+     ```
+   - Do not dispatch queued/newer books while any older/closer active book is unfinished.
 
-### 2. `cfCredsList` filter latched accounts
-`cfCredsList()` → รับ `latches` เป็น argument, กรองบัญชีที่ยัง latched ออก คืน list เหลือเฉพาะที่ใช้ได้
+3. **Stop self-chaining from bypassing one-book mode**
+   - Update `fireStage()` to include and respect a `chain_owner_book_id` / run token.
+   - Stage functions will only chain if they still own the active production lock.
+   - This prevents old invocations from continuing another book after the dispatcher has selected a different owner.
 
-### 3. Round-robin start index
-เพิ่ม `cf_rotation_cursor` ใน `generation_settings.coloring_autopilot` (integer 0..5)
-- ก่อน render แต่ละครั้ง อ่าน cursor, เริ่มจาก `accounts[cursor % accounts.length]`, +1 แล้วเขียนกลับ
-- Idempotent (best-effort update, race-tolerant)
+4. **Interior renderer hard tripwire**
+   - Before every image call, re-check:
+     - book is still `interior_render`
+     - current book holds the active lock
+     - exact page is not already rendered
+     - logical page count has not exceeded `page_count`
+   - If page assets already exceed the expected count, park the book as `needs_code_fix`/failed with evidence instead of spending more.
 
-### 4. เปลี่ยน `cloudflareFluxSchnell` behavior
-- Loop เฉพาะ accounts ที่ **ไม่ได้ latched**
-- ถ้า account คืน `FalBillingLockedError` → เรียก `latchCfAccount(db, label)` แล้ววนต่อ
-- ถ้า **ทุกบัญชีที่ยังเหลือ** ยิง billing-locked → โยน FalBillingLockedError ก้อนเดียวขึ้นไป
+5. **Backlog repair without deleting evidence**
+   - Do not delete duplicate assets.
+   - For books with duplicate interiors, select the latest valid asset per page as canonical for PDF building.
+   - Reset only the single closest-to-done book to continue; leave the rest waiting for the lock.
 
-### 5. เปลี่ยน caller ที่ line 395-397 ให้ latch global เฉพาะเมื่อ 6/6 บัญชี latched
-- เช็ก `readCfAccountLatches` หลังจับ FalBillingLockedError
-- Latch global (`cf_billing_locked_until`) ก็ต่อเมื่อจำนวน latched === จำนวน accounts ทั้งหมด
-- ไม่งั้นแค่ mark bill-blocked เฉพาะ session นี้ แล้ว fallback ไปหา provider อื่น (runware/openai) ตาม policy
+6. **Regression coverage**
+   - Add tests that prove:
+     - tick ranks one closest-to-done book, not oldest/random
+     - render-page refuses to spend without the lock
+     - self-chaining does not bypass the lock
+     - duplicate interior assets do not trigger more rendering
 
-### 6. Reset state + kick pipeline
-- Clear `generation_settings.coloring_autopilot.cf_billing_locked_until` ถ้ายังค้าง
-- Clear `provider_billing_blocked.cloudflare`
-- Clear `last_error` + `stage_attempt_count = 0` ให้หนังสือ 116 เล่มที่ค้างที่ `interior_render` ด้วย error `provider_billing_locked` เพื่อให้ tick หยิบต่อ
+7. **Deploy + resume carefully**
+   - Deploy only the touched Coloring V2 functions.
+   - Clear stale locks/latches only as needed.
+   - Resume from the closest-to-done book and verify logs show one book/page chain at a time.
 
-## ผลลัพธ์ที่คาดหวัง
-- ใช้ neuron ครบ 60k/วัน (6× ของเดิมที่ latch หลุดที่ 10k)
-- เมื่อบัญชีหนึ่งหมด อีก 5 บัญชียังทำงานต่อได้ทันที ไม่ต้องรอ 00:00 UTC
-- Load กระจาย: cf1..cf6 ถูกใช้เฉลี่ยเท่าๆ กัน ไม่ใช่ cf6-heavy เหมือนตอนนี้
-- Fallback provider (Runware/OpenAI) ทำงานเฉพาะกรณี 6/6 ล็อคจริงเท่านั้น
+## Files likely to change
+- `supabase/functions/coloring-v2-tick/index.ts`
+- `supabase/functions/coloring-v2-render-page/index.ts`
+- `supabase/functions/coloring-v2-page-plan/index.ts`
+- `supabase/functions/_shared/coloring-v2/state.ts`
+- Small shared helper/test files for ranking and lock enforcement
 
-## Technical details
-- ไฟล์ที่แก้: `supabase/functions/_shared/image-providers.ts` (ไฟล์เดียว, edit ในตำแหน่ง cfCredsList, cloudflareFluxSchnell, และ generateImage caller)
-- Migration: ไม่ต้อง (ใช้ jsonb คีย์ใหม่ใน `generation_settings.coloring_autopilot` ที่มีอยู่แล้ว)
-- One-off SQL: reset latch + attempt counters ผ่าน supabase read/insert tool
-- Regression test: เพิ่ม unit test `coloringCfMultiAccountRotation.test.ts` ยิง mock ให้ cf1 429, cf2 200 → verify cf2 ถูกเรียก, latch เกิดที่ cf1 เท่านั้น, ไม่ latch global
+## Acceptance criteria
+- At most one Coloring V2 book can enter image-spending stages at any time.
+- No queued/newer book starts while an active book is unfinished.
+- Old self-chained invocations cannot continue unless they hold the lock.
+- Cloudflare cost logs after deployment show one book progressing page-by-page, not many books in parallel.
+- Existing evidence/assets are preserved.

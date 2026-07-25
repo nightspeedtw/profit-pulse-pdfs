@@ -12,7 +12,7 @@
 // Matter pages are EXEMPT from interior QC gates. Templated per age band.
 // @ts-nocheck
 import { PDFDocument, StandardFonts } from "npm:pdf-lib@1.17.1";
-import { advance, corsHeaders, db, fetchBook, fireStage, json, recordError, uploadAsset } from "../_shared/coloring-v2/state.ts";
+import { acquireColoringV2ProductionLock, advance, chainOwnerMatches, corsHeaders, db, fetchBook, fireStage, json, recordError, uploadAsset } from "../_shared/coloring-v2/state.ts";
 import {
   resolveMatterStyle,
   drawColoringTitlePage,
@@ -29,9 +29,13 @@ const TRIM_PT = 8.5 * PT_PER_IN; // 612
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
-  const { book_id } = await req.json().catch(() => ({}));
+  const { book_id, chain_owner_book_id } = await req.json().catch(() => ({}));
   if (!book_id) return json({ error: "book_id required" }, 400);
   try {
+    if (!chainOwnerMatches(book_id, chain_owner_book_id)) return json({ ok: true, skipped: true, reason: "chain_owner_mismatch" });
+    const lock = await acquireColoringV2ProductionLock(book_id);
+    if (!lock.acquired) return json({ ok: true, waiting_for_lock: true, holder: lock.holder, expires_at: lock.expires_at });
+
     const book = await fetchBook(book_id);
     if (book.stage !== "pdf") return json({ ok: true, skipped: true, stage: book.stage });
 
@@ -165,7 +169,7 @@ Deno.serve(async (req: Request) => {
     }).eq("id", book_id);
 
     await advance(book_id, "pdf", "publish");
-    await fireStage("coloring-v2-publish", { book_id });
+    await fireStage("coloring-v2-publish", { book_id, chain_owner_book_id: book_id });
     return json({ ok: true, pdf_asset: asset.id, pages: totalPageCount, next: "publish", matter_version: "matter_pages_design_v2" });
   } catch (e: any) {
     await recordError(book_id, "pdf", e);

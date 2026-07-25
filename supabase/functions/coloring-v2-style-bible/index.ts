@@ -1,15 +1,19 @@
 // coloring-v2-style-bible — generates the style bible.
 // @ts-nocheck
-import { advance, callAiJson, corsHeaders, db, fetchBook, fireStage, json, recordError } from "../_shared/coloring-v2/state.ts";
+import { acquireColoringV2ProductionLock, advance, callAiJson, chainOwnerMatches, corsHeaders, db, fetchBook, fireStage, json, recordError } from "../_shared/coloring-v2/state.ts";
 import { buildStyleBiblePrompt, STYLE_BIBLE_SYSTEM } from "../_shared/coloring-v2/prompts.ts";
 
 declare const Deno: any;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
-  const { book_id } = await req.json().catch(() => ({}));
+  const { book_id, chain_owner_book_id } = await req.json().catch(() => ({}));
   if (!book_id) return json({ error: "book_id required" }, 400);
   try {
+    if (!chainOwnerMatches(book_id, chain_owner_book_id)) return json({ ok: true, skipped: true, reason: "chain_owner_mismatch" });
+    const lock = await acquireColoringV2ProductionLock(book_id);
+    if (!lock.acquired) return json({ ok: true, waiting_for_lock: true, holder: lock.holder, expires_at: lock.expires_at });
+
     const book = await fetchBook(book_id);
     if (book.stage !== "style_bible") return json({ ok: true, skipped: true, stage: book.stage });
 
@@ -22,7 +26,7 @@ Deno.serve(async (req: Request) => {
     await db().from("coloring_v2_style_bibles").insert({ book_id, bible });
 
     await advance(book_id, "style_bible", "page_plan");
-    await fireStage("coloring-v2-page-plan", { book_id });
+    await fireStage("coloring-v2-page-plan", { book_id, chain_owner_book_id: book_id });
     return json({ ok: true, next: "page_plan" });
   } catch (e: any) {
     await recordError(book_id, "style_bible", e);

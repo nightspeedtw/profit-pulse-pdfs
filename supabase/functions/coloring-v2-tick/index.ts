@@ -3,7 +3,16 @@
 // fire-and-forget dispatch inside EdgeRuntime.waitUntil, response returns
 // in <5s regardless of stage-function latency. Never touches ebooks_kids.
 // @ts-nocheck
-import { corsHeaders, db, fireStage, json } from "../_shared/coloring-v2/state.ts";
+import {
+  acquireColoringV2ProductionLock,
+  corsHeaders,
+  db,
+  fireStage,
+  json,
+  lockIsLive,
+  readColoringV2ProductionLock,
+} from "../_shared/coloring-v2/state.ts";
+import { pickClosestColoringV2Book } from "../_shared/coloring-v2/one-book.ts";
 import { FEATURES } from "../_shared/features.ts";
 
 declare const Deno: any;
@@ -21,10 +30,21 @@ const STAGE_TO_FN: Record<string, string> = {
   publish: "coloring-v2-publish",
 };
 
-// Owner law: one-book-at-a-time. Finish the oldest active book completely
-// before starting more queued books, so failures are isolated and one title
-// reaches live instead of spreading work across many half-finished books.
+// Owner law: one-book-at-a-time. Finish the single closest-to-done book
+// completely before starting or resuming another book.
 const MAX_SLOTS = 1;
+
+const ACTIVE_STAGES = ["concept", "style_bible", "page_plan", "interior_render", "cover", "qc", "pdf", "publish"];
+
+async function countInteriors(bookId: string, pageCount: number): Promise<{ unique: number; total: number; next: number }> {
+  const { data: got } = await db().from("coloring_v2_assets")
+    .select("page_number").eq("book_id", bookId).eq("kind", "interior");
+  const pages = (got ?? []).map((r: any) => Number(r.page_number)).filter((n: number) => Number.isFinite(n));
+  const done = new Set(pages);
+  let next = Math.max(1, pageCount);
+  for (let p = 1; p <= pageCount; p++) if (!done.has(p)) { next = p; break; }
+  return { unique: done.size, total: pages.length, next };
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
@@ -42,48 +62,103 @@ Deno.serve(async (req: Request) => {
     const frozen = frozenRow?.value_json === true || frozenRow?.value_json === "true" || frozenRow?.value_json?.frozen === true;
     if (frozen) return json({ ok: true, frozen: true });
 
-    // Bounded scan: MAX_SLOTS oldest non-terminal, non-live books that
-    // have been idle >90s. Indexed on stage_updated_at.
+    // Bounded scan: choose the single closest-to-done non-terminal book.
+    // This intentionally scans a bounded candidate set and ranks in-code so
+    // page-progress can outrank stale older books.
     const cutoff = new Date(Date.now() - 90_000).toISOString();
-    const activeStages = ["concept", "style_bible", "page_plan", "interior_render", "cover", "qc", "pdf", "publish"];
     const { data: activeBooks, error: activeError } = await db().from("coloring_v2_books")
-      .select("id, stage, page_count")
-      .in("stage", activeStages)
+      .select("id, stage, page_count, stage_attempt_count, updated_at, stage_updated_at, final_pdf_asset_id")
+      .in("stage", ACTIVE_STAGES)
       .neq("publish_status", "live")
       .lte("stage_updated_at", cutoff)
-      .lt("stage_attempt_count", 3)
-      .order("stage_updated_at", { ascending: true })
-      .limit(MAX_SLOTS);
+      .order("updated_at", { ascending: false })
+      .limit(200);
     if (activeError) throw activeError;
 
-    let books = activeBooks ?? [];
-    if (books.length === 0) {
+    let candidates = activeBooks ?? [];
+    if (candidates.length === 0) {
       const { data: queuedBooks, error: queuedError } = await db().from("coloring_v2_books")
-        .select("id, stage, page_count")
+        .select("id, stage, page_count, stage_attempt_count, updated_at, stage_updated_at, final_pdf_asset_id")
         .eq("stage", "queued")
         .neq("publish_status", "live")
         .lte("stage_updated_at", cutoff)
-        .lt("stage_attempt_count", 3)
         .order("stage_updated_at", { ascending: true })
-        .limit(MAX_SLOTS);
+        .limit(20);
       if (queuedError) throw queuedError;
-      books = queuedBooks ?? [];
+      candidates = queuedBooks ?? [];
     }
 
+    const interiorIds = candidates.filter((r: any) => r.stage === "interior_render").map((r: any) => r.id);
+    const interiorCounts = new Map<string, { unique: number; total: number; next: number }>();
+    if (interiorIds.length) {
+      const { data: assetRows } = await db().from("coloring_v2_assets")
+        .select("book_id, page_number")
+        .in("book_id", interiorIds)
+        .eq("kind", "interior");
+      const byBook = new Map<string, number[]>();
+      for (const a of assetRows ?? []) {
+        const arr = byBook.get(a.book_id) ?? [];
+        arr.push(Number(a.page_number));
+        byBook.set(a.book_id, arr);
+      }
+      for (const row of candidates) {
+        if (row.stage !== "interior_render") continue;
+        const pageCount = Number(row.page_count ?? 32);
+        const pages = (byBook.get(row.id) ?? []).filter((n: number) => Number.isFinite(n));
+        const done = new Set(pages.filter((n: number) => n >= 1 && n <= pageCount));
+        let next = Math.max(1, pageCount);
+        for (let p = 1; p <= pageCount; p++) if (!done.has(p)) { next = p; break; }
+        interiorCounts.set(row.id, { unique: done.size, total: pages.length, next });
+      }
+    }
+
+    const enriched: any[] = candidates.map((row: any) => {
+      const counts = interiorCounts.get(row.id) ?? { unique: 0, total: 0, next: 1 };
+      return { ...row, interiors_done: counts.unique, interiors_total: counts.total, next_page: counts.next };
+    });
+
+    const heldLock = await readColoringV2ProductionLock();
+    let selected = null;
+    if (lockIsLive(heldLock)) {
+      selected = enriched.find((b) => b.id === heldLock.holder) ?? null;
+      if (!selected) {
+        const { data: holderRow } = await db().from("coloring_v2_books")
+          .select("id, stage, page_count, stage_attempt_count, updated_at, stage_updated_at, final_pdf_asset_id")
+          .eq("id", heldLock.holder)
+          .neq("publish_status", "live")
+          .maybeSingle();
+        if (!holderRow || !STAGE_TO_FN[holderRow.stage]) {
+          return json({ ok: true, waiting_for_lock_holder: heldLock.holder, lock_expires_at: heldLock.expires_at, slots: 0, elapsed_ms: Date.now() - started });
+        }
+        let counts = { unique: 0, total: 0, next: 1 };
+        if (holderRow.stage === "interior_render") {
+          counts = await countInteriors(holderRow.id, Number(holderRow.page_count ?? 32));
+        }
+        selected = { ...holderRow, interiors_done: counts.unique, interiors_total: counts.total, next_page: counts.next };
+      }
+    } else {
+      selected = pickClosestColoringV2Book(enriched);
+    }
+
+    const books = selected ? [selected].slice(0, MAX_SLOTS) : [];
+
     // Dispatch inside waitUntil so the response returns immediately.
-    const plan = (books ?? []).map((b: any) => ({ book_id: b.id, stage: b.stage, page_count: b.page_count }));
+    const plan = (books ?? []).map((b: any) => ({
+      book_id: b.id,
+      stage: b.stage,
+      page_count: b.page_count,
+      next_page: b.next_page,
+      interiors_done: b.interiors_done,
+    }));
     const dispatchWork = (async () => {
       for (const b of plan) {
         const fn = STAGE_TO_FN[b.stage];
         if (!fn) continue;
-        const body: Record<string, unknown> = { book_id: b.book_id };
+        const lock = await acquireColoringV2ProductionLock(b.book_id);
+        if (!lock.acquired) continue;
+        const body: Record<string, unknown> = { book_id: b.book_id, chain_owner_book_id: b.book_id };
         if (b.stage === "interior_render") {
-          const { data: got } = await db().from("coloring_v2_assets")
-            .select("page_number").eq("book_id", b.book_id).eq("kind", "interior");
-          const done = new Set((got ?? []).map((r: any) => r.page_number));
-          let next = 1;
-          for (let p = 1; p <= (b.page_count ?? 32); p++) if (!done.has(p)) { next = p; break; }
-          body.page_number = next;
+          body.page_number = b.next_page;
         }
         // fireStage is already fire-and-forget with a short timeout via .catch(()=>{}).
         await fireStage(fn, body);
