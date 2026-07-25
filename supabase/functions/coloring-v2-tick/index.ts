@@ -120,21 +120,33 @@ Deno.serve(async (req: Request) => {
     const heldLock = await readColoringV2ProductionLock();
     let selected = null;
     if (lockIsLive(heldLock)) {
-      selected = enriched.find((b) => b.id === heldLock.holder) ?? null;
-      if (!selected) {
-        const { data: holderRow } = await db().from("coloring_v2_books")
-          .select("id, stage, page_count, stage_attempt_count, updated_at, stage_updated_at, final_pdf_asset_id")
-          .eq("id", heldLock.holder)
-          .neq("publish_status", "live")
-          .maybeSingle();
-        if (!holderRow || !STAGE_TO_FN[holderRow.stage]) {
-          return json({ ok: true, waiting_for_lock_holder: heldLock.holder, lock_expires_at: heldLock.expires_at, slots: 0, elapsed_ms: Date.now() - started });
+      const held = enriched.find((b) => b.id === heldLock.holder) ?? null;
+      // Regression 2026-07-25: if the lock-holder itself is parked
+      // (awaiting_quota_reset), release the lock so tick can pick a
+      // workable book instead of spinning against the parked holder.
+      if (held && isColoringV2BookParked(held)) {
+        try { await (await import("../_shared/coloring-v2/state.ts")).releaseColoringV2ProductionLock(held.id); } catch (_) { /* best-effort */ }
+        selected = pickClosestColoringV2Book(enriched);
+      } else {
+        selected = held;
+        if (!selected) {
+          const { data: holderRow } = await db().from("coloring_v2_books")
+            .select("id, stage, page_count, stage_attempt_count, updated_at, stage_updated_at, last_error, final_pdf_asset_id")
+            .eq("id", heldLock.holder)
+            .neq("publish_status", "live")
+            .maybeSingle();
+          if (!holderRow || !STAGE_TO_FN[holderRow.stage] || isColoringV2BookParked(holderRow as any)) {
+            if (holderRow && isColoringV2BookParked(holderRow as any)) {
+              try { await (await import("../_shared/coloring-v2/state.ts")).releaseColoringV2ProductionLock(holderRow.id); } catch (_) { /* */ }
+            }
+            return json({ ok: true, waiting_for_lock_holder: heldLock.holder, lock_expires_at: heldLock.expires_at, slots: 0, elapsed_ms: Date.now() - started });
+          }
+          let counts = { unique: 0, total: 0, next: 1 };
+          if (holderRow.stage === "interior_render") {
+            counts = await countInteriors(holderRow.id, Number(holderRow.page_count ?? 32));
+          }
+          selected = { ...holderRow, interiors_done: counts.unique, interiors_total: counts.total, next_page: counts.next };
         }
-        let counts = { unique: 0, total: 0, next: 1 };
-        if (holderRow.stage === "interior_render") {
-          counts = await countInteriors(holderRow.id, Number(holderRow.page_count ?? 32));
-        }
-        selected = { ...holderRow, interiors_done: counts.unique, interiors_total: counts.total, next_page: counts.next };
       }
     } else {
       selected = pickClosestColoringV2Book(enriched);
