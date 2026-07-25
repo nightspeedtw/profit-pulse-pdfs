@@ -85,11 +85,17 @@ function buildIllustratedPrompt(title: string, sceneClause: string, style: Cover
   return [
     `Beautiful full-color hand-painted children's coloring-book COVER illustration for "${title}".`,
     `Square 1:1 composition. Art direction: ${style.prompt_fragment}`,
+    // FULL-BLEED LAW v16 (2026-07-26): the painted illustration MUST bleed
+    // off all four edges of the canvas. No cream matte, no off-white margin,
+    // no framed card, no polaroid border, no vignette-to-white, no rounded
+    // drop-shadow card. A one-pixel strip along every edge (top/bottom/left/
+    // right) must be full-saturation painted illustration.
+    `FULL-BLEED EDGE-TO-EDGE (NON-NEGOTIABLE): the illustration MUST paint every single pixel of the canvas out to all four edges. HARD BAN — absolutely NO cream border, NO off-white margin, NO white matte, NO passe-partout, NO inner frame, NO outer frame, NO polaroid border, NO rounded-card look, NO drop-shadow around the artwork, NO decorative ribbon frame wrapping the cover, NO thin uniform-color strip on any edge, NO vignette fading to white or any solid color. The background environment continues past the trim on all four sides. Literally paint past the edge.`,
     sceneClause,
     `Every creature/character MUST be anatomically complete and non-deformed: correct number of legs, one head, one tail, complete limbs, no severed or floating body parts, no fused bodies, no extra heads, no missing features. Canonical proportions.`,
     `${style.title_lettering_fragment} The title "${title}" MUST appear as HAND-LETTERED PAINTED TYPOGRAPHY integrated INTO the artwork itself — drawn by the illustrator as part of the painting. NOT a font overlay, NOT flat digital text — it must look painted/drawn by hand.`,
     `Place the title in the upper third of the cover, integrated into the scene.`,
-    `Do NOT include: any logo, any watermark, any URL, any age badge, any subtitle, any extra text besides the title, any UI element, any book mockup, any border/frame.`,
+    `Do NOT include: any logo, any watermark, any URL, any age badge, any subtitle, any extra text besides the title, any UI element, any book mockup, any border, any frame, any white/cream margin.`,
     `Spelling of the title MUST be exact.`,
   ].join(" ");
 }
