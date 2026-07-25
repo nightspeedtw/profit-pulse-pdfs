@@ -398,7 +398,11 @@ Deno.serve(async (req: Request) => {
 
     // Upload as PNG (gpt-image-1 returns PNG bytes).
     const asset = await uploadAsset(book_id, "cover_final", bytes, "png", {
-      law: "cover_reference_quality_v16",
+      law: "cover_style_rotation_v2",
+      cover_art_style: artStyle.id,
+      cover_art_label: artStyle.label,
+      rotation_reason: rotation.reason,
+      rotation_recent: rotation.recent.slice(0, 6),
       provider,
       model,
       text_mode: "illustrated_hand_lettered_baked",
@@ -406,6 +410,7 @@ Deno.serve(async (req: Request) => {
       layout_style: layout.id,
       title_container: container.id,
       title_color_mode: colorMode.id,
+
       motif_kit: motifKit.id,
       mood: mood.id,
       age_badge: ageLabel ?? null,
