@@ -221,7 +221,9 @@ Deno.serve(async (req: Request) => {
     }
 
     const sceneClause = await buildSceneClause(book_id, title);
-    const prompt = buildIllustratedPrompt(title, sceneClause);
+    const { style: artStyle, reason: styleReason, recent: recentStyles } = await pickCoverArtStyle(db(), title);
+    const prompt = buildIllustratedPrompt(title, sceneClause, artStyle);
+    console.log(`[coloring-v2-cover] style=${artStyle.id} reason=${styleReason} recent=${JSON.stringify(recentStyles.slice(0, 6))}`);
 
     let bytes: Uint8Array | null = null;
     let usedProvider: CoverProvider | null = null;
