@@ -93,10 +93,11 @@ Deno.serve(async (req: Request) => {
     // Bundle URL — same-category storefront filter (frontend hook does this
     // deterministically; here we return a category anchor so the modal can
     // deep-link to a filtered listing.)
-    const bundleOfferUrl = book.category
-      ? `/kids/coloring/category/${encodeURIComponent(String(book.category))}`
+    const bookType = book.book_type ? String(book.book_type) : null;
+    const bundleOfferUrl = bookType
+      ? `/kids/${encodeURIComponent(bookType)}`
       : `/kids`;
-    const fullProductCtaUrl = book.slug ? `/kids/coloring/${book.slug}` : `/kids`;
+    const fullProductCtaUrl = `/kids/coloring/${book.id}`;
 
     if (recent) {
       return j({
