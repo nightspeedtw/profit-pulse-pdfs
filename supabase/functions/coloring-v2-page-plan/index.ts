@@ -43,7 +43,7 @@ Deno.serve(async (req: Request) => {
       continuity: p.continuity ?? "",
       forbidden: p.forbidden ?? "",
       prompt: buildInteriorImagePrompt(p, styleBible, book.age_band),
-      fingerprint: `${p.focal_subject ?? ""}|${p.framing ?? ""}`.slice(0, 200),
+      fingerprint: `p${p.page_number ?? (i + 1)}|${p.focal_subject ?? ""}|${p.framing ?? ""}`.slice(0, 200),
     }));
     // clear old plans just in case (idempotent replay)
     await db().from("coloring_v2_page_plans").delete().eq("book_id", book_id);
