@@ -615,6 +615,10 @@ export default function ColoringProduct() {
       {/* ── Review summary (auto, real reviews only) ─────────────────── */}
       <ReviewSummary ebookId={book.id} />
 
+      <BonusStack />
+
+      <ColoringFAQ pageCount={pageCount} />
+
 
       {/* ── Cross-sell rail ─────────────────────────────────────────── */}
       {siblings.length > 0 && (
