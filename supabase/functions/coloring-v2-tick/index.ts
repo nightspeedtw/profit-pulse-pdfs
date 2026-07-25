@@ -121,7 +121,21 @@ Deno.serve(async (req: Request) => {
     let selected = null;
     if (lockIsLive(heldLock)) {
       selected = enriched.find((b) => b.id === heldLock.holder) ?? null;
-      if (!selected) return json({ ok: true, waiting_for_lock_holder: heldLock.holder, lock_expires_at: heldLock.expires_at, slots: 0, elapsed_ms: Date.now() - started });
+      if (!selected) {
+        const { data: holderRow } = await db().from("coloring_v2_books")
+          .select("id, stage, page_count, stage_attempt_count, updated_at, stage_updated_at, final_pdf_asset_id")
+          .eq("id", heldLock.holder)
+          .neq("publish_status", "live")
+          .maybeSingle();
+        if (!holderRow || !STAGE_TO_FN[holderRow.stage]) {
+          return json({ ok: true, waiting_for_lock_holder: heldLock.holder, lock_expires_at: heldLock.expires_at, slots: 0, elapsed_ms: Date.now() - started });
+        }
+        let counts = { unique: 0, total: 0, next: 1 };
+        if (holderRow.stage === "interior_render") {
+          counts = await countInteriors(holderRow.id, Number(holderRow.page_count ?? 32));
+        }
+        selected = { ...holderRow, interiors_done: counts.unique, interiors_total: counts.total, next_page: counts.next };
+      }
     } else {
       selected = pickClosestColoringV2Book(enriched);
     }
