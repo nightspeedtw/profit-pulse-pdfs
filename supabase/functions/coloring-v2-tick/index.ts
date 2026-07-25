@@ -67,7 +67,7 @@ Deno.serve(async (req: Request) => {
     // page-progress can outrank stale older books.
     const cutoff = new Date(Date.now() - 90_000).toISOString();
     const { data: activeBooks, error: activeError } = await db().from("coloring_v2_books")
-      .select("id, stage, page_count, stage_attempt_count, updated_at, stage_updated_at, final_pdf_asset_id")
+      .select("id, stage, page_count, stage_attempt_count, updated_at, stage_updated_at, last_error, final_pdf_asset_id")
       .in("stage", ACTIVE_STAGES)
       .neq("publish_status", "live")
       .lte("stage_updated_at", cutoff)
@@ -78,7 +78,7 @@ Deno.serve(async (req: Request) => {
     let candidates = activeBooks ?? [];
     if (candidates.length === 0) {
       const { data: queuedBooks, error: queuedError } = await db().from("coloring_v2_books")
-        .select("id, stage, page_count, stage_attempt_count, updated_at, stage_updated_at, final_pdf_asset_id")
+        .select("id, stage, page_count, stage_attempt_count, updated_at, stage_updated_at, last_error, final_pdf_asset_id")
         .eq("stage", "queued")
         .neq("publish_status", "live")
         .lte("stage_updated_at", cutoff)
