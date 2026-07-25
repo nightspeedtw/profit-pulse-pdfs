@@ -273,6 +273,9 @@ Deno.serve(async (req: Request) => {
       provider: usedProvider,
       model: usedModel,
       prompt_len: prompt.length,
+      cover_art_style: artStyle.id,
+      cover_art_style_label: artStyle.label,
+      cover_art_style_pick_reason: styleReason,
     });
     await db().from("coloring_v2_books").update({ approved_cover_asset_id: asset.id }).eq("id", book_id);
 
