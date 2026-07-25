@@ -121,21 +121,24 @@ export function styleIdSet(): Set<string> {
 }
 
 /**
- * Pick a cover art style using weight × recency-avoidance × theme-affinity.
+ * OWNER LAW `cover_style_rotation_v2` (2026-07-25): equal-weight rotation
+ * with a HARD "no repeat within last N covers" exclusion so the catalog
+ * stays visually diverse on the shelf. Theme affinity is a soft +1 bonus
+ * only — it can never resurrect a style that's in the hard-exclude window.
  *
  *  - Reads the last `windowSize` `cover_final` assets to learn which styles
  *    were used recently.
- *  - Excludes styles that appeared in the last `excludeRecent` picks (unless
- *    that leaves nothing — then it falls back to full pool).
- *  - Boosts styles whose `themeAffinity` matches the title.
+ *  - HARD-excludes any style whose id appears in the last `hardExcludeRecent`
+ *    picks. Only if that leaves zero candidates do we relax by one step.
+ *  - Every style has the same base weight (1.0). `themeAffinity` adds +1.
  */
 export async function pickCoverArtStyle(
   db: any,
   title: string,
-  opts: { windowSize?: number; excludeRecent?: number } = {},
+  opts: { windowSize?: number; hardExcludeRecent?: number } = {},
 ): Promise<{ style: CoverArtStyle; reason: string; recent: string[] }> {
-  const windowSize = opts.windowSize ?? 15;
-  const excludeRecent = opts.excludeRecent ?? 4;
+  const windowSize = opts.windowSize ?? 20;
+  const hardExcludeRecent = opts.hardExcludeRecent ?? 6;
 
   let recent: string[] = [];
   try {
@@ -151,17 +154,22 @@ export async function pickCoverArtStyle(
     recent = [];
   }
 
-  const banned = new Set(recent.slice(0, excludeRecent));
-  const pool = COVER_ART_STYLES.filter((s) => !banned.has(s.id));
-  const candidates = pool.length ? pool : COVER_ART_STYLES.slice();
+  // Relax the hard-exclude window until at least one style survives.
+  let exclude = hardExcludeRecent;
+  let candidates: CoverArtStyle[] = [];
+  while (exclude >= 0) {
+    const banned = new Set(recent.slice(0, exclude));
+    candidates = COVER_ART_STYLES.filter((s) => !banned.has(s.id));
+    if (candidates.length > 0) break;
+    exclude -= 1;
+  }
+  if (candidates.length === 0) candidates = COVER_ART_STYLES.slice();
 
   const t = (title ?? "").toLowerCase();
   const scored = candidates.map((s) => {
-    let w = Math.max(1, s.weight);
-    if (s.themeAffinity && s.themeAffinity.test(t)) w *= 2.5;
-    // Additional soft penalty if the style appears further back in the window.
-    const idx = recent.indexOf(s.id);
-    if (idx >= 0) w *= 0.5;
+    // Equal base weight so no single style dominates the shelf.
+    let w = 1.0;
+    if (s.themeAffinity && s.themeAffinity.test(t)) w += 1.0;
     return { s, w };
   });
 
@@ -173,8 +181,9 @@ export async function pickCoverArtStyle(
     if (r <= 0) { picked = s; break; }
   }
 
-  const reason = banned.has(picked.id)
-    ? "fallback_all_recent"
-    : `weighted_recency_window_${windowSize}_exclude_${excludeRecent}`;
+  const reason = exclude < hardExcludeRecent
+    ? `relaxed_hard_exclude_from_${hardExcludeRecent}_to_${exclude}`
+    : `equal_weight_hard_exclude_${hardExcludeRecent}`;
   return { style: picked, reason, recent };
 }
+
