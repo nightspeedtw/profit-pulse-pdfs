@@ -14,6 +14,17 @@ import { shouldSpendForRenderPage } from "../_shared/coloring-v2/one-book.ts";
 import { INTERIOR_NEGATIVE_PROMPT } from "../_shared/coloring-v2/prompts.ts";
 import { renderImageWithFallback } from "../_shared/coloring-v2/image-fallback.ts";
 import { checkPageAnatomy, defectsToNegativeClause } from "../_shared/coloring-v2/anatomy-check.ts";
+import { FalBillingLockedError } from "../_shared/fal-billing.ts";
+
+// Wake time for a parked book: next UTC midnight + small jitter, matching
+// _shared/coloring/quota-park.ts. Cloudflare's daily neuron pool resets at
+// 00:00 UTC — parking to that instant means the standard tick will pick
+// this book back up as soon as fresh quota is available.
+function nextCfResetWake(from: Date = new Date()): Date {
+  const wake = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate() + 1, 0, 0, 0, 0));
+  wake.setUTCSeconds(wake.getUTCSeconds() + Math.floor(Math.random() * 180) + 60);
+  return wake;
+}
 
 declare const Deno: any;
 
