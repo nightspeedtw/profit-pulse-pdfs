@@ -104,6 +104,8 @@ export function buildMasterColoringCoverPrompt(input: MasterColoringCoverInput):
       : `Style: premium bestseller Amazon KDP children's coloring-book cover, rich saturated painterly illustration, professional art direction, high-resolution print-ready.`;
   const negative = `NEGATIVE — no watermark, no logo, no page numbers, no website URL, no subtitle, no tagline, no descriptor word, no misspelled words, no duplicated title, no SALE ribbon, no sticker badge, no chip label, no popup pill, no line-art, no black-outline-only illustration, no uncolored coloring-page look, no flat vector, no plain fill, no photograph, no 3D CGI plastic look, no cluttered composition, no gore, no missing limbs, no extra limbs, no deformed anatomy.`;
 
+  const fullBleedClause = `FULL-BLEED EDGE-TO-EDGE (NON-NEGOTIABLE, law cover_full_bleed_edge_verifier_v16): the illustration MUST paint every single pixel of the canvas out to all four edges. HARD BAN — absolutely NO cream border, NO off-white margin, NO white matte, NO passe-partout, NO inner frame, NO outer frame, NO polaroid border, NO rounded-card look, NO drop-shadow around the artwork, NO decorative ribbon frame wrapping the cover, NO thin uniform-color strip on any edge, NO vignette fading to white or any solid color. The background environment continues past the trim on all four sides.`;
+
   const prompt = [
     openingClause,
     refClause,
@@ -113,6 +115,7 @@ export function buildMasterColoringCoverPrompt(input: MasterColoringCoverInput):
     `Main characters: ${mainStr}.`,
     `Background elements: ${bgStr}.`,
     `Canvas size: ${aspect} front cover.`,
+    fullBleedClause,
     heroClause,
     layoutClause,
     ageClause,
