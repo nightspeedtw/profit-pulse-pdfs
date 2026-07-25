@@ -2,6 +2,8 @@
 // @ts-nocheck
 import { acquireColoringV2ProductionLock, advance, callAiJson, chainOwnerMatches, corsHeaders, db, fetchBook, fireStage, json, recordError } from "../_shared/coloring-v2/state.ts";
 import { buildConceptPrompt, CONCEPT_SYSTEM } from "../_shared/coloring-v2/prompts.ts";
+import { violatesFullCoverage } from "../_shared/coloring/full-coverage-law.ts";
+
 
 declare const Deno: any;
 
