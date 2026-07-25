@@ -17,7 +17,7 @@
 // Also supports { dry_run:true } which returns current progress without
 // mutating anything.
 // @ts-nocheck
-import { corsHeaders, db, fetchBook, fireStage, json, signedUrl } from "../_shared/coloring-v2/state.ts";
+import { acquireColoringV2ProductionLock, chainOwnerMatches, corsHeaders, db, fetchBook, fireStage, json, signedUrl } from "../_shared/coloring-v2/state.ts";
 import { checkPageAnatomy } from "../_shared/coloring-v2/anatomy-check.ts";
 
 declare const Deno: any;
@@ -34,8 +34,12 @@ async function fetchBytes(path: string): Promise<{ bytes: Uint8Array; mime: stri
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
-  const { book_id, dry_run, preserve_cover, clear_prior_verdicts } = await req.json().catch(() => ({}));
+  const { book_id, dry_run, preserve_cover, clear_prior_verdicts, chain_owner_book_id } = await req.json().catch(() => ({}));
   if (!book_id) return json({ error: "book_id required" }, 400);
+
+  if (!chainOwnerMatches(book_id, chain_owner_book_id)) return json({ ok: true, skipped: true, reason: "chain_owner_mismatch" });
+  const lock = await acquireColoringV2ProductionLock(book_id);
+  if (!lock.acquired) return json({ ok: true, waiting_for_lock: true, holder: lock.holder, expires_at: lock.expires_at });
 
   const c0 = db();
   if (clear_prior_verdicts) {
@@ -164,13 +168,25 @@ Deno.serve(async (req: Request) => {
     coverPaths = (coverAssets ?? []).map((a) => a.storage_path);
   }
 
-  const allDelIds = [...dupIds, ...failIds, ...coverIds];
-  const allDelPaths = [...dupPaths, ...failPaths, ...coverPaths];
-  if (allDelPaths.length) {
-    try { await c.storage.from("coloring-v2").remove(allDelPaths); } catch (_) { /* best-effort */ }
-  }
-  if (allDelIds.length) {
-    await c.from("coloring_v2_assets").delete().in("id", allDelIds);
+  // Preserve P0 evidence: do not delete duplicate, failed, or cover assets.
+  // Mark superseded rows in metadata so canonical readers can choose latest
+  // valid per page while keeping hashes/paths available for diagnosis.
+  const supersededIds = [...dupIds, ...failIds, ...coverIds];
+  if (supersededIds.length) {
+    const { data: supersededRows } = await c.from("coloring_v2_assets")
+      .select("id, meta")
+      .in("id", supersededIds);
+    for (const row of supersededRows ?? []) {
+      const reason = dupIds.includes(row.id) ? "duplicate_interior" : failIds.includes(row.id) ? "failed_repair_verdict" : "cover_regen_requested";
+      await c.from("coloring_v2_assets").update({
+        meta: {
+          ...(row.meta ?? {}),
+          superseded_by_repair: true,
+          superseded_reason: reason,
+          superseded_at: new Date().toISOString(),
+        },
+      }).eq("id", row.id);
+    }
   }
 
   const bookUpdate: Record<string, unknown> = {
@@ -187,7 +203,7 @@ Deno.serve(async (req: Request) => {
   const missing: number[] = [];
   for (let p = 1; p <= (book.page_count ?? 0); p++) if (!passedSet.has(p)) missing.push(p);
   const firstPage = missing[0] ?? 1;
-  await fireStage("coloring-v2-render-page", { book_id, page_number: firstPage });
+  await fireStage("coloring-v2-render-page", { book_id, page_number: firstPage, chain_owner_book_id: book_id });
 
   return json({
     ok: true, finalized: true,

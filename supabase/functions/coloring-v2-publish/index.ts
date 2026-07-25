@@ -1,7 +1,7 @@
 // coloring-v2-publish — copies final PDF + cover into the storefront buckets,
 // signs long-lived URLs, inserts a live sellable row into ebooks_kids.
 // @ts-nocheck
-import { advance, corsHeaders, db, fetchBook, json, recordError } from "../_shared/coloring-v2/state.ts";
+import { acquireColoringV2ProductionLock, advance, chainOwnerMatches, corsHeaders, db, fetchBook, json, recordError, releaseColoringV2ProductionLock } from "../_shared/coloring-v2/state.ts";
 import { getAgeProfile } from "../_shared/coloring-v2/age-matrix.ts";
 
 declare const Deno: any;
@@ -10,9 +10,13 @@ const TEN_YEARS = 60 * 60 * 24 * 365 * 10;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
-  const { book_id } = await req.json().catch(() => ({}));
+  const { book_id, chain_owner_book_id } = await req.json().catch(() => ({}));
   if (!book_id) return json({ error: "book_id required" }, 400);
   try {
+    if (!chainOwnerMatches(book_id, chain_owner_book_id)) return json({ ok: true, skipped: true, reason: "chain_owner_mismatch" });
+    const lock = await acquireColoringV2ProductionLock(book_id);
+    if (!lock.acquired) return json({ ok: true, waiting_for_lock: true, holder: lock.holder, expires_at: lock.expires_at });
+
     const book = await fetchBook(book_id);
     if (book.stage !== "publish") return json({ ok: true, skipped: true, stage: book.stage });
 
@@ -114,6 +118,7 @@ Deno.serve(async (req: Request) => {
       time_completed_at: new Date().toISOString(),
     }).eq("id", book_id);
 
+    await releaseColoringV2ProductionLock(book_id).catch(() => false);
     return json({ ok: true, ebooks_kids_id: created.id, cover_url: coverUrl.signedUrl, pdf_url: pdfUrl.signedUrl });
   } catch (e: any) {
     await recordError(book_id, "publish", e);

@@ -18,6 +18,15 @@ export const STAGES = [
 ] as const;
 export type Stage = typeof STAGES[number];
 
+export const COLORING_V2_PRODUCTION_LOCK = "coloring_v2_one_book_production";
+export const COLORING_V2_LOCK_TTL_SEC = 30 * 60;
+
+export type ColoringV2Lock = {
+  acquired: boolean;
+  holder: string | null;
+  expires_at: string | null;
+};
+
 export async function advance(bookId: string, from: Stage, to: Stage, patch: Record<string, unknown> = {}) {
   const c = db();
   const { data, error } = await c.rpc("coloring_v2_advance_stage", {
@@ -52,8 +61,67 @@ export async function fetchBook(bookId: string) {
   return data;
 }
 
+export async function acquireColoringV2ProductionLock(bookId: string, ttlSec = COLORING_V2_LOCK_TTL_SEC): Promise<ColoringV2Lock> {
+  const c = db();
+  const { data, error } = await c.rpc("try_acquire_lock", {
+    p_name: COLORING_V2_PRODUCTION_LOCK,
+    p_holder: bookId,
+    p_run_id: null,
+    p_ttl_sec: ttlSec,
+  });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    acquired: row?.acquired === true,
+    holder: row?.holder ?? null,
+    expires_at: row?.expires_at ?? null,
+  };
+}
+
+export async function readColoringV2ProductionLock(): Promise<ColoringV2Lock | null> {
+  const c = db();
+  const { data, error } = await c.from("production_locks")
+    .select("holder_ebook_id, expires_at")
+    .eq("name", COLORING_V2_PRODUCTION_LOCK)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.holder_ebook_id) return null;
+  return {
+    acquired: false,
+    holder: data.holder_ebook_id,
+    expires_at: data.expires_at ?? null,
+  };
+}
+
+export function lockIsLive(lock: ColoringV2Lock | null): boolean {
+  if (!lock?.holder || !lock.expires_at) return false;
+  return new Date(lock.expires_at).getTime() > Date.now();
+}
+
+export async function requireColoringV2ProductionLock(bookId: string): Promise<ColoringV2Lock> {
+  return await acquireColoringV2ProductionLock(bookId);
+}
+
+export async function releaseColoringV2ProductionLock(bookId: string): Promise<boolean> {
+  const c = db();
+  const { data, error } = await c.rpc("release_lock", {
+    p_name: COLORING_V2_PRODUCTION_LOCK,
+    p_holder: bookId,
+  });
+  if (error) throw error;
+  return data === true;
+}
+
+export function chainOwnerMatches(bookId: string, chainOwner: unknown): boolean {
+  return !chainOwner || String(chainOwner) === bookId;
+}
+
 export async function fireStage(next: string, body: Record<string, unknown>) {
   try {
+    const nextBody = { ...body };
+    if (nextBody.book_id && !nextBody.chain_owner_book_id) {
+      nextBody.chain_owner_book_id = nextBody.book_id;
+    }
     await fetch(`${SB_URL}/functions/v1/${next}`, {
       method: "POST",
       headers: {
@@ -61,7 +129,7 @@ export async function fireStage(next: string, body: Record<string, unknown>) {
         Authorization: `Bearer ${SB_KEY}`,
         apikey: SB_KEY,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(nextBody),
     }).catch(() => {});
   } catch { /* best-effort */ }
 }

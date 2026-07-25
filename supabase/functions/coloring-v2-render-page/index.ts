@@ -9,7 +9,8 @@
 // A degraded verdict (verifier outage) uploads normally and marks
 // metadata.anatomy_unmeasured=true — the QC safety net will re-check.
 // @ts-nocheck
-import { advance, corsHeaders, db, fetchBook, fireStage, json, recordError, uploadAsset } from "../_shared/coloring-v2/state.ts";
+import { acquireColoringV2ProductionLock, advance, chainOwnerMatches, corsHeaders, db, fetchBook, fireStage, json, recordError, releaseColoringV2ProductionLock, uploadAsset } from "../_shared/coloring-v2/state.ts";
+import { shouldSpendForRenderPage } from "../_shared/coloring-v2/one-book.ts";
 import { INTERIOR_NEGATIVE_PROMPT } from "../_shared/coloring-v2/prompts.ts";
 import { renderImageWithFallback } from "../_shared/coloring-v2/image-fallback.ts";
 import { checkPageAnatomy, defectsToNegativeClause } from "../_shared/coloring-v2/anatomy-check.ts";
@@ -22,26 +23,60 @@ const MAX_ATTEMPTS = 3;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
-  const { book_id, page_number } = await req.json().catch(() => ({}));
+  const { book_id, page_number, chain_owner_book_id } = await req.json().catch(() => ({}));
   if (!book_id || !page_number) return json({ error: "book_id + page_number required" }, 400);
   try {
+    if (!chainOwnerMatches(book_id, chain_owner_book_id)) return json({ ok: true, skipped: true, reason: "chain_owner_mismatch" });
+    const lock = await acquireColoringV2ProductionLock(book_id);
+    if (!lock.acquired) return json({ ok: true, waiting_for_lock: true, holder: lock.holder, expires_at: lock.expires_at });
+
     const book = await fetchBook(book_id);
     if (book.stage !== "interior_render") return json({ ok: true, skipped: true, stage: book.stage });
 
+    const requestedPage = Number(page_number);
+    const pageCount = Number(book.page_count ?? 32);
+    const preflight = shouldSpendForRenderPage({
+      stage: book.stage,
+      lockAcquired: lock.acquired,
+      requestedPage,
+      pageCount,
+      pageAlreadyRendered: false,
+    });
+    if (!preflight.allowed && preflight.reason === "render_page_out_of_range") {
+      await db().from("coloring_v2_books").update({
+        stage: "failed",
+        generation_status: "failed",
+        stage_updated_at: new Date().toISOString(),
+        last_error: `needs_code_fix:render_page_out_of_range:${requestedPage}:page_count=${pageCount}`,
+      }).eq("id", book_id);
+      await releaseColoringV2ProductionLock(book_id).catch(() => false);
+      return json({ ok: false, parked: true, reason: "render_page_out_of_range", page_number: requestedPage, page_count: pageCount }, 200);
+    }
+
     const { data: plan, error: planErr } = await db().from("coloring_v2_page_plans")
-      .select("*").eq("book_id", book_id).eq("page_number", page_number).single();
+      .select("*").eq("book_id", book_id).eq("page_number", requestedPage).single();
     if (planErr) throw planErr;
 
     // Skip if this page is already rendered.
     const { data: existingRows } = await db().from("coloring_v2_assets")
       .select("id")
       .eq("book_id", book_id)
-      .eq("page_number", page_number)
+      .eq("page_number", requestedPage)
       .eq("kind", "interior")
       .order("created_at", { ascending: false })
       .limit(1);
 
     let assetId = existingRows?.[0]?.id;
+    const spendGate = shouldSpendForRenderPage({
+      stage: book.stage,
+      lockAcquired: lock.acquired,
+      requestedPage,
+      pageCount,
+      pageAlreadyRendered: Boolean(assetId),
+    });
+    if (!spendGate.allowed && spendGate.reason !== "page_already_rendered") {
+      return json({ ok: true, skipped: true, reason: spendGate.reason });
+    }
     if (!assetId) {
       let lastErr: any = null;
       let extraNegative = "";
@@ -58,9 +93,9 @@ Deno.serve(async (req: Request) => {
             width: CANVAS, height: CANVAS,
             num_inference_steps: 8,
             ebook_id: book_id,
-            step: `coloring_v2_interior_p${page_number}`,
+            step: `coloring_v2_interior_p${requestedPage}`,
             v2_book_id: book_id,
-            purpose: `interior_p${String(page_number).padStart(2, "0")}_a${attempt}`,
+            purpose: `interior_p${String(requestedPage).padStart(2, "0")}_a${attempt}`,
             prompt_version: "v2_page_plan@1",
           });
 
@@ -77,13 +112,13 @@ Deno.serve(async (req: Request) => {
             // Verifier outage or subject not recognizable (abstract art,
             // mandalas, skylines, patterns) — upload with anatomy_unmeasured.
             // Owner law v7: verifier can't interpret → SKIP, don't park.
-            console.warn(`[coloring-v2 render] anatomy skipped page ${page_number}: ${verdict.defects[0] ?? "degraded"}`);
+            console.warn(`[coloring-v2 render] anatomy skipped page ${requestedPage}: ${verdict.defects[0] ?? "degraded"}`);
             anatomyUnmeasured = true;
           } else if (!verdict.pass) {
             lastDefects = verdict.defects;
             const clause = defectsToNegativeClause(verdict.defects);
             extraNegative = clause || "deformed anatomy, malformed body, wrong number of parts";
-            console.warn(`[coloring-v2 render] anatomy fail page ${page_number} attempt ${attempt}: score=${verdict.anatomy_score} defects=${verdict.defects.join("|")}`);
+            console.warn(`[coloring-v2 render] anatomy fail page ${requestedPage} attempt ${attempt}: score=${verdict.anatomy_score} defects=${verdict.defects.join("|")}`);
             // Do NOT upload — try next attempt with stronger negative.
             if (attempt < MAX_ATTEMPTS) continue;
             // Final attempt failed → park the book.
@@ -93,7 +128,7 @@ Deno.serve(async (req: Request) => {
                 rule_id: "anatomy_deformity_persistent",
                 severity: "hard",
                 measured: {
-                  page_number,
+                  page_number: requestedPage,
                   attempts: MAX_ATTEMPTS,
                   last_defects: verdict.defects,
                   last_score: verdict.anatomy_score,
@@ -107,13 +142,14 @@ Deno.serve(async (req: Request) => {
               stage: "failed",
               generation_status: "failed",
               stage_updated_at: new Date().toISOString(),
-              last_error: `anatomy_unrecoverable_page_${page_number}:${verdict.defects.slice(0, 3).join(",")}`,
+              last_error: `anatomy_unrecoverable_page_${requestedPage}:${verdict.defects.slice(0, 3).join(",")}`,
             }).eq("id", book_id);
+            await releaseColoringV2ProductionLock(book_id).catch(() => false);
             return json({
               ok: false,
               parked: true,
               reason: "anatomy_unrecoverable",
-              page_number,
+              page_number: requestedPage,
               defects: verdict.defects,
               attempts: MAX_ATTEMPTS,
             }, 200);
@@ -125,7 +161,7 @@ Deno.serve(async (req: Request) => {
           const { data: racedRows } = await db().from("coloring_v2_assets")
             .select("id")
             .eq("book_id", book_id)
-            .eq("page_number", page_number)
+            .eq("page_number", requestedPage)
             .eq("kind", "interior")
             .order("created_at", { ascending: false })
             .limit(1);
@@ -144,7 +180,7 @@ Deno.serve(async (req: Request) => {
               anatomy_unmeasured: anatomyUnmeasured,
               anatomy_model: verdict.model ?? null,
               anatomy_gate_version: "coloring_v2_anatomy_gate_v1",
-            }, page_number);
+            }, requestedPage);
           assetId = asset.id;
           lastErr = null;
           break;
@@ -156,16 +192,31 @@ Deno.serve(async (req: Request) => {
     }
 
     // Chain: next page or move to cover.
-    const nextPage = page_number + 1;
-    if (nextPage <= book.page_count) {
-      await fireStage("coloring-v2-render-page", { book_id, page_number: nextPage });
-      return json({ ok: true, rendered: page_number, next_page: nextPage });
+    const { data: allInteriors } = await db().from("coloring_v2_assets")
+      .select("page_number").eq("book_id", book_id).eq("kind", "interior");
+    const done = new Set((allInteriors ?? []).map((r: any) => Number(r.page_number)).filter((n: number) => Number.isFinite(n) && n >= 1 && n <= pageCount));
+    const outOfRange = (allInteriors ?? []).some((r: any) => Number(r.page_number) > pageCount || Number(r.page_number) < 1);
+    if (outOfRange) {
+      await db().from("coloring_v2_books").update({
+        stage: "failed",
+        generation_status: "failed",
+        stage_updated_at: new Date().toISOString(),
+        last_error: `needs_code_fix:interior_asset_page_out_of_range:page_count=${pageCount}`,
+      }).eq("id", book_id);
+      await releaseColoringV2ProductionLock(book_id).catch(() => false);
+      return json({ ok: false, parked: true, reason: "interior_asset_page_out_of_range", page_count: pageCount }, 200);
+    }
+    let nextPage: number | null = null;
+    for (let p = 1; p <= pageCount; p++) if (!done.has(p)) { nextPage = p; break; }
+    if (nextPage != null) {
+      await fireStage("coloring-v2-render-page", { book_id, page_number: nextPage, chain_owner_book_id: book_id });
+      return json({ ok: true, rendered: requestedPage, next_page: nextPage, interiors_done: done.size });
     }
 
     // All interiors done → cover stage
     await advance(book_id, "interior_render", "cover");
-    await fireStage("coloring-v2-cover", { book_id });
-    return json({ ok: true, rendered: page_number, next: "cover" });
+    await fireStage("coloring-v2-cover", { book_id, chain_owner_book_id: book_id });
+    return json({ ok: true, rendered: requestedPage, next: "cover" });
   } catch (e: any) {
     await recordError(book_id, "interior_render", e);
     return json({ error: e?.message ?? String(e) }, 500);
