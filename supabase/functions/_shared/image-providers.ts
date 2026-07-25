@@ -503,10 +503,22 @@ export async function generateImageWithFailover(
       lastErr = e;
       if (e instanceof FalBillingLockedError && db) {
         if (providerId === "cloudflare_flux_schnell") {
-          await latchCfBillingUntilNextUtcMidnight(db, opts.ebook_id);
+          // Only set the GLOBAL CF latch when every configured account is
+          // individually latched. Otherwise the per-account latches inside
+          // `cloudflareFluxSchnell` already handle single-account exhaustion,
+          // and swapping CF out of the entire chain would waste 5 of 6
+          // accounts' remaining neurons.
+          const allAccounts = cfCredsListAll();
+          const latches = await readCfAccountLatches(db);
+          const remaining = allAccounts.filter((c) => !latches[c.label]).length;
+          if (allAccounts.length > 0 && remaining === 0) {
+            await latchCfBillingUntilNextUtcMidnight(db, opts.ebook_id);
+          } else {
+            console.log(`[image-providers] CF partial exhaustion: ${allAccounts.length - remaining}/${allAccounts.length} latched; skipping global latch`);
+          }
         }
         const key = providerKey(providerId);
-        if (key) {
+        if (key && providerId !== "cloudflare_flux_schnell") {
           try { await markProviderBillingBlocked(db, key, e); } catch (_e) { /* best-effort */ }
         }
       }
