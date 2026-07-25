@@ -21,8 +21,10 @@ const STAGE_TO_FN: Record<string, string> = {
   publish: "coloring-v2-publish",
 };
 
-// Bounded slot count — never scan the whole table.
-const MAX_SLOTS = 6;
+// Owner law: one-book-at-a-time. Finish the oldest active book completely
+// before starting more queued books, so failures are isolated and one title
+// reaches live instead of spreading work across many half-finished books.
+const MAX_SLOTS = 1;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
