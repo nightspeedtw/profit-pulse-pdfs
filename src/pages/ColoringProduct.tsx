@@ -23,11 +23,15 @@ import LookInsideFlipbook from "@/components/product/LookInsideFlipbook";
 import ReviewSummary from "@/components/product/ReviewSummary";
 import BWPreviewNotice from "@/components/product/BWPreviewNotice";
 import WhatYouGetCard from "@/components/product/WhatYouGetCard";
+import WhatYouGetList from "@/components/product/WhatYouGetList";
+import BonusStack from "@/components/product/BonusStack";
+import ColoringFAQ from "@/components/product/ColoringFAQ";
 import PurchaseTrustRow from "@/components/product/PurchaseTrustRow";
 import FreeSamplePreviewModal from "@/components/product/FreeSamplePreviewModal";
 import { ensureColoringLabel } from "@/lib/coloring-title";
 import { useActiveCampaign } from "@/hooks/useActiveCampaign";
 import { useSuggestedBundle } from "@/hooks/useSuggestedBundle";
+import { useResolvedKidsPrices } from "@/lib/useResolvedPricing";
 import { CampaignRibbon } from "@/components/kids/CampaignRibbon";
 import { BundleUpsellCard } from "@/components/kids/BundleUpsellCard";
 
@@ -79,6 +83,8 @@ export default function ColoringProduct() {
   const saleCfg = useSaleConfig();
   const activeCampaign = useActiveCampaign(book?.id ?? null);
   const suggestedBundle = useSuggestedBundle(book?.id ?? null);
+  const resolvedPrices = useResolvedKidsPrices(book?.id ? [book.id] : []);
+  const resolved = book?.id ? resolvedPrices[book.id] : undefined;
 
   useEffect(() => {
     if (!id) return;
