@@ -103,12 +103,38 @@ export async function callAiJson(prompt: string, system: string, model = "google
       // Fall back to OpenAI direct on Gemini quota / prepay depletion / 429 / 5xx
       const shouldFallback = /429|RESOURCE_EXHAUSTED|prepayment|credits are depleted|quota|5\d\d/i.test(msg);
       const openaiKey = Deno.env.get("OPENAI_API_KEY");
-      if (!shouldFallback || !openaiKey) throw e;
-      console.warn(`[callAiJson] gemini-direct failed (${msg.slice(0,120)}) — falling back to openai-direct`);
-      const { openaiDirectChat } = await import("../openai-direct.ts");
-      const oaiModel = /pro/i.test(model) ? "openai/gpt-4o" : "openai/gpt-4o-mini";
-      const out = await openaiDirectChat({ system, user: prompt, model: oaiModel, responseJson: true });
-      return parseOrThrow(out.text);
+      if (!shouldFallback) throw e;
+      if (openaiKey) {
+        try {
+          console.warn(`[callAiJson] gemini-direct failed (${msg.slice(0,120)}) — falling back to openai-direct`);
+          const { openaiDirectChat } = await import("../openai-direct.ts");
+          const oaiModel = /pro/i.test(model) ? "openai/gpt-4o" : "openai/gpt-4o-mini";
+          const out = await openaiDirectChat({ system, user: prompt, model: oaiModel, responseJson: true });
+          return parseOrThrow(out.text);
+        } catch (e2) {
+          const msg2 = (e2 as Error).message ?? "";
+          const oaiExhausted = /429|insufficient_quota|quota|5\d\d/i.test(msg2);
+          if (!oaiExhausted) throw e2;
+          console.warn(`[callAiJson] openai-direct also exhausted (${msg2.slice(0,120)}) — falling back to lovable-gateway`);
+          // fall through to gateway below
+        }
+      }
+      // Last-resort: Lovable Gateway
+      const key = Deno.env.get("LOVABLE_API_KEY");
+      if (!key) throw e;
+      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
+          response_format: { type: "json_object" },
+        }),
+      });
+      const txt = await res.text();
+      if (!res.ok) throw new Error(`ai_gateway_fallback ${res.status}: ${txt.slice(0, 400)}`);
+      const j = JSON.parse(txt);
+      return parseOrThrow(j?.choices?.[0]?.message?.content ?? "");
     }
   }
 
