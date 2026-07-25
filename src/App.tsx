@@ -69,6 +69,10 @@ import Pricing from "./pages/Pricing.tsx";
 import PrivacyPolicy from "./pages/legal/Privacy.tsx";
 import Terms from "./pages/legal/Terms.tsx";
 import RefundPolicy from "./pages/legal/Refund.tsx";
+import LicenseTerms from "./pages/LicenseTerms.tsx";
+import CommercialLibrary from "./pages/CommercialLibrary.tsx";
+import AdminCommercial from "./pages/AdminCommercial.tsx";
+
 
 
 import SeoAutopilot from "./pages/admin/SeoAutopilot.tsx";
@@ -134,10 +138,13 @@ const App = () => (
               <Route path="profile" element={<AccountProfile />} />
               <Route path="security" element={<AccountSecurity />} />
               <Route path="privacy" element={<AccountPrivacy />} />
+              <Route path="commercial-library" element={<CommercialLibrary />} />
               <Route path="royalties" element={<Navigate to="/account" replace />} />
             </Route>
+            <Route path="/legal/license" element={<LicenseTerms />} />
 
           </Route>
+
 
 
           <Route path="/admin/login" element={<AdminLogin />} />
@@ -168,7 +175,9 @@ const App = () => (
             {FEATURES.ENABLE_COLORING_LANE_V2 && (
               <Route path="coloring-lab-v2" element={<ColoringLabV2 />} />
             )}
+            <Route path="commercial" element={<AdminCommercial />} />
           </Route>
+
 
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -9,6 +9,8 @@ import DOMPurify from "isomorphic-dompurify";
 import { Loader2, Download, Eye, Home, FileText } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { emitColoringEvent } from "@/lib/coloringFunnelEvents";
+import { useAuth } from "@/hooks/useAuth";
+
 import { ColoringPreviewLightbox } from "@/components/kids/ColoringPreviewLightbox";
 import ProductRating from "@/components/product/ProductRating";
 import { deriveSalePricing } from "@/lib/storefrontPricing";
@@ -34,6 +36,8 @@ import { useSuggestedBundle } from "@/hooks/useSuggestedBundle";
 import { useResolvedKidsPrices } from "@/lib/useResolvedPricing";
 import { CampaignRibbon } from "@/components/kids/CampaignRibbon";
 import { BundleUpsellCard } from "@/components/kids/BundleUpsellCard";
+import LicenseSelector from "@/components/product/LicenseSelector";
+
 
 interface Row {
   id: string;
@@ -71,6 +75,7 @@ function ageBandLabel(min: number, max: number): string {
 export default function ColoringProduct() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [book, setBook] = useState<Row | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -80,11 +85,21 @@ export default function ColoringProduct() {
   const [sampleOpen, setSampleOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const [licensePrices, setLicensePrices] = useState<{ personal: number; commercial: number }>({ personal: 1499, commercial: 3900 });
   const saleCfg = useSaleConfig();
   const activeCampaign = useActiveCampaign(book?.id ?? null);
   const suggestedBundle = useSuggestedBundle(book?.id ?? null);
   const resolvedPrices = useResolvedKidsPrices(book?.id ? [book.id] : []);
   const resolved = book?.id ? resolvedPrices[book.id] : undefined;
+
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      const { data } = await supabase.from("book_licenses").select("personal_price_cents,commercial_price_cents").eq("book_id", id).maybeSingle();
+      if (data) setLicensePrices({ personal: data.personal_price_cents ?? 1499, commercial: data.commercial_price_cents ?? 3900 });
+    })();
+  }, [id]);
+
 
   useEffect(() => {
     if (!id) return;
@@ -412,21 +427,15 @@ export default function ColoringProduct() {
 
           <WhatYouGetList pageCount={pageCount} ageMin={ageMin} ageMax={ageMax} />
 
-          {/* Primary CTA — owner-spec copy */}
-          <div className="space-y-2">
-            <button
-              type="button"
-              onClick={clickBuy}
-              disabled={downloading}
-              className="w-full h-14 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-base hover:bg-accent hover:text-accent-foreground transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
-            >
-              {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
-              {downloading ? "Preparing your PDF…" : `Get Your Coloring Book — ${priceText}`}
-            </button>
-            <p className="text-xs md:text-sm text-muted-foreground text-center">
-              A4 + US Letter · Print Again Anytime · Instant Download
-            </p>
-          </div>
+          {/* Two-license selector (Personal / Commercial Activity) */}
+          <LicenseSelector
+            bookId={book.id}
+            personalPriceCents={licensePrices.personal}
+            commercialPriceCents={licensePrices.commercial}
+            userId={user?.id ?? null}
+            userEmail={user?.email ?? null}
+          />
+
 
 
           {/* Secondary CTA — instant 5-page preview */}
@@ -640,23 +649,23 @@ export default function ColoringProduct() {
         </section>
       )}
 
-      {/* Sticky buy on mobile */}
+      {/* Sticky buy on mobile — jumps to license selector */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-background border-t-2 border-foreground px-4 py-3 flex items-center justify-between gap-3">
         <div>
-          <div className="font-display text-lg leading-none">{priceText}</div>
-          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{pageCount} pages · Ages {ageMin}–{ageMax}</div>
+          <div className="font-display text-lg leading-none">
+            ${(licensePrices.personal / 100).toFixed(2)}
+          </div>
+          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Personal · from</div>
         </div>
         <button
           type="button"
-          onClick={clickBuy}
-          disabled={downloading}
-          className="flex-1 h-12 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          className="flex-1 h-12 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2"
         >
-          {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          {downloading ? "Preparing…" : `Start Coloring — ${priceText}`}
+          Buy License
         </button>
-
       </div>
+
 
       <ColoringPreviewLightbox
         ebookId={book.id}
