@@ -28,18 +28,50 @@ function json(body: unknown, status = 200) {
   });
 }
 
+// Batch cap and blackout constants. See plan.md 2026-07-25: bleed-sweep
+// must never demote more LIVE books than the tick can regenerate before
+// the daily CF pool refills, or the storefront's LIVE count collapses
+// (which is exactly the regression we saw on 2026-07-25).
+const MAX_SWEEP_LIMIT = 20;
+const DEFAULT_SWEEP_LIMIT = 5;
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
     const body = await req.json().catch(() => ({}));
-    const limit = Math.max(1, Math.min(200, Number(body.limit ?? 50)));
+    const limit = Math.max(1, Math.min(MAX_SWEEP_LIMIT, Number(body.limit ?? DEFAULT_SWEEP_LIMIT)));
     const dryRun = body.dry_run !== false;
+    const force = body.force === true;
     const explicit: string[] = Array.isArray(body.book_ids) ? body.book_ids : [];
 
     const url = Deno.env.get("SUPABASE_URL");
     const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!url || !key) return json({ error: "missing_service_role" }, 500);
     const db = createClient(url, key);
+
+    // Blackout window: if fewer than 3 CF accounts have fresh quota, skip
+    // demoting LIVE books. Regenerating a cover doesn't touch CF, but the
+    // demoted book will halt LIVE traffic until the tick + interior repair
+    // (which DOES burn CF for any downstream reshoot) can complete.
+    if (!force && !dryRun && explicit.length === 0) {
+      const { data: gs } = await db.from("generation_settings").select("coloring_autopilot").eq("id", 1).maybeSingle();
+      const cfg = (gs?.coloring_autopilot ?? {}) as Record<string, unknown>;
+      const latches = (cfg.cf_account_latches ?? {}) as Record<string, string>;
+      const nowMs = Date.now();
+      const activeLatches = Object.values(latches).filter((iso) => {
+        const t = new Date(iso).getTime();
+        return Number.isFinite(t) && t > nowMs;
+      }).length;
+      // Assume 7 accounts configured. Skip when >=5 are latched (fewer than 3 free).
+      if (activeLatches >= 5) {
+        return json({
+          ok: true,
+          skipped: "cf_blackout",
+          active_latches: activeLatches,
+          note: "bleed-sweep suppressed while CF quota is drained; pass force=true to override",
+        });
+      }
+    }
 
     let q = db.from("coloring_v2_books")
       .select("id, title, approved_cover_asset_id")
