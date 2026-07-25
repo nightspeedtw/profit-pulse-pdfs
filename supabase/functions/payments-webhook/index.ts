@@ -248,9 +248,16 @@ async function handleSubscriptionCanceled(data: any, env: PaddleEnv) {
 async function handleTransactionCompleted(data: any, env: PaddleEnv) {
   const customData = data.customData ?? {};
   const kind = customData.kind;
+
+  // NEW: per-book license one-off purchase (Personal $14.99 / Commercial $39)
+  if (kind === 'book_license') {
+    await handleBookLicenseTransaction(data, env);
+    return;
+  }
+
+  // Legacy: whole-book direct purchase flow
   const userId = customData.userId;
   const bookId = customData.bookId;
-
   if (kind !== 'book_purchase' || !userId || !bookId) return;
 
   // Idempotency: skip if we already fulfilled this transaction
@@ -261,17 +268,14 @@ async function handleTransactionCompleted(data: any, env: PaddleEnv) {
     .maybeSingle();
   if (existingOrder) return;
 
-  // Compute total from Paddle payload (Paddle amounts are in lowest denomination as strings)
   const totalCents = Math.round(Number(data.details?.totals?.total ?? data.details?.totals?.grandTotal ?? 0));
 
-  // Look up book snapshot
   const { data: book } = await admin()
     .from('ebooks_kids')
     .select('title, cover_url')
     .eq('id', bookId)
     .maybeSingle();
 
-  // Record order (reuse existing orders schema; stripe_session_id column stores the paddle txn id)
   const { data: order, error: orderErr } = await admin()
     .from('orders')
     .insert({
@@ -299,7 +303,6 @@ async function handleTransactionCompleted(data: any, env: PaddleEnv) {
     } as any);
   }
 
-  // Grant 30-day download access
   await admin().from('download_grants').insert({
     buyer_user_id: userId,
     ebook_id: bookId,
@@ -308,7 +311,6 @@ async function handleTransactionCompleted(data: any, env: PaddleEnv) {
     max_downloads: 999,
   } as any);
 
-  // Fire-and-forget: royalty accrual
   try {
     await admin().functions.invoke('royalty-accrue-order', { body: { orderId: order?.id, bookId, totalCents, userId } });
   } catch (e) { console.warn('royalty accrue failed:', (e as Error).message); }
@@ -318,12 +320,21 @@ async function handleWebhook(req: Request, env: PaddleEnv) {
   const event = await verifyWebhook(req, env);
   console.log('paddle event:', event.eventType, 'env:', env);
   switch (event.eventType) {
-    case EventName.SubscriptionCreated:
-      await handleSubscriptionCreated(event.data, env); break;
-    case EventName.SubscriptionUpdated:
-      await handleSubscriptionUpdated(event.data, env); break;
-    case EventName.SubscriptionCanceled:
-      await handleSubscriptionCanceled(event.data, env); break;
+    case EventName.SubscriptionCreated: {
+      const handled = await handleCommercialSubscriptionEvent(event.data, env, 'created');
+      if (!handled) await handleSubscriptionCreated(event.data, env);
+      break;
+    }
+    case EventName.SubscriptionUpdated: {
+      const handled = await handleCommercialSubscriptionEvent(event.data, env, 'updated');
+      if (!handled) await handleSubscriptionUpdated(event.data, env);
+      break;
+    }
+    case EventName.SubscriptionCanceled: {
+      const handled = await handleCommercialSubscriptionEvent(event.data, env, 'canceled');
+      if (!handled) await handleSubscriptionCanceled(event.data, env);
+      break;
+    }
     case EventName.TransactionCompleted:
       await handleTransactionCompleted(event.data, env); break;
     default:
