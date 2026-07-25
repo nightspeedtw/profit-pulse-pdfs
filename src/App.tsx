@@ -138,10 +138,13 @@ const App = () => (
               <Route path="profile" element={<AccountProfile />} />
               <Route path="security" element={<AccountSecurity />} />
               <Route path="privacy" element={<AccountPrivacy />} />
+              <Route path="commercial-library" element={<CommercialLibrary />} />
               <Route path="royalties" element={<Navigate to="/account" replace />} />
             </Route>
+            <Route path="/legal/license" element={<LicenseTerms />} />
 
           </Route>
+
 
 
           <Route path="/admin/login" element={<AdminLogin />} />
