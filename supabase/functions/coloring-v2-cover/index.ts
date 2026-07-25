@@ -285,6 +285,7 @@ Deno.serve(async (req: Request) => {
       ok: true, cover_asset: asset.id, next: "qc",
       text_mode: "illustrated_hand_lettered_baked",
       provider: usedProvider, model: usedModel, law: COVER_LAW,
+      cover_art_style: artStyle.id, cover_art_style_pick_reason: styleReason,
     });
   } catch (e: any) {
     await recordError(book_id, "cover", e);
