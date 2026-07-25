@@ -30,13 +30,16 @@ export interface FullBleedThresholds {
   uniformDelta: number;   // max L1 color distance to edge-mean to count as "uniform"
 }
 
+// v16 (2026-07-26) — tightened uniformRatioMax + whiteThreshold to catch
+// pale cream/off-white mattes and passe-partout frames that the v15 defaults
+// let slip through (see IMG_1262 "Roaring Rainforest" cream border).
 export const DEFAULT_FB_TH: FullBleedThresholds = {
   ringFraction: 0.02,
-  whiteRatioMax: 0.40,
-  uniformRatioMax: 0.85,
-  whiteThreshold: 245,
-  saturationMax: 12,
-  uniformDelta: 18,
+  whiteRatioMax: 0.30,
+  uniformRatioMax: 0.70,
+  whiteThreshold: 235,
+  saturationMax: 18,
+  uniformDelta: 22,
 };
 
 function pxRGB(pixel: number): [number, number, number] {
