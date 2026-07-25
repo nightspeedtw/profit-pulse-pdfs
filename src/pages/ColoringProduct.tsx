@@ -427,21 +427,15 @@ export default function ColoringProduct() {
 
           <WhatYouGetList pageCount={pageCount} ageMin={ageMin} ageMax={ageMax} />
 
-          {/* Primary CTA — owner-spec copy */}
-          <div className="space-y-2">
-            <button
-              type="button"
-              onClick={clickBuy}
-              disabled={downloading}
-              className="w-full h-14 rounded-md bg-foreground text-background font-display uppercase tracking-wide text-base hover:bg-accent hover:text-accent-foreground transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
-            >
-              {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
-              {downloading ? "Preparing your PDF…" : `Get Your Coloring Book — ${priceText}`}
-            </button>
-            <p className="text-xs md:text-sm text-muted-foreground text-center">
-              A4 + US Letter · Print Again Anytime · Instant Download
-            </p>
-          </div>
+          {/* Two-license selector (Personal / Commercial Activity) */}
+          <LicenseSelector
+            bookId={book.id}
+            personalPriceCents={licensePrices.personal}
+            commercialPriceCents={licensePrices.commercial}
+            userId={user?.id ?? null}
+            userEmail={user?.email ?? null}
+          />
+
 
 
           {/* Secondary CTA — instant 5-page preview */}
