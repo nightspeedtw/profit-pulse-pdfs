@@ -495,24 +495,29 @@ export default function ColoringProduct() {
         </div>
       </section>
 
-      {/* ── Parent benefits ──────────────────────────────────────────── */}
+      {/* ── Why parents buy this (owner-spec 4 bullets) ─────────────── */}
       <section className="container max-w-5xl py-8 border-t-2 border-border">
-        <h2 className="font-display text-2xl uppercase mb-4">Why parents love it</h2>
-        <ul className="grid md:grid-cols-3 gap-4 text-sm md:text-base">
+        <h2 className="font-display text-2xl uppercase mb-4">Why parents buy this</h2>
+        <ul className="grid md:grid-cols-2 gap-4 text-sm md:text-base">
           <li className="p-4 border-2 border-border rounded-lg">
-            <strong className="block font-display uppercase mb-1">Screen-free time</strong>
-            Quiet, focused coloring that keeps hands busy without a device.
+            <strong className="block font-display uppercase mb-1">Keeps little hands happily busy</strong>
+            Perfect for after-school wind-down, quiet time, or "please, just five minutes" moments.
           </li>
           <li className="p-4 border-2 border-border rounded-lg">
-            <strong className="block font-display uppercase mb-1">Print unlimited copies</strong>
-            One PDF, your whole family — reprint any page whenever a sibling asks.
+            <strong className="block font-display uppercase mb-1">Screen-free creative time</strong>
+            No batteries, no tablets — just crayons, paper, and imagination.
           </li>
           <li className="p-4 border-2 border-border rounded-lg">
-            <strong className="block font-display uppercase mb-1">Age-tuned line thickness</strong>
-            Tested outlines for ages {ageMin}–{ageMax} — thick enough for crayons, clean enough for markers.
+            <strong className="block font-display uppercase mb-1">Easy to print whenever you need it</strong>
+            One PDF, unlimited prints. Reprint any page for siblings, cousins, or a fresh try.
+          </li>
+          <li className="p-4 border-2 border-border rounded-lg">
+            <strong className="block font-display uppercase mb-1">A thoughtful rainy-day or travel activity</strong>
+            Pack it in a folder for road trips, restaurants, and airplane rides — no mess, no fuss.
           </li>
         </ul>
       </section>
+
 
       {/* ── What's Inside (previews) ─────────────────────────────────── */}
       <section className="container max-w-5xl py-8 border-t-2 border-border">
