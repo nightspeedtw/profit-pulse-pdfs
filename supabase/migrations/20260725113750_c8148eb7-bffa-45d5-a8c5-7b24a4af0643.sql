@@ -1,0 +1,1 @@
+update generation_settings set coloring_autopilot = jsonb_set(coloring_autopilot, '{cf_account_latches}', '{}'::jsonb, true);
