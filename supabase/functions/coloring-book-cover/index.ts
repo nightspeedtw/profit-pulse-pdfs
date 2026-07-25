@@ -33,7 +33,7 @@ import { detectBlankRegions } from "../_shared/covers/blank-detect.ts";
 import { renderColoringSelfArtCover, SELF_ART_COVER_VERSION } from "../_shared/coloring/self-art-cover.ts";
 import { composeColoringCover, fitCoverArtToPortraitCanvas, COLORING_COVER_COMPOSITOR_VERSION, COLORING_COVER_HEIGHT, COLORING_COVER_WIDTH } from "../_shared/coloring/coloring-cover-compositor.ts";
 import { generateIdeogramIntegratedCover, generateIdeogramTextInpaint, IDEOGRAM_INTEGRATED_COVER_VERSION } from "../_shared/coloring/ideogram-integrated-cover.ts";
-import { buildMasterColoringCoverPrompt, COLORING_MASTER_COVER_PROMPT_VERSION } from "../_shared/coloring/master-cover-prompt.ts";
+import { buildMasterColoringCoverPrompt, buildMasterColoringCoverPromptWithRotation, COLORING_MASTER_COVER_PROMPT_VERSION, type CoverArtStyle } from "../_shared/coloring/master-cover-prompt.ts";
 import { getTrimProfile } from "../_shared/coloring/trim-lock.ts";
 import { verifyExactCoverText } from "../_shared/coloring/cover-text-transcription.ts";
 import { renderedColoringCoverProof } from "../_shared/coloring/coloring-cover-proof.ts";
