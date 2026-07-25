@@ -69,6 +69,10 @@ import Pricing from "./pages/Pricing.tsx";
 import PrivacyPolicy from "./pages/legal/Privacy.tsx";
 import Terms from "./pages/legal/Terms.tsx";
 import RefundPolicy from "./pages/legal/Refund.tsx";
+import LicenseTerms from "./pages/LicenseTerms.tsx";
+import CommercialLibrary from "./pages/CommercialLibrary.tsx";
+import AdminCommercial from "./pages/AdminCommercial.tsx";
+
 
 
 import SeoAutopilot from "./pages/admin/SeoAutopilot.tsx";
