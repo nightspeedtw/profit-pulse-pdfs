@@ -12,7 +12,7 @@ import {
   lockIsLive,
   readColoringV2ProductionLock,
 } from "../_shared/coloring-v2/state.ts";
-import { pickClosestColoringV2Book } from "../_shared/coloring-v2/one-book.ts";
+import { isColoringV2BookParked, pickClosestColoringV2Book } from "../_shared/coloring-v2/one-book.ts";
 import { FEATURES } from "../_shared/features.ts";
 
 declare const Deno: any;
