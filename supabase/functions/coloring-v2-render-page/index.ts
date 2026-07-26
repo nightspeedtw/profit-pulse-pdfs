@@ -64,9 +64,24 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, parked: true, reason: "render_page_out_of_range", page_number: requestedPage, page_count: pageCount }, 200);
     }
 
-    const { data: plan, error: planErr } = await db().from("coloring_v2_page_plans")
-      .select("*").eq("book_id", book_id).eq("page_number", requestedPage).single();
+    // Missing-dependency law: a book in interior_render with no page-plan row
+    // is a state-machine defect, NOT a quality failure. Demote it back to
+    // page_plan (idempotent) instead of throwing PGRST116 forever.
+    const { data: planRows, error: planErr } = await db().from("coloring_v2_page_plans")
+      .select("*").eq("book_id", book_id).eq("page_number", requestedPage).limit(1);
     if (planErr) throw planErr;
+    const plan = planRows?.[0];
+    if (!plan) {
+      await db().from("coloring_v2_books").update({
+        stage: "page_plan",
+        stage_attempt_count: 0,
+        stage_updated_at: new Date().toISOString(),
+        last_error: `missing_dependency:page_plan_row_absent:page=${requestedPage}`,
+      }).eq("id", book_id);
+      await releaseColoringV2ProductionLock(book_id).catch(() => false);
+      return json({ ok: true, demoted_to: "page_plan", reason: "page_plan_row_absent", page_number: requestedPage });
+    }
+
 
     // Skip if this page is already rendered.
     const { data: existingRows } = await db().from("coloring_v2_assets")

@@ -183,13 +183,21 @@ export async function callAiJson(prompt: string, system: string, model = "google
           const msg2 = (e2 as Error).message ?? "";
           const oaiExhausted = /429|insufficient_quota|quota|5\d\d/i.test(msg2);
           if (!oaiExhausted) throw e2;
+          // Truthful error: under BYPASS_LOVABLE_GATEWAY the gateway fetch is
+          // hard-blocked at runtime, so reporting "Blocked fetch to Lovable AI
+          // Gateway" hides the real provider exhaustion. Surface both.
+          if (bypass) {
+            throw new Error(`text_providers_exhausted: gemini=${msg.slice(0, 160)} | openai=${msg2.slice(0, 160)}`);
+          }
           console.warn(`[callAiJson] openai-direct also exhausted (${msg2.slice(0,120)}) — falling back to lovable-gateway`);
           // fall through to gateway below
         }
       }
+      if (bypass) throw e;
       // Last-resort: Lovable Gateway
       const key = Deno.env.get("LOVABLE_API_KEY");
       if (!key) throw e;
+
       const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
