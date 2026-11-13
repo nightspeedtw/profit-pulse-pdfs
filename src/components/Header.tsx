@@ -3,7 +3,7 @@ import { CartDrawer } from "./CartDrawer";
 import { AccountMenu } from "./AccountMenu";
 import { Search, Menu, X, ShieldCheck, Sparkles } from "lucide-react";
 import { useState } from "react";
-import logoHorizontal from "@/assets/secretpdf-horizontal.png";
+import logoHorizontal from "@/assets/secretpdf-horizontal.webp";
 import { KIDS_BRAND_URLS } from "./kids/KidsBrand";
 
 const NAV = [
@@ -80,6 +80,8 @@ export const Header = () => {
           <img
             src={isKidsRoute ? KIDS_BRAND_URLS.full : logoHorizontal}
             alt={isKidsRoute ? "SecretPDF Kids" : "SecretPDF"}
+            width={isKidsRoute ? undefined : 253}
+            height={isKidsRoute ? undefined : 120}
             className={
               isKidsRoute
                 ? "h-8 sm:h-9 w-auto transition-transform group-hover:scale-[1.02] drop-shadow-[0_2px_10px_rgba(255,196,77,0.3)]"

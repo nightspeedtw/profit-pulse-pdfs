@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import heroImg from "@/assets/hero-printables.jpg";
+import heroImg from "@/assets/hero-printables-1024.webp";
+import heroImg640 from "@/assets/hero-printables-640.webp";
 import { ArrowRight, Download, Printer, Globe2, Star } from "lucide-react";
 
 export const Hero = () => (
@@ -62,6 +63,11 @@ export const Hero = () => (
         <div className="relative aspect-square border-2 border-foreground bg-highlight shadow-brutal-lg overflow-hidden">
           <img
             src={heroImg}
+            srcSet={`${heroImg640} 640w, ${heroImg} 1024w`}
+            sizes="(min-width: 1024px) 45vw, 100vw"
+            width={1024}
+            height={1024}
+            fetchPriority="high"
             alt="Stack of premium printable PDFs"
             className="w-full h-full object-cover"
           />

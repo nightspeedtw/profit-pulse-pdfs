@@ -17,11 +17,18 @@
     
     
 
-    <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Mali:wght@600;700&family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
+    <!-- Fonts load without blocking the first paint (display=swap shows the fallback meanwhile) -->
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <link href="https://fonts.googleapis.com/css2?family=Mali:wght@600;700&family=Baloo+2:wght@600;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+      <link href="https://fonts.googleapis.com/css2?family=Mali:wght@600;700&family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
+    </noscript>
     <meta property="og:title" content="SecretPDF — Private, Secure, Trusted Digital PDFs">
   <meta name="twitter:title" content="SecretPDF — Private, Secure, Trusted Digital PDFs">
   <meta property="og:description" content="SecretPDF is the private library of expert-authored digital PDFs. Encrypted delivery, instant download, lifetime access, 30-day money-back guarantee.">
@@ -30,11 +37,25 @@
   <meta name="twitter:image" content="https://storage.googleapis.com/gpt-engineer-file-uploads/3cjIVBVEkygM0k8XHRMCQkeOq8M2/social-images/social-1784537661239-08fea11c-ec15-4a04-99e5-f315fd046128.webp">
 
   <!-- Google Tag Manager -->
-  <script async src="https://www.googletagmanager.com/gtm.js?id=GTM-N372KGVD"></script>
+  <!-- Standard GTM start event (the old snippet never pushed gtm.js, so "All Pages" triggers could not
+       fire), loaded after the page has rendered: on the first interaction or 3s after load. -->
   <script>
     window.dataLayer = window.dataLayer || [];
     function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
+    (function (w, d) {
+      var started = false, evs = ['pointerdown', 'keydown', 'scroll', 'touchstart'];
+      function start() {
+        if (started) return; started = true;
+        evs.forEach(function (e) { w.removeEventListener(e, start, true); });
+        w.dataLayer.push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' });
+        var j = d.createElement('script'); j.async = true;
+        j.src = 'https://www.googletagmanager.com/gtm.js?id=GTM-N372KGVD';
+        d.head.appendChild(j);
+      }
+      evs.forEach(function (e) { w.addEventListener(e, start, { capture: true, passive: true, once: true }); });
+      function later() { setTimeout(start, 3000); }
+      if (d.readyState === 'complete') later(); else w.addEventListener('load', later);
+    })(window, document);
   </script>
   <!-- End Google Tag Manager -->
 </head>

@@ -1,81 +1,82 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout } from "@/components/Layout";
 import Index from "./pages/Index.tsx";
-import Library from "./pages/Library.tsx";
-import Categories from "./pages/Categories.tsx";
-import Category from "./pages/Category.tsx";
-import Product from "./pages/Product.tsx";
-import Bundles from "./pages/Bundles.tsx";
-import About from "./pages/About.tsx";
-import Download from "./pages/Download.tsx";
-import Kids from "./pages/Kids.tsx";
-import KidsCategory from "./pages/KidsCategory.tsx";
+const Library = lazy(() => import("./pages/Library.tsx"));
+const Categories = lazy(() => import("./pages/Categories.tsx"));
+const Category = lazy(() => import("./pages/Category.tsx"));
+const Product = lazy(() => import("./pages/Product.tsx"));
+const Bundles = lazy(() => import("./pages/Bundles.tsx"));
+const About = lazy(() => import("./pages/About.tsx"));
+const Download = lazy(() => import("./pages/Download.tsx"));
+const Kids = lazy(() => import("./pages/Kids.tsx"));
+const KidsCategory = lazy(() => import("./pages/KidsCategory.tsx"));
 
-import MarketingAutopilot from "./pages/admin/MarketingAutopilot.tsx";
+const MarketingAutopilot = lazy(() => import("./pages/admin/MarketingAutopilot.tsx"));
 import { Navigate } from "react-router-dom";
-import KidsCheckout from "./pages/KidsCheckout.tsx";
-import Create from "./pages/Create.tsx";
-import Checkout from "./pages/Checkout.tsx";
-import CheckoutReturn from "./pages/CheckoutReturn.tsx";
-import NotFound from "./pages/NotFound.tsx";
-import ColoringProduct from "./pages/ColoringProduct.tsx";
-import AdminLogin from "./pages/admin/Login.tsx";
-import AdminLayout from "./pages/admin/AdminLayout.tsx";
-import CommandCenter from "./pages/admin/Dashboard.tsx";
-import Production from "./pages/admin/Production.tsx";
-import Products from "./pages/admin/Products.tsx";
-import SettingsPage from "./pages/admin/Settings.tsx";
-import EbookReview from "./pages/admin/EbookReview.tsx";
-import EbookWriting from "./pages/admin/EbookWriting.tsx";
-import EbookCover from "./pages/admin/EbookCover.tsx";
-import EbookPDF from "./pages/admin/EbookPDF.tsx";
-import AutopilotRun from "./pages/admin/AutopilotRun.tsx";
-import ProductionCommandCenter from "./pages/admin/ProductionCommandCenter.tsx";
-import InternalStore from "./pages/admin/InternalStore.tsx";
-import SmokeTestStatus from "./pages/admin/SmokeTestStatus.tsx";
-import AutopilotControl from "./pages/admin/AutopilotControl.tsx";
-import KidsAutopilot from "./pages/admin/KidsAutopilot.tsx";
-import KidsQcReport from "./pages/admin/KidsQcReport.tsx";
-import KidsLibrary from "./pages/admin/KidsLibrary.tsx";
-import Blog from "./pages/Blog.tsx";
-import BlogPost from "./pages/BlogPost.tsx";
+const KidsCheckout = lazy(() => import("./pages/KidsCheckout.tsx"));
+const Create = lazy(() => import("./pages/Create.tsx"));
+const Checkout = lazy(() => import("./pages/Checkout.tsx"));
+const CheckoutReturn = lazy(() => import("./pages/CheckoutReturn.tsx"));
+const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+const ColoringProduct = lazy(() => import("./pages/ColoringProduct.tsx"));
+const AdminLogin = lazy(() => import("./pages/admin/Login.tsx"));
+const AdminLayout = lazy(() => import("./pages/admin/AdminLayout.tsx"));
+const CommandCenter = lazy(() => import("./pages/admin/Dashboard.tsx"));
+const Production = lazy(() => import("./pages/admin/Production.tsx"));
+const Products = lazy(() => import("./pages/admin/Products.tsx"));
+const SettingsPage = lazy(() => import("./pages/admin/Settings.tsx"));
+const EbookReview = lazy(() => import("./pages/admin/EbookReview.tsx"));
+const EbookWriting = lazy(() => import("./pages/admin/EbookWriting.tsx"));
+const EbookCover = lazy(() => import("./pages/admin/EbookCover.tsx"));
+const EbookPDF = lazy(() => import("./pages/admin/EbookPDF.tsx"));
+const AutopilotRun = lazy(() => import("./pages/admin/AutopilotRun.tsx"));
+const ProductionCommandCenter = lazy(() => import("./pages/admin/ProductionCommandCenter.tsx"));
+const InternalStore = lazy(() => import("./pages/admin/InternalStore.tsx"));
+const SmokeTestStatus = lazy(() => import("./pages/admin/SmokeTestStatus.tsx"));
+const AutopilotControl = lazy(() => import("./pages/admin/AutopilotControl.tsx"));
+const KidsAutopilot = lazy(() => import("./pages/admin/KidsAutopilot.tsx"));
+const KidsQcReport = lazy(() => import("./pages/admin/KidsQcReport.tsx"));
+const KidsLibrary = lazy(() => import("./pages/admin/KidsLibrary.tsx"));
+const Blog = lazy(() => import("./pages/Blog.tsx"));
+const BlogPost = lazy(() => import("./pages/BlogPost.tsx"));
 import { FEATURES } from "@/config/features.ts";
-import ColoringLabV2 from "./pages/admin/ColoringLabV2.tsx";
-import ColoringPreviewV2 from "./pages/ColoringPreviewV2.tsx";
-import DriveShop from "./pages/DriveShop.tsx";
-import DriveImporter from "./pages/admin/DriveImporter.tsx";
-import StoryBatchV2 from "./pages/admin/StoryBatchV2.tsx";
-import AccountLayout from "./pages/account/AccountLayout.tsx";
-import AccountOverview from "./pages/account/Overview.tsx";
-import AccountSignIn from "./pages/account/SignIn.tsx";
-import AccountForgotPassword from "./pages/account/ForgotPassword.tsx";
-import AuthCallback from "./pages/AuthCallback.tsx";
-import AccountResetPassword from "./pages/account/ResetPassword.tsx";
-import AccountMyLibrary from "./pages/account/MyLibrary.tsx";
-import AccountOrders from "./pages/account/Orders.tsx";
-import AccountOrderDetail from "./pages/account/OrderDetail.tsx";
-import AccountDownloads from "./pages/account/Downloads.tsx";
-import AccountInvoices from "./pages/account/Invoices.tsx";
-import AccountNotifications from "./pages/account/Notifications.tsx";
-import AccountSupport from "./pages/account/Support.tsx";
-import AccountProfile from "./pages/account/Profile.tsx";
-import AccountSecurity from "./pages/account/Security.tsx";
-import AccountPrivacy from "./pages/account/Privacy.tsx";
-import Pricing from "./pages/Pricing.tsx";
-import PrivacyPolicy from "./pages/legal/Privacy.tsx";
-import Terms from "./pages/legal/Terms.tsx";
-import RefundPolicy from "./pages/legal/Refund.tsx";
-import LicenseTerms from "./pages/LicenseTerms.tsx";
-import CommercialLibrary from "./pages/CommercialLibrary.tsx";
-import AdminCommercial from "./pages/AdminCommercial.tsx";
+const ColoringLabV2 = lazy(() => import("./pages/admin/ColoringLabV2.tsx"));
+const ColoringPreviewV2 = lazy(() => import("./pages/ColoringPreviewV2.tsx"));
+const DriveShop = lazy(() => import("./pages/DriveShop.tsx"));
+const DriveImporter = lazy(() => import("./pages/admin/DriveImporter.tsx"));
+const StoryBatchV2 = lazy(() => import("./pages/admin/StoryBatchV2.tsx"));
+const AccountLayout = lazy(() => import("./pages/account/AccountLayout.tsx"));
+const AccountOverview = lazy(() => import("./pages/account/Overview.tsx"));
+const AccountSignIn = lazy(() => import("./pages/account/SignIn.tsx"));
+const AccountForgotPassword = lazy(() => import("./pages/account/ForgotPassword.tsx"));
+const AuthCallback = lazy(() => import("./pages/AuthCallback.tsx"));
+const AccountResetPassword = lazy(() => import("./pages/account/ResetPassword.tsx"));
+const AccountMyLibrary = lazy(() => import("./pages/account/MyLibrary.tsx"));
+const AccountOrders = lazy(() => import("./pages/account/Orders.tsx"));
+const AccountOrderDetail = lazy(() => import("./pages/account/OrderDetail.tsx"));
+const AccountDownloads = lazy(() => import("./pages/account/Downloads.tsx"));
+const AccountInvoices = lazy(() => import("./pages/account/Invoices.tsx"));
+const AccountNotifications = lazy(() => import("./pages/account/Notifications.tsx"));
+const AccountSupport = lazy(() => import("./pages/account/Support.tsx"));
+const AccountProfile = lazy(() => import("./pages/account/Profile.tsx"));
+const AccountSecurity = lazy(() => import("./pages/account/Security.tsx"));
+const AccountPrivacy = lazy(() => import("./pages/account/Privacy.tsx"));
+const Pricing = lazy(() => import("./pages/Pricing.tsx"));
+const PrivacyPolicy = lazy(() => import("./pages/legal/Privacy.tsx"));
+const Terms = lazy(() => import("./pages/legal/Terms.tsx"));
+const RefundPolicy = lazy(() => import("./pages/legal/Refund.tsx"));
+const LicenseTerms = lazy(() => import("./pages/LicenseTerms.tsx"));
+const CommercialLibrary = lazy(() => import("./pages/CommercialLibrary.tsx"));
+const AdminCommercial = lazy(() => import("./pages/AdminCommercial.tsx"));
 
 
 
-import SeoAutopilot from "./pages/admin/SeoAutopilot.tsx";
+const SeoAutopilot = lazy(() => import("./pages/admin/SeoAutopilot.tsx"));
 
 
 const queryClient = new QueryClient();
@@ -86,6 +87,9 @@ const App = () => (
       <Toaster />
       <Sonner position="top-center" />
       <BrowserRouter>
+        {/* Every page except the home page is its own chunk (the single 1.4 MB bundle held the
+            whole admin and checkout). Home stays in the entry so its first paint needs no extra request. */}
+        <Suspense fallback={<div className="min-h-screen" aria-busy="true" />}>
         <Routes>
           <Route element={<Layout />}>
             <Route path="/" element={<Index />} />
@@ -181,6 +185,7 @@ const App = () => (
 
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

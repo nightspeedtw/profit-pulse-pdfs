@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Instagram, Twitter, Youtube, ShieldCheck } from "lucide-react";
-import logoIcon from "@/assets/secretpdf-icon.png";
+import logoIcon from "@/assets/secretpdf-icon.webp";
 
 export const Footer = () => (
   <footer className="bg-primary text-primary-foreground mt-24">
@@ -9,7 +9,7 @@ export const Footer = () => (
         <div className="md:col-span-2">
           <div className="flex items-center gap-3 mb-5">
             <div className="h-11 w-11 rounded-xl bg-background/10 backdrop-blur flex items-center justify-center overflow-hidden">
-              <img src={logoIcon} alt="" className="h-9 w-9 object-contain" />
+              <img src={logoIcon} alt="" width={105} height={120} loading="lazy" decoding="async" className="h-9 w-9 object-contain" />
             </div>
             <div className="flex flex-col leading-tight">
               <span className="font-display text-2xl tracking-tight">
