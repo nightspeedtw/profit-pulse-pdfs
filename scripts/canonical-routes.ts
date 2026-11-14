@@ -23,13 +23,27 @@ export function withCanonical(template: string, path: string): string {
   return stripped.replace("</head>", `    ${tags}\n  </head>`);
 }
 
+const LABELS: Record<string, string> = { "/": "Home" };
+const label = (p: string) => LABELS[p] ?? p.slice(1).replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
+
+/**
+ * GEO audit 2026-11-14: the served HTML had no <a href> links (empty #root), so crawlers that do not run
+ * JavaScript saw no way into the site. Put plain links to every sitemap route inside #root; React replaces
+ * them on load (createRoot), so visitors see no change.
+ */
+export function withCrawlableLinks(html: string, paths: string[]): string {
+  const links = paths.map((p) => `<li><a href="${p}">${label(p)}</a></li>`).join("");
+  return html.replace('<div id="root"></div>', `<div id="root"><nav aria-label="Site"><ul>${links}</ul></nav></div>`);
+}
+
 export function writeCanonicalRoutes(dist: string, sitemapXml: string): number {
   const template = readFileSync(join(dist, "index.html"), "utf8");
   let n = 0;
-  for (const p of sitemapPaths(sitemapXml)) {
+  const paths = sitemapPaths(sitemapXml);
+  for (const p of paths) {
     const dir = p === "/" ? dist : join(dist, p);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "index.html"), withCanonical(template, p));
+    writeFileSync(join(dir, "index.html"), withCrawlableLinks(withCanonical(template, p), paths));
     n++;
   }
   return n;

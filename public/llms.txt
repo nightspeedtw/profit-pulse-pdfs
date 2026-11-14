@@ -1,0 +1,15 @@
+# SecretPDF
+
+> SecretPDF is an online library of digital PDFs: guides you can download and print, plus children's coloring books and illustrated story books.
+
+Each purchase is a PDF file delivered as a download. The library is organised by category, with a separate section for kids.
+
+## Pages
+
+- [Home](https://secretpdf.co/): Overview of the library.
+- [Library](https://secretpdf.co/library): All digital PDFs.
+- [Kids](https://secretpdf.co/kids): Coloring books and story books for children.
+- [Categories](https://secretpdf.co/categories): Browse the library by topic.
+- [Bundles](https://secretpdf.co/bundles): PDF bundles.
+- [Blog](https://secretpdf.co/blog): Articles and guides.
+- [About](https://secretpdf.co/about): About SecretPDF.
