@@ -17,8 +17,10 @@
     
     
 
-    <!-- GEO audit 2026-11-14: site identity for search and AI engines (name, URL, logo only). -->
-    <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://secretpdf.co/#organization","name":"SecretPDF","url":"https://secretpdf.co/","logo":"https://secretpdf.co/apple-touch-icon.png"},{"@type":"WebSite","@id":"https://secretpdf.co/#website","name":"SecretPDF","url":"https://secretpdf.co/","publisher":{"@id":"https://secretpdf.co/#organization"}}]}</script>
+    <!-- GEO (2026-11-14): site identity for search and AI engines. Facts only from the site itself (meta description,
+         footer contact). __BUILD_DATE__ is replaced at build time (scripts/canonical-routes.ts). -->
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","@id":"https://secretpdf.co/#organization","name":"SecretPDF","url":"https://secretpdf.co/","logo":"https://secretpdf.co/apple-touch-icon.png","description":"SecretPDF is the private library of expert-authored digital PDFs. Encrypted delivery, instant download, lifetime access, 30-day money-back guarantee.","email":"support@secretpdf.co","areaServed":"Worldwide","parentOrganization":{"@type":"Organization","name":"Sandking Company Limited"}}</script>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","@id":"https://secretpdf.co/#website","name":"SecretPDF","url":"https://secretpdf.co/","description":"SecretPDF is the private library of expert-authored digital PDFs. Encrypted delivery, instant download, lifetime access, 30-day money-back guarantee.","inLanguage":"en","publisher":{"@id":"https://secretpdf.co/#organization"},"dateModified":"__BUILD_DATE__"}</script>
     <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96.png">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 

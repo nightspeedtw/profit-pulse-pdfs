@@ -1,0 +1,37 @@
+# SecretPDF
+
+> SecretPDF is an online library of digital PDFs: guides, planners, templates and coloring books you download and print yourself, plus children's coloring books and illustrated story books.
+
+## What SecretPDF sells
+
+Each product is a PDF file. After payment the file is available to download straight away; nothing is shipped. You can print the file at home as many times as you need. Each file is fingerprinted to the purchase.
+
+## Categories
+
+- Study & Exam: https://secretpdf.co/category/study
+- Business & Templates: https://secretpdf.co/category/business
+- Wellness & Mind: https://secretpdf.co/category/wellness
+- Fitness & Meal Plans: https://secretpdf.co/category/fitness
+- Parenting & Kids: https://secretpdf.co/category/parenting
+- Coloring Books: https://secretpdf.co/category/coloring-books
+- Lifestyle & Planners: https://secretpdf.co/category/lifestyle
+- Art & Creative: https://secretpdf.co/category/creative
+- Cooking & Recipes: https://secretpdf.co/category/cooking
+
+## Kids
+
+The kids section (https://secretpdf.co/kids) has printable coloring books and illustrated story books for children.
+
+## How buying works
+
+1. Find a PDF in the library (https://secretpdf.co/library) or by category (https://secretpdf.co/categories).
+2. Check out and pay. Paddle is the Merchant of Record for orders.
+3. Download the file from your account and print it.
+
+## Refunds
+
+SecretPDF offers a 30-day money-back guarantee on purchases. Refunds are handled by Paddle. Details: https://secretpdf.co/refund-policy
+
+## Company and contact
+
+SecretPDF is operated by Sandking Company Limited. Contact: support@secretpdf.co. Privacy questions: privacy@secretpdf.co.

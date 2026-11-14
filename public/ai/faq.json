@@ -1,0 +1,20 @@
+{
+  "faqs": [
+    {
+      "question": "How do I get my PDF after I pay?",
+      "answer": "The PDF is available to download as soon as your payment clears. There is nothing shipped."
+    },
+    {
+      "question": "Can I print the PDF more than once?",
+      "answer": "Yes. You can print the file at home as many times as you need."
+    },
+    {
+      "question": "What if the PDF is not what I expected?",
+      "answer": "SecretPDF offers a 30-day refund. See https://secretpdf.co/refund-policy for the details."
+    },
+    {
+      "question": "How do I contact SecretPDF?",
+      "answer": "Email support@secretpdf.co with your question or order details."
+    }
+  ]
+}
