@@ -1,0 +1,10 @@
+# ai.txt for secretpdf.co
+# AI crawlers may read and cite public pages. Account, checkout and admin pages are private.
+User-Agent: *
+Allow: /
+Disallow: /account
+Disallow: /checkout
+Disallow: /admin
+
+# Site summary: https://secretpdf.co/ai/summary.json
+# llms.txt: https://secretpdf.co/llms.txt

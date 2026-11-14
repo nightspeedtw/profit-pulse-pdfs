@@ -3,6 +3,7 @@ import { CategoryGrid } from "@/components/CategoryGrid";
 import { ValueProps } from "@/components/ValueProps";
 import { ProductGrid } from "@/components/ProductGrid";
 import { CtaBanner } from "@/components/CtaBanner";
+import { HomeFaq } from "@/components/HomeFaq";
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 
@@ -36,6 +37,8 @@ const Index = () => (
     <ValueProps />
 
     <CategoryGrid />
+
+    <HomeFaq />
 
     <CtaBanner />
   </>

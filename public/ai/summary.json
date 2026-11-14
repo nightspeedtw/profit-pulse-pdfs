@@ -1,0 +1,10 @@
+{
+  "name": "SecretPDF",
+  "url": "https://secretpdf.co/",
+  "description": "SecretPDF is a library of digital PDFs you download and print yourself: guides, planners, templates and coloring books, plus coloring and illustrated story books for kids.",
+  "language": "en",
+  "contact": "support@secretpdf.co",
+  "operator": "Sandking Company Limited",
+  "sitemap": "https://secretpdf.co/sitemap.xml",
+  "llms": "https://secretpdf.co/llms.txt"
+}

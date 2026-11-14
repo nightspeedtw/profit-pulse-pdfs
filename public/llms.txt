@@ -13,3 +13,14 @@ Each purchase is a PDF file delivered as a download. The library is organised by
 - [Bundles](https://secretpdf.co/bundles): PDF bundles.
 - [Blog](https://secretpdf.co/blog): Articles and guides.
 - [About](https://secretpdf.co/about): About SecretPDF.
+
+## Help
+
+- [Refund policy](https://secretpdf.co/refund-policy): 30-day money-back guarantee; refunds are handled by Paddle, the Merchant of Record.
+- [Terms](https://secretpdf.co/terms)
+- [Privacy notice](https://secretpdf.co/privacy): SecretPDF is operated by Sandking Company Limited.
+- Contact: support@secretpdf.co
+
+## Optional
+
+- [Full text for AI tools](https://secretpdf.co/llms-full.txt)
