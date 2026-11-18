@@ -66,7 +66,7 @@ export const Header = () => {
                     <span className="text-accent">•</span>
                     30-Day Money Back
                     <span className="text-accent">•</span>
-                    Trusted by 50K+ Readers
+                    Print at Home
                   </span>
                 ))}
               </div>
