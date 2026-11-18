@@ -90,13 +90,13 @@ export const Header = () => {
           />
         </Link>
 
-        <nav className="hidden md:flex items-center gap-1">
+        <nav className="hidden lg:flex items-center gap-1">
           {NAV.map((item) => (
             <RouterNavLink
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `px-4 py-2 font-sans text-sm font-medium rounded-full transition-all ${
+                `px-3 xl:px-4 py-3 font-sans text-sm font-medium rounded-full transition-all ${
                   isActive ? linkActive : linkBase
                 }`
               }
@@ -118,7 +118,7 @@ export const Header = () => {
           <button
             aria-label="Menu"
             onClick={() => setOpen(!open)}
-            className={`md:hidden h-11 w-11 rounded-full border flex items-center justify-center ${iconBtn}`}
+            className={`lg:hidden h-11 w-11 rounded-full border flex items-center justify-center ${iconBtn}`}
           >
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -127,7 +127,7 @@ export const Header = () => {
 
       {/* Mobile nav */}
       {open && (
-        <div className={`md:hidden border-t ${isKidsRoute ? "border-white/10 bg-[#070B2D]" : "border-border bg-background"}`}>
+        <div className={`lg:hidden border-t ${isKidsRoute ? "border-white/10 bg-[#070B2D]" : "border-border bg-background"}`}>
           <nav className="container py-4 flex flex-col gap-1">
             {NAV.map((item) => (
               <RouterNavLink

@@ -22,7 +22,7 @@ const Index = () => (
         </div>
         <Link
           to="/library"
-          className="inline-flex items-center gap-2 font-display uppercase text-sm tracking-wider underline-offset-4 hover:underline"
+          className="inline-flex items-center gap-2 min-h-11 font-display uppercase text-sm tracking-wider underline-offset-4 hover:underline"
         >
           See all <ArrowRight className="h-4 w-4" />
         </Link>

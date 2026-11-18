@@ -30,7 +30,7 @@ export const CategoryGrid = () => (
         <p className="font-mono uppercase tracking-widest text-xs mb-3">[ Browse ]</p>
         <h2 className="font-display text-4xl lg:text-5xl uppercase">Pick your <span className="underline-brutal">niche</span>.</h2>
       </div>
-      <Link to="/categories" className="font-display uppercase text-sm tracking-wider underline-offset-4 hover:underline">
+      <Link to="/categories" className="inline-flex items-center min-h-11 font-display uppercase text-sm tracking-wider underline-offset-4 hover:underline">
         See all →
       </Link>
     </div>
