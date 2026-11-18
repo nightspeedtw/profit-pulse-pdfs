@@ -12,6 +12,31 @@ interface Grant {
   ebooks: { title: string; cover_url: string | null } | null;
 }
 
+// GA4 purchase (owner 2026-11-18: KPI = PDF purchases + revenue). Sent once per Stripe session after the
+// server returned the paid order; amount_total is in minor units. Goes to the gtag queue and the GTM
+// dataLayer (GA4 dedupes purchase events by transaction_id).
+function sendPurchase(
+  sessionId: string,
+  order: { amount_total?: number | null; currency?: string | null } | null | undefined,
+  grants: Grant[],
+) {
+  try {
+    const key = `ga4-purchase:${sessionId}`;
+    if (window.localStorage.getItem(key)) return;
+    const value = Math.round(Number(order?.amount_total ?? 0)) / 100;
+    const currency = String(order?.currency || "usd").toUpperCase();
+    const items = grants.map((g) => ({ item_id: g.ebook_id, item_name: g.ebooks?.title ?? g.ebook_id, quantity: 1 }));
+    const w = window as unknown as { dataLayer?: unknown[]; gtag?: (...a: unknown[]) => void };
+    w.dataLayer = w.dataLayer || [];
+    w.dataLayer.push({ ecommerce: null });
+    w.dataLayer.push({ event: "purchase", ecommerce: { transaction_id: sessionId, value, currency, items } });
+    w.gtag?.("event", "purchase", { transaction_id: sessionId, value, currency, items });
+    window.localStorage.setItem(key, "1");
+  } catch {
+    /* analytics must never break the download page */
+  }
+}
+
 export default function CheckoutReturn() {
   const [params] = useSearchParams();
   const sessionId = params.get("session_id");
@@ -37,6 +62,7 @@ export default function CheckoutReturn() {
         if (error) throw new Error(error.message);
         if (cancelled) return;
         if (data?.status === "ready") {
+          sendPurchase(sessionId, data.order, data.grants ?? []);
           setGrants(data.grants ?? []);
           setEmail(data.order?.buyer_email ?? "");
           setStatus("ready");
