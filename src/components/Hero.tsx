@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import heroImg from "@/assets/hero-printables-1024.webp";
 import heroImg640 from "@/assets/hero-printables-640.webp";
-import { ArrowRight, Download, Printer, Globe2, Star } from "lucide-react";
+import { ArrowRight, Download, Printer, Globe2 } from "lucide-react";
 
 export const Hero = () => (
   <section className="relative bg-background border-b-2 border-foreground overflow-hidden grain">
@@ -13,7 +13,7 @@ export const Hero = () => (
           New drops every week
         </div>
 
-        <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl xl:text-8xl uppercase leading-[0.9] tracking-tight mb-6">
+        <h1 className="font-display text-4xl min-[400px]:text-5xl sm:text-6xl xl:text-7xl 2xl:text-8xl uppercase leading-[0.9] tracking-tight mb-6">
           Printable
           <br />
           <span className="underline-brutal">knowledge</span>,
@@ -22,7 +22,7 @@ export const Hero = () => (
         </h1>
 
         <p className="text-lg lg:text-xl text-muted-foreground max-w-xl mb-8 leading-relaxed">
-          The world&apos;s sharpest library of expert PDFs. Download instantly,
+          A library of expert PDFs. Download instantly,
           print as many copies as you want, and put real knowledge in your hands.
         </p>
 
@@ -78,16 +78,6 @@ export const Hero = () => (
           </div>
         </div>
 
-        {/* Floating rating card */}
-        <div className="absolute -bottom-6 -left-6 bg-background border-2 border-foreground p-4 shadow-brutal hidden sm:block max-w-[220px]">
-          <div className="flex gap-0.5 mb-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Star key={i} className="h-4 w-4 fill-accent stroke-foreground" strokeWidth={2} />
-            ))}
-          </div>
-          <p className="font-display text-sm uppercase leading-tight">Top-rated digital library</p>
-          <p className="text-xs text-muted-foreground mt-1">Built for serious learners</p>
-        </div>
       </div>
     </div>
   </section>
