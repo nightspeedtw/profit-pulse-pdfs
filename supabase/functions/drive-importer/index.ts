@@ -1,5 +1,6 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { buildDriveProductRow, needsCoverBackfill } from './row.ts';
 
 const GATEWAY = 'https://connector-gateway.lovable.dev/google_drive/drive/v3';
 const LOVABLE_KEY = Deno.env.get('LOVABLE_API_KEY')!;
@@ -191,11 +192,30 @@ Deno.serve(async (req) => {
       try {
         const { data: existing } = await supa
           .from('drive_products')
-          .select('id, drive_modified_time, sha256')
+          .select('id, drive_modified_time, sha256, cover_url')
           .eq('drive_file_id', file.id)
           .maybeSingle();
 
         if (existing && existing.drive_modified_time === file.modifiedTime) {
+          // Unchanged PDF, but products imported before cover_url was
+          // persisted still show the "PDF" placeholder on /shop. Backfill
+          // the cover without re-downloading the PDF.
+          if (needsCoverBackfill(existing)) {
+            const backfilled = await fetchAndStoreThumbnail(supa, file.id, file.thumbnailLink);
+            if (backfilled) {
+              await supa
+                .from('drive_products')
+                .update({ cover_url: backfilled, import_error: null })
+                .eq('id', existing.id);
+              await supa
+                .from('ebooks_kids')
+                .update({ cover_url: backfilled, thumbnail_url: backfilled })
+                .eq('drive_file_id', file.id)
+                .eq('cover_url', '/placeholder.svg');
+              summary.updated++;
+              continue;
+            }
+          }
           summary.skipped++;
           continue;
         }
@@ -227,27 +247,20 @@ Deno.serve(async (req) => {
         const thumbUrl = await fetchAndStoreThumbnail(supa, file.id, file.thumbnailLink);
         const coverForKids = thumbUrl ?? '/placeholder.svg';
 
-        const row = {
-          drive_file_id: file.id,
-          drive_modified_time: file.modifiedTime,
-          drive_parent_folder_id: file.parents?.[0] ?? null,
-          drive_parent_folder_name: parentName,
+        const row = buildDriveProductRow({
+          file,
+          parentName,
           category,
           title,
-          slug: existing ? undefined : `${baseSlug}-${file.id.slice(0, 6)}`,
-          price_cents: cfg.default_price_cents,
-          pdf_url: signed?.signedUrl ?? null,
-          pdf_storage_path: storagePath,
-          file_size_bytes: file.size ? Number(file.size) : bytes.length,
-          sha256: hash,
-          status: 'live',
-          import_error: thumbUrl
-            ? null
-            : `thumb-debug: hadLink=${!!file.thumbnailLink} link=${(file.thumbnailLink || '').slice(0, 80)}`,
-        };
-
-
-
+          baseSlug,
+          priceCents: cfg.default_price_cents,
+          pdfUrl: signed?.signedUrl ?? null,
+          storagePath,
+          byteLength: bytes.length,
+          hash,
+          thumbUrl,
+          isExisting: !!existing,
+        });
 
         if (existing) {
           await supa.from('drive_products').update(row).eq('id', existing.id);
