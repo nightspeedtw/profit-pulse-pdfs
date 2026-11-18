@@ -29,7 +29,7 @@ export const CtaBanner = () => (
           <input
             type="email"
             placeholder="you@email.com"
-            className="h-14 px-4 bg-background text-foreground border-2 border-foreground font-mono text-sm placeholder:text-muted-foreground focus:outline-none focus:bg-highlight"
+            className="h-14 px-4 bg-background text-foreground border-2 border-foreground font-mono text-base placeholder:text-muted-foreground focus:outline-none focus:bg-highlight"
           />
           <Link
             to="/library"
