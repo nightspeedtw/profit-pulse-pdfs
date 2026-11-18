@@ -9,6 +9,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Package, Sparkles } from "lucide-react";
 import { emitColoringEvent } from "@/lib/coloringFunnelEvents";
 
+// The bundle hand-off still uses the free-download endpoint, which no longer
+// serves priced kids books. Keep the offer hidden until a paid multi-book
+// (Paddle) bundle checkout exists, so buyers never see a button that fails.
+const BUNDLE_CHECKOUT_ENABLED = false;
+
 interface Sibling {
   id: string;
   title: string;
@@ -62,7 +67,7 @@ export default function CompleteTheSetBundle({
 
   // Pick the 2 highest-priced siblings so bundle savings look meaningful.
   const picks = siblings.slice(0, 2);
-  if (picks.length < 2 || ebookPriceCents <= 0) return null;
+  if (!BUNDLE_CHECKOUT_ENABLED || picks.length < 2 || ebookPriceCents <= 0) return null;
 
   const allBooks = [
     { id: ebookId, title: ebookTitle, cover: ebookCoverUrl, priceCents: ebookPriceCents },

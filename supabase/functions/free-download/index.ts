@@ -1,7 +1,9 @@
-// Free download — returns a short-lived signed PDF URL for any listed ebook,
-// bypassing payment entirely. Intended for the "free access" mode.
+// Free download — returns a short-lived signed PDF URL for a listed ebook in
+// the "free access" library. Kids / coloring books are sold through the
+// Paddle checkout and are only served here when their price is 0.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/stripe.ts";
+import { kidsFreeDownloadDecision } from "./policy.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -26,16 +28,23 @@ Deno.serve(async (req) => {
       // Fallback: kids books live in ebooks_kids
       const { data: k, error: ke } = await supabase
         .from("ebooks_kids")
-        .select("id, title, pdf_url, listing_status")
+        .select("id, title, pdf_url, listing_status, price_cents")
         .eq("id", ebook_id)
         .maybeSingle();
       if (ke) throw ke;
       if (!k) throw new Error("Ebook not found");
-      // PAYMENT BYPASS (owner directive during batch-learning rounds):
-      // any kids book with a pdf_url is downloadable for testing, regardless
-      // of listing_status. Commerce floor unchanged — a missing PDF still
-      // returns "PDF not available".
-      e = { id: k.id, title: k.title, pdf_url: k.pdf_url, listed_at: k.pdf_url ? new Date().toISOString() : null } as any;
+      const decision = kidsFreeDownloadDecision(k);
+      if (!decision.allowed) {
+        const paymentRequired = decision.reason === "payment_required";
+        return new Response(
+          JSON.stringify({
+            error: paymentRequired ? "payment_required" : "PDF not available",
+            checkout_path: paymentRequired ? `/kids/checkout/${k.id}` : undefined,
+          }),
+          { status: paymentRequired ? 402 : 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      e = { id: k.id, title: k.title, pdf_url: k.pdf_url, listed_at: new Date().toISOString() } as any;
     }
     if (!e.listed_at) throw new Error("Ebook not available");
     if (!e.pdf_url) throw new Error("PDF not available");
