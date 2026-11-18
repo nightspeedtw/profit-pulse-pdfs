@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Link, useSearchParams } from "react-router-dom";
+import { formatUsd, kidsCheckoutPath } from "@/lib/kidsCheckout";
 
 type Product = {
   id: string;
@@ -10,18 +11,45 @@ type Product = {
   category: "coloring" | "storybook";
   price_cents: number;
   cover_url: string | null;
-  pdf_url: string | null;
+  drive_file_id: string;
 };
 
 export default function DriveShop() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [kidsIds, setKidsIds] = useState<Record<string, string>>({});
   const [params, setParams] = useSearchParams();
   const cat = params.get("cat");
 
   useEffect(() => {
-    let q = supabase.from("drive_products").select("*").eq("status", "live").order("created_at", { ascending: false });
-    if (cat === "coloring" || cat === "storybook") q = q.eq("category", cat);
-    q.then(({ data }) => setProducts((data as Product[]) || []));
+    let cancelled = false;
+    (async () => {
+      // Never select pdf_url here: the file is delivered only after payment.
+      let q = supabase
+        .from("drive_products")
+        .select("id,slug,title,category,price_cents,cover_url,drive_file_id")
+        .eq("status", "live")
+        .order("created_at", { ascending: false });
+      if (cat === "coloring" || cat === "storybook") q = q.eq("category", cat);
+      const { data } = await q;
+      const list = (data as Product[]) || [];
+      if (cancelled) return;
+      setProducts(list);
+      // Each Drive product is mirrored into ebooks_kids; that row is what the
+      // Paddle checkout sells and what the buyer's library is keyed on.
+      const fileIds = list.map((p) => p.drive_file_id).filter(Boolean);
+      if (fileIds.length === 0) { setKidsIds({}); return; }
+      const { data: kids } = await supabase
+        .from("ebooks_kids")
+        .select("id,drive_file_id")
+        .in("drive_file_id", fileIds);
+      if (cancelled) return;
+      const map: Record<string, string> = {};
+      for (const k of (kids as { id: string; drive_file_id: string | null }[] | null) ?? []) {
+        if (k.drive_file_id) map[k.drive_file_id] = k.id;
+      }
+      setKidsIds(map);
+    })();
+    return () => { cancelled = true; };
   }, [cat]);
 
   return (
@@ -64,10 +92,14 @@ export default function DriveShop() {
                 <div className="text-xs font-mono uppercase text-muted-foreground">{p.category}</div>
                 <h3 className="font-bold leading-tight line-clamp-2">{p.title}</h3>
                 <div className="mt-auto flex items-center justify-between pt-2">
-                  <span className="font-display text-lg">${(p.price_cents / 100).toFixed(2)}</span>
-                  <Button size="sm" asChild>
-                    <Link to={`/shop/${p.slug}`}>Buy</Link>
-                  </Button>
+                  <span className="font-display text-lg tabular-nums">{formatUsd(p.price_cents)}</span>
+                  {kidsIds[p.drive_file_id] ? (
+                    <Button size="sm" asChild className="min-h-11 px-5">
+                      <Link to={kidsCheckoutPath(kidsIds[p.drive_file_id])}>Buy</Link>
+                    </Button>
+                  ) : (
+                    <Button size="sm" disabled className="min-h-11 px-5">Coming soon</Button>
+                  )}
                 </div>
               </div>
             </div>

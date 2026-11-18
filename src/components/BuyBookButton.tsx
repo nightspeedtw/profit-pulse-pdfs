@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { Loader2, Sparkles } from "lucide-react";
+import { rememberReturnPath } from "@/lib/kidsCheckout";
 
 interface Props {
   bookId: string;
@@ -26,7 +27,7 @@ export function BuyBookButton({ bookId, priceCents, userId, userEmail, className
   const priceStr = `$${(priceCents / 100).toFixed(2)}`;
 
   const handleBuy = async () => {
-    if (!userId) { nav(`/auth?next=${encodeURIComponent(window.location.pathname)}`); return; }
+    if (!userId) { rememberReturnPath(window.location.pathname); nav("/account/sign-in"); return; }
     try {
       await openBookCheckout({ bookId, userId, customerEmail: userEmail ?? undefined });
     } catch (e) {
