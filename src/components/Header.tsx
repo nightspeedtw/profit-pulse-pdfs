@@ -94,7 +94,7 @@ export const Header = () => {
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `px-4 py-2 font-sans text-sm font-medium rounded-full transition-all ${
+                `px-3 xl:px-4 py-3 font-sans text-sm font-medium rounded-full transition-all ${
                   isActive ? linkActive : linkBase
                 }`
               }
