@@ -100,6 +100,7 @@ export default function KidsHeroCompact({ onCtaClick }: Props) {
       {/* CTA band — sits under the hero image, never covering characters */}
       <div className="mx-auto max-w-[1600px] px-4 -mt-8 md:-mt-10 relative z-10">
         <div className="relative mx-auto flex max-w-2xl flex-col items-center gap-3 rounded-2xl bg-white/90 px-6 py-5 shadow-[0_20px_50px_-24px_rgba(23,16,82,0.35)] ring-1 ring-[#DED7F2] backdrop-blur">
+          <h1 className="sr-only">Printable kids' books: stories, coloring books, activities and learning</h1>
           <button
             type="button"
             onClick={onCtaClick}
